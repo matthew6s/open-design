@@ -353,7 +353,6 @@ export function FileWorkspace({
                 isPending ? activatePending(name) : setPersistedActive(name)
               }
               onClose={() => closeTab(name)}
-              closable={kind !== 'html'}
               kind={kind}
             />
           );
