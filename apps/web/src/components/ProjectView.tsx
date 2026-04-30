@@ -788,12 +788,6 @@ export function ProjectView({
     [project, onProjectChange],
   );
 
-  const projectMeta = useMemo(() => {
-    const skill = skills.find((s) => s.id === project.skillId)?.name;
-    const ds = designSystems.find((d) => d.id === project.designSystemId)?.title;
-    return [skill, ds].filter(Boolean).join(' · ') || t('project.metaFreeform');
-  }, [skills, designSystems, project.skillId, project.designSystemId, t]);
-
   const isDeck = useMemo(
     () => skills.find((s) => s.id === project.skillId)?.mode === 'deck',
     [skills, project.skillId],
@@ -852,7 +846,6 @@ export function ProjectView({
               >
                 {project.name}
               </span>
-              <span className="conv-sidebar-meta" data-testid="project-meta">{projectMeta}</span>
             </div>
           </div>
           <button

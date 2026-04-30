@@ -2580,6 +2580,7 @@ code {
 .ws-tab.html-preview-tab,
 .ws-tab.html-preview-tab:hover,
 .ws-tab.html-preview-tab.active {
+  align-items: center;
   min-height: 32px;
   max-width: 160px;
   padding: 6px 12px;
@@ -2594,10 +2595,15 @@ code {
 }
 .ws-tab.html-preview-tab .tab-icon {
   width: 18px;
+  height: 18px;
   color: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .ws-tab.html-preview-tab .ws-tab-label {
   max-width: 110px;
+  line-height: 18px;
 }
 .ws-tab .tab-icon {
   font-size: 13px;
