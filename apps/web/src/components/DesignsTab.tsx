@@ -76,14 +76,14 @@ export function DesignsTab({ projects, skills, designSystems, onOpen, onDelete }
             : t('designs.emptyNoMatch')}
         </div>
       ) : (
-        <div className="design-grid">
+        <div className="design-list">
           {filtered.map((p) => {
             const skill = skillName(p.skillId);
             const ds = dsName(p.designSystemId);
             return (
               <div
                 key={p.id}
-                className="design-card"
+                className="design-row"
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpen(p.id)}
@@ -91,8 +91,19 @@ export function DesignsTab({ projects, skills, designSystems, onOpen, onDelete }
                   if (e.key === 'Enter') onOpen(p.id);
                 }}
               >
+                <div className="design-row-icon" aria-hidden>
+                  <Icon name="folder" size={16} />
+                </div>
+                <div className="design-row-body">
+                  <div className="design-row-name" title={p.name}>{p.name}</div>
+                  <div className="design-row-meta">
+                    {ds ? <span className="design-row-ds">{ds}</span> : <span>{t('designs.cardFreeform')}</span>}
+                    {skill ? <span className="design-row-skill">{skill}</span> : null}
+                  </div>
+                </div>
+                <span className="design-row-time">{relativeTime(p.updatedAt, t)}</span>
                 <button
-                  className="design-card-close"
+                  className="design-row-del"
                   title={t('designs.deleteTitle')}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -103,20 +114,6 @@ export function DesignsTab({ projects, skills, designSystems, onOpen, onDelete }
                 >
                   ×
                 </button>
-                <div className="design-card-thumb" aria-hidden />
-                <div className="design-card-meta-block">
-                  <div className="design-card-name" title={p.name}>{p.name}</div>
-                  <div className="design-card-meta">
-                    {ds ? (
-                      <span className="ds">{ds}</span>
-                    ) : (
-                      <span>{t('designs.cardFreeform')}</span>
-                    )}
-                    {skill ? ` · ${skill}` : ''}
-                    {' · '}
-                    {relativeTime(p.updatedAt, t)}
-                  </div>
-                </div>
               </div>
             );
           })}

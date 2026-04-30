@@ -25,11 +25,11 @@ function star4(size: number, color: string) {
 }
 
 const VISUALS: Record<string, Visual> = {
-  // Claude — warm Anthropic terracotta with sparkle.
+  // Claude — teal with sparkle.
   claude: {
-    bg: 'linear-gradient(135deg, #d97757 0%, #b85a3b 100%)',
-    fg: '#fff7ef',
-    glyph: (s) => star4(s, '#fff7ef'),
+    bg: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
+    fg: '#ffffff',
+    glyph: (s) => star4(s, '#ffffff'),
   },
   // Codex — OpenAI signature dark green knot.
   codex: {

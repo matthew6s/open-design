@@ -75,6 +75,9 @@ interface Props {
   // Composer settings/CLI button forwards to here. The dialog lives in App
   // (it owns the AppConfig lifecycle) so we just pass the open trigger.
   onOpenSettings?: () => void;
+  // When true the conversation-switcher controls in the header are hidden
+  // because the parent renders a dedicated sidebar for conversation nav.
+  compact?: boolean;
 }
 
 type Tab = 'chat' | 'comments';
@@ -100,6 +103,7 @@ export function ChatPane({
   onDeleteConversation,
   onRenameConversation,
   onOpenSettings,
+  compact = false,
 }: Props) {
   const t = useT();
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -204,7 +208,7 @@ export function ChatPane({
           </button>
         </div>
         <div className="chat-header-actions">
-          <div
+          {!compact && <div
             className={`chat-history-wrap${showConvList ? ' open' : ''}`}
             ref={historyWrapRef}
           >
@@ -272,8 +276,8 @@ export function ChatPane({
                 </div>
               </div>
             ) : null}
-          </div>
-          <button
+          </div>}
+          {!compact && <button
             type="button"
             className="icon-only"
             data-testid="new-conversation"
@@ -283,7 +287,7 @@ export function ChatPane({
             disabled={!onNewConversation}
           >
             <Icon name="plus" size={16} />
-          </button>
+          </button>}
         </div>
       </div>
       {tab === 'chat' ? (

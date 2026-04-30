@@ -346,12 +346,14 @@ export function FileWorkspace({
           return (
             <Tab
               key={name}
-              label={`${name}${dirtyMark}`}
+              label={`${kind === 'html' ? 'Open Design' : shortTabLabel(name)}${dirtyMark}`}
+              title={name}
               active={activeTab === name}
               onActivate={() =>
                 isPending ? activatePending(name) : setPersistedActive(name)
               }
               onClose={() => closeTab(name)}
+              closable={kind !== 'html'}
               kind={kind}
             />
           );
@@ -438,6 +440,7 @@ export function FileWorkspace({
 
 function Tab({
   label,
+  title,
   active,
   onActivate,
   onClose,
@@ -445,6 +448,7 @@ function Tab({
   kind,
 }: {
   label: string;
+  title?: string;
   active: boolean;
   onActivate: () => void;
   onClose?: () => void;
@@ -455,7 +459,7 @@ function Tab({
   const iconName = kindIconName(kind);
   return (
     <div
-      className={`ws-tab ${active ? 'active' : ''}`}
+      className={`ws-tab ${kind === 'html' ? 'html-preview-tab' : ''} ${active ? 'active' : ''}`}
       onClick={onActivate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -466,8 +470,29 @@ function Tab({
       role="tab"
       aria-selected={active}
       tabIndex={0}
+      title={title ?? label}
     >
-      {iconName ? (
+      {kind === 'html' ? (
+        <span className="tab-icon" aria-hidden>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            width="17"
+            height="17"
+            focusable="false"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <path d="M12 3a13.6 13.6 0 0 1 0 18" />
+            <path d="M12 3a13.6 13.6 0 0 0 0 18" />
+          </svg>
+        </span>
+      ) : iconName ? (
         <span className="tab-icon" aria-hidden>
           <Icon name={iconName} size={13} />
         </span>
@@ -488,6 +513,13 @@ function Tab({
       ) : null}
     </div>
   );
+}
+
+function shortTabLabel(name: string): string {
+  const withoutExt = name.replace(/\.[^.]+$/, "");
+  const withoutHashPrefix = withoutExt.replace(/^[a-z0-9]{6,}-/i, "");
+  const normalized = withoutHashPrefix.replace(/[-_]+/g, " ").trim() || withoutExt;
+  return normalized.length > 22 ? `${normalized.slice(0, 20).trim()}...` : normalized;
 }
 
 function kindIconName(

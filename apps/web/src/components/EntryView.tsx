@@ -14,6 +14,7 @@ import { DesignsTab } from './DesignsTab';
 import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { DesignSystemsTab } from './DesignSystemsTab';
 import { ExamplesTab } from './ExamplesTab';
+import { AppTitleBar } from './AppTitleBar';
 import { Icon } from './Icon';
 import { LanguageMenu } from './LanguageMenu';
 import { CenteredLoader } from './Loading';
@@ -156,23 +157,15 @@ export function EntryView({
   }, [sidebarWidth]);
 
   return (
-    <div
-      className="entry"
-      style={{ gridTemplateColumns: `${sidebarWidth}px 1fr` }}
-    >
+    <div className="entry-shell">
+      <AppTitleBar onOpenSettings={onOpenSettings} />
+
+      {/* Two-card layout */}
+      <div
+        className="entry"
+        style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}
+      >
       <aside className="entry-side" style={{ width: sidebarWidth }}>
-        <div className="entry-brand">
-          <span className="entry-brand-mark" aria-hidden>
-            <img src="/logo.svg" alt="" className="brand-mark-img" draggable={false} />
-          </span>
-          <div className="entry-brand-text">
-            <div className="entry-brand-title-row">
-              <span className="entry-brand-title">{t('app.brand')}</span>
-              <span className="entry-brand-pill">{t('app.brandPill')}</span>
-            </div>
-            <div className="entry-brand-subtitle">{t('app.brandSubtitle')}</div>
-          </div>
-        </div>
         <NewProjectPanel
           skills={skills}
           designSystems={designSystems}
@@ -202,18 +195,18 @@ export function EntryView({
           </button>
           <LanguageMenu />
         </div>
-        <button
-          type="button"
-          aria-label={t('entry.resizeAria')}
-          className={`entry-side-resizer${resizing ? ' dragging' : ''}`}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            startWidthRef.current = sidebarWidth;
-            startXRef.current = e.clientX;
-            setResizing(true);
-          }}
-        />
       </aside>
+      <button
+        type="button"
+        aria-label={t('entry.resizeAria')}
+        className={`entry-side-resizer${resizing ? ' dragging' : ''}`}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          startWidthRef.current = sidebarWidth;
+          startXRef.current = e.clientX;
+          setResizing(true);
+        }}
+      />
       <main className="entry-main">
         <div className="entry-header">
           <div className="entry-tabs" role="tablist">
@@ -226,24 +219,7 @@ export function EntryView({
               onClick={setTopTab}
             />
           </div>
-          <div className="entry-header-right">
-            {/* Avatar settings live next to tabs to mirror the project view. */}
-            <button
-              type="button"
-              className="avatar-btn"
-              onClick={onOpenSettings}
-              title={t('entry.openSettingsTitle')}
-              aria-label={t('entry.openSettingsAria')}
-            >
-              <img
-                src="/avatar.png"
-                alt=""
-                aria-hidden
-                draggable={false}
-                className="avatar-btn-photo"
-              />
-            </button>
-          </div>
+          <div className="entry-header-right" />
         </div>
         <div className="entry-tab-content">
           {loading ? (
@@ -280,6 +256,7 @@ export function EntryView({
           onClose={() => setPreviewSystemId(null)}
         />
       ) : null}
+      </div>
     </div>
   );
 }

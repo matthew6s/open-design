@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createHtmlArtifactManifest } from '../artifacts/manifest';
 import { createArtifactParser } from '../artifacts/parser';
 import { useT } from '../i18n';
@@ -13,7 +14,7 @@ import {
 import { composeSystemPrompt } from '../prompts/system';
 import { navigate } from '../router';
 import { agentDisplayName } from '../utils/agentLabels';
-import type { TodoItem } from '../runtime/todos';
+import { latestTodosFromEvents, type TodoItem } from '../runtime/todos';
 import {
   createConversation,
   deleteConversation as deleteConversationApi,
@@ -41,10 +42,16 @@ import type {
   ProjectTemplate,
   SkillSummary,
 } from '../types';
-import { AvatarMenu } from './AvatarMenu';
+import { AppTitleBar } from './AppTitleBar';
 import { ChatPane } from './ChatPane';
 import { FileWorkspace } from './FileWorkspace';
 import { Icon } from './Icon';
+
+const PROJECT_LAYOUT_STORAGE_KEY = 'open-design:project-layout';
+const PROJECT_CONV_MIN = 220;
+const PROJECT_CONV_MAX = 520;
+const PROJECT_CHAT_MIN = 360;
+const PROJECT_CHAT_MAX = 760;
 
 interface Props {
   project: Project;
@@ -77,10 +84,6 @@ export function ProjectView({
   skills,
   designSystems,
   daemonLive,
-  onModeChange,
-  onAgentChange,
-  onAgentModelChange,
-  onRefreshAgents,
   onOpenSettings,
   onBack,
   onClearPendingPrompt,
@@ -96,6 +99,7 @@ export function ProjectView({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showProjectStatus, setShowProjectStatus] = useState(false);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [filesRefresh, setFilesRefresh] = useState(0);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
@@ -115,6 +119,25 @@ export function ProjectView({
   const skillCache = useRef<Map<string, string>>(new Map());
   const designCache = useRef<Map<string, string>>(new Map());
   const templateCache = useRef<Map<string, ProjectTemplate>>(new Map());
+  const [projectLayout, setProjectLayout] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(PROJECT_LAYOUT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<{ convWidth: number; chatWidth: number }>;
+        return {
+          convWidth: clamp(parsed.convWidth ?? 240, PROJECT_CONV_MIN, PROJECT_CONV_MAX),
+          chatWidth: clamp(parsed.chatWidth ?? 440, PROJECT_CHAT_MIN, PROJECT_CHAT_MAX),
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    return { convWidth: 240, chatWidth: 440 };
+  });
+  const [resizingPane, setResizingPane] = useState<'conv' | 'chat' | null>(null);
+  const [convFilterTab, setConvFilterTab] = useState('待开始');
+  const resizeStartXRef = useRef(0);
+  const resizeStartLayoutRef = useRef(projectLayout);
   // We auto-save the most recent artifact to the project folder. Track the
   // last name we persisted so re-renders during streaming don't spawn
   // duplicate writes.
@@ -126,6 +149,55 @@ export function ProjectView({
   // the agent's Write actually completes, without the previous synthetic
   // "live" tab that was causing flicker against manual opens.
   const pendingWritesRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PROJECT_LAYOUT_STORAGE_KEY, JSON.stringify(projectLayout));
+    } catch {
+      /* ignore */
+    }
+  }, [projectLayout]);
+
+  useEffect(() => {
+    if (!resizingPane) return;
+    function onMove(e: MouseEvent) {
+      const dx = e.clientX - resizeStartXRef.current;
+      setProjectLayout((curr) => {
+        const start = resizeStartLayoutRef.current;
+        if (resizingPane === 'conv') {
+          return {
+            ...curr,
+            convWidth: clamp(start.convWidth + dx, PROJECT_CONV_MIN, PROJECT_CONV_MAX),
+          };
+        }
+        return {
+          ...curr,
+          chatWidth: clamp(start.chatWidth + dx, PROJECT_CHAT_MIN, PROJECT_CHAT_MAX),
+        };
+      });
+    }
+    function onUp() {
+      setResizingPane(null);
+    }
+    document.body.classList.add('project-resizing');
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.classList.remove('project-resizing');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [resizingPane]);
+
+  const startProjectResize = useCallback(
+    (pane: 'conv' | 'chat') => (e: ReactMouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      resizeStartXRef.current = e.clientX;
+      resizeStartLayoutRef.current = projectLayout;
+      setResizingPane(pane);
+    },
+    [projectLayout],
+  );
 
   // Load conversations on project switch. If none exist (older projects
   // pre-conversations, or a freshly created one whose default seed got
@@ -748,100 +820,394 @@ export function ProjectView({
   }, [project.pendingPrompt, onClearPendingPrompt]);
 
   return (
-    <div className="app">
-      <div className="topbar">
-        <div className="topbar-left">
-          <button
-            className="ghost back-btn"
-            onClick={onBack}
-            title={t('project.backToProjects')}
-            aria-label={t('project.backToProjects')}
-          >
-            <Icon name="arrow-left" size={14} />
-          </button>
-          <span className="brand-mark" aria-hidden>
-            <img src="/logo.svg" alt="" className="brand-mark-img" draggable={false} />
-          </span>
-          <div className="topbar-title">
-            <span
-              className="title editable"
-              data-testid="project-title"
-              tabIndex={0}
-              role="textbox"
-              suppressContentEditableWarning
-              contentEditable
-              onBlur={(e) => handleProjectRename(e.currentTarget.textContent ?? '')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  (e.currentTarget as HTMLElement).blur();
-                }
-              }}
-            >
-              {project.name}
-            </span>
-            <span className="meta" data-testid="project-meta">{projectMeta}</span>
+    <div className="project-shell">
+      <AppTitleBar onBack={onBack} onOpenSettings={onOpenSettings} />
+
+      {/* Horizontal panes */}
+      <div
+        className="project-body"
+        style={{
+          gridTemplateColumns: `${projectLayout.convWidth}px 4px ${projectLayout.chatWidth}px 4px minmax(0, 1fr)`,
+        }}
+      >
+      {/* Conversations sidebar */}
+      <aside className="conv-sidebar">
+        <div className="conv-sidebar-head">
+          <div className="conv-project-heading">
+            <div className="conv-project-copy">
+              <span
+                className="conv-project-name"
+                data-testid="project-title"
+                contentEditable
+                suppressContentEditableWarning
+                tabIndex={0}
+                role="textbox"
+                onBlur={(e) => handleProjectRename(e.currentTarget.textContent ?? '')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).blur();
+                  }
+                }}
+              >
+                {project.name}
+              </span>
+              <span className="conv-sidebar-meta" data-testid="project-meta">{projectMeta}</span>
+            </div>
           </div>
+          <button
+            className={`conv-template-btn${showProjectStatus ? ' active' : ''}`}
+            type="button"
+            onClick={() => setShowProjectStatus((value) => !value)}
+            title="聊天看板"
+            aria-label="聊天看板"
+            aria-pressed={showProjectStatus}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M8.00008 6V9H5.00008V6H8.00008ZM3.00008 4V11H10.0001V4H3.00008ZM13.0001 4H21.0001V6H13.0001V4ZM13.0001 11H21.0001V13H13.0001V11ZM13.0001 18H21.0001V20H13.0001V18ZM10.7072 16.2071L9.29297 14.7929L6.00008 18.0858L4.20718 16.2929L2.79297 17.7071L6.00008 20.9142L10.7072 16.2071Z" />
+            </svg>
+          </button>
+          <button
+            className="conv-new-btn"
+            onClick={handleNewConversation}
+            title={t('conv.new')}
+            type="button"
+          >
+            <Icon name="plus" size={12} />
+          </button>
         </div>
-        <div className="topbar-right">
-          <AvatarMenu
-            config={config}
-            agents={agents}
-            daemonLive={daemonLive}
-            onModeChange={onModeChange}
-            onAgentChange={onAgentChange}
-            onAgentModelChange={onAgentModelChange}
-            onOpenSettings={onOpenSettings}
-            onRefreshAgents={onRefreshAgents}
-            onBack={onBack}
-          />
+        {!showProjectStatus && <div className="conv-filter-tabs" role="tablist">
+          {(['待开始', '进行中', '已结束', '询问', '待确定'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={convFilterTab === tab}
+              className={`conv-filter-tab${convFilterTab === tab ? ' active' : ''}`}
+              onClick={() => setConvFilterTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>}
+        <div className="conv-list-body">
+          {showProjectStatus ? (
+            /* 聊天看板 — project status cards */
+            <ProjectStatusInline
+              project={project}
+              conversations={conversations}
+              activeConversationId={activeConversationId}
+              messages={messages}
+              files={projectFiles}
+              streaming={streaming}
+              error={error}
+            />
+          ) : (
+            /* Default: conversation list */
+            conversations.map((c) => (
+              <div
+                key={c.id}
+                className={`conv-row${c.id === activeConversationId ? ' active' : ''}`}
+                onClick={() => handleSelectConversation(c.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSelectConversation(c.id); }}
+              >
+                <div className="conv-row-body">
+                  <div className="conv-row-title">{c.title || t('conv.untitled')}</div>
+                  <div className="conv-row-meta">{convRelTime(c.updatedAt)}</div>
+                </div>
+                <button
+                  className="conv-row-del"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(t('conv.deleteConfirm', { title: c.title || t('conv.untitled') }))) {
+                      void handleDeleteConversation(c.id);
+                    }
+                  }}
+                  title={t('conv.delete')}
+                >
+                  ×
+                </button>
+              </div>
+            ))
+          )}
         </div>
+      </aside>
+      <button
+        type="button"
+        aria-label={t('entry.resizeAria')}
+        className={`project-resizer${resizingPane === 'conv' ? ' dragging' : ''}`}
+        onMouseDown={startProjectResize('conv')}
+      />
+
+      {/* Chat column — always ChatPane (column 3 of project-body grid) */}
+      <ChatPane
+        key={activeConversationId ?? 'no-conv'}
+        messages={messages}
+        streaming={streaming}
+        error={error}
+        projectId={project.id}
+        projectFiles={projectFiles}
+        projectFileNames={projectFileNames}
+        onEnsureProject={handleEnsureProject}
+        onSend={handleSend}
+        onStop={handleStop}
+        onRequestOpenFile={requestOpenFile}
+        initialDraft={initialDraft}
+        onSubmitForm={(text) => {
+          if (streaming) return;
+          void handleSend(text, []);
+        }}
+        onContinueRemainingTasks={handleContinueRemainingTasks}
+        onNewConversation={handleNewConversation}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onRenameConversation={handleRenameConversation}
+        onOpenSettings={onOpenSettings}
+        compact
+      />
+      {/* Resizer between chat and right panel (column 4) */}
+      <button
+        type="button"
+        aria-label={t('entry.resizeAria')}
+        className={`project-resizer${resizingPane === 'chat' ? ' dragging' : ''}`}
+        onMouseDown={startProjectResize('chat')}
+      />
+      {/* Right panel — always FileWorkspace (column 5) */}
+      <FileWorkspace
+        projectId={project.id}
+        files={projectFiles}
+        onRefreshFiles={() => {
+          void refreshProjectFiles();
+        }}
+        isDeck={isDeck}
+        onExportAsPptx={handleExportAsPptx}
+        streaming={streaming}
+        openRequest={openRequest}
+        tabsState={openTabsState}
+        onTabsStateChange={persistTabsState}
+      />
       </div>
-      <div className="split">
-        <ChatPane
-          // The conversation id is part of the key so switching conversations
-          // resets internal scroll/draft state inside ChatPane and ChatComposer.
-          key={activeConversationId ?? 'no-conv'}
-          messages={messages}
-          streaming={streaming}
-          error={error}
-          projectId={project.id}
-          projectFiles={projectFiles}
-          projectFileNames={projectFileNames}
-          onEnsureProject={handleEnsureProject}
-          onSend={handleSend}
-          onStop={handleStop}
-          onRequestOpenFile={requestOpenFile}
-          initialDraft={initialDraft}
-          onSubmitForm={(text) => {
-            if (streaming) return;
-            void handleSend(text, []);
+    </div>
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+type StatusRowTone = 'active' | 'done' | 'muted' | 'warn';
+
+interface StatusRow {
+  id: string;
+  label: string;
+  meta: string;
+  state: string;
+  progress: number;
+  tone?: StatusRowTone;
+}
+
+function ProjectStatusInline({
+  project,
+  conversations,
+  activeConversationId,
+  messages,
+  files,
+  streaming,
+  error,
+}: {
+  project: Project;
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  messages: ChatMessage[];
+  files: ProjectFile[];
+  streaming: boolean;
+  error: string | null;
+}) {
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const assistantMessages = messages.filter((message) => message.role === 'assistant');
+  const latestAssistant = [...assistantMessages].reverse().find((message) => message.events?.length);
+  const latestTodos = latestTodosFromEvents(latestAssistant?.events);
+  const completedTodos = latestTodos.filter((todo) => todo.status === 'completed').length;
+  const reminderTexts = extractSystemReminders(messages);
+  const statusEvents = messages
+    .flatMap((message) => message.events ?? [])
+    .filter((event): event is Extract<AgentEvent, { kind: 'status' }> => event.kind === 'status')
+    .slice(-4);
+  const usageEvent = [...messages]
+    .flatMap((message) => message.events ?? [])
+    .reverse()
+    .find((event): event is Extract<AgentEvent, { kind: 'usage' }> => event.kind === 'usage');
+
+  const todoProgress =
+    latestTodos.length > 0 ? Math.round((completedTodos / latestTodos.length) * 100) : 0;
+  const conversationProgress = streaming
+    ? 72
+    : assistantMessages.length > 0
+      ? 100
+      : messages.length > 0
+        ? 36
+        : 12;
+  const fileProgress = files.length > 0 ? 100 : assistantMessages.length > 0 ? 52 : 16;
+
+  const rows: StatusRow[] = [
+    {
+      id: 'conversation',
+      label: activeConversation?.title || '未命名对话',
+      meta: `${messages.length} 条消息`,
+      state: streaming ? '生成中' : assistantMessages.length > 0 ? '已同步' : '待开始',
+      progress: conversationProgress,
+      tone: streaming ? 'active' : assistantMessages.length > 0 ? 'done' : 'muted',
+    },
+    {
+      id: 'files',
+      label: '项目文件',
+      meta: `${files.length} 个文件`,
+      state: files.length > 0 ? '已生成' : '等待产出',
+      progress: fileProgress,
+      tone: files.length > 0 ? 'done' : 'muted',
+    },
+    {
+      id: 'todos',
+      label: '任务进程',
+      meta: latestTodos.length > 0 ? `${completedTodos}/${latestTodos.length} 已完成` : '暂无任务清单',
+      state: latestTodos.length > 0 ? `${todoProgress}%` : '未建立',
+      progress: latestTodos.length > 0 ? todoProgress : 10,
+      tone: latestTodos.some((todo) => todo.status === 'in_progress') ? 'active' : 'done',
+    },
+    {
+      id: 'reminders',
+      label: '提醒状态',
+      meta: reminderTexts.length > 0 ? `${reminderTexts.length} 条提醒` : '暂无提醒',
+      state: reminderTexts.length > 0 ? '需关注' : '清爽',
+      progress: reminderTexts.length > 0 ? 68 : 100,
+      tone: reminderTexts.length > 0 ? 'warn' : 'done',
+    },
+  ];
+
+  const eventRows = statusEvents.map((event, index): StatusRow => ({
+    id: `event-${index}-${event.label}`,
+    label: normalizeStatusLabel(event.label),
+    meta: event.detail || '运行状态更新',
+    state: index === statusEvents.length - 1 && streaming ? '当前' : '记录',
+    progress: index === statusEvents.length - 1 && streaming ? 78 : 100,
+    tone: index === statusEvents.length - 1 && streaming ? 'active' : 'muted',
+  }));
+
+  const reminderRows = reminderTexts.slice(-3).map((text, index): StatusRow => ({
+    id: `reminder-${index}`,
+    label: '系统提醒',
+    meta: text,
+    state: '提醒',
+    progress: 66,
+    tone: 'warn',
+  }));
+
+  return (
+    <div className="conv-status-inline">
+      <div className="conv-status-section">进程</div>
+      {[...rows, ...eventRows].map((row) => (
+        <ProjectStatusRow key={row.id} row={row} />
+      ))}
+      <div className="conv-status-section">提醒</div>
+      {error ? (
+        <ProjectStatusRow
+          row={{
+            id: 'error',
+            label: '运行提醒',
+            meta: error,
+            state: '异常',
+            progress: 100,
+            tone: 'warn',
           }}
-          onContinueRemainingTasks={handleContinueRemainingTasks}
-          onNewConversation={handleNewConversation}
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          onSelectConversation={handleSelectConversation}
-          onDeleteConversation={handleDeleteConversation}
-          onRenameConversation={handleRenameConversation}
-          onOpenSettings={onOpenSettings}
         />
-        <FileWorkspace
-          projectId={project.id}
-          files={projectFiles}
-          onRefreshFiles={() => {
-            void refreshProjectFiles();
+      ) : null}
+      {reminderRows.length > 0 ? (
+        reminderRows.map((row) => <ProjectStatusRow key={row.id} row={row} />)
+      ) : (
+        <ProjectStatusRow
+          row={{
+            id: 'empty-reminders',
+            label: '提醒状态',
+            meta: usageEvent?.durationMs
+              ? `最近一次用时 ${(usageEvent.durationMs / 1000).toFixed(1)}s`
+              : '当前没有需要处理的提醒',
+            state: '正常',
+            progress: 100,
+            tone: 'done',
           }}
-          isDeck={isDeck}
-          onExportAsPptx={handleExportAsPptx}
-          streaming={streaming}
-          openRequest={openRequest}
-          tabsState={openTabsState}
-          onTabsStateChange={persistTabsState}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProjectStatusRow({ row }: { row: StatusRow }) {
+  return (
+    <div className="project-status-row" data-tone={row.tone ?? 'muted'}>
+      <div className="project-status-row-main">
+        <span className="project-status-row-label">{row.label}</span>
+        <span className="project-status-row-meta">{row.meta}</span>
+      </div>
+      <span className="project-status-row-state">{row.state}</span>
+      <div className="project-status-bar" aria-hidden="true">
+        <span
+          className="project-status-bar-fill"
+          style={{ width: `${clamp(row.progress, 0, 100)}%` }}
         />
       </div>
     </div>
   );
+}
+
+function extractSystemReminders(messages: ChatMessage[]): string[] {
+  const reminders: string[] = [];
+  const re = /<system-reminder>([\s\S]*?)<\/system-reminder>/g;
+  for (const message of messages) {
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(message.content)) !== null) {
+      const reminder = (match[1] ?? '').replace(/\s+/g, ' ').trim();
+      if (reminder) reminders.push(shortenText(reminder, 96));
+    }
+  }
+  return reminders;
+}
+
+function normalizeStatusLabel(label: string): string {
+  const map: Record<string, string> = {
+    starting: '启动任务',
+    initializing: '初始化',
+    thinking: '思考中',
+    running: '执行中',
+    completed: '已完成',
+  };
+  return map[label] ?? label;
+}
+
+function shortenText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function convRelTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const min = 60_000;
+  const hr = 60 * min;
+  const day = 24 * hr;
+  if (diff < min) return 'just now';
+  if (diff < hr) return `${Math.floor(diff / min)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hr)}h ago`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(ts).toLocaleDateString();
 }
 
 function assistantAgentDisplayName(

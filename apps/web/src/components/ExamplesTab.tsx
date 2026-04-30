@@ -141,6 +141,11 @@ export function ExamplesTab({ skills, onUsePrompt }: Props) {
     return ordered;
   }, [scenarioCounts]);
 
+  const scenarioTotal = useMemo(
+    () => [...scenarioCounts.values()].reduce((sum, count) => sum + count, 0),
+    [scenarioCounts],
+  );
+
   const filtered = useMemo(() => {
     const matched = skills.filter((s) => {
       if (!matchesMode(s, modeFilter)) return false;
@@ -206,7 +211,7 @@ export function ExamplesTab({ skills, onUsePrompt }: Props) {
               onClick={() => setScenarioFilter('all')}
             >
               {t('examples.modeAll')}
-              <span className="filter-pill-count">{filtered.length}</span>
+              <span className="filter-pill-count">{scenarioTotal}</span>
             </button>
             {scenarioOptions.map((tag) => (
               <button
