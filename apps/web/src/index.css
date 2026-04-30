@@ -2657,14 +2657,28 @@ code {
 .ws-tab.design-files-tab,
 .ws-tab.design-files-tab:hover,
 .ws-tab.design-files-tab.active {
+  align-items: center;
   min-width: 0;
+  min-height: 32px;
   padding: 0 8px;
+  gap: 8px;
   background: transparent;
   border-color: transparent;
   border-radius: 0;
   box-shadow: none;
   cursor: default;
   color: var(--text);
+}
+.ws-tab.design-files-tab .tab-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+.ws-tab.design-files-tab .ws-tab-label {
+  line-height: 16px;
 }
 
 .ws-tabs-spacer { flex: 1; }

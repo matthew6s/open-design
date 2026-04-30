@@ -320,7 +320,7 @@ export function FileWorkspace({
 
   return (
     <div className="workspace" data-testid="file-workspace">
-      <div className="ws-tabs-bar" role="tablist" aria-label={t('workspace.designFiles')}>
+      <div className="ws-tabs-bar" role="tablist" aria-label="项目概览">
         <button
           type="button"
           className={`ws-tab design-files-tab ${activeTab === DESIGN_FILES_TAB ? 'active' : ''}`}
@@ -329,12 +329,12 @@ export function FileWorkspace({
           tabIndex={0}
           data-testid="design-files-tab"
           onClick={() => setActiveTab(DESIGN_FILES_TAB)}
-          title={t('workspace.designFiles')}
+          title="项目概览"
         >
           <span className="tab-icon" aria-hidden>
             <Icon name="grid" size={13} />
           </span>
-          <span className="ws-tab-label">{t('workspace.designFiles')}</span>
+          <span className="ws-tab-label">项目概览</span>
         </button>
         {tabNames.map((name) => {
           const sketchEntry = sketches[name];
