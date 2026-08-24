@@ -1,47 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nexu.io/contracts/terminal/shell-updater-v1.schema.json",
-  "title": "Shell-owned updater declaration v1",
+  "title": "Shell updater snapshot v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "provider", "currentVersion", "state", "actions"],
+  "required": ["schemaVersion", "revision", "shellType", "state", "actions", "blockedBy"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "provider": {
+    "revision": {"type": "integer", "minimum": 0},
+    "shellType": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "state": {"enum": ["idle", "checking", "available", "downloading", "ready", "applying", "handed-off", "failed"]},
+    "progress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "shell", "incarnation"],
-      "properties": {
-        "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
-        "shell": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "version", "digest"],
-          "properties": {
-            "type": {"const": "terminal"},
-            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-            "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
-          }
-        },
-        "incarnation": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"}
-      }
+      "required": ["completed", "total"],
+      "properties": {"completed": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}
     },
-    "currentVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "availableVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "minimumVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "state": {"enum": ["idle", "checking", "available", "required", "failed", "unsupported"]},
     "actions": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "label", "strategy"],
+        "required": ["id", "emphasis"],
         "properties": {
-          "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
-          "label": {"type": "string", "minLength": 1},
-          "strategy": {"enum": ["restart", "restart-with-installer"]}
+          "id": {"enum": ["check", "download", "install", "later", "force-stop-and-install"]},
+          "emphasis": {"enum": ["primary", "secondary", "danger"]}
         }
       }
+    },
+    "blockedBy": {"type": "array"},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {"code": {"type": "string"}, "message": {"type": "string"}}
     }
   }
 }

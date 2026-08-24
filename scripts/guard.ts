@@ -141,6 +141,7 @@ const residualAllowedExactPaths = new Set([
   // Terminal distributions execute these compatibility entrypoints with the
   // verified embedded Node before any TypeScript loader or workspace exists.
   "shells/terminal/runtime/fixture-lifecycle.mjs",
+  "shells/terminal/runtime/fixture-shell-updater.mjs",
   "shells/terminal/runtime/fossil.mjs",
   "tools/pack/resources/mac/notarize.cjs",
   // electron-builder hook path; CJS compatibility entry used by tools-pack desktop builds.

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FileFixtureLifecyclePort } from "../runtime/fixture-lifecycle.mjs";
+import { FixtureShellUpdaterPort } from "../runtime/fixture-shell-updater.mjs";
 import { cleanupFixtures, terminalRoot } from "./helpers.js";
 
 afterEach(cleanupFixtures);
@@ -73,6 +74,52 @@ describe("Terminal native contract", () => {
       const restarted = await expiringLifecycle.start(expiringScope, generation, { id: "terminal-next", shell });
       expect(restarted).toMatchObject({ state: "running", references: 1, fence: expired.fence + 1 });
       expect(restarted.instanceId).not.toBe(expiring.instanceId);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("models Electron updater progress, foreign reference blocking, later, and forced installer handoff", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-updater-"));
+    try {
+      const lifecycle = new FileFixtureLifecyclePort(root);
+      const scope = { channel: "betahyx", namespace: "shared" };
+      const generation = { id: "f".repeat(64) } as any;
+      await lifecycle.start(scope, generation, { id: "terminal-active", shell: { type: "terminal", version: "0.1.0", digest: "a".repeat(64) } });
+      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, { attachmentId: "electron-updater", shellType: "electron" });
+      await expect(updater.invoke("check")).resolves.toMatchObject({ snapshot: { state: "available" } });
+      await expect(updater.invoke("download")).resolves.toMatchObject({ snapshot: { state: "ready", progress: { completed: 2, total: 2 } } });
+      const blocked = await updater.invoke("install");
+      expect(blocked).toMatchObject({
+        outcome: "blocked",
+        snapshot: {
+          state: "ready",
+          blockedBy: [{ attachmentId: "terminal-active", shell: { type: "terminal" } }],
+          actions: [{ id: "later" }, { id: "force-stop-and-install" }],
+        },
+      });
+      await expect(updater.invoke("later")).resolves.toMatchObject({ snapshot: { state: "ready" } });
+      await expect(updater.invoke("force-stop-and-install")).resolves.toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off", blockedBy: [] } });
+      await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("seals new references behind an acquired Shell install transition", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-transition-"));
+    try {
+      const lifecycle = new FileFixtureLifecyclePort(root);
+      const scope = { channel: "betahyx", namespace: "transition" };
+      const generation = { id: "1".repeat(64) } as any;
+      const terminal = { type: "terminal", version: "0.1.0", digest: "2".repeat(64) };
+      await lifecycle.start(scope, generation, { id: "terminal-active", shell: terminal });
+      const result = await lifecycle.beginTransition(scope, "shell-install", { ownerShellType: "electron", force: true });
+      expect(result.state).toBe("acquired");
+      if (result.state !== "acquired") throw new Error("fixture transition was not acquired");
+      await expect(lifecycle.start(scope, generation, { id: "late-terminal", shell: terminal })).rejects.toThrow("transition is active");
+      await result.transition.forceStop();
+      await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

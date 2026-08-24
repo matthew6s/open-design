@@ -1,7 +1,16 @@
 #!/bin/sh
 set -eu
 
+feedback_file=
+
+emit_shell_feedback() {
+  [ -n "$feedback_file" ] || return 0
+  mkdir -p "$(dirname -- "$feedback_file")"
+  printf '{"phase":"%s","schemaVersion":1,"source":"shell","state":"%s"}\n' "$1" "$2" >> "$feedback_file"
+}
+
 fail() {
+  emit_shell_feedback "shell-bootstrap" "failed"
   printf '%s\n' "terminal: $*" >&2
   exit 1
 }
@@ -49,6 +58,7 @@ while [ "$#" -gt 0 ]; do
     --channel-head-url) [ "$#" -ge 2 ] || fail "--channel-head-url requires a value"; channel_head_url=$2; shift 2;;
     --activation-source) [ "$#" -ge 2 ] || fail "--activation-source requires a value"; activation_source=$2; shift 2;;
     --result) [ "$#" -ge 2 ] || fail "--result requires a value"; result_file=$2; shift 2;;
+    --feedback) [ "$#" -ge 2 ] || fail "--feedback requires a value"; feedback_file=$2; shift 2;;
     *) fail "unknown argument: $1";;
   esac
 done
@@ -63,7 +73,7 @@ case "$channel" in ""|local|*[!a-z0-9]* ) fail "invalid exact channel";; esac
 [ "${#channel}" -le 12 ] || fail "invalid exact channel"
 case "$namespace" in ""|*[!A-Za-z0-9._-]*|[-._]*) fail "invalid namespace";; esac
 [ "${#namespace}" -le 128 ] || fail "invalid namespace"
-case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update) :;; *) fail "invalid operation";; esac
+case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force) :;; *) fail "invalid operation";; esac
 if [ -n "$attachment_id" ]; then case "$attachment_id" in *[!A-Za-z0-9._-]*) fail "invalid attachment id";; esac; fi
 
 target=$(lock_value target)
@@ -82,12 +92,14 @@ case "/$node_executable/" in */../*) fail "Node executable escaped carrier root"
 case "$node_sha256" in *[!a-f0-9]*|'') fail "invalid Node digest";; esac
 [ "${#node_sha256}" -eq 64 ] || fail "invalid Node digest"
 
+emit_shell_feedback "node-verification" "begin"
 node_path="$terminal_root/$node_executable"
 fossil_path="$terminal_root/$fossil_entrypoint"
 [ -x "$node_path" ] || fail "verified Node executable is unavailable"
 [ -f "$fossil_path" ] || fail "fossil adapter is unavailable"
 [ "$(sha256_file "$node_path")" = "$node_sha256" ] || fail "installed Node digest mismatch"
 [ "$($node_path --version)" = "v$node_version" ] || fail "installed Node version mismatch"
+emit_shell_feedback "node-verification" "complete"
 manifest_digest=$(sed -n '1{s/[[:space:]].*$//;p;}' "$terminal_root/install-manifest.sha256")
 case "$manifest_digest" in *[!a-f0-9]*|'') fail "invalid manifest digest";; esac
 [ "${#manifest_digest}" -eq 64 ] || fail "invalid manifest digest"
@@ -111,8 +123,10 @@ head_json=
 [ -z "$channel_head_url" ] || head_json=",\"channelHeadUrl\":\"$(json_escape "$channel_head_url")\""
 activation_json=
 [ -z "$activation_source" ] || activation_json=",\"activationSource\":\"$(json_escape "$activation_source")\""
-printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s}\n' \
-  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$store_json" "$head_json" "$activation_json" > "$request_file"
+feedback_json=
+[ -z "$feedback_file" ] || feedback_json=",\"feedbackFile\":\"$(json_escape "$feedback_file")\""
+printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s}\n' \
+  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$store_json" "$head_json" "$activation_json" "$feedback_json" > "$request_file"
 
 set +e
 OD_TERMINAL_FOSSIL_REQUEST_V1=$request_file OD_TERMINAL_FOSSIL_RESULT_V1=$result_file \

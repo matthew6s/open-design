@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { cleanupFixtures, powershell, prepareExactFixture, run, terminalRoot, verifyExactLifecycle, writeDistributionRequest, writeSceneRequest, type TerminalOptions } from "./helpers.js";
+import { cleanupFixtures, expectedShellBuildHash, powershell, prepareExactFixture, run, terminalRoot, verifyExactLifecycle, writeDistributionRequest, writeSceneRequest, type TerminalOptions } from "./helpers.js";
 
 afterEach(cleanupFixtures);
 
@@ -22,6 +22,7 @@ describe("Terminal Windows carrier", () => {
       writeSceneRequest(sceneRequest, { target, shellVersion: readFileSync(join(terminalRoot, "version"), "utf8").trim(), nodeVersion: lock.version, nodeArchive: archive, nodeArchiveSha256: locked.sha256, closureFile, standaloneDirectory, sceneDirectory: scene });
       powershell(join(terminalRoot, "ps1/scene.ps1"), ["-Request", sceneRequest, "-Receipt", sceneReceipt]);
       const sceneSha = JSON.parse(readFileSync(sceneReceipt, "utf8")).sceneManifestSha256 as string;
+      expect(JSON.parse(readFileSync(join(scene, "scene.json"), "utf8"))).toMatchObject({ shellBuildHash: expectedShellBuildHash(scene, target, locked.sha256) });
       const distributionRequest = join(work, "distribution-request.json");
       writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-betahyx.2" }, outputDirectory: directories.output });
       const mismatched = powershell(join(terminalRoot, "ps1/distribution.ps1"), ["-Request", distributionRequest, "-Receipt", join(work, "mismatched-distribution-receipt.json")], { allowFailure: true });
@@ -37,7 +38,8 @@ describe("Terminal Windows carrier", () => {
         const result = powershell(join(installRoot, "ps1/terminal.ps1"), ["-Root", installRoot, "-StoreRoot", storeRoot, "-Channel", channel, "-Namespace", namespace, "-Operation", operation,
           ...(options.attachmentId == null ? [] : ["-AttachmentId", options.attachmentId]),
           ...(options.channelHeadUrl == null ? [] : ["-ChannelHeadUrl", options.channelHeadUrl]),
-          ...(options.activationSource == null ? [] : ["-ActivationSource", options.activationSource])]);
+          ...(options.activationSource == null ? [] : ["-ActivationSource", options.activationSource]),
+          ...(options.feedbackFile == null ? [] : ["-Feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };
       const rejected = powershell(join(root, "ps1/terminal.ps1"), ["-Root", root, "-StoreRoot", directories.store, "-Channel", "betahyx", "-Namespace", "shared", "-Operation", "heartbeat", "-AttachmentId", "missing"], { allowFailure: true });

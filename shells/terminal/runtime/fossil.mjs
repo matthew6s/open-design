@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -18,11 +18,12 @@ const inside = (root, path) => {
 
 function validateRequest(value) {
   if (value?.schemaVersion !== 1) throw new Error("unsupported fossil request schema");
-  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update"]);
+  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force"]);
   if (!operations.has(value.operation)) throw new Error("unsupported fossil operation");
   if (!/^[a-z0-9]{1,12}$/.test(value.channel) || value.channel === "local") throw new Error("invalid exact channel");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.namespace)) throw new Error("invalid namespace");
   if (typeof value.carrierResolutionFile !== "string" || !isAbsolute(value.carrierResolutionFile)) throw new Error("invalid carrier resolution path");
+  if (value.feedbackFile != null && (typeof value.feedbackFile !== "string" || !isAbsolute(value.feedbackFile))) throw new Error("invalid feedback path");
   if (value.operation !== "probe" && (typeof value.storeRoot !== "string" || !isAbsolute(value.storeRoot))) throw new Error("lifecycle operation requires an absolute Store root");
   if (new Set(["start", "heartbeat", "release"]).has(value.operation) && !/^[A-Za-z0-9._-]{1,128}$/.test(value.attachmentId)) throw new Error(`${value.operation} requires an attachment id`);
   if (value.operation === "prepare-update" && (typeof value.channelHeadUrl !== "string" || !/^(https?:|file:)\/\//.test(value.channelHeadUrl))) throw new Error("prepare-update requires a channel head URL");
@@ -40,10 +41,10 @@ async function validateInstallation(value) {
   const manifestBytes = await readFile(manifestPath);
   if (sha256(manifestBytes) !== value.shell.digest) throw new Error("Shell manifest binding failed");
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
+  if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || !digestPattern.test(manifest.shell?.buildHash) || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
   if (manifest.runtime?.name !== "node" || manifest.runtime?.version !== value.runtime.version || manifest.runtime?.sha256 !== value.runtime.digest) throw new Error("installed runtime binding mismatch");
   const descriptorPath = (descriptor) => descriptor?.file ?? descriptor?.entrypoint;
-  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
+  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
     manifest.shellFiles?.sh?.terminal, manifest.shellFiles?.sh?.install, manifest.shellFiles?.ps1?.terminal, manifest.shellFiles?.ps1?.install];
   for (const descriptor of descriptors) {
     const entrypoint = descriptorPath(descriptor);
@@ -81,7 +82,7 @@ async function trustedKeys(installation) {
   return keys;
 }
 
-async function ensureInstalledSeed(request, installation, store, keys) {
+async function ensureInstalledSeed(request, installation, store, keys, feedback) {
   const envelope = await readJson(resolve(installation.root, installation.manifest.releaseDocuments.content.file));
   installation.standalone.verifyStandaloneMetadata(envelope, keys);
   if (envelope.metadata.channel !== request.channel) throw new Error("installed seed belongs to another channel");
@@ -89,14 +90,14 @@ async function ensureInstalledSeed(request, installation, store, keys) {
   let state = await store.readState();
   if (state.active == null && state.prepared == null) {
     const seedBytes = new Uint8Array(await readFile(resolve(installation.root, installation.manifest.seed.closure.file)));
-    await store.prepare(envelope, keys, async (artifact) => {
-      if (artifact.sha256 !== installation.manifest.seed.closure.sha256 || artifact.size !== seedBytes.byteLength) {
-        const error = new Error("required installed seed is incomplete");
-        error.code = "resource-unavailable";
-        throw error;
-      }
-      return seedBytes;
-    });
+    const digest = installation.manifest.seed.closure.sha256;
+    const declared = envelope.metadata.blobs?.[digest];
+    if (declared == null || declared.size !== seedBytes.byteLength) {
+      const error = new Error("required installed seed is incomplete");
+      error.code = "resource-unavailable";
+      throw error;
+    }
+    await store.prepare(envelope, keys, { candidates: { [digest]: [{ path: resolve(installation.root, installation.manifest.seed.closure.file), source: "shell" }] }, feedback });
     state = await store.readState();
   }
   if (state.active == null && state.prepared === expectedId && state.activationIntent?.generationId !== expectedId) {
@@ -113,9 +114,22 @@ async function execute(request, installation) {
   const { FileFixtureLifecyclePort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureLifecycle.entrypoint)).href);
   const lifecycle = new FileFixtureLifecyclePort(storeRoot);
   const shell = { type: "terminal", version: installation.manifest.shell.version, digest: sha256(installation.manifestBytes) };
-  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control");
+  const feedback = request.feedbackFile == null ? undefined : async (event) => appendFile(request.feedbackFile, `${JSON.stringify(event)}\n`, "utf8");
+  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback);
+  if (request.operation.startsWith("shell-update-")) {
+    const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
+    const updater = new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, { attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" });
+    const action = ({
+      "shell-update-check": "check",
+      "shell-update-download": "download",
+      "shell-update-install": "install",
+      "shell-update-later": "later",
+      "shell-update-force": "force-stop-and-install",
+    })[request.operation];
+    return action == null ? updater.readSnapshot() : updater.invoke(action);
+  }
   if (request.operation === "start") {
-    await ensureInstalledSeed(request, installation, store, keys);
+    await ensureInstalledSeed(request, installation, store, keys, feedback);
     return new standalone.FossilBootloader(store, shell, async () => launcher).start();
   }
   if (request.operation === "heartbeat") return launcher.heartbeat();
@@ -123,17 +137,16 @@ async function execute(request, installation) {
   if (request.operation === "status") return launcher.status();
   if (request.operation === "stop") return launcher.stop();
   const source = request.operation === "prepare-update"
-    ? {
+      ? {
         readChannelHead: async () => JSON.parse(Buffer.from(await readUrl(request.channelHeadUrl)).toString("utf8")),
         readDocument: readUrl,
-        readArtifact: async (artifact) => readUrl(artifact.url),
+        prepare: { fetch: globalThis.fetch },
       }
-    : {
+      : {
         readChannelHead: async () => { throw new Error("unused update source"); },
         readDocument: async () => { throw new Error("unused update source"); },
-        readArtifact: async () => { throw new Error("unused update source"); },
       };
-  const updater = new standalone.StandaloneUpdater(request.channel, "content", shell, keys, store, source);
+  const updater = new standalone.StandaloneUpdater(request.channel, "content", shell, keys, store, source, feedback);
   if (request.operation === "prepare-update") return updater.prepareLatest(request.activationSource);
   return updater.applyNow(launcher);
 }

@@ -67,18 +67,36 @@ mkdir -p "$stage/carrier" "$stage/runtime/standalone" "$stage/seed" "$stage/sh" 
 mv "$node_root" "$stage/carrier/node"
 cp "$standalone_directory/index.mjs" "$stage/runtime/standalone/index.mjs"
 cp "$closure_file" "$stage/seed/closure.mjs"
-cp "$terminal_source/runtime/fossil.mjs" "$terminal_source/runtime/fixture-lifecycle.mjs" "$stage/runtime/"
+cp "$terminal_source/runtime/fossil.mjs" "$terminal_source/runtime/fixture-lifecycle.mjs" "$terminal_source/runtime/fixture-shell-updater.mjs" "$stage/runtime/"
 cp "$terminal_source/sh/terminal.sh" "$terminal_source/sh/install.sh" "$stage/sh/"
 cp "$terminal_source/ps1/terminal.ps1" "$terminal_source/ps1/install.ps1" "$stage/ps1/"
 cp "$terminal_source"/contract/*.json "$stage/contract/"
 node_sha=$(sha256_file "$stage/carrier/node/bin/node")
 fossil_sha=$(sha256_file "$stage/runtime/fossil.mjs")
 fixture_lifecycle_sha=$(sha256_file "$stage/runtime/fixture-lifecycle.mjs")
+fixture_shell_updater_sha=$(sha256_file "$stage/runtime/fixture-shell-updater.mjs")
 standalone_sha=$(sha256_file "$stage/runtime/standalone/index.mjs")
 closure_sha=$(sha256_file "$stage/seed/closure.mjs")
 printf '%s\n' "schema=1" "target=$target" "shell_version=$shell_version" "node_version=$node_version" "node_executable=carrier/node/bin/node" "node_sha256=$node_sha" "fossil_entrypoint=runtime/fossil.mjs" > "$stage/carrier.lock"
-printf '{"closure":{"file":"seed/closure.mjs","sha256":"%s","size":%s},"fixtureLifecycle":{"entrypoint":"runtime/fixture-lifecycle.mjs","sha256":"%s"},"fossil":{"entrypoint":"runtime/fossil.mjs","sha256":"%s"},"node":{"archiveSha256":"%s","executable":"carrier/node/bin/node","executableSha256":"%s","version":"%s"},"schemaVersion":1,"shellVersion":"%s","standalone":{"entrypoint":"runtime/standalone/index.mjs","sha256":"%s"},"target":"%s"}\n' \
-  "$closure_sha" "$(file_size "$stage/seed/closure.mjs")" "$fixture_lifecycle_sha" "$fossil_sha" "$node_archive_sha256" "$node_sha" "$node_version" "$shell_version" "$standalone_sha" "$target" > "$stage/scene.json"
+shell_build_inputs="$stage/.shell-build-inputs"
+printf '%s\n' \
+  "carrier_lock=$(sha256_file "$stage/carrier.lock")" \
+  "fixture_lifecycle=$fixture_lifecycle_sha" \
+  "fixture_shell_updater=$fixture_shell_updater_sha" \
+  "fossil=$fossil_sha" \
+  "node_archive=$node_archive_sha256" \
+  "node_executable=$node_sha" \
+  "ps_install=$(sha256_file "$stage/ps1/install.ps1")" \
+  "ps_terminal=$(sha256_file "$stage/ps1/terminal.ps1")" \
+  "sh_install=$(sha256_file "$stage/sh/install.sh")" \
+  "sh_terminal=$(sha256_file "$stage/sh/terminal.sh")" \
+  "standalone=$standalone_sha" \
+  "target=$target" > "$shell_build_inputs"
+for contract in "$stage"/contract/*.json; do printf 'contract/%s=%s\n' "$(basename -- "$contract")" "$(sha256_file "$contract")" >> "$shell_build_inputs"; done
+shell_build_hash=$(sha256_file "$shell_build_inputs")
+rm "$shell_build_inputs"
+printf '{"closure":{"file":"seed/closure.mjs","sha256":"%s","size":%s},"fixtureLifecycle":{"entrypoint":"runtime/fixture-lifecycle.mjs","sha256":"%s"},"fixtureShellUpdater":{"entrypoint":"runtime/fixture-shell-updater.mjs","sha256":"%s"},"fossil":{"entrypoint":"runtime/fossil.mjs","sha256":"%s"},"node":{"archiveSha256":"%s","executable":"carrier/node/bin/node","executableSha256":"%s","version":"%s"},"schemaVersion":1,"shellBuildHash":"%s","shellVersion":"%s","standalone":{"entrypoint":"runtime/standalone/index.mjs","sha256":"%s"},"target":"%s"}\n' \
+  "$closure_sha" "$(file_size "$stage/seed/closure.mjs")" "$fixture_lifecycle_sha" "$fixture_shell_updater_sha" "$fossil_sha" "$node_archive_sha256" "$node_sha" "$node_version" "$shell_build_hash" "$shell_version" "$standalone_sha" "$target" > "$stage/scene.json"
 scene_sha=$(sha256_file "$stage/scene.json")
 if [ -e "$scene_directory" ]; then fail "scene destination already exists"; fi
 mv "$stage" "$scene_directory"

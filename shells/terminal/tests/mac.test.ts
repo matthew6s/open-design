@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { cleanupFixtures, prepareExactFixture, run, terminalRoot, verifyExactLifecycle, writeDistributionRequest, writeSceneRequest, type TerminalOptions } from "./helpers.js";
+import { cleanupFixtures, expectedShellBuildHash, prepareExactFixture, run, terminalRoot, verifyExactLifecycle, writeDistributionRequest, writeSceneRequest, type TerminalOptions } from "./helpers.js";
 
 afterEach(cleanupFixtures);
 
@@ -22,6 +22,7 @@ describe("Terminal macOS carrier", () => {
       writeSceneRequest(sceneRequest, { target, shellVersion: readFileSync(join(terminalRoot, "version"), "utf8").trim(), nodeVersion: lock.version, nodeArchive: archive, nodeArchiveSha256: locked.sha256, closureFile, standaloneDirectory, sceneDirectory: scene });
       run("sh", [join(terminalRoot, "sh/scene.sh"), "--request", sceneRequest, "--receipt", sceneReceipt]);
       const sceneSha = JSON.parse(readFileSync(sceneReceipt, "utf8")).sceneManifestSha256 as string;
+      expect(JSON.parse(readFileSync(join(scene, "scene.json"), "utf8"))).toMatchObject({ shellBuildHash: expectedShellBuildHash(scene, target, locked.sha256) });
       const distributionRequest = join(work, "distribution-request.json");
       writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-betahyx.2" }, outputDirectory: directories.output });
       const mismatched = run("sh", [join(terminalRoot, "sh/distribution.sh"), "--request", distributionRequest, "--receipt", join(work, "mismatched-distribution-receipt.json")], { allowFailure: true });
@@ -37,7 +38,8 @@ describe("Terminal macOS carrier", () => {
         const result = run("sh", [join(installRoot, "sh/terminal.sh"), "--root", installRoot, "--store-root", storeRoot, "--channel", channel, "--namespace", namespace, "--operation", operation,
           ...(options.attachmentId == null ? [] : ["--attachment-id", options.attachmentId]),
           ...(options.channelHeadUrl == null ? [] : ["--channel-head-url", options.channelHeadUrl]),
-          ...(options.activationSource == null ? [] : ["--activation-source", options.activationSource])]);
+          ...(options.activationSource == null ? [] : ["--activation-source", options.activationSource]),
+          ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };
       const rejected = run("sh", [join(root, "sh/terminal.sh"), "--root", root, "--store-root", directories.store, "--channel", "betahyx", "--namespace", "shared", "--operation", "heartbeat", "--attachment-id", "missing"], { allowFailure: true });

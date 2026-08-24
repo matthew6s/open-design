@@ -29,6 +29,7 @@ function initial(scope) {
     fence: 0,
     leaseExpiresAt: null,
     stop: null,
+    transition: null,
   };
 }
 
@@ -39,6 +40,7 @@ function publicStatus(state, heartbeatIntervalMs) {
     generationId: state.generationId,
     instanceId: state.instanceId,
     references: state.attachments.length,
+    occupants: state.attachments.map(({ id, shell }) => ({ attachmentId: id, generationId: state.generationId, shell })),
     fence: state.fence,
     lease: state.state === "running" && state.leaseExpiresAt != null
       ? { heartbeatIntervalMs, expiresAt: state.leaseExpiresAt }
@@ -113,6 +115,7 @@ export class FileFixtureLifecyclePort {
           state.generationId = null;
           state.instanceId = null;
           state.leaseExpiresAt = null;
+          state.transition = null;
           state.fence += 1;
         }
       }
@@ -131,6 +134,11 @@ export class FileFixtureLifecyclePort {
 
   start(scope, generation, attachment) {
     return this.transaction(scope, async (state) => {
+      if (state.transition != null) {
+        const error = new Error("fixture lifecycle transition is active");
+        error.code = "standalone-transition-active";
+        throw error;
+      }
       if (state.state === "running" && state.generationId !== generation.id) {
         const error = new Error("another generation owns the shared fixture instance");
         error.code = "standalone-occupied";
@@ -173,8 +181,58 @@ export class FileFixtureLifecyclePort {
     return this.transaction(scope, async (state) => state);
   }
 
+  async occupants(scope) {
+    return (await this.status(scope)).occupants;
+  }
+
+  async beginTransition(scope, kind, options = {}) {
+    if (kind !== "shell-install") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
+    const token = randomUUID();
+    let outcome;
+    const status = await this.transaction(scope, async (state) => {
+      if (state.transition != null) {
+        outcome = { state: "blocked", reason: "transition-active" };
+        return state;
+      }
+      const occupants = publicStatus(state, this.heartbeatIntervalMs).occupants;
+      const blockers = occupants.filter(({ shell }) => shell.type !== options.ownerShellType);
+      if (blockers.length > 0 && options.force !== true) {
+        outcome = { state: "blocked", reason: "occupied", occupants: blockers };
+        return state;
+      }
+      state.transition = { token, kind, fence: state.fence, acquiredAt: new Date().toISOString() };
+      outcome = { state: "acquired", occupants };
+      return state;
+    });
+    if (outcome.state === "blocked") return { ...outcome, occupants: outcome.occupants ?? status.occupants };
+    const release = async () => {
+      await this.transaction(scope, async (state) => {
+        if (state.transition?.token === token) state.transition = null;
+        return state;
+      });
+    };
+    const forceStop = async () => {
+      await this.transaction(scope, async (state) => {
+        if (state.transition?.token !== token || state.transition.fence !== status.fence || state.fence !== status.fence) {
+          throw new Error("stale fixture lifecycle transition");
+        }
+        state.stop = { requestedAt: new Date().toISOString(), fence: state.fence + 1 };
+        state.state = "stopped";
+        state.generationId = null;
+        state.instanceId = null;
+        state.attachments = [];
+        state.leaseExpiresAt = null;
+        state.transition = null;
+        state.fence += 1;
+        return state;
+      });
+    };
+    return { state: "acquired", transition: { fence: status.fence, occupants: outcome.occupants, release, forceStop } };
+  }
+
   stop(scope, fence) {
     return this.transaction(scope, async (state) => {
+      if (state.transition != null) throw new Error("fixture lifecycle transition is active");
       if (state.fence !== fence) throw new Error("stale fixture lifecycle stop fence");
       state.stop = { requestedAt: new Date().toISOString(), fence: state.fence + 1 };
       state.state = "stopped";
@@ -182,6 +240,7 @@ export class FileFixtureLifecyclePort {
       state.instanceId = null;
       state.attachments = [];
       state.leaseExpiresAt = null;
+      state.transition = null;
       state.fence += 1;
       return state;
     });

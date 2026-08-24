@@ -2,18 +2,26 @@ param(
   [string]$Root,
   [Parameter(Mandatory = $true)][string]$Channel,
   [Parameter(Mandatory = $true)][string]$Namespace,
-  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update")][string]$Operation = "start",
+  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force")][string]$Operation = "start",
   [string]$AttachmentId,
   [string]$StoreRoot,
   [string]$ChannelHeadUrl,
   [ValidateSet("initial-bootstrap", "repair", "silent-policy", "user-restart")][string]$ActivationSource,
-  [string]$Result
+  [string]$Result,
+  [string]$Feedback
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 function Fail([string]$Message) { throw "terminal: $Message" }
+function Emit-Feedback([string]$Phase, [string]$State) {
+  if (-not $Feedback) { return }
+  $parent = Split-Path -Parent ([IO.Path]::GetFullPath($Feedback))
+  [IO.Directory]::CreateDirectory($parent) | Out-Null
+  $event = [ordered]@{ phase = $Phase; schemaVersion = 1; source = "shell"; state = $State }
+  [IO.File]::AppendAllText($Feedback, (($event | ConvertTo-Json -Compress) + "`n"), [Text.UTF8Encoding]::new($false))
+}
 function Read-Lock([string]$Path) {
   $values = @{}
   foreach ($line in [IO.File]::ReadAllLines($Path)) {
@@ -45,6 +53,7 @@ if ($lock.shell_version -notmatch '^\d+\.\d+\.\d+$' -or $lock.node_version -notm
 if ($lock.node_executable -notmatch '^carrier/node/' -or "/$($lock.node_executable)/" -match '/\.\./') { Fail "Node executable escaped carrier root" }
 if ($lock.fossil_entrypoint -ne "runtime/fossil.mjs") { Fail "invalid fossil entrypoint" }
 if ($lock.node_sha256 -notmatch '^[a-f0-9]{64}$') { Fail "invalid Node digest" }
+Emit-Feedback "node-verification" "begin"
 $nodePath = [IO.Path]::GetFullPath((Join-Path $Root $lock.node_executable))
 $fossilPath = [IO.Path]::GetFullPath((Join-Path $Root $lock.fossil_entrypoint))
 $rootPrefix = $Root.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -55,6 +64,7 @@ $nodeDigest = (Get-FileHash -LiteralPath $nodePath -Algorithm SHA256).Hash.ToLow
 if ($nodeDigest -ne $lock.node_sha256) { Fail "installed Node digest mismatch" }
 $observedVersion = (& $nodePath --version).Trim()
 if ($observedVersion -ne "v$($lock.node_version)") { Fail "installed Node version mismatch" }
+Emit-Feedback "node-verification" "complete"
 $manifestDigest = ([IO.File]::ReadAllText($manifestDigestPath).Trim() -split '\s+')[0].ToLowerInvariant()
 if ($manifestDigest -notmatch '^[a-f0-9]{64}$') { Fail "invalid manifest digest" }
 if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifestDigest) { Fail "installed manifest digest mismatch" }
@@ -86,6 +96,7 @@ try {
   if ($StoreRoot) { $request.storeRoot = [IO.Path]::GetFullPath($StoreRoot) }
   if ($ChannelHeadUrl) { $request.channelHeadUrl = $ChannelHeadUrl }
   if ($ActivationSource) { $request.activationSource = $ActivationSource }
+  if ($Feedback) { $request.feedbackFile = [IO.Path]::GetFullPath($Feedback) }
   [IO.File]::WriteAllText($requestPath, (($request | ConvertTo-Json -Compress -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
   $env:OD_TERMINAL_FOSSIL_REQUEST_V1 = $requestPath
   $env:OD_TERMINAL_FOSSIL_RESULT_V1 = $Result

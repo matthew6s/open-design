@@ -4,16 +4,17 @@
   "title": "Terminal installed manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "fossil", "fixtureLifecycle", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
+  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "fossil", "fixtureLifecycle", "fixtureShellUpdater", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
   "properties": {
     "schemaVersion": {"const": 1},
     "shell": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "version"],
+      "required": ["type", "version", "buildHash"],
       "properties": {
         "type": {"const": "terminal"},
-        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "buildHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },
     "target": {"enum": ["darwin-arm64", "darwin-x64", "win32-x64"]},
@@ -67,6 +68,15 @@
         "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },
+    "fixtureShellUpdater": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "sha256"],
+      "properties": {
+        "entrypoint": {"const": "runtime/fixture-shell-updater.mjs"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "standalone": {
       "type": "object",
       "additionalProperties": false,
@@ -108,7 +118,7 @@
       "properties": {
         "contentUpdater": {"const": "standalone-v1"},
         "sharedInstance": {"const": "fixture-v1"},
-        "shellUpdater": {"const": "unsupported"}
+        "shellUpdater": {"const": "fixture-v1"}
       }
     }
   },

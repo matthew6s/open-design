@@ -1,8 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { expect } from "vitest";
 
 import { canonicalJson, sha256Hex, signStandaloneChannelHead, signStandaloneMetadata, type StandaloneMetadata } from "@open-design/standalone";
@@ -12,7 +12,7 @@ export const terminalRoot = resolve(import.meta.dirname, "..");
 const temporaryRoots: string[] = [];
 const fixtureServers: ChildProcess[] = [];
 
-export type TerminalOptions = { attachmentId?: string; channelHeadUrl?: string; activationSource?: string };
+export type TerminalOptions = { attachmentId?: string; channelHeadUrl?: string; activationSource?: string; feedbackFile?: string };
 export type TerminalRunner = (root: string, storeRoot: string, channel: string, namespace: string, operation: string, options?: TerminalOptions) => Record<string, any>;
 type SceneRequestInput = { target: string; shellVersion: string; nodeVersion: string; nodeArchive: string; nodeArchiveSha256: string; closureFile: string; standaloneDirectory: string; sceneDirectory: string };
 type DistributionRequestInput = { target: string; sceneDirectory: string; sceneManifestSha256: string; releaseDocumentsDirectory: string; trustFile: string; release: { channel: string; releaseVersion: string; sourceCommit: string; publishedAt: string; artifactBaseUrl: string }; outputDirectory: string };
@@ -59,6 +59,27 @@ export function writeDistributionRequest(path: string, input: DistributionReques
   }));
 }
 
+export function expectedShellBuildHash(scene: string, target: string, nodeArchiveSha256: string): string {
+  const digest = (relativePath: string) => sha256Hex(readFileSync(join(scene, relativePath)));
+  const nodeExecutable = target.startsWith("win32-") ? "carrier/node/node.exe" : "carrier/node/bin/node";
+  const lines = [
+    `carrier_lock=${digest("carrier.lock")}`,
+    `fixture_lifecycle=${digest("runtime/fixture-lifecycle.mjs")}`,
+    `fixture_shell_updater=${digest("runtime/fixture-shell-updater.mjs")}`,
+    `fossil=${digest("runtime/fossil.mjs")}`,
+    `node_archive=${nodeArchiveSha256}`,
+    `node_executable=${digest(nodeExecutable)}`,
+    `ps_install=${digest("ps1/install.ps1")}`,
+    `ps_terminal=${digest("ps1/terminal.ps1")}`,
+    `sh_install=${digest("sh/install.sh")}`,
+    `sh_terminal=${digest("sh/terminal.sh")}`,
+    `standalone=${digest("runtime/standalone/index.mjs")}`,
+    `target=${target}`,
+    ...readdirSync(join(scene, "contract")).sort().map((name) => `contract/${name}=${digest(`contract/${name}`)}`),
+  ];
+  return sha256Hex(`${lines.join("\n")}\n`);
+}
+
 function startToolsServeReleaseStorage(root: string): string {
   const stdoutFile = join(root, "tools-serve.stdout");
   const stderrFile = join(root, "tools-serve.stderr");
@@ -100,15 +121,17 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
   const create = (channel: string, releaseVersion: string, minVersion: string, artifactBytes: Uint8Array) => {
     const artifactFile = join(root, `${releaseVersion}-closure.mjs`);
     writeFileSync(artifactFile, artifactBytes);
+    const artifactSha256 = sha256Hex(artifactBytes);
     const metadata: StandaloneMetadata = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       channel,
       releaseVersion,
       standaloneVersion: "0.1.0",
       sourceCommit: "993f2e1a90845f7068b705e970ada2bf48d0cb84",
       publishedAt: "2026-08-24T00:00:00.000Z",
-      components: [{ name: "closure-fixture", mode: "required", artifact: { entrypoint: "fixture.mjs", sha256: sha256Hex(artifactBytes), size: artifactBytes.byteLength, url: `${baseUrl}/${encodeURIComponent(basename(artifactFile))}` } }],
-      shellRequirements: [{ type: "terminal", minVersion }],
+      blobs: { [artifactSha256]: { sha256: artifactSha256, size: artifactBytes.byteLength, mediaType: "text/javascript", sources: [{ kind: "remote", url: `${baseUrl}/${encodeURIComponent(basename(artifactFile))}` }] } },
+      resources: [{ id: "closure-fixture", blob: artifactSha256, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } }],
+      shellRequirements: [{ type: "terminal", minVersion, buildHash: "b".repeat(64) }],
     };
     const metadataBytes = Buffer.from(canonicalJson(signStandaloneMetadata(metadata, [signer])));
     const metadataFile = join(root, `${releaseVersion}-metadata.json`);
@@ -120,7 +143,7 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
     writeFileSync(headFile, canonicalJson(head));
     return {
       artifactFile,
-      artifactSha256: sha256Hex(artifactBytes),
+      artifactSha256,
       headFile,
       metadataFile,
       release: { channel, releaseVersion, sourceCommit: metadata.sourceCommit, publishedAt: metadata.publishedAt, artifactBaseUrl: baseUrl },
@@ -169,8 +192,9 @@ export function prepareExactFixture(target: string) {
 }
 
 export function verifyExactLifecycle(root: string, store: string, terminal: TerminalRunner, releases: ReturnType<typeof releaseDocuments>): void {
+  const feedbackFile = join(dirname(store), "terminal-feedback.jsonl");
   expect(terminal(root, store, "betahyx", "shared", "probe")).toMatchObject({ outcome: "ready", result: { channel: "betahyx" } });
-  const first = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a" });
+  const first = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
   expect(first).toMatchObject({ outcome: "ready", result: { state: "running", references: 1 } });
   const second = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
   expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2 });
@@ -178,8 +202,14 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a" }).result.references).toBe(1);
   expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-b" }).result).toMatchObject({ state: "running", references: 0 });
   expect(terminal(root, store, "betahyx", "shared", "stop").result.state).toBe("stopped");
+  expect(terminal(root, store, "betahyx", "updater-scenario", "start", { attachmentId: "terminal-active" }).result).toMatchObject({ state: "running" });
+  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-check").result).toMatchObject({ outcome: "accepted", snapshot: { state: "available" } });
+  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-download").result).toMatchObject({ snapshot: { state: "ready" } });
+  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-install").result).toMatchObject({ outcome: "blocked", snapshot: { blockedBy: [{ attachmentId: "terminal-active" }] } });
+  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-later").result).toMatchObject({ snapshot: { state: "ready" } });
+  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-force").result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
   releases.promote(releases.beta2);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationSource: "silent-policy" }).result).toMatchObject({ status: "prepared", authorized: true });
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationSource: "silent-policy", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
   expect(applied.result).toMatchObject({ state: "running" });
@@ -189,4 +219,17 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   releases.promote(releases.preview1);
   expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationSource: "user-restart" }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ state: "running", scope: { channel: "previewhyx", namespace: "shared" } });
+  const feedback = readFileSync(feedbackFile, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  const phases = feedback.map((event) => event.phase);
+  expect(phases).toContain("node-verification");
+  expect(phases).toContain("sync-planning");
+  expect(phases).toContain("blob-resolution");
+  expect(phases).toContain("blob-download");
+  expect(phases).toContain("closure-ready");
+  expect(feedback).toEqual(expect.arrayContaining([
+    expect.objectContaining({ phase: "node-verification", state: "complete" }),
+    expect.objectContaining({ phase: "sync-planning", state: "complete", totalBytes: expect.any(Number) }),
+    expect.objectContaining({ phase: "blob-download", state: "progress", receivedBytes: expect.any(Number), totalBytes: expect.any(Number) }),
+    expect.objectContaining({ phase: "closure-ready", state: "complete" }),
+  ]));
 }

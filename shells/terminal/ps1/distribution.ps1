@@ -62,11 +62,13 @@ try {
     $parts = $line.Split(@('='), 2)
     if ($parts.Count -eq 2) { $lock[$parts[0]] = $parts[1] }
   }
+  $sceneManifest = Get-Content -LiteralPath (Join-Path $root "scene.json") -Raw | ConvertFrom-Json
   $manifest = [ordered]@{
-    capabilities = [ordered]@{ contentUpdater = "standalone-v1"; sharedInstance = "fixture-v1"; shellUpdater = "unsupported" }
+    capabilities = [ordered]@{ contentUpdater = "standalone-v1"; sharedInstance = "fixture-v1"; shellUpdater = "fixture-v1" }
     carrierLock = [ordered]@{ file = "carrier.lock"; sha256 = Digest (Join-Path $root "carrier.lock") }
     contracts = [ordered]@{ file = "contract/index.json"; sha256 = Digest $contractIndexPath }
     fixtureLifecycle = [ordered]@{ entrypoint = "runtime/fixture-lifecycle.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-lifecycle.mjs") }
+    fixtureShellUpdater = [ordered]@{ entrypoint = "runtime/fixture-shell-updater.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-shell-updater.mjs") }
     fossil = [ordered]@{ entrypoint = "runtime/fossil.mjs"; sha256 = Digest (Join-Path $root "runtime/fossil.mjs") }
     releaseDocuments = [ordered]@{
       content = [ordered]@{ file = "release/content-metadata.json"; sha256 = Digest (Join-Path $root "release/content-metadata.json") }
@@ -74,7 +76,7 @@ try {
     runtime = [ordered]@{ executable = $lock.node_executable; name = "node"; sha256 = $lock.node_sha256; version = $lock.node_version }
     schemaVersion = 1
     seed = [ordered]@{ closure = [ordered]@{ file = "seed/closure.mjs"; sha256 = Digest (Join-Path $root "seed/closure.mjs") } }
-    shell = [ordered]@{ type = "terminal"; version = $lock.shell_version }
+    shell = [ordered]@{ buildHash = [string]$sceneManifest.shellBuildHash; type = "terminal"; version = $lock.shell_version }
     shellFiles = [ordered]@{
       ps1 = [ordered]@{
         install = [ordered]@{ file = "ps1/install.ps1"; sha256 = Digest (Join-Path $root "ps1/install.ps1") }

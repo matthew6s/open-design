@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "operation", "channel", "namespace", "carrierResolutionFile"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "operation": {"enum": ["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update"]},
+    "operation": {"enum": ["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force"]},
     "channel": {"type": "string", "pattern": "^[a-z0-9]{1,12}$", "not": {"const": "local"}},
     "namespace": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
     "carrierResolutionFile": {"type": "string", "minLength": 1},
@@ -15,6 +15,7 @@
     "channelHeadUrl": {"type": "string", "pattern": "^(https?|file)://"},
     "attachmentId": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
     "activationSource": {"enum": ["initial-bootstrap", "repair", "silent-policy", "user-restart"]}
+    ,"feedbackFile": {"type": "string", "minLength": 1}
   },
   "allOf": [
     {"if": {"properties": {"operation": {"not": {"const": "probe"}}}}, "then": {"required": ["storeRoot"]}},

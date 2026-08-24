@@ -4,7 +4,7 @@
   "title": "Shared Shell instance lifecycle v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scope", "state", "generationId", "instanceId", "references", "fence", "lease"],
+  "required": ["scope", "state", "generationId", "instanceId", "references", "occupants", "fence", "lease"],
   "properties": {
     "scope": {
       "type": "object",
@@ -19,6 +19,28 @@
     "generationId": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
     "instanceId": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._-]{1,128}$"},
     "references": {"type": "integer", "minimum": 0},
+    "occupants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attachmentId", "generationId", "shell"],
+        "properties": {
+          "attachmentId": {"type": "string"},
+          "generationId": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "shell": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "version", "digest"],
+            "properties": {
+              "type": {"type": "string"},
+              "version": {"type": "string"},
+              "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            }
+          }
+        }
+      }
+    },
     "fence": {"type": "integer", "minimum": 0},
     "lease": {
       "oneOf": [

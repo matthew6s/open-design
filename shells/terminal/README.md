@@ -55,12 +55,19 @@ gate for the real Sidecar transport and product lifecycle.
 Every runtime request carries an explicit `channel` and `namespace`. The phase-one
 fixture shared instance is keyed only by that pair and follows
 `contract/instance-lifecycle.schema.json`: reference attachment, heartbeat lease,
-fenced transitions and an explicit traditional stop signal. Shell auto-update is
-independently declared by `contract/shell-updater.schema.json`; Terminal publishes
-`unsupported` in phase one while the independent Standalone content updater is
-available. Neither capability exposes commands, executable paths or argv to
-the Web layer. Fossil rejection includes `installer-required`, which is the
-handoff used when release metadata requires a newer Shell.
+occupant projection, fenced transitions and an explicit traditional stop signal.
+Shell auto-update is independently declared by `contract/shell-updater.schema.json`.
+Terminal ships a non-user-facing fixture provider that exercises Electron's
+future check/download/progress/ready/defer/foreign-reference block/forced-stop
+installer handoff. Neither capability exposes commands, executable paths or argv
+to the Web layer. Fossil rejection distinguishes an installer requirement from
+an incompatible active Shell reference.
+
+Passing `--feedback <jsonl>` (`-Feedback` on PowerShell) records the complete
+Shell-to-Closure cold-start stream. Native Node verification is followed by
+Standalone blob resolution, sync preparation, activation, Closure readiness or
+rollback events. The JSONL stream is the reference surface for future Electron
+handlers; human-facing terminal presentation is deliberately minimal.
 
 ## Scene and distribution
 
@@ -75,6 +82,16 @@ Promotion always copies a scene through the target owner's
 metadata, writes the installed manifest, and produces a complete offline
 `tar.gz`/`zip`. The request/receipt schemas make these scripts callable by an
 external orchestrator without teaching that orchestrator the installed layout.
+
+`.github/workflows/release-exact.yml` is an independent validation and release
+line; it is not part of `ci.yml`. Its separate convergence declaration may
+restore a byte-verified, release-neutral target scene. A hit never promotes the
+cached directory directly: native distribution still copies the scene and adds
+release documents, then `.github/scripts/pack.py` creates signed content and
+Shell sidecars and `.github/scripts/release.py` performs immutable publication
+before the channel-scoped latest CAS. Convergence therefore knows only Git
+inputs, execution class and an opaque scene product; channel, version, trust,
+minimum Shell version and artifact URL remain promotion concerns.
 
 ## Focused verification
 
@@ -96,6 +113,9 @@ metadata and changed Closure bytes from it, so update coverage cannot pass by
 reusing only the installed seed blob. The same mutable
 `betahyx/latest/channel-head.json` object is promoted across two beta rounds;
 `previewhyx/latest` proves that another non-stable channel remains isolated.
+The fixture Shell updater additionally proves that a ready Electron installer is
+blocked by a live Terminal reference, can be deferred, and can take the explicit
+forced-stop handoff.
 Platform coverage is deliberately split between
 `tests/mac.test.ts` (`sh` + tar.gz) and `tests/win.test.ts` (Windows PowerShell
 5.1 + zip); `tests/contract.test.ts` owns the shared protocol assertions.

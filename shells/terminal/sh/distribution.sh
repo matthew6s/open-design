@@ -72,11 +72,13 @@ done
 printf '],"schemaVersion":1}\n' >> "$root/contract/index.json"
 
 shell_version=$(sed -n 's/^shell_version=//p' "$root/carrier.lock")
+shell_build_hash=$(plutil -extract shellBuildHash raw "$root/scene.json")
 node_version=$(sed -n 's/^node_version=//p' "$root/carrier.lock")
 node_executable=$(sed -n 's/^node_executable=//p' "$root/carrier.lock")
 node_sha=$(sed -n 's/^node_sha256=//p' "$root/carrier.lock")
 fossil_sha=$(sha256_file "$root/runtime/fossil.mjs")
 fixture_lifecycle_sha=$(sha256_file "$root/runtime/fixture-lifecycle.mjs")
+fixture_shell_updater_sha=$(sha256_file "$root/runtime/fixture-shell-updater.mjs")
 standalone_sha=$(sha256_file "$root/runtime/standalone/index.mjs")
 closure_sha=$(sha256_file "$root/seed/closure.mjs")
 content_sha=$(sha256_file "$root/release/content-metadata.json")
@@ -87,8 +89,8 @@ sh_terminal_sha=$(sha256_file "$root/sh/terminal.sh")
 sh_install_sha=$(sha256_file "$root/sh/install.sh")
 ps_terminal_sha=$(sha256_file "$root/ps1/terminal.ps1")
 ps_install_sha=$(sha256_file "$root/ps1/install.ps1")
-printf '{"capabilities":{"contentUpdater":"standalone-v1","sharedInstance":"fixture-v1","shellUpdater":"unsupported"},"carrierLock":{"file":"carrier.lock","sha256":"%s"},"contracts":{"file":"contract/index.json","sha256":"%s"},"fixtureLifecycle":{"entrypoint":"runtime/fixture-lifecycle.mjs","sha256":"%s"},"fossil":{"entrypoint":"runtime/fossil.mjs","sha256":"%s"},"releaseDocuments":{"content":{"file":"release/content-metadata.json","sha256":"%s"}},"runtime":{"executable":"%s","name":"node","sha256":"%s","version":"%s"},"schemaVersion":1,"seed":{"closure":{"file":"seed/closure.mjs","sha256":"%s"}},"shell":{"type":"terminal","version":"%s"},"shellFiles":{"ps1":{"install":{"file":"ps1/install.ps1","sha256":"%s"},"terminal":{"file":"ps1/terminal.ps1","sha256":"%s"}},"sh":{"install":{"file":"sh/install.sh","sha256":"%s"},"terminal":{"file":"sh/terminal.sh","sha256":"%s"}}},"standalone":{"entrypoint":"runtime/standalone/index.mjs","sha256":"%s"},"target":"%s","trust":{"file":"trust/keys.json","sha256":"%s"}}\n' \
-  "$carrier_lock_sha" "$contract_index_sha" "$fixture_lifecycle_sha" "$fossil_sha" "$content_sha" "$node_executable" "$node_sha" "$node_version" "$closure_sha" "$shell_version" "$ps_install_sha" "$ps_terminal_sha" "$sh_install_sha" "$sh_terminal_sha" "$standalone_sha" "$target" "$trust_sha" > "$root/install-manifest.json"
+printf '{"capabilities":{"contentUpdater":"standalone-v1","sharedInstance":"fixture-v1","shellUpdater":"fixture-v1"},"carrierLock":{"file":"carrier.lock","sha256":"%s"},"contracts":{"file":"contract/index.json","sha256":"%s"},"fixtureLifecycle":{"entrypoint":"runtime/fixture-lifecycle.mjs","sha256":"%s"},"fixtureShellUpdater":{"entrypoint":"runtime/fixture-shell-updater.mjs","sha256":"%s"},"fossil":{"entrypoint":"runtime/fossil.mjs","sha256":"%s"},"releaseDocuments":{"content":{"file":"release/content-metadata.json","sha256":"%s"}},"runtime":{"executable":"%s","name":"node","sha256":"%s","version":"%s"},"schemaVersion":1,"seed":{"closure":{"file":"seed/closure.mjs","sha256":"%s"}},"shell":{"buildHash":"%s","type":"terminal","version":"%s"},"shellFiles":{"ps1":{"install":{"file":"ps1/install.ps1","sha256":"%s"},"terminal":{"file":"ps1/terminal.ps1","sha256":"%s"}},"sh":{"install":{"file":"sh/install.sh","sha256":"%s"},"terminal":{"file":"sh/terminal.sh","sha256":"%s"}}},"standalone":{"entrypoint":"runtime/standalone/index.mjs","sha256":"%s"},"target":"%s","trust":{"file":"trust/keys.json","sha256":"%s"}}\n' \
+  "$carrier_lock_sha" "$contract_index_sha" "$fixture_lifecycle_sha" "$fixture_shell_updater_sha" "$fossil_sha" "$content_sha" "$node_executable" "$node_sha" "$node_version" "$closure_sha" "$shell_build_hash" "$shell_version" "$ps_install_sha" "$ps_terminal_sha" "$sh_install_sha" "$sh_terminal_sha" "$standalone_sha" "$target" "$trust_sha" > "$root/install-manifest.json"
 manifest_sha=$(sha256_file "$root/install-manifest.json")
 printf '%s  install-manifest.json\n' "$manifest_sha" > "$root/install-manifest.sha256"
 archive="$output/nexu-terminal-$target-$release_version.tar.gz"
