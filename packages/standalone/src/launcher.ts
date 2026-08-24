@@ -1,5 +1,7 @@
 import { compareVersions, StandaloneBootstrapError, type StandaloneShellIdentity } from "./protocol.js";
 import type { GenerationRecord, RuntimeBinding, StandaloneStore } from "./store.js";
+import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./feedback.js";
+import { randomUUID } from "node:crypto";
 
 export type LifecycleAttachment = { id: string; shell: StandaloneShellIdentity };
 export type LifecycleScope = { channel: string; namespace: string };
@@ -10,6 +12,7 @@ export type LifecycleStatus = {
   generationId: string | null;
   instanceId: string | null;
   references: number;
+  occupants: readonly Readonly<{ attachmentId: string; generationId: string; shell: StandaloneShellIdentity }>[];
   fence: number;
   lease: LifecycleLease | null;
 };
@@ -31,27 +34,47 @@ export class VersionedLauncher {
     private readonly lifecycle: LifecyclePort,
     shell: StandaloneShellIdentity,
     attachmentId: string,
+    feedback?: StandaloneFeedbackHandler,
   ) {
     this.attachment = { id: attachmentId, shell };
     this.scope = { channel: store.channel, namespace: store.namespace };
+    this.feedback = new StandaloneFeedbackEmitter(randomUUID(), this.scope, feedback);
   }
+
+  private readonly feedback: StandaloneFeedbackEmitter;
 
   async start(): Promise<LifecycleStatus> {
     const attempt = await this.store.beginActiveAttempt(this.attachment.shell);
+    this.feedback.emit({ phase: "closure-starting", state: "begin", generationId: attempt.generation.id });
     try {
+      const current = await this.lifecycle.status(this.scope);
+      for (const occupant of current.occupants) {
+        const minimum = attempt.generation.minimumShellVersions[occupant.shell.type];
+        if (minimum == null || compareVersions(occupant.shell.version, minimum) < 0) {
+          throw new StandaloneBootstrapError(
+            "shell-update-required",
+            minimum == null
+              ? `generation ${attempt.generation.id} does not support active ${occupant.shell.type} Shell`
+              : `active ${occupant.shell.type} Shell ${occupant.shell.version} is below required ${minimum}`,
+          );
+        }
+      }
       const status = await this.lifecycle.start(this.scope, attempt.generation, this.attachment);
       if (status.state !== "running" || status.generationId !== attempt.generation.id || status.references < 1) {
         throw new Error("lifecycle did not acknowledge the active generation attachment");
       }
       if (attempt.attempted) await this.store.confirmAttempt(attempt.binding);
+      this.feedback.emit({ phase: "closure-ready", state: "complete", generationId: attempt.generation.id });
       return status;
     } catch (error) {
       if (!attempt.attempted) throw error;
       const fallback = await this.store.rollbackFailedAttempt();
+      this.feedback.emit({ phase: "rollback", state: "begin", generationId: fallback?.id });
       if (fallback == null || fallback.id === attempt.generation.id) throw error;
       await this.stop();
       const recovered = await this.lifecycle.start(this.scope, fallback, this.attachment);
       if (recovered.state !== "running" || recovered.generationId !== fallback.id) throw error;
+      this.feedback.emit({ phase: "rollback", state: "complete", generationId: fallback.id });
       return recovered;
     }
   }

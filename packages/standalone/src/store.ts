@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -6,27 +6,41 @@ import {
   canonicalJson,
   compareVersions,
   EXACT_CHANNEL_PATTERN,
-  sha256Hex,
   validateShellIdentity,
   verifyStandaloneMetadata,
-  type ArtifactReference,
   type SignedStandaloneMetadata,
-  type StandaloneComponent,
+  type StandaloneMaterialization,
   type StandaloneShellIdentity,
   type StandaloneTrustedKeyRing,
 } from "./protocol.js";
+import { ensureStandaloneBlob, materializeStandaloneBlob, type StandaloneBlobCandidate } from "./blob.js";
+import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./feedback.js";
+import { withStandaloneMaintenanceLock } from "./maintenance.js";
 
-export type ArtifactReader = (artifact: ArtifactReference) => Promise<Uint8Array>;
+export type StandalonePrepareOptions = Readonly<{
+  candidates?: Readonly<Record<string, readonly StandaloneBlobCandidate[]>>;
+  feedback?: StandaloneFeedbackHandler;
+  fetch?: typeof globalThis.fetch;
+  signal?: AbortSignal;
+}>;
 
 export type GenerationRecord = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   id: string;
   channel: string;
   releaseVersion: string;
   standaloneVersion: string;
   sourceCommit: string;
   minimumShellVersions: Record<string, string>;
-  components: Record<string, { entrypoint: string; mode: "required" | "lazy"; path: string; sha256: string; size: number; url: string }>;
+  resources: Record<string, {
+    blobSha256: string;
+    entrypoint: string;
+    materialization: StandaloneMaterialization;
+    mediaType: string;
+    path: string;
+    size: number;
+    sync: true;
+  }>;
 };
 
 export type RuntimeBinding = { generationId: string; shell: StandaloneShellIdentity };
@@ -102,7 +116,6 @@ export class StandaloneStore {
   private get statePath(): string { return join(this.namespaceRoot, "state.json"); }
   private get stateLockPath(): string { return join(this.namespaceRoot, "state.lock"); }
   private generationPath(id: string): string { return join(this.root, "channels", this.channel, "generations", `${id}.json`); }
-  private blobPath(sha256: string): string { return join(this.root, "blobs", "sha256", sha256); }
 
   private async withStateTransaction<T>(operation: () => Promise<T>): Promise<T> {
     await mkdir(dirname(this.stateLockPath), { recursive: true });
@@ -149,52 +162,52 @@ export class StandaloneStore {
 
   async readGeneration(id: string): Promise<GenerationRecord> {
     const generation = await readJson<GenerationRecord>(this.generationPath(id));
-    if (generation.schemaVersion !== 2 || generation.id !== id || generation.channel !== this.channel) throw new Error(`invalid generation record: ${id}`);
+    if (generation.schemaVersion !== 3 || generation.id !== id || generation.channel !== this.channel) throw new Error(`invalid generation record: ${id}`);
     return generation;
   }
 
-  private async materialize(component: StandaloneComponent, readArtifact: ArtifactReader): Promise<string> {
-    const destination = this.blobPath(component.artifact.sha256);
-    try {
-      const existing = await readFile(destination);
-      if (existing.byteLength !== component.artifact.size || sha256Hex(existing) !== component.artifact.sha256) throw new Error(`existing blob failed verification: ${component.name}`);
-      return destination;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const bytes = await readArtifact(component.artifact);
-    if (bytes.byteLength !== component.artifact.size) throw new Error(`artifact size mismatch: ${component.name}`);
-    if (sha256Hex(bytes) !== component.artifact.sha256) throw new Error(`artifact digest mismatch: ${component.name}`);
-    await mkdir(dirname(destination), { recursive: true });
-    const temporary = `${destination}.${process.pid}.${Date.now()}.${atomicSequence++}.tmp`;
-    await writeFile(temporary, bytes, { flag: "wx" });
-    try {
-      try { await rename(temporary, destination); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
-    } finally { await unlink(temporary).catch(() => undefined); }
-    const installed = await readFile(destination);
-    if (installed.byteLength !== component.artifact.size || sha256Hex(installed) !== component.artifact.sha256) throw new Error(`materialized blob failed verification: ${component.name}`);
-    return destination;
-  }
-
-  async prepare(envelope: SignedStandaloneMetadata, trustedKeys: StandaloneTrustedKeyRing, readArtifact: ArtifactReader): Promise<GenerationRecord> {
+  async prepare(envelope: SignedStandaloneMetadata, trustedKeys: StandaloneTrustedKeyRing, options: StandalonePrepareOptions = {}): Promise<GenerationRecord> {
     verifyStandaloneMetadata(envelope, trustedKeys);
     if (envelope.metadata.channel !== this.channel) throw new Error(`metadata channel ${envelope.metadata.channel} escaped Store channel ${this.channel}`);
-    const id = sha256Hex(canonicalJson(envelope.metadata));
-    const components: GenerationRecord["components"] = {};
-    for (const component of envelope.metadata.components) {
-      const path = component.mode === "required" ? await this.materialize(component, readArtifact) : this.blobPath(component.artifact.sha256);
-      components[component.name] = { entrypoint: component.artifact.entrypoint, mode: component.mode, path, sha256: component.artifact.sha256, size: component.artifact.size, url: component.artifact.url };
+    return withStandaloneMaintenanceLock(this.root, () => this.prepareVerified(envelope, options));
+  }
+
+  private async prepareVerified(envelope: SignedStandaloneMetadata, options: StandalonePrepareOptions): Promise<GenerationRecord> {
+    const id = createHash("sha256").update(canonicalJson(envelope.metadata)).digest("hex");
+    const feedback = new StandaloneFeedbackEmitter(randomUUID(), { channel: this.channel, namespace: this.namespace }, options.feedback);
+    const syncBlobs = new Set(envelope.metadata.resources.map((resource) => resource.blob));
+    feedback.emit({ phase: "sync-planning", state: "complete", generationId: id, totalBytes: [...syncBlobs].reduce((total, digest) => total + envelope.metadata.blobs[digest]!.size, 0) });
+    const resources: GenerationRecord["resources"] = {};
+    for (const resource of envelope.metadata.resources) {
+      const blob = envelope.metadata.blobs[resource.blob]!;
+      const ensured = await ensureStandaloneBlob(this.root, blob, {
+        candidates: options.candidates?.[blob.sha256],
+        ...(options.fetch == null ? {} : { fetch: options.fetch }),
+        ...(options.signal == null ? {} : { signal: options.signal }),
+        feedback,
+        resourceId: resource.id,
+      });
+      const materialized = await materializeStandaloneBlob(this.root, blob, ensured.path, resource.materialization, { feedback, resourceId: resource.id });
+      resources[resource.id] = {
+        blobSha256: blob.sha256,
+        entrypoint: materialized.entrypoint,
+        materialization: resource.materialization,
+        mediaType: blob.mediaType,
+        path: materialized.path,
+        size: blob.size,
+        sync: true,
+      };
     }
+    feedback.emit({ phase: "sync-ready", state: "complete", generationId: id });
     const generation: GenerationRecord = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id,
       channel: envelope.metadata.channel,
       releaseVersion: envelope.metadata.releaseVersion,
       standaloneVersion: envelope.metadata.standaloneVersion,
       sourceCommit: envelope.metadata.sourceCommit,
       minimumShellVersions: Object.fromEntries(envelope.metadata.shellRequirements.map(({ type, minVersion }) => [type, minVersion])),
-      components,
+      resources,
     };
     await writeJsonAtomic(this.generationPath(id), generation);
     await this.withStateTransaction(async () => {
@@ -202,6 +215,7 @@ export class StandaloneStore {
       if (state.attempt != null) throw new Error("cannot replace prepared generation during an unfinished activation attempt");
       await writeJsonAtomic(this.statePath, { ...state, prepared: id, activationIntent: null });
     });
+    feedback.emit({ phase: "generation-prepared", state: "complete", generationId: id });
     return generation;
   }
 
@@ -297,10 +311,10 @@ export class StandaloneStore {
     return state.lastSuccessful == null ? null : this.readGeneration(state.lastSuccessful.generationId);
   }
 
-  async resolveComponent(name: string, readArtifact: ArtifactReader): Promise<string> {
+  async resolveResource(name: string): Promise<string> {
     const generation = await this.activeGeneration();
-    const component = generation.components[name];
-    if (component == null) throw new Error(`unknown standalone component: ${name}`);
-    return this.materialize({ name, mode: component.mode, artifact: { entrypoint: component.entrypoint, sha256: component.sha256, size: component.size, url: component.url } }, readArtifact);
+    const resource = generation.resources[name];
+    if (resource == null) throw new Error(`unknown standalone resource: ${name}`);
+    return resource.entrypoint;
   }
 }

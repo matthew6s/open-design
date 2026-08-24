@@ -9,13 +9,14 @@ import {
   type StandaloneShellIdentity,
   type StandaloneTrustedKeyRing,
 } from "./protocol.js";
-import { type ActivationSource, type ArtifactReader, type GenerationRecord, StandaloneStore } from "./store.js";
+import { type ActivationSource, type GenerationRecord, type StandalonePrepareOptions, StandaloneStore } from "./store.js";
 import { FossilBootloader, type LifecycleStatus, type VersionedLauncher } from "./launcher.js";
+import type { StandaloneFeedbackHandler } from "./feedback.js";
 
 export type StandaloneUpdateSource = {
   readChannelHead(channel: string): Promise<SignedStandaloneChannelHead>;
   readDocument(url: string): Promise<Uint8Array>;
-  readArtifact: ArtifactReader;
+  prepare?: Omit<StandalonePrepareOptions, "feedback">;
 };
 
 export type UpdatePreparation =
@@ -50,6 +51,7 @@ export class StandaloneUpdater {
     private readonly trustedKeys: StandaloneTrustedKeyRing,
     private readonly store: StandaloneStore,
     private readonly source: StandaloneUpdateSource,
+    private readonly feedback?: StandaloneFeedbackHandler,
   ) {}
 
   async prepareLatest(activationSource?: ActivationSource): Promise<UpdatePreparation> {
@@ -88,7 +90,7 @@ export class StandaloneUpdater {
         if (state.active?.generationId === id) return { status: "current", generationId: id };
       }
     }
-    const generation = await this.store.prepare(envelope, this.trustedKeys, this.source.readArtifact);
+    const generation = await this.store.prepare(envelope, this.trustedKeys, { ...this.source.prepare, feedback: this.feedback });
     if (activationSource != null) await this.store.authorizePrepared(activationSource);
     return { status: "prepared", generation, authorized: activationSource != null };
   }

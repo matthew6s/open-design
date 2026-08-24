@@ -1,19 +1,36 @@
 import { createHash, sign, verify, type KeyLike } from "node:crypto";
 
-export const STANDALONE_METADATA_SCHEMA = 2 as const;
+export const STANDALONE_METADATA_SCHEMA = 3 as const;
+export const STANDALONE_SHELL_METADATA_SCHEMA = 1 as const;
 export const STANDALONE_CHANNEL_HEAD_SCHEMA = 1 as const;
 export const STANDALONE_SIGNATURE_ALGORITHM = "Ed25519" as const;
 export const EXACT_CHANNEL_PATTERN = /^[a-z0-9]{1,12}$/;
 export const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
-export type ComponentMode = "required" | "lazy";
 export type ArtifactReference = { sha256: string; size: number; url: string };
-export type StandaloneComponent = {
-  name: string;
-  mode: ComponentMode;
-  artifact: ArtifactReference & { entrypoint: string };
-};
-export type StandaloneShellRequirement = { type: string; minVersion: string };
+export type StandaloneBlobSource = Readonly<{ kind: "remote"; url: string }>;
+export type StandaloneBlob = Readonly<{
+  sha256: string;
+  size: number;
+  mediaType: string;
+  sources: readonly StandaloneBlobSource[];
+}>;
+export type StandaloneMaterialization =
+  | Readonly<{ type: "file"; entrypoint: string }>
+  | Readonly<{ type: "zip"; entrypoint: string; treeSha256: string }>;
+export type StandaloneResource = Readonly<{
+  id: string;
+  blob: string;
+  sync: true;
+  materialization: StandaloneMaterialization;
+}>;
+export type StandaloneResourceContribution = Readonly<{
+  id: string;
+  sync: true;
+  blob: StandaloneBlob;
+  materialization: StandaloneMaterialization;
+}>;
+export type StandaloneShellRequirement = { type: string; minVersion: string; buildHash: string };
 export type StandaloneShellIdentity = { type: string; version: string; digest: string };
 export type StandaloneMetadata = {
   schemaVersion: typeof STANDALONE_METADATA_SCHEMA;
@@ -22,7 +39,8 @@ export type StandaloneMetadata = {
   standaloneVersion: string;
   sourceCommit: string;
   publishedAt: string;
-  components: StandaloneComponent[];
+  blobs: Record<string, StandaloneBlob>;
+  resources: StandaloneResource[];
   shellRequirements: StandaloneShellRequirement[];
 };
 export type StandaloneSignature = {
@@ -33,6 +51,25 @@ export type StandaloneSignature = {
 export type SignedStandaloneMetadata = { metadata: StandaloneMetadata; signatures: StandaloneSignature[] };
 export type SignedDocument<T> = { document: T; signatures: StandaloneSignature[] };
 export type StandaloneLaneReference = ArtifactReference & { releaseVersion: string };
+export type StandaloneShellDistribution = Readonly<{
+  shell: Readonly<{ type: string; version: string; buildHash: string }>;
+  target: string;
+  artifact: ArtifactReference & Readonly<{ mediaType: string }>;
+  updater?: Readonly<{
+    protocol: "standalone-shell-updater-v1";
+    handler: string;
+    interaction: "restart-and-install";
+  }>;
+}>;
+export type StandaloneShellMetadata = Readonly<{
+  schemaVersion: typeof STANDALONE_SHELL_METADATA_SCHEMA;
+  channel: string;
+  releaseVersion: string;
+  sourceCommit: string;
+  publishedAt: string;
+  distributions: readonly StandaloneShellDistribution[];
+}>;
+export type SignedStandaloneShellMetadata = Readonly<{ document: StandaloneShellMetadata; signatures: readonly StandaloneSignature[] }>;
 export type StandaloneChannelHead = {
   schemaVersion: typeof STANDALONE_CHANNEL_HEAD_SCHEMA;
   channel: string;
@@ -44,7 +81,7 @@ export type StandaloneSigner = { keyId: string; privateKey: KeyLike };
 export type StandaloneTrustedKeyRing = ReadonlyMap<string, KeyLike> | Readonly<Record<string, KeyLike>>;
 
 export class StandaloneBootstrapError extends Error {
-  constructor(readonly code: "installer-required" | "no-generation" | "runtime-unavailable", message: string) {
+  constructor(readonly code: "installer-required" | "no-generation" | "runtime-unavailable" | "shell-update-required", message: string) {
     super(message);
     this.name = "StandaloneBootstrapError";
   }
@@ -75,11 +112,21 @@ export function validateChannelRelease(channel: string, releaseVersion: string):
 }
 
 function validateVersion(value: string, label: string): void {
-  if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`invalid ${label}: ${value}`);
+  if (!/^\d+\.\d+\.\d+(?:-[0-9a-z]+(?:[.-][0-9a-z]+)*)?$/.test(value)) throw new Error(`invalid ${label}: ${value}`);
 }
 
 function validateDigest(value: string, label: string): void {
   if (!SHA256_PATTERN.test(value)) throw new Error(`invalid digest for ${label}`);
+}
+
+function validateToken(value: string, label: string): void {
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(value)) throw new Error(`invalid ${label}: ${value}`);
+}
+
+function validateRelativePath(value: string, label: string): void {
+  if (value.length === 0 || value.startsWith("/") || value.startsWith("\\") || value.split(/[\\/]/).includes("..")) {
+    throw new Error(`unsafe ${label}: ${value}`);
+  }
 }
 
 function validateArtifact(artifact: ArtifactReference, label: string, allowFile = false): void {
@@ -98,17 +145,56 @@ export function validateShellIdentity(identity: StandaloneShellIdentity): void {
 export function compareVersions(left: string, right: string): number {
   validateVersion(left, "version");
   validateVersion(right, "version");
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
-  for (let index = 0; index < a.length; index += 1) {
-    if (!Number.isSafeInteger(a[index]) || !Number.isSafeInteger(b[index])) throw new Error("version segment exceeds safe integer range");
-    if (a[index] !== b[index]) return a[index]! < b[index]! ? -1 : 1;
+  const split = (value: string) => {
+    const [core, prerelease] = value.split("-", 2);
+    return { core: core!.split(".").map(Number), prerelease: prerelease?.split(".") ?? null };
+  };
+  const a = split(left);
+  const b = split(right);
+  for (let index = 0; index < a.core.length; index += 1) {
+    if (!Number.isSafeInteger(a.core[index]) || !Number.isSafeInteger(b.core[index])) throw new Error("version segment exceeds safe integer range");
+    if (a.core[index] !== b.core[index]) return a.core[index]! < b.core[index]! ? -1 : 1;
+  }
+  if (a.prerelease == null || b.prerelease == null) return a.prerelease == null ? (b.prerelease == null ? 0 : 1) : -1;
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = a.prerelease[index];
+    const rightPart = b.prerelease[index];
+    if (leftPart == null || rightPart == null) return leftPart == null ? -1 : 1;
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : null;
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : null;
+    if (leftNumber != null && rightNumber != null) return leftNumber < rightNumber ? -1 : 1;
+    if (leftNumber != null || rightNumber != null) return leftNumber != null ? -1 : 1;
+    return leftPart < rightPart ? -1 : 1;
   }
   return 0;
 }
 
 export function minimumShellVersion(metadata: StandaloneMetadata, shellType: string): string | null {
   return metadata.shellRequirements.find(({ type }) => type === shellType)?.minVersion ?? null;
+}
+
+/**
+ * Preserve the first compatible Shell floor while its declared build remains
+ * identical. Missing or unreadable history fails conservatively to the current
+ * Shell version.
+ */
+export function deriveMinimumShellVersion(input: Readonly<{
+  buildHash: string;
+  currentVersion: string;
+  previous?: Readonly<{ buildHash: string; minVersion: string }> | null;
+}>): string {
+  validateDigest(input.buildHash, "Shell build hash");
+  validateVersion(input.currentVersion, "current Shell version");
+  if (input.previous == null || input.previous.buildHash !== input.buildHash) return input.currentVersion;
+  try {
+    validateDigest(input.previous.buildHash, "previous Shell build hash");
+    validateVersion(input.previous.minVersion, "previous minimum Shell version");
+    return compareVersions(input.previous.minVersion, input.currentVersion) <= 0 ? input.previous.minVersion : input.currentVersion;
+  } catch {
+    return input.currentVersion;
+  }
 }
 
 export function assertShellCompatibility(metadata: StandaloneMetadata, shell: StandaloneShellIdentity): void {
@@ -130,13 +216,36 @@ export function validateStandaloneMetadata(metadata: StandaloneMetadata): void {
   validateVersion(metadata.standaloneVersion, "standaloneVersion");
   if (!/^[a-f0-9]{40}$/.test(metadata.sourceCommit)) throw new Error("sourceCommit must be a full 40-character SHA");
   if (!Number.isFinite(Date.parse(metadata.publishedAt))) throw new Error("invalid publishedAt");
-  if (metadata.components.length === 0) throw new Error("metadata must contain at least one component");
-  const names = new Set<string>();
-  for (const component of metadata.components) {
-    if (!/^[a-z][a-z0-9-]{0,63}$/.test(component.name) || names.has(component.name)) throw new Error(`invalid or duplicate component: ${component.name}`);
-    names.add(component.name);
-    validateArtifact(component.artifact, component.name, true);
-    if (component.artifact.entrypoint.startsWith("/") || component.artifact.entrypoint.split(/[\\/]/).includes("..")) throw new Error(`unsafe entrypoint for ${component.name}`);
+  const blobEntries = Object.entries(metadata.blobs);
+  if (blobEntries.length === 0) throw new Error("metadata must declare at least one blob");
+  for (const [key, blob] of blobEntries) {
+    validateDigest(key, "blob key");
+    validateDigest(blob.sha256, "blob");
+    if (key !== blob.sha256) throw new Error(`blob catalog key does not match descriptor: ${key}`);
+    if (!Number.isSafeInteger(blob.size) || blob.size < 0) throw new Error(`invalid blob size: ${key}`);
+    if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(blob.mediaType)) throw new Error(`invalid blob media type: ${blob.mediaType}`);
+    if (blob.sources.length === 0) throw new Error(`blob has no source: ${key}`);
+    for (const source of blob.sources) {
+      if (source.kind !== "remote" || !/^https?:\/\//.test(source.url)) throw new Error(`invalid blob source: ${key}`);
+    }
+  }
+  if (metadata.resources.length === 0) throw new Error("metadata must declare at least one resource");
+  const resourceIds = new Set<string>();
+  const referenced = new Set<string>();
+  for (const resource of metadata.resources) {
+    validateToken(resource.id, "resource id");
+    if (resourceIds.has(resource.id)) throw new Error(`duplicate resource: ${resource.id}`);
+    resourceIds.add(resource.id);
+    validateDigest(resource.blob, `${resource.id} blob`);
+    if (metadata.blobs[resource.blob] == null) throw new Error(`resource references unknown blob: ${resource.id}`);
+    referenced.add(resource.blob);
+    if (resource.sync !== true) throw new Error(`resource must explicitly declare sync: ${resource.id}`);
+    validateRelativePath(resource.materialization.entrypoint, `${resource.id} entrypoint`);
+    if (resource.materialization.type === "zip") validateDigest(resource.materialization.treeSha256, `${resource.id} tree`);
+    else if (resource.materialization.type !== "file") throw new Error(`unsupported materialization: ${resource.id}`);
+  }
+  for (const digest of Object.keys(metadata.blobs)) {
+    if (!referenced.has(digest)) throw new Error(`metadata contains unused blob: ${digest}`);
   }
   if (metadata.shellRequirements.length === 0) throw new Error("metadata must declare at least one Shell requirement");
   const shellTypes = new Set<string>();
@@ -144,7 +253,30 @@ export function validateStandaloneMetadata(metadata: StandaloneMetadata): void {
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(requirement.type) || shellTypes.has(requirement.type)) throw new Error(`invalid or duplicate Shell requirement: ${requirement.type}`);
     shellTypes.add(requirement.type);
     validateVersion(requirement.minVersion, `${requirement.type} min Shell version`);
+    validateDigest(requirement.buildHash, `${requirement.type} Shell build hash`);
   }
+}
+
+/** Merge app/target contributions into the canonical channel blob graph. */
+export function mergeStandaloneResourceContributions(
+  contributions: readonly StandaloneResourceContribution[],
+): Readonly<{ blobs: Record<string, StandaloneBlob>; resources: readonly StandaloneResource[] }> {
+  const blobs: Record<string, StandaloneBlob> = {};
+  const resources: StandaloneResource[] = [];
+  const ids = new Set<string>();
+  for (const contribution of [...contributions].sort((left, right) => left.id.localeCompare(right.id))) {
+    validateToken(contribution.id, "resource contribution id");
+    if (ids.has(contribution.id)) throw new Error(`duplicate resource contribution: ${contribution.id}`);
+    ids.add(contribution.id);
+    const current = blobs[contribution.blob.sha256];
+    if (current != null && canonicalJson(current) !== canonicalJson(contribution.blob)) {
+      throw new Error(`conflicting blob contribution: ${contribution.blob.sha256}`);
+    }
+    blobs[contribution.blob.sha256] = contribution.blob;
+    resources.push({ id: contribution.id, blob: contribution.blob.sha256, sync: true, materialization: contribution.materialization });
+  }
+  if (resources.length === 0) throw new Error("at least one resource contribution is required");
+  return Object.freeze({ blobs, resources: Object.freeze(resources) });
 }
 
 export function validateStandaloneChannelHead(head: StandaloneChannelHead): void {
@@ -157,6 +289,32 @@ export function validateStandaloneChannelHead(head: StandaloneChannelHead): void
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) throw new Error(`invalid channel lane: ${name}`);
     validateChannelRelease(head.channel, lane.releaseVersion);
     validateArtifact(lane, `${name} lane`);
+  }
+}
+
+export function validateStandaloneShellMetadata(metadata: StandaloneShellMetadata): void {
+  if (metadata.schemaVersion !== STANDALONE_SHELL_METADATA_SCHEMA) throw new Error("unsupported standalone Shell metadata schema");
+  validateChannelRelease(metadata.channel, metadata.releaseVersion);
+  if (!/^[a-f0-9]{40}$/.test(metadata.sourceCommit)) throw new Error("Shell metadata sourceCommit must be a full 40-character SHA");
+  if (!Number.isFinite(Date.parse(metadata.publishedAt))) throw new Error("invalid Shell metadata publishedAt");
+  if (metadata.distributions.length === 0) throw new Error("Shell metadata must declare at least one distribution");
+  const identities = new Set<string>();
+  for (const distribution of metadata.distributions) {
+    validateToken(distribution.shell.type, "Shell distribution type");
+    validateVersion(distribution.shell.version, `${distribution.shell.type} distribution version`);
+    validateDigest(distribution.shell.buildHash, `${distribution.shell.type} distribution build hash`);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(distribution.target)) throw new Error(`invalid Shell distribution target: ${distribution.target}`);
+    const identity = `${distribution.shell.type}/${distribution.target}`;
+    if (identities.has(identity)) throw new Error(`duplicate Shell distribution: ${identity}`);
+    identities.add(identity);
+    validateArtifact(distribution.artifact, `${identity} distribution`);
+    if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(distribution.artifact.mediaType)) throw new Error(`invalid Shell distribution media type: ${identity}`);
+    if (distribution.updater != null) {
+      if (distribution.updater.protocol !== "standalone-shell-updater-v1" || distribution.updater.interaction !== "restart-and-install") {
+        throw new Error(`unsupported Shell updater contract: ${identity}`);
+      }
+      validateToken(distribution.updater.handler, `${identity} updater handler`);
+    }
   }
 }
 
@@ -211,6 +369,16 @@ export function verifyDocument<T>(envelope: SignedDocument<T>, ring: StandaloneT
 export function signStandaloneChannelHead(head: StandaloneChannelHead, signers: readonly StandaloneSigner[]): SignedStandaloneChannelHead {
   validateStandaloneChannelHead(head);
   return { head, signatures: signValue(head, signers) };
+}
+
+export function signStandaloneShellMetadata(metadata: StandaloneShellMetadata, signers: readonly StandaloneSigner[]): SignedStandaloneShellMetadata {
+  validateStandaloneShellMetadata(metadata);
+  return { document: metadata, signatures: signValue(metadata, signers) };
+}
+
+export function verifyStandaloneShellMetadata(envelope: SignedStandaloneShellMetadata, ring: StandaloneTrustedKeyRing): string {
+  validateStandaloneShellMetadata(envelope.document);
+  return verifyValue(envelope.document, envelope.signatures, ring);
 }
 
 export function verifyStandaloneChannelHead(envelope: SignedStandaloneChannelHead, ring: StandaloneTrustedKeyRing): string {
