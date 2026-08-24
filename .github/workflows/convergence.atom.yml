@@ -1,11 +1,11 @@
 name: convergence.atom
 
 # Atomic capability: publish immutable reusable workload results only after a
-# successful ci run. All validation and R2 writes execute trusted default-branch
+# successful declared producer run. All validation and R2 writes execute trusted default-branch
 # Python; pull-request code is treated solely as data.
 on:
   workflow_run:
-    workflows: [ci]
+    workflows: [ci, release-exact]
     types: [completed]
 
 permissions:
@@ -22,12 +22,20 @@ jobs:
     if: >-
       ${{
         github.repository == 'nexu-io/open-design'
-        && github.event.workflow_run.name == 'ci'
         && github.event.workflow_run.conclusion == 'success'
         && github.event.workflow_run.head_repository.full_name == github.repository
         && (
-          github.event.workflow_run.event == 'pull_request'
-          || github.event.workflow_run.event == 'merge_group'
+          (
+            github.event.workflow_run.name == 'ci'
+            && (
+              github.event.workflow_run.event == 'pull_request'
+              || github.event.workflow_run.event == 'merge_group'
+            )
+          )
+          || (
+            github.event.workflow_run.name == 'release-exact'
+            && github.event.workflow_run.event == 'workflow_dispatch'
+          )
         )
       }}
     runs-on: ubuntu-24.04
@@ -42,15 +50,22 @@ jobs:
           fetch-depth: 1
 
       - name: Check trusted convergence contracts
+        env:
+          PRODUCER_WORKFLOW: ${{ github.event.workflow_run.name }}
         run: |
           python3 .github/scripts/handoff.py self-check
-          python3 .github/scripts/convergence.py validate
+          if [ "$PRODUCER_WORKFLOW" = "release-exact" ]; then
+            python3 .github/scripts/convergence.py --config .github/config/convergence-exact.json validate
+          else
+            python3 .github/scripts/convergence.py validate
+          fi
 
       - name: Resolve convergence handoff
         id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/handoff.py resolve-run-artifact convergence ci-results
+          HANDOFF_ID: ${{ github.event.workflow_run.name == 'release-exact' && 'exact-scenes' || 'ci-results' }}
+        run: python3 .github/scripts/handoff.py resolve-run-artifact convergence "$HANDOFF_ID"
 
       - name: Download convergence handoff
         if: ${{ steps.artifact.outputs.found == 'true' }}
@@ -64,9 +79,14 @@ jobs:
       - name: Validate producing run and control plane
         if: ${{ steps.artifact.outputs.found == 'true' }}
         id: trust
-        run: >-
-          python3 .github/scripts/convergence.py admit
-          --handoff-root "$RUNNER_TEMP/handoff-convergence"
+        env:
+          PRODUCER_WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          config=()
+          if [ "$PRODUCER_WORKFLOW" = "release-exact" ]; then
+            config=(--config .github/config/convergence-exact.json)
+          fi
+          python3 .github/scripts/convergence.py "${config[@]}" admit --handoff-root "$RUNNER_TEMP/handoff-convergence"
 
       - name: Resolve publication configuration
         if: ${{ steps.trust.outputs.publish == 'true' }}

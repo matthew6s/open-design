@@ -40,6 +40,7 @@ const commentWorkflowPath = join(workspaceRoot, ".github", "workflows", "comment
 const autofixWorkflowPath = join(workspaceRoot, ".github", "workflows", "autofix.atom.yml");
 const reportWorkflowPath = join(workspaceRoot, ".github", "workflows", "report.atom.yml");
 const convergenceWorkflowPath = join(workspaceRoot, ".github", "workflows", "convergence.atom.yml");
+const releaseExactWorkflowPath = join(workspaceRoot, ".github", "workflows", "release-exact.yml");
 const contributorMaintainerCheckWorkflowPath = join(
   workspaceRoot,
   ".github",
@@ -2202,9 +2203,11 @@ process.stdin.on("end", () => {
     expect(handoffScript).toContain("def self_check()");
     expect(handoffScript).toContain('"report"');
     expect(handoffScript).toContain('"convergence"');
-    expect(convergenceWorkflow).toContain("handoff.py resolve-run-artifact convergence ci-results");
+    expect(convergenceWorkflow).toContain("handoff.py resolve-run-artifact convergence \"$HANDOFF_ID\"");
+    expect(convergenceWorkflow).toContain("workflows: [ci, release-exact]");
+    expect(convergenceWorkflow).toContain("github.event.workflow_run.event == 'workflow_dispatch'");
     expect(convergenceWorkflow).toContain("Checkout trusted convergence code");
-    expect(convergenceWorkflow).toContain("convergence.py admit");
+    expect(convergenceWorkflow).toContain("admit --handoff-root");
     expect(convergenceWorkflow).toContain("python3 .github/scripts/convergence.py publish");
     expect(convergenceWorkflow).toContain("convergence.py stage-products");
     expect(convergenceWorkflow).toContain("convergence.py storage-status");
@@ -2231,6 +2234,31 @@ process.stdin.on("end", () => {
       expect(workflow).not.toContain("--field body=\"$(cat");
       expect(workflow).not.toContain("--field \"body=$(cat");
     }
+  });
+
+  it("[P1] keeps exact Terminal validation independent from main CI and promotes converged scenes", async () => {
+    const [ciWorkflow, workflow] = await Promise.all([
+      readFile(ciWorkflowPath, "utf8"),
+      readFile(releaseExactWorkflowPath, "utf8"),
+    ]);
+    expect(ciWorkflow).not.toContain("terminal_scene");
+    expect(ciWorkflow).not.toContain("release-exact");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("--config .github/config/convergence-exact.json");
+    expect(workflow).toContain("--mode enforce");
+    expect(workflow).toContain("terminal_scene_darwin_arm64");
+    expect(workflow).toContain("terminal_scene_win32_x64");
+    expect(workflow).toContain("Build Darwin Terminal scene");
+    expect(workflow).toContain("Build Windows Terminal scene");
+    expect(workflow).toContain("Compose and sign content metadata");
+    expect(workflow).toContain("Build Darwin distribution");
+    expect(workflow).toContain("Build Windows distribution");
+    expect(workflow).toContain("Finalize signed Shell sidecar and channel head");
+    expect(workflow).toContain("release.py --request");
+    expect(workflow).toContain("convergence.py");
+    expect(workflow).toContain("--id exact-scenes");
+    expect(workflow.indexOf("Restore converged scene")).toBeLessThan(workflow.indexOf("Build release-neutral scene inputs"));
+    expect(workflow.indexOf("Compose and sign content metadata")).toBeLessThan(workflow.indexOf("Build Darwin distribution"));
   });
 
   it("[P1] keeps workload policy above the narrow Python R2 transport", async () => {

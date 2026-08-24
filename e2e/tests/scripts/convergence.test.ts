@@ -199,6 +199,38 @@ describe("workload convergence", () => {
     expect(readFileSync(outputPath, "utf8")).toContain("publish=true");
   });
 
+  test("binds a manual release producer to its checked-out tree", () => {
+    const fixture = createRepository();
+    runPlan(fixture);
+    const eventPath = path.join(fixture.root, "dispatch-event.json");
+    const outputPath = path.join(fixture.root, "dispatch-output.txt");
+    const handoffRoot = path.join(fixture.root, "dispatch-handoff");
+    const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.root, encoding: "utf8" }).trim();
+    writeFileSync(eventPath, JSON.stringify({ repository: { id: 42, full_name: "example/repo" }, inputs: { source_sha: sourceSha } }));
+    writeFileSync(outputPath, "");
+    execFileSync("python3", [
+      convergenceScript, "--root", fixture.root, "--config", fixture.configPath,
+      "handoff", "--pending", fixture.pendingPath,
+      "--products-root", path.join(fixture.root, "products"),
+      "--handoff-root", handoffRoot,
+      "--id", "dispatch-results",
+    ], {
+      cwd: fixture.root,
+      env: {
+        ...process.env,
+        GITHUB_EVENT_NAME: "workflow_dispatch",
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_REPOSITORY_ID: "42",
+        GITHUB_RUN_ID: "13",
+        GITHUB_RUN_ATTEMPT: "1",
+        GITHUB_OUTPUT: outputPath,
+      },
+    });
+    const metadata = JSON.parse(readFileSync(path.join(handoffRoot, "handoff", "convergence", "dispatch-results", "metadata.json"), "utf8"));
+    expect(metadata).toMatchObject({ event: "workflow_dispatch", head_sha: sourceSha, base_sha: sourceSha, tree_sha: expect.stringMatching(/^[a-f0-9]{40}$/) });
+  });
+
   test("rejects dependency cycles and dangling suites before planning", () => {
     const fixture = createRepository();
     const config = JSON.parse(readFileSync(fixture.configPath, "utf8")) as any;
