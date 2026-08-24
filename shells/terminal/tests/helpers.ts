@@ -83,14 +83,14 @@ function startToolsServeReleaseStorage(root: string): string {
   throw new Error(`tools-serve release-storage did not start:\n${readFileSync(stderrFile, "utf8")}`);
 }
 
-function publishFixtureFile(baseUrl: string, file: string): void {
+function publishFixtureFile(baseUrl: string, file: string, key = encodeURIComponent(basename(file))): void {
   const source = `
 const fs = require("node:fs");
 fetch(process.argv[1], { method: "PUT", body: fs.readFileSync(process.argv[2]) })
   .then((response) => { if (!response.ok) throw new Error(String(response.status)); })
   .catch((error) => { console.error(error); process.exitCode = 1; });
 `;
-  run(process.execPath, ["-e", source, `${baseUrl}/${encodeURIComponent(basename(file))}`, file]);
+  run(process.execPath, ["-e", source, `${baseUrl}/${key}`, file]);
 }
 
 function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
@@ -118,12 +118,10 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
     } }, [signer]);
     const headFile = join(root, `${releaseVersion}-head.json`);
     writeFileSync(headFile, canonicalJson(head));
-    const headUrl = `${baseUrl}/${encodeURIComponent(basename(headFile))}`;
     return {
       artifactFile,
       artifactSha256: sha256Hex(artifactBytes),
       headFile,
-      headUrl,
       metadataFile,
       release: { channel, releaseVersion, sourceCommit: metadata.sourceCommit, publishedAt: metadata.publishedAt, artifactBaseUrl: baseUrl },
     };
@@ -137,13 +135,20 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
     beta2: create("betahyx", "0.1.0-betahyx.2", "0.1.0", beta2),
     beta3: create("betahyx", "0.1.0-betahyx.3", "0.2.0", beta3),
     preview1: create("previewhyx", "0.1.0-previewhyx.1", "0.1.0", preview1),
+    latestUrls: {
+      betahyx: `${baseUrl}/betahyx/latest/channel-head.json`,
+      previewhyx: `${baseUrl}/previewhyx/latest/channel-head.json`,
+    },
   };
   for (const release of [releases.beta1, releases.beta2, releases.beta3, releases.preview1]) {
     publishFixtureFile(baseUrl, release.artifactFile);
     publishFixtureFile(baseUrl, release.metadataFile);
-    publishFixtureFile(baseUrl, release.headFile);
   }
-  return releases;
+  const promote = (release: typeof releases.beta1) => {
+    publishFixtureFile(baseUrl, release.headFile, `${release.release.channel}/latest/channel-head.json`);
+  };
+  promote(releases.beta1);
+  return { ...releases, promote };
 }
 
 export function prepareExactFixture(target: string) {
@@ -173,12 +178,15 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a" }).result.references).toBe(1);
   expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-b" }).result).toMatchObject({ state: "running", references: 0 });
   expect(terminal(root, store, "betahyx", "shared", "stop").result.state).toBe("stopped");
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.beta2.headUrl, activationSource: "silent-policy" }).result).toMatchObject({ status: "prepared", authorized: true });
+  releases.promote(releases.beta2);
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationSource: "silent-policy" }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
   expect(applied.result).toMatchObject({ state: "running" });
   expect(applied.result.generationId).not.toBe(first.result.generationId);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.beta3.headUrl }).result).toMatchObject({ status: "shell-reinstall-required", minimumVersion: "0.2.0" });
-  expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.preview1.headUrl, activationSource: "user-restart" }).result).toMatchObject({ status: "prepared", authorized: true });
+  releases.promote(releases.beta3);
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx }).result).toMatchObject({ status: "shell-reinstall-required", minimumVersion: "0.2.0" });
+  releases.promote(releases.preview1);
+  expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationSource: "user-restart" }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ state: "running", scope: { channel: "previewhyx", namespace: "shared" } });
 }

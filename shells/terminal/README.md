@@ -93,6 +93,9 @@ offline distribution, cold lifecycle, update, channel isolation, atomic install
 and tamper failure. The native E2E starts the existing
 `tools-serve start release-storage` fixture and fetches channel heads, signed
 metadata and changed Closure bytes from it, so update coverage cannot pass by
-reusing only the installed seed blob. Platform coverage is deliberately split between
+reusing only the installed seed blob. The same mutable
+`betahyx/latest/channel-head.json` object is promoted across two beta rounds;
+`previewhyx/latest` proves that another non-stable channel remains isolated.
+Platform coverage is deliberately split between
 `tests/mac.test.ts` (`sh` + tar.gz) and `tests/win.test.ts` (Windows PowerShell
 5.1 + zip); `tests/contract.test.ts` owns the shared protocol assertions.
