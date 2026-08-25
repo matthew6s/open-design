@@ -6,10 +6,10 @@ Node runtime.
 
 The native carrier has one deliberately small job: verify and install the pinned
 official Node carrier, verify the installed Terminal manifest and executable,
-then invoke `runtime/fossil.mjs` with that absolute executable. The archive also
-contains the non-product `runtime/fixture-sidecar.mjs`; the fossil adapter
-validates the exchange contract and delegates lifecycle work to the installed
-`@open-design/standalone` artifact.
+then invoke `runtime/fossil.mjs` with that absolute executable. The E2E-only
+Sidecar host lives outside the archive under `e2e/lib/terminal-exact`; the fossil
+adapter validates its exchange contract and delegates lifecycle work to the
+installed `@open-design/standalone` artifact.
 
 The authoritative release artifact is a complete offline archive. Its digest is
 the immutable download identity. Once installed, the exact bytes of

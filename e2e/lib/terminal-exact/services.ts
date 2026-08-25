@@ -18,15 +18,15 @@ export async function startReleaseStorage(scope: ExactProcessScope): Promise<Rel
 
 export async function startFixtureSidecar(
   scope: ExactProcessScope,
-  installRoot: string,
-  storeRoot: string,
+  input: Readonly<{ standalonePath: string; storeRoot: string }>,
 ): Promise<Readonly<{ child: ChildProcess; endpointUrl: string }>> {
   const started = await startJsonProcess<{ endpointUrl: string } & Json>(scope, {
-    command: join(installRoot, "carrier/node/bin/node"),
+    command: process.execPath,
     args: [
-      join(installRoot, "runtime/fixture-sidecar.mjs"),
-      "--store-root", storeRoot,
-      "--standalone", join(installRoot, "runtime/standalone/index.mjs"),
+      "--import", "tsx",
+      join(workspaceRoot, "e2e/lib/terminal-exact/sidecar/host.ts"),
+      "--store-root", input.storeRoot,
+      "--standalone", input.standalonePath,
       "--port", "0",
     ],
     label: "fixture Sidecar",

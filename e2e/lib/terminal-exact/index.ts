@@ -8,4 +8,5 @@ export * from "./carrier.js";
 export * from "./process.js";
 export * from "./publication.js";
 export * from "./services.js";
+export * from "./sidecar/handlers.js";
 export * from "./support.js";

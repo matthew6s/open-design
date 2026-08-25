@@ -66,7 +66,6 @@ export function expectedShellBuildHash(scene: string, target: string, nodeArchiv
     `carrier_lock=${digest("carrier.lock")}`,
     `fixture_lifecycle=${digest("runtime/fixture-lifecycle.mjs")}`,
     `fixture_shell_updater=${digest("runtime/fixture-shell-updater.mjs")}`,
-    `fixture_sidecar=${digest("runtime/fixture-sidecar.mjs")}`,
     `fossil=${digest("runtime/fossil.mjs")}`,
     `node_archive=${nodeArchiveSha256}`,
     `node_executable=${digest(nodeExecutable)}`,

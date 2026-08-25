@@ -62,7 +62,10 @@ describe("local exact Terminal release line", () => {
       await chmod(join(installRoot, "sh/terminal.sh"), 0o755);
       const store = join(root, "store");
       const feedbackFile = join(root, "feedback.jsonl");
-      const initialSidecar = await startFixtureSidecar(processScope, installRoot, store);
+      const initialSidecar = await startFixtureSidecar(processScope, {
+        standalonePath: join(installRoot, "runtime/standalone/index.mjs"),
+        storeRoot: store,
+      });
       let sidecarEndpointUrl = initialSidecar.endpointUrl;
       const carrier = new TerminalCarrier(installRoot, store, sidecarEndpointUrl);
 
@@ -153,7 +156,10 @@ describe("local exact Terminal release line", () => {
         body: JSON.stringify({ schemaVersion: 1, fault: "crash" }),
       });
       await new Promise<void>((resolveExit) => initialSidecar.child.once("exit", () => resolveExit()));
-      const recoveredSidecar = await startFixtureSidecar(processScope, installRoot, store);
+      const recoveredSidecar = await startFixtureSidecar(processScope, {
+        standalonePath: join(installRoot, "runtime/standalone/index.mjs"),
+        storeRoot: store,
+      });
       sidecarEndpointUrl = recoveredSidecar.endpointUrl;
       carrier.useSidecar(sidecarEndpointUrl);
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 160));

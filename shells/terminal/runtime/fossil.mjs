@@ -48,7 +48,7 @@ async function validateInstallation(value) {
   if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || !digestPattern.test(manifest.shell?.buildHash) || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
   if (manifest.runtime?.name !== "node" || manifest.runtime?.version !== value.runtime.version || manifest.runtime?.sha256 !== value.runtime.digest) throw new Error("installed runtime binding mismatch");
   const descriptorPath = (descriptor) => descriptor?.file ?? descriptor?.entrypoint;
-  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.fixtureSidecar, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
+  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
     manifest.shellFiles?.sh?.terminal, manifest.shellFiles?.sh?.install, manifest.shellFiles?.ps1?.terminal, manifest.shellFiles?.ps1?.install];
   for (const descriptor of descriptors) {
     const entrypoint = descriptorPath(descriptor);
