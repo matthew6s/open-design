@@ -75,7 +75,7 @@ case "$channel" in ""|local|*[!a-z0-9]* ) fail "invalid exact channel";; esac
 [ "${#channel}" -le 12 ] || fail "invalid exact channel"
 case "$namespace" in ""|*[!A-Za-z0-9._-]*|[-._]*) fail "invalid namespace";; esac
 [ "${#namespace}" -le 128 ] || fail "invalid namespace"
-case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|apply-update-force|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force|shell-update-confirm) :;; *) fail "invalid operation";; esac
+case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|apply-update-force|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force|shell-update-confirm|shell-update-abandon) :;; *) fail "invalid operation";; esac
 case "$activation_policy" in ""|observe|authorize-silent|authorize-user|revoke-silent) :;; *) fail "invalid activation policy";; esac
 if [ "$operation" = "prepare-update" ] && [ -z "$activation_policy" ]; then fail "prepare-update requires an explicit activation policy"; fi
 if [ -n "$attachment_id" ]; then case "$attachment_id" in *[!A-Za-z0-9._-]*) fail "invalid attachment id";; esac; fi
@@ -131,7 +131,7 @@ head_json=
 activation_json=
 [ -z "$activation_policy" ] || activation_json=",\"activationPolicy\":\"$(json_escape "$activation_policy")\""
 update_protocol_json=
-case "$operation" in prepare-update|apply-update|apply-update-force) update_protocol_json=',"updateProtocolVersion":2';; esac
+case "$operation" in prepare-update|apply-update|apply-update-force) update_protocol_json=',"updateProtocolVersion":3';; esac
 feedback_json=
 [ -z "$feedback_file" ] || feedback_json=",\"feedbackFile\":\"$(json_escape "$feedback_file")\""
 printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s%s%s}\n' \

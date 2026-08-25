@@ -9,6 +9,7 @@ let sequence = 0;
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const canonical = (value) => `${JSON.stringify(value)}\n`;
+const iso = () => new Date().toISOString();
 
 async function replaceFile(from, to) {
   try { await rename(from, to); }
@@ -19,36 +20,6 @@ async function replaceFile(from, to) {
   }
 }
 
-function initial(scope) {
-  return {
-    schemaVersion: 1,
-    scope,
-    state: "stopped",
-    generationId: null,
-    instanceId: null,
-    attachments: [],
-    fence: 0,
-    leaseExpiresAt: null,
-    stop: null,
-    transition: null,
-  };
-}
-
-function publicStatus(state, heartbeatIntervalMs) {
-  return {
-    scope: state.scope,
-    state: state.state,
-    generationId: state.generationId,
-    instanceId: state.instanceId,
-    references: state.attachments.length,
-    occupants: state.attachments.map(({ id, shell }) => ({ attachmentId: id, generationId: state.generationId, shell })),
-    fence: state.fence,
-    lease: state.state === "running" && state.leaseExpiresAt != null
-      ? { heartbeatIntervalMs, expiresAt: state.leaseExpiresAt }
-      : null,
-  };
-}
-
 export class FileFixtureLifecyclePort {
   constructor(root, options = {}) {
     this.root = root;
@@ -56,6 +27,10 @@ export class FileFixtureLifecyclePort {
     this.leaseDurationMs = options.leaseDurationMs ?? defaultLeaseDurationMs;
     this.transitionLeaseDurationMs = options.transitionLeaseDurationMs ?? defaultTransitionLeaseDurationMs;
     this.transitionHeartbeatIntervalMs = Math.max(20, Math.min(5_000, Math.floor(this.transitionLeaseDurationMs / 3)));
+    this.algebra = options.algebra;
+    if (this.algebra == null || !["initial", "validate", "reduce", "project", "blockers", "ready"].every((name) => typeof this.algebra[name] === "function")) {
+      throw new Error("fixture lifecycle requires the Standalone shared lifecycle algebra");
+    }
     if (!Number.isInteger(this.heartbeatIntervalMs) || this.heartbeatIntervalMs < 1_000) throw new Error("invalid fixture heartbeat interval");
     if (!Number.isInteger(this.leaseDurationMs) || this.leaseDurationMs <= 0) throw new Error("invalid fixture lease duration");
     if (!Number.isInteger(this.transitionLeaseDurationMs) || this.transitionLeaseDurationMs < 40) throw new Error("invalid fixture transition lease duration");
@@ -68,16 +43,8 @@ export class FileFixtureLifecyclePort {
 
   async read(scope) {
     const { state: path } = this.paths(scope);
-    try {
-      const value = JSON.parse(await readFile(path, "utf8"));
-      if (value?.schemaVersion !== 1 || value.scope?.channel !== scope.channel || value.scope?.namespace !== scope.namespace) {
-        throw new Error("invalid fixture lifecycle state");
-      }
-      return value;
-    } catch (error) {
-      if (error?.code === "ENOENT") return initial({ ...scope });
-      throw error;
-    }
+    try { return this.algebra.validate(JSON.parse(await readFile(path, "utf8")), scope); }
+    catch (error) { if (error?.code === "ENOENT") return this.algebra.initial({ ...scope }); throw error; }
   }
 
   async write(scope, value) {
@@ -93,239 +60,140 @@ export class FileFixtureLifecyclePort {
     const { lock } = this.paths(scope);
     await mkdir(dirname(lock), { recursive: true });
     let handle;
-    const owner = canonical({ owner: randomUUID(), pid: process.pid, acquiredAt: new Date().toISOString() });
+    const owner = canonical({ owner: randomUUID(), pid: process.pid, acquiredAt: iso() });
     for (let attempt = 0; attempt < 200; attempt += 1) {
       try { handle = await open(lock, "wx"); break; }
       catch (error) {
         if (error?.code !== "EEXIST") throw error;
         const metadata = await stat(lock).catch(() => null);
-        if (metadata != null && Date.now() - metadata.mtimeMs > 30_000) {
-          await unlink(lock).catch(() => undefined);
-          continue;
-        }
+        if (metadata != null && Date.now() - metadata.mtimeMs > 30_000) { await unlink(lock).catch(() => undefined); continue; }
         await sleep(10);
       }
     }
     if (handle == null) throw new Error("fixture lifecycle transaction timed out");
     try {
       await handle.writeFile(owner);
-      const state = await this.read(scope);
-      const now = Date.now();
-      if (state.transition != null && (!Number.isFinite(Date.parse(state.transition.expiresAt)) || Date.parse(state.transition.expiresAt) <= now)) {
-        state.transition = null;
-        state.fence += 1;
-      }
-      if (state.state === "running") {
-        state.attachments = state.attachments.filter(({ heartbeatAt }) => now - Date.parse(heartbeatAt) <= this.leaseDurationMs);
-        const leaseExpired = state.leaseExpiresAt == null || Date.parse(state.leaseExpiresAt) <= now;
-        if (state.attachments.length === 0 && leaseExpired) {
-          state.state = "stopped";
-          state.generationId = null;
-          state.instanceId = null;
-          state.leaseExpiresAt = null;
-          state.transition = null;
-          state.fence += 1;
-        }
-      }
-      const next = await operation(state);
-      await this.write(scope, next);
-      return publicStatus(next, this.heartbeatIntervalMs);
+      const current = this.algebra.reduce(await this.read(scope), { type: "tick", now: iso(), leaseDurationMs: this.leaseDurationMs });
+      const { state, result } = await operation(current);
+      await this.write(scope, state);
+      return result ?? this.algebra.project(state, this.heartbeatIntervalMs);
     } finally {
       await handle.close();
-      const currentOwner = await readFile(lock, "utf8").catch((error) => {
-        if (error?.code === "ENOENT") return null;
-        throw error;
-      });
+      const currentOwner = await readFile(lock, "utf8").catch((error) => { if (error?.code === "ENOENT") return null; throw error; });
       if (currentOwner === owner) await unlink(lock).catch((error) => { if (error?.code !== "ENOENT") throw error; });
     }
   }
 
-  startInternal(scope, generation, attachment, capability = null) {
+  startInternal(scope, generation, attachment, capability) {
     return this.transaction(scope, async (state) => {
-      if (state.transition != null) {
-        const error = new Error("fixture lifecycle transition is active");
-        error.code = "standalone-transition-active";
-        throw error;
-      }
-      if (state.state === "running" && state.generationId !== generation.id) {
-        const error = new Error("another generation owns the shared fixture instance");
-        error.code = "standalone-occupied";
-        throw error;
-      }
-      if (state.state !== "running") {
-        state.state = "running";
-        state.generationId = generation.id;
-        state.instanceId = randomUUID();
-        state.attachments = [];
-        state.fence += 1;
-        state.stop = null;
-      }
-      const heartbeatAt = new Date().toISOString();
-      state.leaseExpiresAt = new Date(Date.parse(heartbeatAt) + this.leaseDurationMs).toISOString();
-      const existing = state.attachments.find(({ id }) => id === attachment.id);
-      if (capability != null && existing != null && existing.capabilityHash !== capability.presentedHash) {
-        const error = new Error("fixture Sidecar attachment capability is invalid");
-        error.code = "attachment-capability-required";
-        throw error;
-      }
-      state.attachments = state.attachments.filter(({ id }) => id !== attachment.id);
-      state.attachments.push({
-        ...attachment,
+      const heartbeatAt = iso();
+      const next = this.algebra.reduce(state, {
+        type: "start",
+        generationId: generation.id,
+        instanceId: state.instanceId ?? randomUUID(),
+        attachment,
         heartbeatAt,
-        ...(capability == null ? {} : { capabilityHash: existing?.capabilityHash ?? capability.candidateHash }),
+        leaseExpiresAt: new Date(Date.parse(heartbeatAt) + this.leaseDurationMs).toISOString(),
+        ...(capability == null ? {} : { capability }),
       });
-      return state;
+      return { state: next };
     });
   }
 
   start(scope, generation, attachment) { return this.startInternal(scope, generation, attachment); }
+  startWithCapability(scope, generation, attachment, capability) { return this.startInternal(scope, generation, attachment, capability); }
 
-  startWithCapability(scope, generation, attachment, capability) {
-    return this.startInternal(scope, generation, attachment, capability);
+  awaitReady(scope, readiness) {
+    return this.transaction(scope, async (state) => ({ state, result: this.algebra.ready(state, readiness) }));
   }
 
-  heartbeat(scope, attachment) {
+  heartbeatInternal(scope, attachment, capabilityHash) {
     return this.transaction(scope, async (state) => {
-      const existing = state.attachments.find(({ id }) => id === attachment.id);
-      if (state.state !== "running" || existing == null) throw new Error("fixture attachment is unavailable");
-      Object.assign(existing, attachment, { heartbeatAt: new Date().toISOString() });
-      state.leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs).toISOString();
-      return state;
+      const heartbeatAt = iso();
+      return { state: this.algebra.reduce(state, {
+        type: "heartbeat",
+        attachment,
+        heartbeatAt,
+        leaseExpiresAt: new Date(Date.parse(heartbeatAt) + this.leaseDurationMs).toISOString(),
+        ...(capabilityHash == null ? {} : { capabilityHash }),
+      }) };
     });
   }
 
-  heartbeatWithCapability(scope, attachment, capabilityHash) {
-    return this.transaction(scope, async (state) => {
-      const existing = state.attachments.find(({ id }) => id === attachment.id);
-      if (state.state !== "running" || existing?.capabilityHash !== capabilityHash) {
-        const error = new Error("fixture Sidecar attachment capability is invalid");
-        error.code = "attachment-capability-required";
-        throw error;
-      }
-      Object.assign(existing, attachment, { heartbeatAt: new Date().toISOString(), capabilityHash });
-      state.leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs).toISOString();
-      return state;
-    });
+  heartbeat(scope, attachment) { return this.heartbeatInternal(scope, attachment); }
+  heartbeatWithCapability(scope, attachment, capabilityHash) { return this.heartbeatInternal(scope, attachment, capabilityHash); }
+
+  releaseInternal(scope, attachmentId, capabilityHash) {
+    return this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, {
+      type: "release-attachment",
+      attachmentId,
+      ...(capabilityHash == null ? {} : { capabilityHash }),
+    }) }));
   }
 
-  release(scope, attachmentId) {
-    return this.transaction(scope, async (state) => {
-      state.attachments = state.attachments.filter(({ id }) => id !== attachmentId);
-      return state;
-    });
-  }
-
-  releaseWithCapability(scope, attachmentId, capabilityHash) {
-    return this.transaction(scope, async (state) => {
-      const existing = state.attachments.find(({ id }) => id === attachmentId);
-      if (existing?.capabilityHash !== capabilityHash) {
-        const error = new Error("fixture Sidecar attachment capability is invalid");
-        error.code = "attachment-capability-required";
-        throw error;
-      }
-      state.attachments = state.attachments.filter(({ id }) => id !== attachmentId);
-      return state;
-    });
-  }
-
-  status(scope) {
-    return this.transaction(scope, async (state) => state);
-  }
-
-  async occupants(scope) {
-    return (await this.status(scope)).occupants;
-  }
+  release(scope, attachmentId) { return this.releaseInternal(scope, attachmentId); }
+  releaseWithCapability(scope, attachmentId, capabilityHash) { return this.releaseInternal(scope, attachmentId, capabilityHash); }
+  status(scope) { return this.transaction(scope, async (state) => ({ state })); }
+  async occupants(scope) { return (await this.status(scope)).occupants; }
 
   async beginTransition(scope, kind, options = {}) {
     if (kind !== "shell-install" && kind !== "content-restart") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
     const token = randomUUID();
-    let outcome;
-    let transitionFence;
-    const status = await this.transaction(scope, async (state) => {
-      if (state.transition != null) {
-        outcome = { state: "blocked", reason: "transition-active" };
-        return state;
-      }
-      const occupants = publicStatus(state, this.heartbeatIntervalMs).occupants;
-      const blockers = kind === "content-restart"
-        ? occupants.filter(({ attachmentId }) => attachmentId !== options.ownerAttachmentId)
-        : occupants.filter(({ shell }) => shell.type !== options.ownerShellType);
-      if (blockers.length > 0 && options.force !== true) {
-        outcome = { state: "blocked", reason: "occupied", occupants: blockers };
-        return state;
-      }
-      state.transition = {
+    const acquired = await this.transaction(scope, async (state) => {
+      if (state.transition != null) return { state, result: { state: "blocked", reason: "transition-active", occupants: this.algebra.project(state, this.heartbeatIntervalMs).occupants } };
+      const blockers = this.algebra.blockers(state, kind, { attachmentId: options.ownerAttachmentId, shellType: options.ownerShellType });
+      if (blockers.length > 0 && options.force !== true) return { state, result: { state: "blocked", reason: "occupied", occupants: blockers } };
+      const acquiredAt = iso();
+      const transition = {
         token,
         kind,
+        phase: "reserved",
         fence: state.fence,
-        acquiredAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + this.transitionLeaseDurationMs).toISOString(),
+        acquiredAt,
+        expiresAt: new Date(Date.parse(acquiredAt) + this.transitionLeaseDurationMs).toISOString(),
       };
-      transitionFence = state.fence;
-      outcome = { state: "acquired", occupants };
-      return state;
+      const next = this.algebra.reduce(state, { type: "reserve-transition", transition });
+      return { state: next, result: { state: "acquired", occupants: this.algebra.project(state, this.heartbeatIntervalMs).occupants, transition } };
     });
-    if (outcome.state === "blocked") return { ...outcome, occupants: outcome.occupants ?? status.occupants };
-    let expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+    if (acquired.state === "blocked") return acquired;
+    let transitionFence = acquired.transition.fence;
+    let expiresAt = acquired.transition.expiresAt;
     const renew = async () => {
-      await this.transaction(scope, async (state) => {
-        if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
-          throw new Error("stale fixture lifecycle transition");
-        }
-        expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
-        state.transition.expiresAt = expiresAt;
-        return state;
-      });
+      expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+      await this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, { type: "renew-transition", token, fence: transitionFence, expiresAt }) }));
     };
     const release = async () => {
-      await this.transaction(scope, async (state) => {
-        if (state.transition?.token === token) state.transition = null;
-        return state;
-      });
+      await this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, { type: "release-transition", token, fence: transitionFence }) }));
     };
     const forceStop = async () => {
-      await this.transaction(scope, async (state) => {
-        if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
-          throw new Error("stale fixture lifecycle transition");
-        }
-        state.stop = { requestedAt: new Date().toISOString(), fence: state.fence + 1 };
-        state.state = "stopped";
-        state.generationId = null;
-        state.instanceId = null;
-        state.attachments = [];
-        state.leaseExpiresAt = null;
-        state.fence += 1;
-        transitionFence = state.fence;
-        expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
-        state.transition.fence = transitionFence;
-        state.transition.expiresAt = expiresAt;
-        return state;
+      expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+      const status = await this.transaction(scope, async (state) => {
+        const next = this.algebra.reduce(state, { type: "force-stop", token, fence: transitionFence, requestedAt: iso(), expiresAt });
+        return { state: next };
       });
+      transitionFence = status.fence;
     };
-    const completeStart = async (generation, attachment, capabilityHash) => this.transaction(scope, async (state) => {
-      if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
-        throw new Error("stale fixture lifecycle transition");
-      }
-      state.state = "running";
-      state.generationId = generation.id;
-      state.instanceId = randomUUID();
-      state.attachments = [{
-        ...attachment,
-        heartbeatAt: new Date().toISOString(),
+    const completeStart = async (generation, attachment, capabilityHash) => {
+      const heartbeatAt = iso();
+      return this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, {
+        type: "complete-start",
+        token,
+        fence: transitionFence,
+        generationId: generation.id,
+        instanceId: randomUUID(),
+        attachment,
+        heartbeatAt,
+        leaseExpiresAt: new Date(Date.parse(heartbeatAt) + this.leaseDurationMs).toISOString(),
         ...(capabilityHash == null ? {} : { capabilityHash }),
-      }];
-      state.leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs).toISOString();
-      state.transition = null;
-      state.stop = null;
-      return state;
-    });
+      }) }));
+    };
     return {
       state: "acquired",
       transition: {
         get fence() { return transitionFence; },
         get expiresAt() { return expiresAt; },
         heartbeatIntervalMs: this.transitionHeartbeatIntervalMs,
-        occupants: outcome.occupants,
+        occupants: acquired.occupants,
         renew,
         release,
         forceStop,
@@ -335,18 +203,6 @@ export class FileFixtureLifecyclePort {
   }
 
   stop(scope, fence) {
-    return this.transaction(scope, async (state) => {
-      if (state.transition != null) throw new Error("fixture lifecycle transition is active");
-      if (state.fence !== fence) throw new Error("stale fixture lifecycle stop fence");
-      state.stop = { requestedAt: new Date().toISOString(), fence: state.fence + 1 };
-      state.state = "stopped";
-      state.generationId = null;
-      state.instanceId = null;
-      state.attachments = [];
-      state.leaseExpiresAt = null;
-      state.transition = null;
-      state.fence += 1;
-      return state;
-    });
+    return this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, { type: "stop", fence, requestedAt: iso() }) }));
   }
 }

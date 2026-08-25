@@ -1,13 +1,10 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const canonical = (value) => `${JSON.stringify(value)}\n`;
 const sleep = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 let sequence = 0;
-
-function initial(shellType) {
-  return { schemaVersion: 2, revision: 0, shellType, state: "idle", actions: [{ id: "check", emphasis: "primary" }], blockedBy: [] };
-}
 
 async function replaceFile(from, to) {
   try { await rename(from, to); }
@@ -29,6 +26,7 @@ export class FixtureShellUpdaterPort {
   constructor(root, scope, lifecycle, options = {}) {
     const fixtureRoot = join(root, "channels", scope.channel, "namespaces", scope.namespace, "fixture");
     this.path = join(fixtureRoot, "shell-updater.json");
+    this.lockPath = join(fixtureRoot, "shell-updater.lock");
     this.candidatePath = join(fixtureRoot, "shell-candidate.json");
     this.root = root;
     this.scope = scope;
@@ -41,6 +39,10 @@ export class FixtureShellUpdaterPort {
     this.standalone = options.standalone;
     this.faultAt = options.faultAt;
     this.installDelayMs = options.installDelayMs ?? 0;
+    this.algebra = options.algebra;
+    if (this.algebra == null || !["initial", "validate", "reduce"].every((name) => typeof this.algebra[name] === "function")) {
+      throw new Error("fixture Shell updater requires the Standalone updater algebra");
+    }
   }
 
   get configured() {
@@ -48,8 +50,8 @@ export class FixtureShellUpdaterPort {
   }
 
   async readSnapshot() {
-    try { return JSON.parse(await readFile(this.path, "utf8")); }
-    catch (error) { if (error?.code === "ENOENT") return initial(this.shellType); throw error; }
+    try { return this.algebra.validate(JSON.parse(await readFile(this.path, "utf8"))); }
+    catch (error) { if (error?.code === "ENOENT") return this.algebra.initial(this.shellType); throw error; }
   }
 
   async writePath(path, value) {
@@ -61,11 +63,31 @@ export class FixtureShellUpdaterPort {
     return value;
   }
 
-  write(snapshot) { return this.writePath(this.path, snapshot); }
+  write(snapshot) { return this.writePath(this.path, this.algebra.validate(snapshot)); }
 
   async update(value) {
-    const current = await this.readSnapshot();
-    return this.write({ ...current, ...value, revision: current.revision + 1 });
+    await mkdir(dirname(this.lockPath), { recursive: true });
+    let handle;
+    const owner = `${process.pid}:${randomUUID()}\n`;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      try { handle = await open(this.lockPath, "wx"); break; }
+      catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+        const metadata = await stat(this.lockPath).catch(() => null);
+        if (metadata != null && Date.now() - metadata.mtimeMs > 30_000) { await unlink(this.lockPath).catch(() => undefined); continue; }
+        await sleep(10);
+      }
+    }
+    if (handle == null) throw new Error("fixture Shell updater transaction timed out");
+    try {
+      await handle.writeFile(owner);
+      const current = await this.readSnapshot();
+      return await this.write(this.algebra.reduce(current, { expectedRevision: current.revision, ...value }));
+    } finally {
+      await handle.close();
+      const currentOwner = await readFile(this.lockPath, "utf8").catch((error) => { if (error?.code === "ENOENT") return null; throw error; });
+      if (currentOwner === owner) await unlink(this.lockPath).catch((error) => { if (error?.code !== "ENOENT") throw error; });
+    }
   }
 
   async waitForChange(afterRevision, timeoutMs) {
@@ -79,7 +101,7 @@ export class FixtureShellUpdaterPort {
   }
 
   async discover() {
-    await this.update({ state: "checking", actions: [], blockedBy: [], progress: undefined, handoff: undefined, error: undefined });
+    await this.update({ state: "checking" });
     const headBytes = await readUrl(this.channelHeadUrl);
     const head = JSON.parse(Buffer.from(headBytes).toString("utf8"));
     this.standalone.verifyStandaloneChannelHead(head, this.trustedKeys);
@@ -98,14 +120,18 @@ export class FixtureShellUpdaterPort {
     const distribution = envelope.document.distributions.find(({ shell, target }) => shell.type === this.shellType && target === this.target);
     if (distribution == null) throw new Error(`Shell sidecar lacks target distribution: ${this.shellType}/${this.target}`);
     const candidate = { releaseVersion: lane.releaseVersion, distribution };
+    const candidateId = this.standalone.sha256Hex(this.standalone.canonicalJson(candidate));
     await this.writePath(this.candidatePath, candidate);
-    return this.update({ state: "available", actions: [{ id: "download", emphasis: "primary" }], blockedBy: [], progress: undefined, handoff: undefined, error: undefined });
+    return this.update({ state: "available", candidateId });
   }
 
   async download() {
+    const snapshot = await this.readSnapshot();
     const candidate = JSON.parse(await readFile(this.candidatePath, "utf8"));
+    const candidateId = this.standalone.sha256Hex(this.standalone.canonicalJson(candidate));
+    if (snapshot.candidateId !== candidateId) throw new Error("Shell updater candidate changed before download");
     const artifact = candidate.distribution.artifact;
-    await this.update({ state: "downloading", progress: { completed: 0, total: artifact.size }, actions: [], blockedBy: [], error: undefined });
+    await this.update({ state: "downloading", candidateId, progress: { completed: 0, total: artifact.size } });
     const downloaded = await this.standalone.ensureStandaloneBlob(this.root, {
       sha256: artifact.sha256,
       size: artifact.size,
@@ -122,18 +148,14 @@ export class FixtureShellUpdaterPort {
     return this.update({
       state: "ready",
       progress: { completed: artifact.size, total: artifact.size },
-      actions: [{ id: "install", emphasis: "primary" }, { id: "later", emphasis: "secondary" }],
-      blockedBy: [],
+      candidateId,
       handoff,
-      error: undefined,
     });
   }
 
   async failed(error) {
     return this.update({
       state: "failed",
-      actions: [{ id: "check", emphasis: "primary" }],
-      blockedBy: [],
       error: { code: error?.code ?? "shell-update-failed", message: error instanceof Error ? error.message : String(error) },
     });
   }
@@ -142,59 +164,96 @@ export class FixtureShellUpdaterPort {
     const snapshot = await this.readSnapshot();
     const expected = snapshot.handoff?.shell;
     const matches = expected != null
-      && proof?.shell?.type === expected.type
-      && proof.shell.version === expected.version
+      && proof?.type === expected.type
+      && proof.version === expected.version
       && proof.buildHash === expected.buildHash;
     if (snapshot.state === "installed") {
       return { outcome: matches ? "accepted" : "failed", snapshot };
     }
-    if (snapshot.state !== "handed-off" || expected == null) {
-      return { outcome: "failed", snapshot: await this.failed(new Error("Shell installation has no handed-off candidate")) };
+    if ((snapshot.state !== "applying" && snapshot.state !== "handed-off") || expected == null) {
+      return { outcome: "failed", snapshot };
     }
     if (!matches) {
+      if (snapshot.state === "applying") return { outcome: "failed", snapshot };
       return {
         outcome: "failed",
         snapshot: await this.update({
           state: "handed-off",
-          actions: [{ id: "install", emphasis: "primary" }],
+          candidateId: snapshot.candidateId,
+          installAttemptId: snapshot.installAttemptId,
+          handoff: snapshot.handoff,
           error: { code: "installed-shell-mismatch", message: "attached Shell does not match the handed-off distribution" },
         }),
       };
     }
     return {
       outcome: "accepted",
-      snapshot: await this.update({ state: "installed", actions: [], blockedBy: [], error: undefined }),
+      snapshot: await this.update({ state: "installed", candidateId: snapshot.candidateId, installAttemptId: snapshot.installAttemptId, handoff: snapshot.handoff }),
     };
   }
 
   async invoke(action) {
     if (action === "check") {
-      if (!this.configured) return { outcome: "accepted", snapshot: await this.update({ state: "available", actions: [{ id: "download", emphasis: "primary" }], blockedBy: [] }) };
+      if (!this.configured) {
+        await this.update({ state: "checking" });
+        return { outcome: "accepted", snapshot: await this.update({ state: "available", candidateId: `fixture-${randomUUID()}` }) };
+      }
       try { return { outcome: "accepted", snapshot: await this.discover() }; }
       catch (error) { return { outcome: "failed", snapshot: await this.failed(error) }; }
     }
     if (action === "download") {
       if (!this.configured) {
-        await this.update({ state: "downloading", progress: { completed: 1, total: 2 }, actions: [], blockedBy: [] });
-        return { outcome: "accepted", snapshot: await this.update({ state: "ready", progress: { completed: 2, total: 2 }, actions: [{ id: "install", emphasis: "primary" }, { id: "later", emphasis: "secondary" }], blockedBy: [] }) };
+        const snapshot = await this.readSnapshot();
+        await this.update({ state: "downloading", candidateId: snapshot.candidateId, progress: { completed: 1, total: 2 } });
+        const handoff = {
+          interaction: "restart-and-install",
+          releaseVersion: "0.0.0-fixture.1",
+          target: "fixture",
+          shell: { type: this.shellType, version: "0.0.0", buildHash: "0".repeat(64) },
+          artifact: { path: "fixture", sha256: "0".repeat(64), size: 2, mediaType: "application/octet-stream" },
+        };
+        return { outcome: "accepted", snapshot: await this.update({ state: "ready", candidateId: snapshot.candidateId, progress: { completed: 2, total: 2 }, handoff }) };
       }
       try { return { outcome: "accepted", snapshot: await this.download() }; }
       catch (error) { return { outcome: "failed", snapshot: await this.failed(error) }; }
     }
-    if (action === "later") return { outcome: "accepted", snapshot: await this.update({ state: "ready", actions: [{ id: "install", emphasis: "primary" }], blockedBy: [] }) };
+    if (action === "later") {
+      const snapshot = await this.readSnapshot();
+      return { outcome: "accepted", snapshot: await this.update({ state: "ready", candidateId: snapshot.candidateId, handoff: snapshot.handoff, progress: snapshot.progress }) };
+    }
+    if (action === "abandon") {
+      const snapshot = await this.readSnapshot();
+      if (snapshot.state !== "handed-off") return { outcome: "unsupported", snapshot };
+      return {
+        outcome: "accepted",
+        snapshot: await this.update({
+          state: "failed",
+          candidateId: snapshot.candidateId,
+          installAttemptId: snapshot.installAttemptId,
+          handoff: snapshot.handoff,
+          error: { code: "shell-install-abandoned", message: "Shell installation was explicitly abandoned" },
+        }),
+      };
+    }
     if (action !== "install" && action !== "force-stop-and-install") return { outcome: "unsupported", snapshot: await this.readSnapshot() };
     const transition = await this.lifecycle.beginTransition(this.scope, "shell-install", { ownerShellType: this.shellType, force: action === "force-stop-and-install" });
     if (transition.state === "blocked") {
+      const current = await this.readSnapshot();
       const snapshot = await this.update({
         state: "ready",
+        candidateId: current.candidateId,
         blockedBy: transition.occupants,
-        actions: [{ id: "later", emphasis: "secondary" }, { id: "force-stop-and-install", emphasis: "danger" }],
+        handoff: current.handoff,
+        progress: current.progress,
       });
       return { outcome: "blocked", snapshot };
     }
     let heartbeat;
+    let sealed = false;
     try {
-      await this.update({ state: "applying", actions: [], blockedBy: transition.transition.occupants });
+      const ready = await this.readSnapshot();
+      const installAttemptId = randomUUID();
+      await this.update({ state: "applying", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff, blockedBy: transition.transition.occupants });
       if (this.faultAt === "after-transition") {
         const error = new Error("injected Sidecar crash after transition acquisition");
         error.abandonedTransition = true;
@@ -204,9 +263,10 @@ export class FixtureShellUpdaterPort {
       heartbeat.unref();
       if (this.installDelayMs > 0) await sleep(this.installDelayMs);
       await transition.transition.forceStop();
-      return { outcome: "accepted", snapshot: await this.update({ state: "handed-off", actions: [], blockedBy: [] }) };
+      sealed = true;
+      return { outcome: "accepted", snapshot: await this.update({ state: "handed-off", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff }) };
     } catch (error) {
-      if (!error?.abandonedTransition) await transition.transition.release();
+      if (!error?.abandonedTransition && !sealed) await transition.transition.release();
       throw error;
     } finally {
       if (heartbeat != null) clearInterval(heartbeat);

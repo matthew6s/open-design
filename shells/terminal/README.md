@@ -61,12 +61,20 @@ The local Sidecar issues a persisted attachment capability on first attachment;
 heartbeat and release cannot take over a live reference by guessing its ID.
 Content restart uses the same transition protocol as Shell install: it defers by
 default while foreign references exist and only stops them on an explicit force.
+Standalone owns this shared lifecycle as a pure reducer; Terminal only supplies
+the locked-file persistence and process adapter. Instance health is keyed solely
+to a generation, while Shell identities and capability hashes remain attachment
+facts. A transition advances from `reserved` to `stopped-sealed` before the stop
+effect; a sealed fence can only be completed exactly or expire, never released.
 Shell auto-update is independently declared by `contract/shell-updater.schema.json`.
 Terminal ships a non-user-facing fixture provider that exercises Electron's
 future check/download/progress/ready/defer/foreign-reference block/forced-stop
-installer handoff. Handoff is not installation success: the updater remains in
-`handed-off` until a newly attached Shell proves the exact expected type, version
-and build hash, then advances to `installed`. Neither capability exposes commands,
+installer handoff. Candidate and install-attempt epochs are immutable transaction
+identities, and available actions are derived from persisted phase rather than
+trusted as input. Handoff is not installation success: the updater remains in
+`handed-off` until a newly attached Shell proves the exact expected type, version,
+build hash and installed-manifest digest, then advances to `installed`; only exact
+confirmation or explicit abandonment can leave that phase. Neither capability exposes commands,
 executable paths or argv to the Web layer. Fossil rejection distinguishes an
 installer requirement from an incompatible active Shell reference.
 
@@ -75,7 +83,11 @@ forms `none < silent < user`; background policy cannot revoke or downgrade an
 explicit user restart. Every authorization and activation is compare-and-swap
 bound to the originally verified generation, so a later mutable channel head
 cannot retarget an in-flight transaction. A candidate receives one initial launch
-and at most one recovery launch before rollback to the last health-proved binding.
+and at most one recovery launch before rollback to the last health-proved
+generation. Readiness is an explicit proof bound to generation, instance,
+and attachment; Standalone combines it with the exact activation-attempt and
+launch token. Accepting a start request is not a health proof, and a delayed
+acknowledgement from the failed launch cannot confirm its recovery launch.
 Terminal tests exhaust the finite control-state graph and then refine the critical
 transition trace through the file Sidecar fixture.
 

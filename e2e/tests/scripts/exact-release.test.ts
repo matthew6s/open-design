@@ -123,7 +123,7 @@ describe("exact release scripts", () => {
     const shell = await json(packed.terminalMetadataFile);
     const head = await json(packed.channelHeadFile);
     expect(shell.document.distributions).toEqual([
-      expect.objectContaining({ target: "darwin-arm64", updater: { protocol: "standalone-shell-updater-v2", handler: "fixture-v2", interaction: "restart-and-install" } }),
+      expect.objectContaining({ target: "darwin-arm64", updater: { protocol: "standalone-shell-updater-v3", handler: "fixture-v3", interaction: "restart-and-install" } }),
       expect.objectContaining({ target: "win32-x64" }),
     ]);
     expect(head.head).toMatchObject({ channel: "betahyx", lanes: { content: { releaseVersion: "0.1.0-betahyx.1" }, terminal: { releaseVersion: "0.1.0-betahyx.1" } } });

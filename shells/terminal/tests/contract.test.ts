@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { FileFixtureLifecyclePort } from "../runtime/fixture-lifecycle.mjs";
 import { FixtureShellUpdaterPort } from "../runtime/fixture-shell-updater.mjs";
+import { SHARED_LIFECYCLE_ALGEBRA, SHELL_UPDATE_ALGEBRA } from "@open-design/standalone";
 import { cleanupFixtures, terminalRoot } from "./helpers.js";
+
+const fixtureLifecycle = (root: string, options: Record<string, unknown> = {}) => new FileFixtureLifecyclePort(root, {
+  algebra: SHARED_LIFECYCLE_ALGEBRA,
+  ...options,
+});
 
 afterEach(cleanupFixtures);
 
@@ -32,14 +38,14 @@ describe("Terminal native contract", () => {
   it("models one shared fixture instance across Shell attachments", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-fixture-lifecycle-"));
     try {
-      const lifecycle = new FileFixtureLifecyclePort(root);
+      const lifecycle = fixtureLifecycle(root);
       const scope = { channel: "betahyx", namespace: "shared" };
       const generation = { id: "a".repeat(64) } as any;
-      const first = await lifecycle.start(scope, generation, { id: "terminal", shell: { type: "terminal", version: "0.1.0", digest: "b".repeat(64) } });
-      const second = await lifecycle.start(scope, generation, { id: "electron", shell: { type: "electron", version: "1.0.0", digest: "c".repeat(64) } });
+      const first = await lifecycle.start(scope, generation, { id: "terminal", shell: { type: "terminal", version: "0.1.0", buildHash: "d".repeat(64), digest: "b".repeat(64) } });
+      const second = await lifecycle.start(scope, generation, { id: "electron", shell: { type: "electron", version: "1.0.0", buildHash: "e".repeat(64), digest: "c".repeat(64) } });
       expect(second).toMatchObject({ scope, instanceId: first.instanceId, references: 2, state: "running" });
-      await expect(lifecycle.heartbeat(scope, { id: "electron", shell: { type: "electron", version: "1.0.0", digest: "c".repeat(64) } })).resolves.toMatchObject({ references: 2 });
-      await expect(lifecycle.stop(scope, second.fence - 1)).rejects.toThrow("stale fixture lifecycle stop fence");
+      await expect(lifecycle.heartbeat(scope, { id: "electron", shell: { type: "electron", version: "1.0.0", buildHash: "e".repeat(64), digest: "c".repeat(64) } })).resolves.toMatchObject({ references: 2 });
+      await expect(lifecycle.stop(scope, second.fence - 1)).rejects.toThrow("stale shared lifecycle stop fence");
       await expect(lifecycle.stop(scope, second.fence)).resolves.toMatchObject({ state: "stopped", references: 0, fence: second.fence + 1 });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -49,10 +55,10 @@ describe("Terminal native contract", () => {
   it("serializes concurrent attachments and expires an unreferenced lease", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-fixture-concurrency-"));
     try {
-      const lifecycle = new FileFixtureLifecyclePort(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 2_000 });
+      const lifecycle = fixtureLifecycle(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 2_000 });
       const scope = { channel: "betahyx", namespace: "concurrent" };
       const generation = { id: "d".repeat(64) } as any;
-      const shell = { type: "terminal", version: "0.1.0", digest: "e".repeat(64) };
+      const shell = { type: "terminal", version: "0.1.0", buildHash: "f".repeat(64), digest: "e".repeat(64) };
       const starts = await Promise.all(
         Array.from({ length: 8 }, (_, index) => lifecycle.start(scope, generation, { id: `terminal-${index}`, shell })),
       );
@@ -63,7 +69,7 @@ describe("Terminal native contract", () => {
       const released = await lifecycle.status(scope);
       expect(released).toMatchObject({ state: "running", references: 0 });
 
-      const expiringLifecycle = new FileFixtureLifecyclePort(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 20 });
+      const expiringLifecycle = fixtureLifecycle(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 20 });
       const expiringScope = { channel: "betahyx", namespace: "expiring" };
       const expiring = await expiringLifecycle.start(expiringScope, generation, { id: "terminal-expiring", shell });
       await expiringLifecycle.release(expiringScope, "terminal-expiring");
@@ -82,11 +88,11 @@ describe("Terminal native contract", () => {
   it("models Electron updater progress, foreign reference blocking, later, and forced installer handoff", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-updater-"));
     try {
-      const lifecycle = new FileFixtureLifecyclePort(root);
+      const lifecycle = fixtureLifecycle(root);
       const scope = { channel: "betahyx", namespace: "shared" };
       const generation = { id: "f".repeat(64) } as any;
-      await lifecycle.start(scope, generation, { id: "terminal-active", shell: { type: "terminal", version: "0.1.0", digest: "a".repeat(64) } });
-      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, { attachmentId: "electron-updater", shellType: "electron" });
+      await lifecycle.start(scope, generation, { id: "terminal-active", shell: { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64), digest: "a".repeat(64) } });
+      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, { algebra: SHELL_UPDATE_ALGEBRA, attachmentId: "electron-updater", shellType: "electron" });
       await expect(updater.invoke("check")).resolves.toMatchObject({ snapshot: { state: "available" } });
       await expect(updater.invoke("download")).resolves.toMatchObject({ snapshot: { state: "ready", progress: { completed: 2, total: 2 } } });
       const blocked = await updater.invoke("install");
@@ -99,8 +105,15 @@ describe("Terminal native contract", () => {
         },
       });
       await expect(updater.invoke("later")).resolves.toMatchObject({ snapshot: { state: "ready" } });
-      await expect(updater.invoke("force-stop-and-install")).resolves.toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off", blockedBy: [] } });
+      await expect(updater.invoke("force-stop-and-install")).resolves.toMatchObject({
+        outcome: "accepted",
+        snapshot: { state: "handed-off", blockedBy: [], actions: [{ id: "abandon" }] },
+      });
       await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
+      await expect(updater.invoke("abandon")).resolves.toMatchObject({
+        outcome: "accepted",
+        snapshot: { state: "failed", error: { code: "shell-install-abandoned" }, actions: [{ id: "check" }] },
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -109,10 +122,10 @@ describe("Terminal native contract", () => {
   it("refines a forced Shell transition into one atomic replacement start", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-transition-"));
     try {
-      const lifecycle = new FileFixtureLifecyclePort(root);
+      const lifecycle = fixtureLifecycle(root);
       const scope = { channel: "betahyx", namespace: "transition" };
       const generation = { id: "1".repeat(64) } as any;
-      const terminal = { type: "terminal", version: "0.1.0", digest: "2".repeat(64) };
+      const terminal = { type: "terminal", version: "0.1.0", buildHash: "4".repeat(64), digest: "2".repeat(64) };
       await lifecycle.start(scope, generation, { id: "terminal-active", shell: terminal });
       const result = await lifecycle.beginTransition(scope, "shell-install", { ownerShellType: "electron", force: true });
       expect(result.state).toBe("acquired");
@@ -121,14 +134,14 @@ describe("Terminal native contract", () => {
       await result.transition.forceStop();
       await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
       await expect(lifecycle.start(scope, generation, { id: "late-after-stop", shell: terminal })).rejects.toThrow("transition is active");
-      const replacement = { id: "terminal-v2", shell: { ...terminal, version: "0.2.0", digest: "3".repeat(64) } };
+      const replacement = { id: "terminal-v2", shell: { ...terminal, version: "0.2.0", buildHash: "5".repeat(64), digest: "3".repeat(64) } };
       await expect(result.transition.completeStart(generation, replacement)).resolves.toMatchObject({
         state: "running",
         generationId: generation.id,
         references: 1,
         occupants: [{ attachmentId: replacement.id, shell: replacement.shell }],
       });
-      await expect(result.transition.completeStart(generation, replacement)).rejects.toThrow("stale fixture lifecycle transition");
+      await expect(result.transition.completeStart(generation, replacement)).rejects.toThrow("stale shared lifecycle transition");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -137,16 +150,16 @@ describe("Terminal native contract", () => {
   it("expires an abandoned transition and fences its stale owner", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-transition-expiry-"));
     try {
-      const lifecycle = new FileFixtureLifecyclePort(root, { transitionLeaseDurationMs: 40 });
+      const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 40 });
       const scope = { channel: "betahyx", namespace: "abandoned-transition" };
       const generation = { id: "a".repeat(64) } as any;
       const result = await lifecycle.beginTransition(scope, "shell-install", { ownerShellType: "electron", force: true });
       if (result.state !== "acquired") throw new Error("fixture transition was not acquired");
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 60));
-      await expect(result.transition.forceStop()).rejects.toThrow("stale fixture lifecycle transition");
+      await expect(result.transition.forceStop()).rejects.toThrow("stale shared lifecycle transition");
       const restarted = await lifecycle.start(scope, generation, {
         id: "terminal",
-        shell: { type: "terminal", version: "0.1.0", digest: "b".repeat(64) },
+        shell: { type: "terminal", version: "0.1.0", buildHash: "c".repeat(64), digest: "b".repeat(64) },
       });
       expect(restarted).toMatchObject({ state: "running", references: 1, fence: result.transition.fence + 2 });
     } finally {

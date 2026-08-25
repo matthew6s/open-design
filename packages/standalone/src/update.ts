@@ -14,7 +14,7 @@ import { type GenerationRecord, type StandalonePrepareOptions, StandaloneStore }
 import { FossilBootloader, type LifecycleStatus, type VersionedLauncher } from "./launcher.js";
 import type { StandaloneFeedbackHandler } from "./feedback.js";
 import type { StandaloneLifecycleOccupant } from "./shell-update.js";
-import { activationPolicyCommand, type GenerationState, type UpdateActivationPolicy } from "./state-machine.js";
+import { activationPolicyCommand, StandaloneStateConflictError, type GenerationState, type UpdateActivationPolicy } from "./state-machine.js";
 
 export type StandaloneUpdateSource = {
   readChannelHead(channel: string): Promise<SignedStandaloneChannelHead>;
@@ -52,12 +52,12 @@ async function applyActivationPolicy(
     if (command == null) return state;
     try {
       if (command.type === "revoke-silent") return await store.revokeSilentAuthorization(generationId, state.revision);
-      await store.authorizePrepared(generationId, command.source, state.revision);
+      await store.authorizePrepared(generationId, command.authority, command.cause, state.revision);
       const updated = await store.readState();
       if (updated.prepared !== generationId) throw new Error("prepared generation changed concurrently");
       return updated;
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.startsWith("stale generation state revision:")) throw error;
+      if (!(error instanceof StandaloneStateConflictError) || error.code !== "revision-conflict") throw error;
     }
   }
   throw new Error("activation policy did not converge");
@@ -119,14 +119,14 @@ export class StandaloneUpdater {
       const updated = await applyActivationPolicy(this.store, id, activationPolicy);
       return { status: "prepared", generation, authorized: updated.activationIntent?.generationId === id };
     }
-    const retainedIds = new Set([state.active?.generationId, state.prepared].filter((value): value is string => value != null));
+    const retainedIds = new Set([state.active, state.prepared].filter((value): value is string => value != null));
     for (const retainedId of retainedIds) {
       const retained = await this.store.readGeneration(retainedId);
       const order = compareReleaseVersions(retained.releaseVersion, lane.releaseVersion, this.channel);
       if (order > 0) throw new Error(`channel head would downgrade ${retained.releaseVersion} to ${lane.releaseVersion}`);
       if (order === 0) {
         if (retained.id !== id) throw new Error(`immutable release metadata collision: ${lane.releaseVersion}`);
-        if (state.active?.generationId === id) return { status: "current", generationId: id };
+        if (state.active === id) return { status: "current", generationId: id };
       }
     }
     const generation = await this.store.prepare(envelope, this.trustedKeys, { ...this.source.prepare, feedback: this.feedback });

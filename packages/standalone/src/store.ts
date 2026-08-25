@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import {
   canonicalJson,
   compareVersions,
-  EXACT_CHANNEL_PATTERN,
   validateShellIdentity,
+  validateStandaloneScope,
   verifyStandaloneMetadata,
   type SignedStandaloneMetadata,
   type StandaloneMaterialization,
@@ -18,17 +18,18 @@ import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./fee
 import { withStandaloneMaintenanceLock } from "./maintenance.js";
 import {
   INITIAL_GENERATION_STATE,
+  StandaloneStateConflictError,
   reduceGenerationState,
-  sameRuntimeBinding,
   validateGenerationState,
+  type ActivationAuthority,
+  type ActivationCause,
   type ActivationIntent,
-  type ActivationSource,
+  type ActivationLaunchProof,
   type GenerationState,
   type GenerationStateCommand,
-  type RuntimeBinding,
 } from "./state-machine.js";
 
-export type { ActivationIntent, ActivationSource, GenerationState, RuntimeBinding } from "./state-machine.js";
+export type { ActivationAuthority, ActivationCause, ActivationIntent, ActivationLaunchProof, GenerationState } from "./state-machine.js";
 
 export type StandalonePrepareOptions = Readonly<{
   candidates?: Readonly<Record<string, readonly StandaloneBlobCandidate[]>>;
@@ -57,10 +58,6 @@ export type GenerationRecord = {
 };
 
 let atomicSequence = 0;
-
-function assertNamespace(value: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new Error(`invalid standalone namespace: ${value}`);
-}
 
 export async function replaceFile(from: string, to: string): Promise<void> {
   try {
@@ -97,8 +94,7 @@ export class StandaloneStore {
   readonly namespace: string;
 
   constructor(root: string, scope: Readonly<{ channel: string; namespace: string }>) {
-    if (!EXACT_CHANNEL_PATTERN.test(scope.channel) || scope.channel === "local") throw new Error(`invalid exact channel binding: ${scope.channel}`);
-    assertNamespace(scope.namespace);
+    validateStandaloneScope(scope);
     this.root = root;
     this.channel = scope.channel;
     this.namespace = scope.namespace;
@@ -215,14 +211,20 @@ export class StandaloneStore {
     return generation;
   }
 
-  async authorizePrepared(expectedGenerationId: string, source: ActivationSource, expectedRevision: number): Promise<ActivationIntent> {
+  async authorizePrepared(
+    expectedGenerationId: string,
+    authority: ActivationAuthority,
+    cause: ActivationCause,
+    expectedRevision: number,
+  ): Promise<ActivationIntent> {
     return this.withStateTransaction(async () => {
       await this.readGeneration(expectedGenerationId);
       const state = await this.applyStateCommand({
         type: "authorize",
         expectedRevision,
         generationId: expectedGenerationId,
-        source,
+        authority,
+        cause,
         authorizedAt: new Date().toISOString(),
       });
       if (state.activationIntent == null) throw new Error("activation authorization was not retained");
@@ -242,63 +244,69 @@ export class StandaloneStore {
     validateShellIdentity(shell);
     return this.withStateTransaction(async () => {
       const state = await this.readState();
-      if (state.revision !== expectedRevision) throw new Error(`stale generation state revision: expected ${expectedRevision}, current ${state.revision}`);
+      if (state.revision !== expectedRevision) throw new StandaloneStateConflictError("revision-conflict", `stale generation state revision: expected ${expectedRevision}, current ${state.revision}`);
       const generation = await this.readGeneration(expectedGenerationId);
       const minimum = generation.minimumShellVersions[shell.type];
       if (minimum == null || compareVersions(shell.version, minimum) < 0) throw new Error(`Shell ${shell.type} ${shell.version} is incompatible with prepared generation`);
-      await this.applyStateCommand({ type: "activate", expectedRevision, generationId: expectedGenerationId, shell });
+      await this.applyStateCommand({ type: "activate", expectedRevision, generationId: expectedGenerationId, attemptId: randomUUID() });
       return generation;
     });
   }
 
-  async beginActiveAttempt(shell: StandaloneShellIdentity): Promise<{ binding: RuntimeBinding; generation: GenerationRecord; attempted: boolean }> {
+  async beginActiveAttempt(shell: StandaloneShellIdentity): Promise<{ proof: ActivationLaunchProof | null; generation: GenerationRecord; attempted: boolean }> {
     validateShellIdentity(shell);
     return this.withStateTransaction(async () => {
       let state = await this.readState();
-      if (state.attempt != null && state.attemptLaunches != null && state.attemptLaunches >= 2) {
-        state = await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, binding: state.attempt });
+      if (state.activationAttempt != null && state.activationAttempt.launchCount >= 2) {
+        state = await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, attemptId: state.activationAttempt.attemptId });
       }
       if (state.active == null) throw new Error("no active standalone generation");
-      const generation = await this.readGeneration(state.active.generationId);
+      const generation = await this.readGeneration(state.active);
       const minimum = generation.minimumShellVersions[shell.type];
       if (minimum == null || compareVersions(shell.version, minimum) < 0) throw new Error(`Shell ${shell.type} ${shell.version} is incompatible with active generation`);
-      const binding = { generationId: generation.id, shell: { ...shell } } satisfies RuntimeBinding;
-      if (state.attempt != null) {
-        if (!sameRuntimeBinding(state.attempt, binding)) throw new Error("another activation attempt is unfinished");
-        const next = await this.applyStateCommand({ type: "begin-attempt", expectedRevision: state.revision, binding });
-        return { binding: state.attempt, generation, attempted: next.attempt != null };
+      if (state.activationAttempt != null) {
+        const launchId = randomUUID();
+        const next = await this.applyStateCommand({
+          type: "begin-launch",
+          expectedRevision: state.revision,
+          attemptId: state.activationAttempt.attemptId,
+          launchId,
+        });
+        const attempt = next.activationAttempt!;
+        return { proof: { attemptId: attempt.attemptId, generationId: attempt.generationId, launchId }, generation, attempted: true };
       }
-      if (sameRuntimeBinding(state.lastSuccessful, binding)) return { binding, generation, attempted: false };
-      const next = await this.applyStateCommand({ type: "begin-attempt", expectedRevision: state.revision, binding });
-      return { binding, generation, attempted: next.attempt != null };
+      return { proof: null, generation, attempted: false };
     });
   }
 
-  async confirmAttempt(binding: RuntimeBinding): Promise<void> {
+  async confirmAttempt(proof: ActivationLaunchProof): Promise<void> {
     await this.withStateTransaction(async () => {
       const state = await this.readState();
-      await this.applyStateCommand({ type: "confirm", expectedRevision: state.revision, binding });
+      await this.applyStateCommand({ type: "confirm-launch", expectedRevision: state.revision, proof });
     });
   }
 
   async recoverInterruptedAttempt(): Promise<GenerationRecord | null> {
     return this.withStateTransaction(async () => {
       const state = await this.readState();
-      if (state.attempt == null) return state.active == null ? null : this.readGeneration(state.active.generationId);
-      const fallback = state.lastSuccessful;
-      const generation = fallback == null ? null : await this.readGeneration(fallback.generationId);
-      await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, binding: state.attempt });
+      if (state.activationAttempt == null) return state.active == null ? null : this.readGeneration(state.active);
+      const fallback = state.lastHealthy;
+      const generation = fallback == null ? null : await this.readGeneration(fallback);
+      await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, attemptId: state.activationAttempt.attemptId });
       return generation;
     });
   }
 
-  async rollbackFailedAttempt(): Promise<GenerationRecord | null> {
+  async rollbackFailedAttempt(proof: ActivationLaunchProof): Promise<GenerationRecord | null> {
     return this.withStateTransaction(async () => {
       const state = await this.readState();
-      if (state.attempt == null) return state.active == null ? null : this.readGeneration(state.active.generationId);
-      const fallback = state.lastSuccessful;
-      const generation = fallback == null ? null : await this.readGeneration(fallback.generationId);
-      await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, binding: state.attempt });
+      if (state.activationAttempt == null) return state.active == null ? null : this.readGeneration(state.active);
+      const fallback = state.lastHealthy;
+      const generation = fallback == null ? null : await this.readGeneration(fallback);
+      if (state.activationAttempt.attemptId !== proof.attemptId || state.activationAttempt.launchId !== proof.launchId) {
+        throw new StandaloneStateConflictError("identity-conflict", "activation launch proof is stale");
+      }
+      await this.applyStateCommand({ type: "rollback", expectedRevision: state.revision, attemptId: proof.attemptId });
       return generation;
     });
   }
@@ -311,12 +319,12 @@ export class StandaloneStore {
   async activeGeneration(): Promise<GenerationRecord> {
     const state = await this.readState();
     if (state.active == null) throw new Error("no active standalone generation");
-    return this.readGeneration(state.active.generationId);
+    return this.readGeneration(state.active);
   }
 
-  async lastSuccessfulGeneration(): Promise<GenerationRecord | null> {
+  async lastHealthyGeneration(): Promise<GenerationRecord | null> {
     const state = await this.readState();
-    return state.lastSuccessful == null ? null : this.readGeneration(state.lastSuccessful.generationId);
+    return state.lastHealthy == null ? null : this.readGeneration(state.lastHealthy);
   }
 
   async resolveResource(name: string): Promise<string> {

@@ -30,12 +30,12 @@ async function liveStoreReferences(root: string): Promise<Readonly<{ blobs: Set<
         throw error;
       });
       if (state == null) continue;
-      if (state.schemaVersion !== 3) throw new Error(`unsupported generation state while sweeping: ${channel.name}/${namespace.name}`);
+      if (state.schemaVersion !== 4) throw new Error(`unsupported generation state while sweeping: ${channel.name}/${namespace.name}`);
       const ids = new Set([
         state.prepared,
-        state.attempt?.generationId,
-        state.active?.generationId,
-        state.lastSuccessful?.generationId,
+        state.activationAttempt?.generationId,
+        state.active,
+        state.lastHealthy,
       ].filter((value): value is string => value != null));
       for (const id of ids) {
         const generation = await readJson<GenerationRecord>(join(channelRoot, "generations", `${id}.json`));

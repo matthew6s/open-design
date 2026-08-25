@@ -5,6 +5,7 @@ export * from "./blob.js";
 export * from "./garbage.js";
 export * from "./maintenance.js";
 export * from "./state-machine.js";
+export * from "./shared-lifecycle.js";
 export * from "./store.js";
 export * from "./launcher.js";
 export * from "./update.js";

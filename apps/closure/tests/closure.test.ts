@@ -21,18 +21,18 @@ describe("Closure cold-start fixture", () => {
     const snapshots: string[] = [];
     const updater = {
       shellType: "electron",
-      readSnapshot: async () => ({ schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
-      waitForChange: async () => ({ schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
+      readSnapshot: async () => ({ schemaVersion: 3 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
+      waitForChange: async () => ({ schemaVersion: 3 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
       invoke: async (action: string) => {
         revision += 1;
         state = action === "check" ? "available" : "ready";
-        return { outcome: "accepted" as const, snapshot: { schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [], ...(state === "ready" ? { progress: { completed: 2, total: 2 } } : {}) } };
+        return { outcome: "accepted" as const, snapshot: { schemaVersion: 3 as const, revision, shellType: "electron", state, actions: [], blockedBy: [], ...(state === "ready" ? { progress: { completed: 2, total: 2 } } : {}) } };
       },
-      confirmInstalled: async () => ({ outcome: "unsupported" as const, snapshot: { schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] } }),
+      confirmInstalled: async () => ({ outcome: "unsupported" as const, snapshot: { schemaVersion: 3 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] } }),
     };
     await expect(prepareClosureShellUpdate({
       requirement: { type: "electron", minVersion: "2.0.0", buildHash: "b".repeat(64) },
-      shell: { type: "electron", version: "1.0.0", digest: "a".repeat(64) },
+      shell: { type: "electron", version: "1.0.0", buildHash: "b".repeat(64), digest: "a".repeat(64) },
       updater,
       onSnapshot: (snapshot) => { snapshots.push(snapshot.state); },
     })).resolves.toMatchObject({ state: "update-required", minimumVersion: "2.0.0", snapshot: { state: "ready", progress: { completed: 2, total: 2 } } });

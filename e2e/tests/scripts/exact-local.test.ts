@@ -351,7 +351,7 @@ describe("local exact Terminal release line", () => {
         "shell-update-check",
       )));
       expect((await terminal(installRoot, store, "betahyx", "updater-concurrency", "shell-update-status")).result)
-        .toMatchObject({ schemaVersion: 2, revision: 8, state: "available" });
+        .toMatchObject({ schemaVersion: 3, revision: 16, state: "available" });
       expect(await fixtureSidecarRequest(fixtureSidecarUrl, {
         domain: "maintenance",
         operation: "sweep-if-idle",

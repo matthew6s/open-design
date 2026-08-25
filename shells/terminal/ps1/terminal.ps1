@@ -2,7 +2,7 @@ param(
   [string]$Root,
   [Parameter(Mandatory = $true)][string]$Channel,
   [Parameter(Mandatory = $true)][string]$Namespace,
-  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm")][string]$Operation = "start",
+  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm", "shell-update-abandon")][string]$Operation = "start",
   [string]$AttachmentId,
   [string]$AttachmentCapability,
   [string]$StoreRoot,
@@ -100,7 +100,7 @@ try {
   if ($StoreRoot) { $request.storeRoot = [IO.Path]::GetFullPath($StoreRoot) }
   if ($ChannelHeadUrl) { $request.channelHeadUrl = $ChannelHeadUrl }
   if ($ActivationPolicy) { $request.activationPolicy = $ActivationPolicy }
-  if ($Operation -in @("prepare-update", "apply-update", "apply-update-force")) { $request.updateProtocolVersion = 2 }
+  if ($Operation -in @("prepare-update", "apply-update", "apply-update-force")) { $request.updateProtocolVersion = 3 }
   if ($Feedback) { $request.feedbackFile = [IO.Path]::GetFullPath($Feedback) }
   [IO.File]::WriteAllText($requestPath, (($request | ConvertTo-Json -Compress -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
   $env:OD_TERMINAL_FOSSIL_REQUEST_V1 = $requestPath

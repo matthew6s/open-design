@@ -15,6 +15,7 @@ if (!storeRoot || !standalonePath || !Number.isInteger(port) || port < 0 || port
 
 const standalone = await import(pathToFileURL(standalonePath).href);
 const lifecycle = new FileFixtureLifecyclePort(storeRoot, {
+  algebra: standalone.SHARED_LIFECYCLE_ALGEBRA,
   transitionLeaseDurationMs: Number.parseInt(process.env.OD_FIXTURE_TRANSITION_LEASE_MS ?? "30000", 10),
 });
 const transitions = new Map();
@@ -55,6 +56,7 @@ async function lifecycleRequest(message) {
   if (message.operation === "heartbeat") {
     return lifecycle.heartbeatWithCapability(scope, message.attachment, capabilityDigest(message.attachmentCapability ?? ""));
   }
+  if (message.operation === "ready") return lifecycle.awaitReady(scope, message.readiness);
   if (message.operation === "release") {
     return lifecycle.releaseWithCapability(scope, message.attachmentId, capabilityDigest(message.attachmentCapability ?? ""));
   }
@@ -99,6 +101,7 @@ async function updaterRequest(message) {
   const trustedKeys = new Map((message.options.trustedKeys ?? []).map(({ keyId, publicKey }) => [keyId, publicKey]));
   const updater = new FixtureShellUpdaterPort(storeRoot, message.scope, lifecycle, {
     ...message.options,
+    algebra: standalone.SHELL_UPDATE_ALGEBRA,
     standalone,
     trustedKeys,
   });

@@ -20,7 +20,7 @@ const inside = (root, path) => {
 
 function validateRequest(value) {
   if (value?.schemaVersion !== 1) throw new Error("unsupported fossil request schema");
-  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm"]);
+  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm", "shell-update-abandon"]);
   if (!operations.has(value.operation)) throw new Error("unsupported fossil operation");
   if (!/^[a-z0-9]{1,12}$/.test(value.channel) || value.channel === "local") throw new Error("invalid exact channel");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.namespace)) throw new Error("invalid namespace");
@@ -30,7 +30,7 @@ function validateRequest(value) {
   if (new Set(["start", "heartbeat", "release"]).has(value.operation) && !/^[A-Za-z0-9._-]{1,128}$/.test(value.attachmentId)) throw new Error(`${value.operation} requires an attachment id`);
   if (value.attachmentCapability != null && !/^[a-f0-9]{64}$/.test(value.attachmentCapability)) throw new Error("invalid attachment capability");
   if (value.operation === "prepare-update" && (typeof value.channelHeadUrl !== "string" || !/^(https?:|file:)\/\//.test(value.channelHeadUrl))) throw new Error("prepare-update requires a channel head URL");
-  if (new Set(["prepare-update", "apply-update", "apply-update-force"]).has(value.operation) && value.updateProtocolVersion !== 2) throw new Error("unsupported Standalone updater protocol");
+  if (new Set(["prepare-update", "apply-update", "apply-update-force"]).has(value.operation) && value.updateProtocolVersion !== 3) throw new Error("unsupported Standalone updater protocol");
   if (value.operation === "prepare-update" && !new Set(["observe", "authorize-silent", "authorize-user", "revoke-silent"]).has(value.activationPolicy)) throw new Error("prepare-update requires an explicit activation policy");
   return value;
 }
@@ -96,6 +96,7 @@ function sidecarLifecycle(requestAttachmentCapability) {
   const call = (operation, scope, input = {}) => sidecarRequest({ domain: "lifecycle", operation, scope, ...input });
   return {
     start: (scope, generation, attachment) => call("start", scope, { generation, attachment, attachmentCapability: requestAttachmentCapability }),
+    awaitReady: (scope, readiness) => call("ready", scope, { readiness }),
     heartbeat: (scope, attachment) => call("heartbeat", scope, { attachment, attachmentCapability: requestAttachmentCapability }),
     release: (scope, attachmentId) => call("release", scope, { attachmentId, attachmentCapability: requestAttachmentCapability }),
     status: (scope) => call("status", scope),
@@ -151,11 +152,11 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
   if (envelope.metadata.channel !== request.channel) throw new Error("installed seed belongs to another channel");
   const expectedId = installation.standalone.sha256Hex(installation.standalone.canonicalJson(envelope.metadata));
   let state = await store.readState();
-  if (state.lastSuccessful == null && state.attempt != null && state.attempt.generationId !== expectedId) {
+  if (state.lastHealthy == null && state.activationAttempt != null && state.activationAttempt.generationId !== expectedId) {
     await store.recoverInterruptedAttempt();
     state = await store.readState();
   }
-  if (state.lastSuccessful == null && state.active == null && state.prepared !== expectedId) {
+  if (state.lastHealthy == null && state.active == null && state.prepared !== expectedId) {
     const seedBytes = new Uint8Array(await readFile(resolve(installation.root, installation.manifest.seed.closure.file)));
     const digest = installation.manifest.seed.closure.sha256;
     const declared = envelope.metadata.blobs?.[digest];
@@ -168,7 +169,7 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
     state = await store.readState();
   }
   if (state.active == null && state.prepared === expectedId && state.activationIntent?.generationId !== expectedId) {
-    await store.authorizePrepared(expectedId, "initial-bootstrap", state.revision);
+    await store.authorizePrepared(expectedId, "silent", "installed-seed", state.revision);
   }
 }
 
@@ -179,13 +180,20 @@ async function execute(request, installation) {
   const storeRoot = resolve(request.storeRoot);
   const store = new standalone.StandaloneStore(storeRoot, { channel: request.channel, namespace: request.namespace });
   const { FileFixtureLifecyclePort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureLifecycle.entrypoint)).href);
-  const lifecycle = fixtureSidecarUrl == null ? new FileFixtureLifecyclePort(storeRoot) : sidecarLifecycle(request.attachmentCapability);
-  const shell = { type: "terminal", version: installation.manifest.shell.version, digest: sha256(installation.manifestBytes) };
+  const lifecycle = fixtureSidecarUrl == null
+    ? new FileFixtureLifecyclePort(storeRoot, { algebra: standalone.SHARED_LIFECYCLE_ALGEBRA })
+    : sidecarLifecycle(request.attachmentCapability);
+  const shell = {
+    type: "terminal",
+    version: installation.manifest.shell.version,
+    buildHash: installation.manifest.shell.buildHash,
+    digest: sha256(installation.manifestBytes),
+  };
   const feedback = request.feedbackFile == null ? undefined : async (event) => appendFile(request.feedbackFile, `${JSON.stringify(event)}\n`, "utf8");
   const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback);
   if (request.operation.startsWith("shell-update-")) {
     const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
-    const updaterOptions = { attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };
+    const updaterOptions = { algebra: standalone.SHELL_UPDATE_ALGEBRA, attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };
     const updater = fixtureSidecarUrl == null
       ? new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, updaterOptions)
       : sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
@@ -195,9 +203,10 @@ async function execute(request, installation) {
       "shell-update-install": "install",
       "shell-update-later": "later",
       "shell-update-force": "force-stop-and-install",
+      "shell-update-abandon": "abandon",
     })[request.operation];
     if (request.operation === "shell-update-confirm") {
-      return updater.confirmInstalled({ shell, buildHash: installation.manifest.shell.buildHash });
+      return updater.confirmInstalled(shell);
     }
     return action == null ? updater.readSnapshot() : updater.invoke(action);
   }
@@ -225,6 +234,7 @@ async function execute(request, installation) {
     if (preparation.status !== "shell-reinstall-required") return preparation;
     const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
     const updaterOptions = {
+      algebra: standalone.SHELL_UPDATE_ALGEBRA,
       attachmentId: request.attachmentId ?? `${shell.type}-updater`,
       channelHeadUrl: request.channelHeadUrl,
       shellType: shell.type,

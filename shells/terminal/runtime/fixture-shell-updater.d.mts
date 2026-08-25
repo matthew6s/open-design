@@ -8,6 +8,7 @@ import type {
 export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
   readonly shellType: string;
   constructor(root: string, scope: LifecycleScope, lifecycle: LifecyclePort & StandaloneLifecycleTransitionPort, options?: {
+    algebra: typeof import("@open-design/standalone").SHELL_UPDATE_ALGEBRA;
     attachmentId?: string;
     channelHeadUrl?: string;
     faultAt?: "after-transition";

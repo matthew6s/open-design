@@ -7,6 +7,8 @@ export const STANDALONE_SIGNATURE_ALGORITHM = "Ed25519" as const;
 export const EXACT_CHANNEL_PATTERN = /^[a-z0-9]{1,12}$/;
 export const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
+export type StandaloneScope = Readonly<{ channel: string; namespace: string }>;
+
 export type ArtifactReference = { sha256: string; size: number; url: string };
 export type StandaloneBlobSource = Readonly<{ kind: "remote"; url: string }>;
 export type StandaloneBlob = Readonly<{
@@ -30,8 +32,9 @@ export type StandaloneResourceContribution = Readonly<{
   blob: StandaloneBlob;
   materialization: StandaloneMaterialization;
 }>;
+export type StandaloneShellCompatibilityIdentity = { type: string; version: string; buildHash: string };
 export type StandaloneShellRequirement = { type: string; minVersion: string; buildHash: string };
-export type StandaloneShellIdentity = { type: string; version: string; digest: string };
+export type StandaloneShellIdentity = StandaloneShellCompatibilityIdentity & { digest: string };
 export type StandaloneMetadata = {
   schemaVersion: typeof STANDALONE_METADATA_SCHEMA;
   channel: string;
@@ -56,7 +59,7 @@ export type StandaloneShellDistribution = Readonly<{
   target: string;
   artifact: ArtifactReference & Readonly<{ mediaType: string }>;
   updater?: Readonly<{
-    protocol: "standalone-shell-updater-v2";
+    protocol: "standalone-shell-updater-v3";
     handler: string;
     interaction: "restart-and-install";
   }>;
@@ -111,6 +114,17 @@ export function validateChannelRelease(channel: string, releaseVersion: string):
   }
 }
 
+export function validateStandaloneScope(scope: StandaloneScope): StandaloneScope {
+  if (!EXACT_CHANNEL_PATTERN.test(scope.channel) || scope.channel === "local") throw new Error(`invalid exact channel binding: ${scope.channel}`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(scope.namespace)) throw new Error(`invalid standalone namespace: ${scope.namespace}`);
+  return { channel: scope.channel, namespace: scope.namespace };
+}
+
+export function standaloneScopeKey(scope: StandaloneScope): string {
+  const valid = validateStandaloneScope(scope);
+  return `${valid.channel}/${valid.namespace}`;
+}
+
 function validateVersion(value: string, label: string): void {
   if (!/^\d+\.\d+\.\d+(?:-[0-9a-z]+(?:[.-][0-9a-z]+)*)?$/.test(value)) throw new Error(`invalid ${label}: ${value}`);
 }
@@ -139,6 +153,7 @@ function validateArtifact(artifact: ArtifactReference, label: string, allowFile 
 export function validateShellIdentity(identity: StandaloneShellIdentity): void {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(identity.type)) throw new Error(`invalid Shell type: ${identity.type}`);
   validateVersion(identity.version, `${identity.type} Shell version`);
+  validateDigest(identity.buildHash, `${identity.type} Shell build hash`);
   validateDigest(identity.digest, `${identity.type} Shell`);
 }
 
@@ -310,7 +325,7 @@ export function validateStandaloneShellMetadata(metadata: StandaloneShellMetadat
     validateArtifact(distribution.artifact, `${identity} distribution`);
     if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(distribution.artifact.mediaType)) throw new Error(`invalid Shell distribution media type: ${identity}`);
     if (distribution.updater != null) {
-      if (distribution.updater.protocol !== "standalone-shell-updater-v2" || distribution.updater.interaction !== "restart-and-install") {
+      if (distribution.updater.protocol !== "standalone-shell-updater-v3" || distribution.updater.interaction !== "restart-and-install") {
         throw new Error(`unsupported Shell updater contract: ${identity}`);
       }
       validateToken(distribution.updater.handler, `${identity} updater handler`);

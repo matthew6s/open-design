@@ -6,47 +6,53 @@ import {
   validateGenerationState,
   type GenerationState,
   type GenerationStateCommand,
-  type RuntimeBinding,
 } from "../src/index.js";
 
 const generations = ["a".repeat(64), "b".repeat(64)] as const;
-const shells = [
-  { type: "terminal", version: "0.1.0", digest: "c".repeat(64) },
-  { type: "electron", version: "1.0.0", digest: "d".repeat(64) },
-] as const;
+const attemptIds = ["attempt-a", "attempt-b"] as const;
+const launchIds = ["launch-a", "launch-b"] as const;
 const now = "2026-08-25T00:00:00.000Z";
 
 function key(state: GenerationState): string {
-  return JSON.stringify({ ...state, revision: 0, activationIntent: state.activationIntent == null ? null : { ...state.activationIntent, authorizedAt: now } });
+  return JSON.stringify({
+    ...state,
+    revision: 0,
+    activationIntent: state.activationIntent == null ? null : { ...state.activationIntent, authorizedAt: now },
+  });
 }
 
 function commands(state: GenerationState): GenerationStateCommand[] {
-  const result: GenerationStateCommand[] = generations.map((generationId) => ({
-    type: "prepare",
-    expectedRevision: state.revision,
-    generationId,
-  }));
+  const result: GenerationStateCommand[] = generations.map((generationId) => ({ type: "prepare", expectedRevision: state.revision, generationId }));
   if (state.prepared != null) {
-    for (const source of ["initial-bootstrap", "repair", "silent-policy", "user-restart"] as const) {
-      result.push({ type: "authorize", expectedRevision: state.revision, generationId: state.prepared, source, authorizedAt: now });
+    for (const [authority, cause] of [
+      ["silent", "installed-seed"],
+      ["silent", "repair"],
+      ["silent", "update-policy"],
+      ["user", "user-interaction"],
+    ] as const) {
+      result.push({ type: "authorize", expectedRevision: state.revision, generationId: state.prepared, authority, cause, authorizedAt: now });
     }
     result.push({ type: "revoke-silent", expectedRevision: state.revision, generationId: state.prepared });
     if (state.activationIntent?.generationId === state.prepared) {
-      for (const shell of shells) result.push({ type: "activate", expectedRevision: state.revision, generationId: state.prepared, shell });
+      for (const attemptId of attemptIds) result.push({ type: "activate", expectedRevision: state.revision, generationId: state.prepared, attemptId });
     }
   }
-  if (state.active != null) {
-    for (const shell of shells) {
+  if (state.activationAttempt != null) {
+    for (const launchId of launchIds) {
+      result.push({ type: "begin-launch", expectedRevision: state.revision, attemptId: state.activationAttempt.attemptId, launchId });
+    }
+    if (state.activationAttempt.launchId != null) {
       result.push({
-        type: "begin-attempt",
+        type: "confirm-launch",
         expectedRevision: state.revision,
-        binding: { generationId: state.active.generationId, shell },
+        proof: {
+          attemptId: state.activationAttempt.attemptId,
+          generationId: state.activationAttempt.generationId,
+          launchId: state.activationAttempt.launchId,
+        },
       });
     }
-  }
-  if (state.attempt != null) {
-    result.push({ type: "confirm", expectedRevision: state.revision, binding: state.attempt });
-    result.push({ type: "rollback", expectedRevision: state.revision, binding: state.attempt });
+    result.push({ type: "rollback", expectedRevision: state.revision, attemptId: state.activationAttempt.attemptId });
   }
   return result;
 }
@@ -54,8 +60,21 @@ function commands(state: GenerationState): GenerationStateCommand[] {
 function assertSafety(state: GenerationState): void {
   expect(() => validateGenerationState(state)).not.toThrow();
   if (state.activationIntent != null) expect(state.activationIntent.generationId).toBe(state.prepared);
-  if (state.attempt != null) expect(state.attempt).toEqual(state.active);
-  if (state.attempt == null && state.active != null) expect(state.active).toEqual(state.lastSuccessful);
+  if (state.activationAttempt != null) expect(state.activationAttempt.generationId).toBe(state.active);
+  if (state.activationAttempt == null) expect(state.active).toBe(state.lastHealthy);
+}
+
+function activated(generationId = generations[0]): GenerationState {
+  let state = reduceGenerationState(INITIAL_GENERATION_STATE, { type: "prepare", expectedRevision: 0, generationId });
+  state = reduceGenerationState(state, {
+    type: "authorize",
+    expectedRevision: state.revision,
+    generationId,
+    authority: "silent",
+    cause: "installed-seed",
+    authorizedAt: now,
+  });
+  return reduceGenerationState(state, { type: "activate", expectedRevision: state.revision, generationId, attemptId: attemptIds[0] });
 }
 
 describe("Standalone generation state algebra", () => {
@@ -79,64 +98,59 @@ describe("Standalone generation state algebra", () => {
     expect(reached.size).toBeGreaterThan(30);
   });
 
-  it("rejects stale and wrong-generation commands instead of retargeting them", () => {
-    const prepared = reduceGenerationState(INITIAL_GENERATION_STATE, {
-      type: "prepare",
-      expectedRevision: 0,
-      generationId: generations[0],
-    });
+  it("rejects stale revisions and wrong prepared generations", () => {
+    const prepared = reduceGenerationState(INITIAL_GENERATION_STATE, { type: "prepare", expectedRevision: 0, generationId: generations[0] });
     expect(() => reduceGenerationState(prepared, {
       type: "authorize",
       expectedRevision: 0,
       generationId: generations[0],
-      source: "silent-policy",
+      authority: "silent",
+      cause: "update-policy",
       authorizedAt: now,
     })).toThrow("stale generation state revision");
     expect(() => reduceGenerationState(prepared, {
       type: "authorize",
       expectedRevision: prepared.revision,
       generationId: generations[1],
-      source: "silent-policy",
+      authority: "silent",
+      cause: "update-policy",
       authorizedAt: now,
     })).toThrow("prepared generation changed concurrently");
   });
 
-  it("makes user authority absorbing for background grants and revocation", () => {
+  it("keeps user authority absorbing while retaining its original cause", () => {
     let state = reduceGenerationState(INITIAL_GENERATION_STATE, { type: "prepare", expectedRevision: 0, generationId: generations[0] });
-    state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], source: "user-restart", authorizedAt: now });
-    for (const source of ["initial-bootstrap", "repair", "silent-policy"] as const) {
-      state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], source, authorizedAt: now });
+    state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], authority: "user", cause: "user-interaction", authorizedAt: now });
+    for (const cause of ["installed-seed", "repair", "update-policy"] as const) {
+      state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], authority: "silent", cause, authorizedAt: now });
     }
-    state = reduceGenerationState(state, { type: "prepare", expectedRevision: state.revision, generationId: generations[0] });
     state = reduceGenerationState(state, { type: "revoke-silent", expectedRevision: state.revision, generationId: generations[0] });
-    expect(state.activationIntent?.source).toBe("user-restart");
+    expect(state.activationIntent).toMatchObject({ authority: "user", cause: "user-interaction" });
   });
 
-  it("rolls every unfinished attempt back only to its last health-proved binding", () => {
-    const oldBinding: RuntimeBinding = { generationId: generations[0], shell: shells[0] };
-    let state = reduceGenerationState(INITIAL_GENERATION_STATE, { type: "prepare", expectedRevision: 0, generationId: generations[0] });
-    state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], source: "initial-bootstrap", authorizedAt: now });
-    state = reduceGenerationState(state, { type: "activate", expectedRevision: state.revision, generationId: generations[0], shell: shells[0] });
-    state = reduceGenerationState(state, { type: "begin-attempt", expectedRevision: state.revision, binding: oldBinding });
-    state = reduceGenerationState(state, { type: "confirm", expectedRevision: state.revision, binding: oldBinding });
-    state = reduceGenerationState(state, { type: "prepare", expectedRevision: state.revision, generationId: generations[1] });
-    state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[1], source: "silent-policy", authorizedAt: now });
-    state = reduceGenerationState(state, { type: "activate", expectedRevision: state.revision, generationId: generations[1], shell: shells[0] });
-    const failed = state.attempt!;
-    state = reduceGenerationState(state, { type: "rollback", expectedRevision: state.revision, binding: failed });
-    expect(state).toMatchObject({ active: oldBinding, attempt: null, lastSuccessful: oldBinding, prepared: null, activationIntent: null });
+  it("rejects a delayed readiness proof from the previous recovery launch", () => {
+    let state = activated();
+    state = reduceGenerationState(state, { type: "begin-launch", expectedRevision: state.revision, attemptId: attemptIds[0], launchId: launchIds[0] });
+    const staleProof = { attemptId: attemptIds[0], generationId: generations[0], launchId: launchIds[0] };
+    state = reduceGenerationState(state, { type: "begin-launch", expectedRevision: state.revision, attemptId: attemptIds[0], launchId: launchIds[1] });
+    expect(() => reduceGenerationState(state, { type: "confirm-launch", expectedRevision: state.revision, proof: staleProof }))
+      .toThrow("activation launch proof is stale");
+    state = reduceGenerationState(state, {
+      type: "confirm-launch",
+      expectedRevision: state.revision,
+      proof: { ...staleProof, launchId: launchIds[1] },
+    });
+    expect(state).toMatchObject({ active: generations[0], lastHealthy: generations[0], activationAttempt: null });
   });
 
-  it("permits exactly one recovery launch before the attempt budget is exhausted", () => {
-    const candidate: RuntimeBinding = { generationId: generations[0], shell: shells[0] };
-    let state = reduceGenerationState(INITIAL_GENERATION_STATE, { type: "prepare", expectedRevision: 0, generationId: generations[0] });
-    state = reduceGenerationState(state, { type: "authorize", expectedRevision: state.revision, generationId: generations[0], source: "initial-bootstrap", authorizedAt: now });
-    state = reduceGenerationState(state, { type: "activate", expectedRevision: state.revision, generationId: generations[0], shell: shells[0] });
-    state = reduceGenerationState(state, { type: "begin-attempt", expectedRevision: state.revision, binding: candidate });
-    expect(state.attemptLaunches).toBe(1);
-    state = reduceGenerationState(state, { type: "begin-attempt", expectedRevision: state.revision, binding: candidate });
-    expect(state.attemptLaunches).toBe(2);
-    expect(() => reduceGenerationState(state, { type: "begin-attempt", expectedRevision: state.revision, binding: candidate }))
+  it("permits exactly one recovery launch before rollback", () => {
+    let state = activated();
+    state = reduceGenerationState(state, { type: "begin-launch", expectedRevision: state.revision, attemptId: attemptIds[0], launchId: launchIds[0] });
+    state = reduceGenerationState(state, { type: "begin-launch", expectedRevision: state.revision, attemptId: attemptIds[0], launchId: launchIds[1] });
+    expect(state.activationAttempt?.launchCount).toBe(2);
+    expect(() => reduceGenerationState(state, { type: "begin-launch", expectedRevision: state.revision, attemptId: attemptIds[0], launchId: "launch-c" }))
       .toThrow("activation attempt retry budget is exhausted");
+    state = reduceGenerationState(state, { type: "rollback", expectedRevision: state.revision, attemptId: attemptIds[0] });
+    expect(state).toMatchObject({ active: null, lastHealthy: null, activationAttempt: null });
   });
 });

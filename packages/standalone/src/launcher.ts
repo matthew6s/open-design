@@ -1,11 +1,11 @@
-import { compareVersions, StandaloneBootstrapError, type StandaloneShellIdentity } from "./protocol.js";
-import type { GenerationRecord, RuntimeBinding, StandaloneStore } from "./store.js";
+import { compareVersions, StandaloneBootstrapError, type StandaloneScope, type StandaloneShellIdentity } from "./protocol.js";
+import type { GenerationRecord, StandaloneStore } from "./store.js";
 import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./feedback.js";
 import { randomUUID } from "node:crypto";
 import type { StandaloneLifecycleTransition, StandaloneLifecycleTransitionPort, StandaloneLifecycleTransitionResult } from "./shell-update.js";
 
 export type LifecycleAttachment = { id: string; shell: StandaloneShellIdentity };
-export type LifecycleScope = { channel: string; namespace: string };
+export type LifecycleScope = StandaloneScope;
 export type LifecycleLease = { heartbeatIntervalMs: number; expiresAt: string };
 export type LifecycleStatus = {
   scope: LifecycleScope;
@@ -17,14 +17,29 @@ export type LifecycleStatus = {
   fence: number;
   lease: LifecycleLease | null;
 };
+export type LifecycleReadiness = Readonly<{ generationId: string; instanceId: string; attachmentId: string }>;
 
 export interface LifecyclePort {
   start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
+  awaitReady(scope: LifecycleScope, readiness: LifecycleReadiness): Promise<LifecycleReadiness>;
   heartbeat(scope: LifecycleScope, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
   release(scope: LifecycleScope, attachmentId: string): Promise<LifecycleStatus>;
   status(scope: LifecycleScope): Promise<LifecycleStatus>;
   stop(scope: LifecycleScope, fence: number): Promise<LifecycleStatus>;
   beginTransition?: StandaloneLifecycleTransitionPort["beginTransition"];
+}
+
+async function requireExactReadiness(
+  lifecycle: LifecyclePort,
+  scope: LifecycleScope,
+  readiness: LifecycleReadiness,
+): Promise<void> {
+  const acknowledged = await lifecycle.awaitReady(scope, readiness);
+  if (
+    acknowledged.generationId !== readiness.generationId
+    || acknowledged.instanceId !== readiness.instanceId
+    || acknowledged.attachmentId !== readiness.attachmentId
+  ) throw new Error("lifecycle readiness acknowledgement is stale");
 }
 
 export class VersionedLauncher {
@@ -76,17 +91,26 @@ export class VersionedLauncher {
       if (status.state !== "running" || status.generationId !== attempt.generation.id || status.references < 1) {
         throw new Error("lifecycle did not acknowledge the active generation attachment");
       }
-      if (attempt.attempted) await this.store.confirmAttempt(attempt.binding);
+      if (status.instanceId == null) throw new Error("lifecycle did not return a running instance identity");
+      const readiness = { generationId: attempt.generation.id, instanceId: status.instanceId, attachmentId: this.attachment.id };
+      await requireExactReadiness(this.lifecycle, this.scope, readiness);
+      if (attempt.proof != null) await this.store.confirmAttempt(attempt.proof);
       this.feedback.emit({ phase: "closure-ready", state: "complete", generationId: attempt.generation.id });
       return status;
     } catch (error) {
       if (!attempt.attempted) throw error;
-      const fallback = await this.store.rollbackFailedAttempt();
+      if (attempt.proof == null) throw error;
+      const fallback = await this.store.rollbackFailedAttempt(attempt.proof);
       this.feedback.emit({ phase: "rollback", state: "begin", generationId: fallback?.id });
       if (fallback == null || fallback.id === attempt.generation.id) throw error;
       if (!transitioning) await this.stop();
       const recovered = await start(fallback, this.attachment);
-      if (recovered.state !== "running" || recovered.generationId !== fallback.id) throw error;
+      if (recovered.state !== "running" || recovered.generationId !== fallback.id || recovered.instanceId == null) throw error;
+      await requireExactReadiness(this.lifecycle, this.scope, {
+        generationId: fallback.id,
+        instanceId: recovered.instanceId,
+        attachmentId: this.attachment.id,
+      });
       this.feedback.emit({ phase: "rollback", state: "complete", generationId: fallback.id });
       return recovered;
     }
@@ -150,8 +174,4 @@ export class FossilBootloader {
     }
     return (await this.loadVersionedLauncher()).start();
   }
-}
-
-export function runtimeBinding(generationId: string, shell: StandaloneShellIdentity): RuntimeBinding {
-  return { generationId, shell: { ...shell } };
 }

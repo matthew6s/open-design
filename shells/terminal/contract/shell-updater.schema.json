@@ -1,14 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nexu.io/contracts/terminal/shell-updater-v2.schema.json",
-  "title": "Shell updater snapshot v2",
+  "$id": "https://nexu.io/contracts/terminal/shell-updater-v3.schema.json",
+  "title": "Shell updater snapshot v3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "revision", "shellType", "state", "actions", "blockedBy"],
   "properties": {
-    "schemaVersion": {"const": 2},
+    "schemaVersion": {"const": 3},
     "revision": {"type": "integer", "minimum": 0},
     "shellType": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "candidateId": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+    "installAttemptId": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
     "state": {"enum": ["idle", "checking", "available", "downloading", "ready", "applying", "handed-off", "installed", "failed"]},
     "progress": {
       "type": "object",
@@ -23,7 +25,7 @@
         "additionalProperties": false,
         "required": ["id", "emphasis"],
         "properties": {
-          "id": {"enum": ["check", "download", "install", "later", "force-stop-and-install"]},
+          "id": {"enum": ["check", "download", "install", "later", "force-stop-and-install", "abandon"]},
           "emphasis": {"enum": ["primary", "secondary", "danger"]}
         }
       }
@@ -66,5 +68,19 @@
       "required": ["code", "message"],
       "properties": {"code": {"type": "string"}, "message": {"type": "string"}}
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"enum": ["available", "downloading", "ready", "applying", "handed-off", "installed"]}}},
+      "then": {"required": ["candidateId"]}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["applying", "handed-off", "installed"]}}},
+      "then": {"required": ["installAttemptId"]}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["ready", "applying", "handed-off", "installed"]}}},
+      "then": {"required": ["handoff"]}
+    }
+  ]
 }

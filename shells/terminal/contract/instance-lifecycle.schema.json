@@ -31,10 +31,11 @@
           "shell": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["type", "version", "digest"],
+            "required": ["type", "version", "buildHash", "digest"],
             "properties": {
               "type": {"type": "string"},
               "version": {"type": "string"},
+              "buildHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
               "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
             }
           }
