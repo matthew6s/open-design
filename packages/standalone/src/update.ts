@@ -7,11 +7,13 @@ import {
   type SignedStandaloneChannelHead,
   type SignedStandaloneMetadata,
   type StandaloneShellIdentity,
+  type StandaloneShellRequirement,
   type StandaloneTrustedKeyRing,
 } from "./protocol.js";
 import { type ActivationSource, type GenerationRecord, type StandalonePrepareOptions, StandaloneStore } from "./store.js";
 import { FossilBootloader, type LifecycleStatus, type VersionedLauncher } from "./launcher.js";
 import type { StandaloneFeedbackHandler } from "./feedback.js";
+import type { StandaloneLifecycleOccupant } from "./shell-update.js";
 
 export type StandaloneUpdateSource = {
   readChannelHead(channel: string): Promise<SignedStandaloneChannelHead>;
@@ -22,7 +24,20 @@ export type StandaloneUpdateSource = {
 export type UpdatePreparation =
   | { status: "prepared"; generation: GenerationRecord; authorized: boolean }
   | { status: "current"; generationId: string }
-  | { status: "shell-reinstall-required"; releaseVersion: string; minimumVersion: string | null };
+  | {
+      status: "shell-reinstall-required";
+      releaseVersion: string;
+      minimumVersion: string | null;
+      requirement: StandaloneShellRequirement | null;
+    };
+
+export type UpdateApplication =
+  | Readonly<{ status: "applied"; lifecycle: LifecycleStatus }>
+  | Readonly<{
+      status: "blocked";
+      reason: "occupied" | "transition-active" | "unavailable";
+      occupants: readonly StandaloneLifecycleOccupant[];
+    }>;
 
 function parseEnvelope(bytes: Uint8Array): SignedStandaloneMetadata {
   return JSON.parse(Buffer.from(bytes).toString("utf8")) as SignedStandaloneMetadata;
@@ -70,8 +85,8 @@ export class StandaloneUpdater {
       assertShellCompatibility(envelope.metadata, this.shell);
     } catch (error) {
       if (!(error instanceof Error) || (error as { code?: unknown }).code !== "installer-required") throw error;
-      const minimumVersion = envelope.metadata.shellRequirements.find(({ type }) => type === this.shell.type)?.minVersion ?? null;
-      return { status: "shell-reinstall-required", releaseVersion: lane.releaseVersion, minimumVersion };
+      const requirement = envelope.metadata.shellRequirements.find(({ type }) => type === this.shell.type) ?? null;
+      return { status: "shell-reinstall-required", releaseVersion: lane.releaseVersion, minimumVersion: requirement?.minVersion ?? null, requirement };
     }
     const id = sha256Hex(canonicalJson(envelope.metadata));
     const state = await this.store.readState();
@@ -98,14 +113,17 @@ export class StandaloneUpdater {
   authorizePrepared(source: ActivationSource): Promise<unknown> { return this.store.authorizePrepared(source); }
   activateOnColdStart(bootloader: FossilBootloader): Promise<LifecycleStatus> { return bootloader.start(); }
 
-  async applyNow(launcher: VersionedLauncher): Promise<LifecycleStatus> {
+  async applyNow(launcher: VersionedLauncher, options: Readonly<{ force?: boolean }> = {}): Promise<UpdateApplication> {
     const state = await this.store.readState();
     if (state.prepared == null) throw new Error("no prepared generation to apply");
     if (state.activationIntent?.generationId !== state.prepared) await this.store.authorizePrepared("user-restart");
-    await launcher.stop();
+    const transition = await launcher.beginTransition("content-restart", options);
+    if (transition.state === "blocked") return { status: "blocked", reason: transition.reason, occupants: transition.occupants };
+    await transition.transition.renew();
+    await transition.transition.forceStop();
     await this.store.recoverInterruptedAttempt();
     const activated = await this.store.activatePrepared(this.shell);
     if (activated == null) throw new Error("no prepared generation to apply");
-    return launcher.start();
+    return { status: "applied", lifecycle: await launcher.start() };
   }
 }

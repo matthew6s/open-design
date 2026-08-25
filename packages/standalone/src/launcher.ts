@@ -2,6 +2,7 @@ import { compareVersions, StandaloneBootstrapError, type StandaloneShellIdentity
 import type { GenerationRecord, RuntimeBinding, StandaloneStore } from "./store.js";
 import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./feedback.js";
 import { randomUUID } from "node:crypto";
+import type { StandaloneLifecycleTransitionPort, StandaloneLifecycleTransitionResult } from "./shell-update.js";
 
 export type LifecycleAttachment = { id: string; shell: StandaloneShellIdentity };
 export type LifecycleScope = { channel: string; namespace: string };
@@ -23,6 +24,7 @@ export interface LifecyclePort {
   release(scope: LifecycleScope, attachmentId: string): Promise<LifecycleStatus>;
   status(scope: LifecycleScope): Promise<LifecycleStatus>;
   stop(scope: LifecycleScope, fence: number): Promise<LifecycleStatus>;
+  beginTransition?: StandaloneLifecycleTransitionPort["beginTransition"];
 }
 
 export class VersionedLauncher {
@@ -82,6 +84,19 @@ export class VersionedLauncher {
   heartbeat(): Promise<LifecycleStatus> { return this.lifecycle.heartbeat(this.scope, this.attachment); }
   release(): Promise<LifecycleStatus> { return this.lifecycle.release(this.scope, this.attachment.id); }
   status(): Promise<LifecycleStatus> { return this.lifecycle.status(this.scope); }
+  beginTransition(
+    kind: "content-restart" | "shell-install",
+    options: Readonly<{ force?: boolean }> = {},
+  ): Promise<StandaloneLifecycleTransitionResult> {
+    if (this.lifecycle.beginTransition == null) {
+      return Promise.resolve({ state: "blocked", reason: "unavailable", occupants: [] });
+    }
+    return this.lifecycle.beginTransition(this.scope, kind, {
+      ownerAttachmentId: this.attachment.id,
+      ownerShellType: this.attachment.shell.type,
+      ...options,
+    });
+  }
   async stop(): Promise<LifecycleStatus> {
     const status = await this.lifecycle.status(this.scope);
     return this.lifecycle.stop(this.scope, status.fence);

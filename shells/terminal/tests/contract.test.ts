@@ -124,4 +124,24 @@ describe("Terminal native contract", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("expires an abandoned transition and fences its stale owner", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-transition-expiry-"));
+    try {
+      const lifecycle = new FileFixtureLifecyclePort(root, { transitionLeaseDurationMs: 40 });
+      const scope = { channel: "betahyx", namespace: "abandoned-transition" };
+      const generation = { id: "a".repeat(64) } as any;
+      const result = await lifecycle.beginTransition(scope, "shell-install", { ownerShellType: "electron", force: true });
+      if (result.state !== "acquired") throw new Error("fixture transition was not acquired");
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 60));
+      await expect(result.transition.forceStop()).rejects.toThrow("stale fixture lifecycle transition");
+      const restarted = await lifecycle.start(scope, generation, {
+        id: "terminal",
+        shell: { type: "terminal", version: "0.1.0", digest: "b".repeat(64) },
+      });
+      expect(restarted).toMatchObject({ state: "running", references: 1, fence: result.transition.fence + 2 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

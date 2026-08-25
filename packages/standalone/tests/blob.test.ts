@@ -16,6 +16,7 @@ import {
   materializeStandaloneBlob,
   sha256Hex,
   standaloneTreeSha256,
+  withStandaloneMaintenanceLock,
 } from "../src/index.js";
 
 const roots: string[] = [];
@@ -79,5 +80,24 @@ describe("Standalone blob repository", () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-trash-")); roots.push(root);
     await expect(discardStandaloneStoreEntry(root, join(root, "..", "escape"))).rejects.toThrow("outside the live Store");
     await expect(stat(join(root, "trash"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("renews a long maintenance lease so a competing sweep cannot steal it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "standalone-maintenance-")); roots.push(root);
+    const entered: string[] = [];
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>((resolveFinish) => { releaseFirst = resolveFinish; });
+    const timing = { heartbeatIntervalMs: 25, leaseDurationMs: 120 };
+    const first = withStandaloneMaintenanceLock(root, async () => {
+      entered.push("first");
+      await firstMayFinish;
+    }, timing);
+    while (entered.length === 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+    const second = withStandaloneMaintenanceLock(root, async () => { entered.push("second"); }, timing);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+    expect(entered).toEqual(["first"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(entered).toEqual(["first", "second"]);
   });
 });

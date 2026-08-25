@@ -4,7 +4,7 @@
   "title": "Terminal installed manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "fossil", "fixtureLifecycle", "fixtureShellUpdater", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
+  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "fossil", "fixtureLifecycle", "fixtureShellUpdater", "fixtureSidecar", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
   "properties": {
     "schemaVersion": {"const": 1},
     "shell": {
@@ -74,6 +74,15 @@
       "required": ["entrypoint", "sha256"],
       "properties": {
         "entrypoint": {"const": "runtime/fixture-shell-updater.mjs"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "fixtureSidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "sha256"],
+      "properties": {
+        "entrypoint": {"const": "runtime/fixture-sidecar.mjs"},
         "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },

@@ -29,6 +29,27 @@
       }
     },
     "blockedBy": {"type": "array"},
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interaction", "releaseVersion", "target", "artifact"],
+      "properties": {
+        "interaction": {"const": "restart-and-install"},
+        "releaseVersion": {"type": "string"},
+        "target": {"type": "string"},
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "size", "mediaType"],
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "size": {"type": "integer", "minimum": 1},
+            "mediaType": {"type": "string"}
+          }
+        }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,

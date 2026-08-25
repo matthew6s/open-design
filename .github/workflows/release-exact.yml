@@ -186,7 +186,7 @@ jobs:
               "target": os.environ["TARGET"],
               "shellVersion": Path("shells/terminal/version").read_text().strip(),
               "node": {"version": lock["version"], "archiveFile": str(destination), "archiveSha256": value["sha256"]},
-              "closureArtifactFile": str(Path("apps/closure/dist/fixture.mjs").resolve()),
+              "closureArtifactFile": str(Path("apps/closure/dist/index.mjs").resolve()),
               "standaloneDirectory": str(Path("packages/standalone/dist").resolve()),
               "sceneDirectory": str(Path(os.environ["RUNNER_TEMP"], "exact-scene")),
           }

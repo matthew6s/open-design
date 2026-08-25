@@ -66,6 +66,7 @@ export function expectedShellBuildHash(scene: string, target: string, nodeArchiv
     `carrier_lock=${digest("carrier.lock")}`,
     `fixture_lifecycle=${digest("runtime/fixture-lifecycle.mjs")}`,
     `fixture_shell_updater=${digest("runtime/fixture-shell-updater.mjs")}`,
+    `fixture_sidecar=${digest("runtime/fixture-sidecar.mjs")}`,
     `fossil=${digest("runtime/fossil.mjs")}`,
     `node_archive=${nodeArchiveSha256}`,
     `node_executable=${digest(nodeExecutable)}`,
@@ -180,7 +181,7 @@ export function prepareExactFixture(target: string) {
   if (locked == null) throw new Error(`Terminal Node lock lacks ${target}`);
   const archive = process.env.OD_TERMINAL_NODE_ARCHIVE ?? join(repoRoot, ".tmp/terminal-e2e/node", locked.archive);
   if (!existsSync(archive)) return null;
-  const closureFile = join(repoRoot, "apps/closure/dist/fixture.mjs");
+  const closureFile = join(repoRoot, "apps/closure/dist/index.mjs");
   const standaloneDirectory = join(repoRoot, "packages/standalone/dist");
   if (!existsSync(closureFile) || !existsSync(join(standaloneDirectory, "index.mjs"))) throw new Error("build Closure and Standalone before the Terminal native test");
   const work = mkdtempSync(join(tmpdir(), `terminal-${target}-e2e-`)); temporaryRoots.push(work);
@@ -212,13 +213,17 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationSource: "silent-policy", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
-  expect(applied.result).toMatchObject({ state: "running" });
-  expect(applied.result.generationId).not.toBe(first.result.generationId);
+  expect(applied.result).toMatchObject({ status: "applied", lifecycle: { state: "running" } });
+  expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);
   releases.promote(releases.beta3);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx }).result).toMatchObject({ status: "shell-reinstall-required", minimumVersion: "0.2.0" });
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx }).result).toMatchObject({
+    state: "update-required",
+    minimumVersion: "0.2.0",
+    snapshot: { state: "failed", error: { message: expect.stringContaining("lacks Shell lane") } },
+  });
   releases.promote(releases.preview1);
   expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationSource: "user-restart" }).result).toMatchObject({ status: "prepared", authorized: true });
-  expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ state: "running", scope: { channel: "previewhyx", namespace: "shared" } });
+  expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ status: "applied", lifecycle: { state: "running", scope: { channel: "previewhyx", namespace: "shared" } } });
   const feedback = readFileSync(feedbackFile, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
   const phases = feedback.map((event) => event.phase);
   expect(phases).toContain("node-verification");

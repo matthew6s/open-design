@@ -69,6 +69,7 @@ try {
     contracts = [ordered]@{ file = "contract/index.json"; sha256 = Digest $contractIndexPath }
     fixtureLifecycle = [ordered]@{ entrypoint = "runtime/fixture-lifecycle.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-lifecycle.mjs") }
     fixtureShellUpdater = [ordered]@{ entrypoint = "runtime/fixture-shell-updater.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-shell-updater.mjs") }
+    fixtureSidecar = [ordered]@{ entrypoint = "runtime/fixture-sidecar.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-sidecar.mjs") }
     fossil = [ordered]@{ entrypoint = "runtime/fossil.mjs"; sha256 = Digest (Join-Path $root "runtime/fossil.mjs") }
     releaseDocuments = [ordered]@{
       content = [ordered]@{ file = "release/content-metadata.json"; sha256 = Digest (Join-Path $root "release/content-metadata.json") }

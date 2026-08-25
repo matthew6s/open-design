@@ -15,6 +15,7 @@ const releaseScript = join(workspaceRoot, ".github/scripts/release.py");
 const enabled = process.env.OD_EXACT_LOCAL_E2E === "1";
 const roots: string[] = [];
 const processes: ChildProcess[] = [];
+let fixtureSidecarUrl: string | undefined;
 
 type Json = Record<string, any>;
 type Storage = { bucket: string; endpointUrl: string };
@@ -54,7 +55,11 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 async function command(commandName: string, args: string[], cwd = workspaceRoot): Promise<string> {
-  const result = await execFileAsync(commandName, args, { cwd, maxBuffer: 16 * 1024 * 1024 });
+  const result = await execFileAsync(commandName, args, {
+    cwd,
+    env: { ...process.env, ...(fixtureSidecarUrl == null ? {} : { OD_TERMINAL_FIXTURE_SIDECAR_URL: fixtureSidecarUrl }) },
+    maxBuffer: 16 * 1024 * 1024,
+  });
   return result.stdout;
 }
 
@@ -84,6 +89,45 @@ async function startReleaseStorage(): Promise<Storage> {
   });
 }
 
+async function startFixtureSidecar(installRoot: string, storeRoot: string): Promise<{ child: ChildProcess; endpointUrl: string }> {
+  const child = spawn(join(installRoot, "carrier/node/bin/node"), [
+    join(installRoot, "runtime/fixture-sidecar.mjs"),
+    "--store-root", storeRoot,
+    "--standalone", join(installRoot, "runtime/standalone/index.mjs"),
+    "--port", "0",
+  ], {
+    cwd: workspaceRoot,
+    env: { ...process.env, OD_FIXTURE_TRANSITION_LEASE_MS: "120" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  processes.push(child);
+  return new Promise((resolveStart, rejectStart) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => rejectStart(new Error(`fixture Sidecar timed out: ${stderr}`)), 10_000);
+    child.stderr?.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.stdout?.setEncoding("utf8").on("data", (chunk) => {
+      stdout += chunk;
+      const line = stdout.split(/\r?\n/).find((candidate) => candidate.startsWith("{"));
+      if (line == null) return;
+      clearTimeout(timeout);
+      resolveStart({ child, endpointUrl: JSON.parse(line).endpointUrl });
+    });
+    child.once("exit", (code) => { clearTimeout(timeout); rejectStart(new Error(`fixture Sidecar exited ${code}: ${stderr}`)); });
+  });
+}
+
+async function fixtureSidecarRequest(endpointUrl: string, message: Json): Promise<Json> {
+  const response = await fetch(`${endpointUrl}/v1/request`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, ...message }),
+  });
+  const payload = await response.json() as Json;
+  if (!response.ok || payload.ok !== true) throw new Error(payload.error?.message ?? `fixture Sidecar request failed: ${response.status}`);
+  return payload.result;
+}
+
 async function ensureNodeArchive(target: string): Promise<{ file: string; sha256: string; version: string }> {
   const lock = await json(join(terminalRoot, "node-lock.json"));
   const entry = lock.targets[target] as { archive: string; sha256: string; url: string } | undefined;
@@ -110,7 +154,7 @@ async function terminal(
   channel: string,
   namespace: string,
   operation: string,
-  options: { activationSource?: string; attachmentId?: string; channelHeadUrl?: string; feedbackFile?: string } = {},
+  options: { activationSource?: string; attachmentCapability?: string; attachmentId?: string; channelHeadUrl?: string; feedbackFile?: string } = {},
 ): Promise<Json> {
   const args = [
     join(installRoot, "sh/terminal.sh"),
@@ -120,6 +164,7 @@ async function terminal(
     "--namespace", namespace,
     "--operation", operation,
     ...(options.attachmentId == null ? [] : ["--attachment-id", options.attachmentId]),
+    ...(options.attachmentCapability == null ? [] : ["--attachment-capability", options.attachmentCapability]),
     ...(options.channelHeadUrl == null ? [] : ["--channel-head-url", options.channelHeadUrl]),
     ...(options.activationSource == null ? [] : ["--activation-source", options.activationSource]),
     ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile]),
@@ -129,6 +174,7 @@ async function terminal(
 
 describe("local exact Terminal release line", () => {
   afterEach(async () => {
+    fixtureSidecarUrl = undefined;
     for (const child of processes.splice(0)) child.kill();
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
@@ -152,7 +198,7 @@ describe("local exact Terminal release line", () => {
 
       await command("pnpm", ["--filter", "@open-design/standalone", "build"]);
       await command("pnpm", ["--filter", "@open-design/closure", "build"]);
-      const baseClosure = await readFile(join(workspaceRoot, "apps/closure/dist/fixture.mjs"));
+      const baseClosure = await readFile(join(workspaceRoot, "apps/closure/dist/index.mjs"));
 
       const publish = async (input: {
         channel: "betahyx" | "previewhyx";
@@ -270,12 +316,23 @@ describe("local exact Terminal release line", () => {
       await chmod(join(installRoot, "sh/terminal.sh"), 0o755);
       const store = join(root, "store");
       const feedbackFile = join(root, "feedback.jsonl");
+      const initialSidecar = await startFixtureSidecar(installRoot, store);
+      fixtureSidecarUrl = initialSidecar.endpointUrl;
 
       const first = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
       const second = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
       expect(first.result).toMatchObject({ state: "running", references: 1 });
       expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2 });
-      expect((await terminal(installRoot, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b" })).result.references).toBe(2);
+      await expect(terminal(installRoot, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b" })).rejects.toThrow();
+      expect((await terminal(installRoot, store, "betahyx", "shared", "heartbeat", {
+        attachmentId: "terminal-b",
+        attachmentCapability: second.result.attachmentCapability,
+      })).result.references).toBe(2);
+      expect(await fixtureSidecarRequest(fixtureSidecarUrl, {
+        domain: "maintenance",
+        operation: "sweep-if-idle",
+        scope: { channel: "betahyx", namespace: "shared" },
+      })).toMatchObject({ status: "deferred", reason: "occupied" });
 
       const beta2 = await publish({
         channel: "betahyx",
@@ -290,8 +347,28 @@ describe("local exact Terminal release line", () => {
         feedbackFile,
       });
       expect(prepared.result).toMatchObject({ status: "prepared", authorized: true });
-      const applied = await terminal(installRoot, store, "betahyx", "shared", "apply-update");
-      expect(applied.result.generationId).not.toBe(first.result.generationId);
+      const deferred = await terminal(installRoot, store, "betahyx", "shared", "apply-update");
+      expect(deferred.result).toMatchObject({ status: "blocked", reason: "occupied" });
+      const applied = await terminal(installRoot, store, "betahyx", "shared", "apply-update-force");
+      expect(applied.result).toMatchObject({ status: "applied" });
+      expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);
+      await terminal(installRoot, store, "betahyx", "shared", "release", {
+        attachmentId: "terminal-control",
+        attachmentCapability: applied.result.lifecycle.attachmentCapability,
+      });
+      const orphan = Buffer.from("orphaned exact fixture blob");
+      const orphanDigest = sha256(orphan);
+      await mkdir(join(store, "blobs/sha256"), { recursive: true });
+      await writeFile(join(store, "blobs/sha256", orphanDigest), orphan);
+      const maintenance = await fixtureSidecarRequest(fixtureSidecarUrl, {
+        domain: "maintenance",
+        operation: "sweep-if-idle",
+        scope: { channel: "betahyx", namespace: "shared" },
+        options: { maxDurationMs: 10_000, maxEntries: 10 },
+      });
+      expect(maintenance).toMatchObject({ status: "complete" });
+      expect(maintenance.sweep.discardedBlobs).toBeGreaterThanOrEqual(1);
+      expect(maintenance.cleanup.removed).toBeGreaterThanOrEqual(1);
 
       await terminal(installRoot, store, "betahyx", "shell-update", "start", { attachmentId: "terminal-active" });
       expect((await terminal(installRoot, store, "betahyx", "shell-update", "shell-update-check")).result.snapshot.state).toBe("available");
@@ -300,6 +377,26 @@ describe("local exact Terminal release line", () => {
       expect((await terminal(installRoot, store, "betahyx", "shell-update", "shell-update-later")).result.snapshot.state).toBe("ready");
       expect((await terminal(installRoot, store, "betahyx", "shell-update", "shell-update-force")).result.snapshot.state).toBe("handed-off");
 
+      await terminal(installRoot, store, "betahyx", "crash-recovery", "start", { attachmentId: "before-crash" });
+      const abandoned = await fixtureSidecarRequest(fixtureSidecarUrl, {
+        domain: "lifecycle",
+        operation: "begin-transition",
+        scope: { channel: "betahyx", namespace: "crash-recovery" },
+        kind: "shell-install",
+        options: { ownerShellType: "electron", force: true },
+      });
+      expect(abandoned.state).toBe("acquired");
+      await fetch(`${fixtureSidecarUrl}/v1/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ schemaVersion: 1, fault: "crash" }),
+      });
+      await new Promise<void>((resolveExit) => initialSidecar.child.once("exit", () => resolveExit()));
+      const recoveredSidecar = await startFixtureSidecar(installRoot, store);
+      fixtureSidecarUrl = recoveredSidecar.endpointUrl;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 160));
+      expect((await terminal(installRoot, store, "betahyx", "crash-recovery", "start", { attachmentId: "after-crash" })).result).toMatchObject({ state: "running", references: 2 });
+
       const beta3 = await publish({
         channel: "betahyx",
         releaseVersion: "0.1.0-betahyx.3",
@@ -307,10 +404,17 @@ describe("local exact Terminal release line", () => {
         closure: Buffer.concat([baseClosure, Buffer.from("\n// local exact beta 3\n")]),
         previousContentMetadataFile: beta2.contentMetadataFile,
       });
-      expect((await terminal(installRoot, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: beta3.channelHeadUrl })).result).toMatchObject({
-        status: "shell-reinstall-required",
+      const shellUpdate = (await terminal(installRoot, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: beta3.channelHeadUrl })).result;
+      expect(shellUpdate).toMatchObject({
+        state: "update-required",
         minimumVersion: "0.2.0",
+        snapshot: {
+          state: "ready",
+          progress: { completed: expect.any(Number), total: expect.any(Number) },
+          handoff: { releaseVersion: beta3.releaseVersion, target, interaction: "restart-and-install" },
+        },
       });
+      expect(sha256(await readFile(shellUpdate.snapshot.handoff.artifact.path))).toBe(shellUpdate.snapshot.handoff.artifact.sha256);
 
       const preview = await publish({
         channel: "previewhyx",
@@ -323,7 +427,7 @@ describe("local exact Terminal release line", () => {
         activationSource: "user-restart",
         feedbackFile,
       })).result).toMatchObject({ status: "prepared", authorized: true });
-      expect((await terminal(installRoot, store, "previewhyx", "shared", "apply-update")).result.scope).toMatchObject({ channel: "previewhyx", namespace: "shared" });
+      expect((await terminal(installRoot, store, "previewhyx", "shared", "apply-update")).result.lifecycle.scope).toMatchObject({ channel: "previewhyx", namespace: "shared" });
 
       const feedback = (await readFile(feedbackFile, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
       expect(feedback).toEqual(expect.arrayContaining([

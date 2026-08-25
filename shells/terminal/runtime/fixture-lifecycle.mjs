@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 const defaultHeartbeatIntervalMs = 5_000;
 const defaultLeaseDurationMs = 15_000;
+const defaultTransitionLeaseDurationMs = 30_000;
 let sequence = 0;
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -53,8 +54,11 @@ export class FileFixtureLifecyclePort {
     this.root = root;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? defaultHeartbeatIntervalMs;
     this.leaseDurationMs = options.leaseDurationMs ?? defaultLeaseDurationMs;
+    this.transitionLeaseDurationMs = options.transitionLeaseDurationMs ?? defaultTransitionLeaseDurationMs;
+    this.transitionHeartbeatIntervalMs = Math.max(20, Math.min(5_000, Math.floor(this.transitionLeaseDurationMs / 3)));
     if (!Number.isInteger(this.heartbeatIntervalMs) || this.heartbeatIntervalMs < 1_000) throw new Error("invalid fixture heartbeat interval");
     if (!Number.isInteger(this.leaseDurationMs) || this.leaseDurationMs <= 0) throw new Error("invalid fixture lease duration");
+    if (!Number.isInteger(this.transitionLeaseDurationMs) || this.transitionLeaseDurationMs < 40) throw new Error("invalid fixture transition lease duration");
   }
 
   paths(scope) {
@@ -107,6 +111,10 @@ export class FileFixtureLifecyclePort {
       await handle.writeFile(owner);
       const state = await this.read(scope);
       const now = Date.now();
+      if (state.transition != null && (!Number.isFinite(Date.parse(state.transition.expiresAt)) || Date.parse(state.transition.expiresAt) <= now)) {
+        state.transition = null;
+        state.fence += 1;
+      }
       if (state.state === "running") {
         state.attachments = state.attachments.filter(({ heartbeatAt }) => now - Date.parse(heartbeatAt) <= this.leaseDurationMs);
         const leaseExpired = state.leaseExpiresAt == null || Date.parse(state.leaseExpiresAt) <= now;
@@ -186,7 +194,7 @@ export class FileFixtureLifecyclePort {
   }
 
   async beginTransition(scope, kind, options = {}) {
-    if (kind !== "shell-install") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
+    if (kind !== "shell-install" && kind !== "content-restart") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
     const token = randomUUID();
     let outcome;
     const status = await this.transaction(scope, async (state) => {
@@ -195,16 +203,35 @@ export class FileFixtureLifecyclePort {
         return state;
       }
       const occupants = publicStatus(state, this.heartbeatIntervalMs).occupants;
-      const blockers = occupants.filter(({ shell }) => shell.type !== options.ownerShellType);
+      const blockers = kind === "content-restart"
+        ? occupants.filter(({ attachmentId }) => attachmentId !== options.ownerAttachmentId)
+        : occupants.filter(({ shell }) => shell.type !== options.ownerShellType);
       if (blockers.length > 0 && options.force !== true) {
         outcome = { state: "blocked", reason: "occupied", occupants: blockers };
         return state;
       }
-      state.transition = { token, kind, fence: state.fence, acquiredAt: new Date().toISOString() };
+      state.transition = {
+        token,
+        kind,
+        fence: state.fence,
+        acquiredAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + this.transitionLeaseDurationMs).toISOString(),
+      };
       outcome = { state: "acquired", occupants };
       return state;
     });
     if (outcome.state === "blocked") return { ...outcome, occupants: outcome.occupants ?? status.occupants };
+    let expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+    const renew = async () => {
+      await this.transaction(scope, async (state) => {
+        if (state.transition?.token !== token || state.transition.fence !== status.fence || state.fence !== status.fence) {
+          throw new Error("stale fixture lifecycle transition");
+        }
+        expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+        state.transition.expiresAt = expiresAt;
+        return state;
+      });
+    };
     const release = async () => {
       await this.transaction(scope, async (state) => {
         if (state.transition?.token === token) state.transition = null;
@@ -227,7 +254,18 @@ export class FileFixtureLifecyclePort {
         return state;
       });
     };
-    return { state: "acquired", transition: { fence: status.fence, occupants: outcome.occupants, release, forceStop } };
+    return {
+      state: "acquired",
+      transition: {
+        fence: status.fence,
+        get expiresAt() { return expiresAt; },
+        heartbeatIntervalMs: this.transitionHeartbeatIntervalMs,
+        occupants: outcome.occupants,
+        renew,
+        release,
+        forceStop,
+      },
+    };
   }
 
   stop(scope, fence) {

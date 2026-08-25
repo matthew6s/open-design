@@ -43,6 +43,7 @@ channel=
 namespace=
 operation=start
 attachment_id=
+attachment_capability=
 store_root=
 channel_head_url=
 activation_source=
@@ -54,6 +55,7 @@ while [ "$#" -gt 0 ]; do
     --namespace) [ "$#" -ge 2 ] || fail "--namespace requires a value"; namespace=$2; shift 2;;
     --operation) [ "$#" -ge 2 ] || fail "--operation requires a value"; operation=$2; shift 2;;
     --attachment-id) [ "$#" -ge 2 ] || fail "--attachment-id requires a value"; attachment_id=$2; shift 2;;
+    --attachment-capability) [ "$#" -ge 2 ] || fail "--attachment-capability requires a value"; attachment_capability=$2; shift 2;;
     --store-root) [ "$#" -ge 2 ] || fail "--store-root requires a value"; store_root=$2; shift 2;;
     --channel-head-url) [ "$#" -ge 2 ] || fail "--channel-head-url requires a value"; channel_head_url=$2; shift 2;;
     --activation-source) [ "$#" -ge 2 ] || fail "--activation-source requires a value"; activation_source=$2; shift 2;;
@@ -73,8 +75,9 @@ case "$channel" in ""|local|*[!a-z0-9]* ) fail "invalid exact channel";; esac
 [ "${#channel}" -le 12 ] || fail "invalid exact channel"
 case "$namespace" in ""|*[!A-Za-z0-9._-]*|[-._]*) fail "invalid namespace";; esac
 [ "${#namespace}" -le 128 ] || fail "invalid namespace"
-case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force) :;; *) fail "invalid operation";; esac
+case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|apply-update-force|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force) :;; *) fail "invalid operation";; esac
 if [ -n "$attachment_id" ]; then case "$attachment_id" in *[!A-Za-z0-9._-]*) fail "invalid attachment id";; esac; fi
+if [ -n "$attachment_capability" ]; then case "$attachment_capability" in *[!a-f0-9]*) fail "invalid attachment capability";; esac; [ "${#attachment_capability}" -eq 64 ] || fail "invalid attachment capability"; fi
 
 target=$(lock_value target)
 shell_version=$(lock_value shell_version)
@@ -117,6 +120,8 @@ printf '{"installRoot":"%s","manifestFile":"%s","runtime":{"digest":"%s","execut
   "$(json_escape "$node_path")" "$node_version" "$manifest_digest" "$shell_version" "$target" > "$resolution_file"
 attachment_json=
 [ -z "$attachment_id" ] || attachment_json=",\"attachmentId\":\"$(json_escape "$attachment_id")\""
+attachment_capability_json=
+[ -z "$attachment_capability" ] || attachment_capability_json=",\"attachmentCapability\":\"$attachment_capability\""
 store_json=
 [ -z "$store_root" ] || store_json=",\"storeRoot\":\"$(json_escape "$store_root")\""
 head_json=
@@ -125,8 +130,8 @@ activation_json=
 [ -z "$activation_source" ] || activation_json=",\"activationSource\":\"$(json_escape "$activation_source")\""
 feedback_json=
 [ -z "$feedback_file" ] || feedback_json=",\"feedbackFile\":\"$(json_escape "$feedback_file")\""
-printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s}\n' \
-  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$store_json" "$head_json" "$activation_json" "$feedback_json" > "$request_file"
+printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s%s}\n' \
+  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$attachment_capability_json" "$store_json" "$head_json" "$activation_json" "$feedback_json" > "$request_file"
 
 set +e
 OD_TERMINAL_FOSSIL_REQUEST_V1=$request_file OD_TERMINAL_FOSSIL_RESULT_V1=$result_file \

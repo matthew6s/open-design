@@ -6,7 +6,8 @@ Node runtime.
 
 The native carrier has one deliberately small job: verify and install the pinned
 official Node carrier, verify the installed Terminal manifest and executable,
-then invoke `runtime/fossil.mjs` with that absolute executable. The fossil adapter
+then invoke `runtime/fossil.mjs` with that absolute executable. The archive also
+contains the non-product `runtime/fixture-sidecar.mjs`; the fossil adapter
 validates the exchange contract and delegates lifecycle work to the installed
 `@open-design/standalone` artifact.
 
@@ -47,7 +48,7 @@ a separate download identity.
 After Node is available, `runtime/fossil.mjs` verifies the complete installed
 surface again and imports only the installed Standalone public entrypoint. Store,
 signature, update, activation and rollback policy remain in Standalone. The fossil
-only adapts Terminal files, HTTP and the phase-one file fixture to those ports.
+only adapts Terminal files, HTTP and the phase-one Sidecar fixture to those ports.
 `probe`, cold `start`, reference/heartbeat/release/stop, content update preparation
 and apply are all executable without Web or daemon. #7244 remains the integration
 gate for the real Sidecar transport and product lifecycle.
@@ -56,12 +57,21 @@ Every runtime request carries an explicit `channel` and `namespace`. The phase-o
 fixture shared instance is keyed only by that pair and follows
 `contract/instance-lifecycle.schema.json`: reference attachment, heartbeat lease,
 occupant projection, fenced transitions and an explicit traditional stop signal.
+The local Sidecar issues a persisted attachment capability on first attachment;
+heartbeat and release cannot take over a live reference by guessing its ID.
+Content restart uses the same transition protocol as Shell install: it defers by
+default while foreign references exist and only stops them on an explicit force.
 Shell auto-update is independently declared by `contract/shell-updater.schema.json`.
 Terminal ships a non-user-facing fixture provider that exercises Electron's
 future check/download/progress/ready/defer/foreign-reference block/forced-stop
 installer handoff. Neither capability exposes commands, executable paths or argv
 to the Web layer. Fossil rejection distinguishes an installer requirement from
 an incompatible active Shell reference.
+
+Standalone owns the global mark/quarantine sweep and bounded asynchronous trash
+cleanup APIs. The fixture Sidecar only schedules them after the requested scope is
+idle. This keeps blob semantics and reclamation out of Closure while exercising
+the same maintenance boundary Electron can reuse.
 
 Passing `--feedback <jsonl>` (`-Feedback` on PowerShell) records the complete
 Shell-to-Closure cold-start stream. Native Node verification is followed by
@@ -95,19 +105,22 @@ minimum Shell version and artifact URL remain promotion concerns.
 
 ## Focused verification
 
-The focused Vitest suite lives with the Shell and is not wired into the repository's
+The focused Vitest suites are not wired into the repository's
 main CI:
 
 ```sh
 OD_TERMINAL_NODE_ARCHIVE=/path/to/node-v24.18.0-darwin-arm64.tar.gz \
   pnpm --filter @open-design/terminal test
+
+OD_EXACT_LOCAL_E2E=1 \
+  pnpm --dir e2e exec vitest run -c vitest.config.ts tests/scripts/exact-local.test.ts
 ```
 
 Without the environment variable the suite uses the matching archive from
 `.tmp/terminal-e2e/node/` when present. It always checks contracts and shared
 fixture semantics; on a matching native host it additionally covers scene,
 offline distribution, cold lifecycle, update, channel isolation, atomic install
-and tamper failure. The native E2E starts the existing
+and tamper failure. The full local E2E starts the existing
 `tools-serve start release-storage` fixture and fetches channel heads, signed
 metadata and changed Closure bytes from it, so update coverage cannot pass by
 reusing only the installed seed blob. The same mutable
@@ -115,7 +128,10 @@ reusing only the installed seed blob. The same mutable
 `previewhyx/latest` proves that another non-stable channel remains isolated.
 The fixture Shell updater additionally proves that a ready Electron installer is
 blocked by a live Terminal reference, can be deferred, and can take the explicit
-forced-stop handoff.
+forced-stop handoff. It launches the Sidecar with Node and scripts from the
+installed archive, then covers attachment capabilities, default-deferred and
+forced content restart, transition lease recovery after a Sidecar crash, and
+idle-only blob sweep/cleanup.
 Platform coverage is deliberately split between
 `tests/mac.test.ts` (`sh` + tar.gz) and `tests/win.test.ts` (Windows PowerShell
 5.1 + zip); `tests/contract.test.ts` owns the shared protocol assertions.

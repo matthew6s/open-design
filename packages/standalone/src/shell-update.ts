@@ -10,7 +10,10 @@ export type StandaloneLifecycleOccupant = Readonly<{
 
 export type StandaloneLifecycleTransition = Readonly<{
   fence: number;
+  expiresAt: string;
+  heartbeatIntervalMs: number;
   occupants: readonly StandaloneLifecycleOccupant[];
+  renew(): Promise<void>;
   release(): Promise<void>;
   forceStop(): Promise<void>;
 }>;
@@ -27,8 +30,8 @@ export interface StandaloneLifecycleTransitionPort {
   occupants(scope: Readonly<{ channel: string; namespace: string }>): Promise<readonly StandaloneLifecycleOccupant[]>;
   beginTransition(
     scope: Readonly<{ channel: string; namespace: string }>,
-    kind: "shell-install",
-    options?: Readonly<{ ownerShellType?: string; force?: boolean }>,
+    kind: "content-restart" | "shell-install",
+    options?: Readonly<{ ownerAttachmentId?: string; ownerShellType?: string; force?: boolean }>,
   ): Promise<StandaloneLifecycleTransitionResult>;
 }
 
@@ -55,6 +58,12 @@ export type StandaloneShellUpdaterSnapshot = Readonly<{
   progress?: Readonly<{ completed: number; total: number }>;
   actions: readonly StandaloneShellUpdaterAction[];
   blockedBy: readonly StandaloneLifecycleOccupant[];
+  handoff?: Readonly<{
+    interaction: "restart-and-install";
+    releaseVersion: string;
+    target: string;
+    artifact: Readonly<{ path: string; sha256: string; size: number; mediaType: string }>;
+  }>;
   error?: Readonly<{ code: string; message: string }>;
 }>;
 

@@ -5,7 +5,9 @@ import { pathToFileURL } from "node:url";
 
 const requestPath = process.env.OD_TERMINAL_FOSSIL_REQUEST_V1;
 const resultPath = process.env.OD_TERMINAL_FOSSIL_RESULT_V1;
+const fixtureSidecarUrl = process.env.OD_TERMINAL_FIXTURE_SIDECAR_URL;
 if (!requestPath || !resultPath) throw new Error("Terminal fossil exchange environment is incomplete");
+if (fixtureSidecarUrl != null && !/^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(fixtureSidecarUrl)) throw new Error("Terminal fixture Sidecar URL must use localhost HTTP");
 
 const digestPattern = /^[a-f0-9]{64}$/;
 const versionPattern = /^\d+\.\d+\.\d+$/;
@@ -18,7 +20,7 @@ const inside = (root, path) => {
 
 function validateRequest(value) {
   if (value?.schemaVersion !== 1) throw new Error("unsupported fossil request schema");
-  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force"]);
+  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force"]);
   if (!operations.has(value.operation)) throw new Error("unsupported fossil operation");
   if (!/^[a-z0-9]{1,12}$/.test(value.channel) || value.channel === "local") throw new Error("invalid exact channel");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.namespace)) throw new Error("invalid namespace");
@@ -26,6 +28,7 @@ function validateRequest(value) {
   if (value.feedbackFile != null && (typeof value.feedbackFile !== "string" || !isAbsolute(value.feedbackFile))) throw new Error("invalid feedback path");
   if (value.operation !== "probe" && (typeof value.storeRoot !== "string" || !isAbsolute(value.storeRoot))) throw new Error("lifecycle operation requires an absolute Store root");
   if (new Set(["start", "heartbeat", "release"]).has(value.operation) && !/^[A-Za-z0-9._-]{1,128}$/.test(value.attachmentId)) throw new Error(`${value.operation} requires an attachment id`);
+  if (value.attachmentCapability != null && !/^[a-f0-9]{64}$/.test(value.attachmentCapability)) throw new Error("invalid attachment capability");
   if (value.operation === "prepare-update" && (typeof value.channelHeadUrl !== "string" || !/^(https?:|file:)\/\//.test(value.channelHeadUrl))) throw new Error("prepare-update requires a channel head URL");
   if (value.activationSource != null && !new Set(["initial-bootstrap", "repair", "silent-policy", "user-restart"]).has(value.activationSource)) throw new Error("invalid activation source");
   return value;
@@ -44,7 +47,7 @@ async function validateInstallation(value) {
   if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || !digestPattern.test(manifest.shell?.buildHash) || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
   if (manifest.runtime?.name !== "node" || manifest.runtime?.version !== value.runtime.version || manifest.runtime?.sha256 !== value.runtime.digest) throw new Error("installed runtime binding mismatch");
   const descriptorPath = (descriptor) => descriptor?.file ?? descriptor?.entrypoint;
-  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
+  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.fixtureSidecar, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
     manifest.shellFiles?.sh?.terminal, manifest.shellFiles?.sh?.install, manifest.shellFiles?.ps1?.terminal, manifest.shellFiles?.ps1?.install];
   for (const descriptor of descriptors) {
     const entrypoint = descriptorPath(descriptor);
@@ -61,7 +64,9 @@ async function validateInstallation(value) {
   const standalonePath = resolve(root, manifest.standalone.entrypoint);
   const standalone = await import(pathToFileURL(standalonePath).href);
   if (typeof standalone.canonicalJson !== "function" || typeof standalone.StandaloneStore !== "function" || typeof standalone.StandaloneUpdater !== "function") throw new Error("installed Standalone public API is incomplete");
-  return { root, manifest, manifestBytes, standalone };
+  const closure = await import(pathToFileURL(resolve(root, manifest.seed.closure.file)).href);
+  if (typeof closure.prepareClosureShellUpdate !== "function") throw new Error("installed Closure public API is incomplete");
+  return { root, manifest, manifestBytes, standalone, closure };
 }
 
 async function readUrl(url) {
@@ -69,6 +74,61 @@ async function readUrl(url) {
   const response = await fetch(url, { redirect: "error" });
   if (!response.ok) throw new Error(`artifact request failed: ${response.status}`);
   return new Uint8Array(await response.arrayBuffer());
+}
+
+async function sidecarRequest(message) {
+  const response = await fetch(`${fixtureSidecarUrl}/v1/request`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, ...message }),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok !== true) {
+    const error = new Error(payload?.error?.message ?? `fixture Sidecar request failed: ${response.status}`);
+    error.code = payload?.error?.code;
+    throw error;
+  }
+  return payload.result;
+}
+
+function sidecarLifecycle(requestAttachmentCapability) {
+  const call = (operation, scope, input = {}) => sidecarRequest({ domain: "lifecycle", operation, scope, ...input });
+  return {
+    start: (scope, generation, attachment) => call("start", scope, { generation, attachment, attachmentCapability: requestAttachmentCapability }),
+    heartbeat: (scope, attachment) => call("heartbeat", scope, { attachment, attachmentCapability: requestAttachmentCapability }),
+    release: (scope, attachmentId) => call("release", scope, { attachmentId, attachmentCapability: requestAttachmentCapability }),
+    status: (scope) => call("status", scope),
+    stop: (scope, fence) => call("stop", scope, { fence }),
+    occupants: (scope) => call("occupants", scope),
+    async beginTransition(scope, kind, options) {
+      const result = await call("begin-transition", scope, { kind, options });
+      if (result.state === "blocked") return result;
+      const descriptor = result.transition;
+      const transitionCall = (action) => call("transition", scope, { action, token: descriptor.token });
+      return {
+        state: "acquired",
+        transition: {
+          fence: descriptor.fence,
+          expiresAt: descriptor.expiresAt,
+          heartbeatIntervalMs: descriptor.heartbeatIntervalMs,
+          occupants: descriptor.occupants,
+          renew: () => transitionCall("renew"),
+          release: () => transitionCall("release"),
+          forceStop: () => transitionCall("force-stop"),
+        },
+      };
+    },
+  };
+}
+
+function sidecarShellUpdater(scope, options) {
+  const request = (operation, input = {}) => sidecarRequest({ domain: "shell-updater", operation, scope, options, ...input });
+  return {
+    shellType: options.shellType,
+    readSnapshot: () => request("read"),
+    waitForChange: (afterRevision, timeoutMs) => request("wait", { afterRevision, timeoutMs }),
+    invoke: (action) => request("invoke", { action }),
+  };
 }
 
 async function trustedKeys(installation) {
@@ -112,13 +172,16 @@ async function execute(request, installation) {
   const storeRoot = resolve(request.storeRoot);
   const store = new standalone.StandaloneStore(storeRoot, { channel: request.channel, namespace: request.namespace });
   const { FileFixtureLifecyclePort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureLifecycle.entrypoint)).href);
-  const lifecycle = new FileFixtureLifecyclePort(storeRoot);
+  const lifecycle = fixtureSidecarUrl == null ? new FileFixtureLifecyclePort(storeRoot) : sidecarLifecycle(request.attachmentCapability);
   const shell = { type: "terminal", version: installation.manifest.shell.version, digest: sha256(installation.manifestBytes) };
   const feedback = request.feedbackFile == null ? undefined : async (event) => appendFile(request.feedbackFile, `${JSON.stringify(event)}\n`, "utf8");
   const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback);
   if (request.operation.startsWith("shell-update-")) {
     const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
-    const updater = new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, { attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" });
+    const updaterOptions = { attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };
+    const updater = fixtureSidecarUrl == null
+      ? new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, updaterOptions)
+      : sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
     const action = ({
       "shell-update-check": "check",
       "shell-update-download": "download",
@@ -147,8 +210,23 @@ async function execute(request, installation) {
         readDocument: async () => { throw new Error("unused update source"); },
       };
   const updater = new standalone.StandaloneUpdater(request.channel, "content", shell, keys, store, source, feedback);
-  if (request.operation === "prepare-update") return updater.prepareLatest(request.activationSource);
-  return updater.applyNow(launcher);
+  if (request.operation === "prepare-update") {
+    const preparation = await updater.prepareLatest(request.activationSource);
+    if (preparation.status !== "shell-reinstall-required") return preparation;
+    const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
+    const updaterOptions = {
+      attachmentId: request.attachmentId ?? `${shell.type}-updater`,
+      channelHeadUrl: request.channelHeadUrl,
+      shellType: shell.type,
+      target: installation.manifest.target,
+      trustedKeys: [...keys].map(([keyId, publicKey]) => ({ keyId, publicKey })),
+    };
+    const shellUpdater = fixtureSidecarUrl == null
+      ? new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, { ...updaterOptions, standalone, trustedKeys: keys })
+      : sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
+    return installation.closure.prepareClosureShellUpdate({ requirement: preparation.requirement, shell, updater: shellUpdater });
+  }
+  return updater.applyNow(launcher, { force: request.operation === "apply-update-force" });
 }
 
 let operation = "unknown";
