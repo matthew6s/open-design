@@ -125,9 +125,9 @@
       "additionalProperties": false,
       "required": ["contentUpdater", "sharedInstance", "shellUpdater"],
       "properties": {
-        "contentUpdater": {"const": "standalone-v1"},
+        "contentUpdater": {"const": "standalone-v2"},
         "sharedInstance": {"const": "fixture-v1"},
-        "shellUpdater": {"const": "fixture-v1"}
+        "shellUpdater": {"const": "fixture-v2"}
       }
     }
   },

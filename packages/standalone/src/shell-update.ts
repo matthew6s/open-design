@@ -1,6 +1,8 @@
 import { compareVersions, type StandaloneShellIdentity, type StandaloneShellRequirement } from "./protocol.js";
+import type { GenerationRecord } from "./store.js";
+import type { LifecycleAttachment, LifecycleStatus } from "./launcher.js";
 
-export const STANDALONE_SHELL_UPDATER_SCHEMA = 1 as const;
+export const STANDALONE_SHELL_UPDATER_SCHEMA = 2 as const;
 
 export type StandaloneLifecycleOccupant = Readonly<{
   attachmentId: string;
@@ -16,6 +18,7 @@ export type StandaloneLifecycleTransition = Readonly<{
   renew(): Promise<void>;
   release(): Promise<void>;
   forceStop(): Promise<void>;
+  completeStart(generation: GenerationRecord, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
 }>;
 
 export type StandaloneLifecycleTransitionResult =
@@ -43,6 +46,7 @@ export type StandaloneShellUpdaterState =
   | "ready"
   | "applying"
   | "handed-off"
+  | "installed"
   | "failed";
 
 export type StandaloneShellUpdaterAction = Readonly<{
@@ -63,6 +67,7 @@ export type StandaloneShellUpdaterSnapshot = Readonly<{
     releaseVersion: string;
     target: string;
     artifact: Readonly<{ path: string; sha256: string; size: number; mediaType: string }>;
+    shell: Readonly<{ type: string; version: string; buildHash: string }>;
   }>;
   error?: Readonly<{ code: string; message: string }>;
 }>;
@@ -78,6 +83,7 @@ export interface StandaloneShellUpdaterPort {
   readSnapshot(): Promise<StandaloneShellUpdaterSnapshot>;
   waitForChange(afterRevision: number, timeoutMs: number): Promise<StandaloneShellUpdaterSnapshot>;
   invoke(action: StandaloneShellUpdaterAction["id"]): Promise<StandaloneShellUpdaterActionResult>;
+  confirmInstalled(proof: Readonly<{ shell: StandaloneShellIdentity; buildHash: string }>): Promise<StandaloneShellUpdaterActionResult>;
 }
 
 export type StandaloneShellCompatibilityResult =

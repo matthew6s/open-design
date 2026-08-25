@@ -64,9 +64,20 @@ default while foreign references exist and only stops them on an explicit force.
 Shell auto-update is independently declared by `contract/shell-updater.schema.json`.
 Terminal ships a non-user-facing fixture provider that exercises Electron's
 future check/download/progress/ready/defer/foreign-reference block/forced-stop
-installer handoff. Neither capability exposes commands, executable paths or argv
-to the Web layer. Fossil rejection distinguishes an installer requirement from
-an incompatible active Shell reference.
+installer handoff. Handoff is not installation success: the updater remains in
+`handed-off` until a newly attached Shell proves the exact expected type, version
+and build hash, then advances to `installed`. Neither capability exposes commands,
+executable paths or argv to the Web layer. Fossil rejection distinguishes an
+installer requirement from an incompatible active Shell reference.
+
+Standalone generation state is a revisioned pure state machine. Update authority
+forms `none < silent < user`; background policy cannot revoke or downgrade an
+explicit user restart. Every authorization and activation is compare-and-swap
+bound to the originally verified generation, so a later mutable channel head
+cannot retarget an in-flight transaction. A candidate receives one initial launch
+and at most one recovery launch before rollback to the last health-proved binding.
+Terminal tests exhaust the finite control-state graph and then refine the critical
+transition trace through the file Sidecar fixture.
 
 Standalone owns the global mark/quarantine sweep and bounded asynchronous trash
 cleanup APIs. The fixture Sidecar only schedules them after the requested scope is
@@ -123,12 +134,15 @@ offline distribution, cold lifecycle, update, channel isolation, atomic install
 and tamper failure. The full local E2E starts the existing
 `tools-serve start release-storage` fixture and fetches channel heads, signed
 metadata and changed Closure bytes from it, so update coverage cannot pass by
-reusing only the installed seed blob. The same mutable
-`betahyx/latest/channel-head.json` object is promoted across two beta rounds;
+reusing only the installed seed blob. Before its first launch, the installed beta
+also replaces an unrelated prepared generation and receives the first health
+proof under its exact signed identity. The same mutable
+`betahyx/latest/channel-head.json` object is promoted across three beta rounds;
 `previewhyx/latest` proves that another non-stable channel remains isolated.
 The fixture Shell updater additionally proves that a ready Electron installer is
 blocked by a live Terminal reference, can be deferred, and can take the explicit
-forced-stop handoff. It launches the Sidecar with Node and scripts from the
+forced-stop handoff; the old Shell is rejected as installation proof and the
+extracted replacement Shell completes it. It launches the Sidecar with Node and scripts from the
 installed archive, then covers attachment capabilities, default-deferred and
 forced content restart, transition lease recovery after a Sidecar crash, and
 idle-only blob sweep/cleanup.

@@ -10,10 +10,11 @@ import {
   type StandaloneShellRequirement,
   type StandaloneTrustedKeyRing,
 } from "./protocol.js";
-import { type ActivationSource, type GenerationRecord, type StandalonePrepareOptions, StandaloneStore } from "./store.js";
+import { type GenerationRecord, type StandalonePrepareOptions, StandaloneStore } from "./store.js";
 import { FossilBootloader, type LifecycleStatus, type VersionedLauncher } from "./launcher.js";
 import type { StandaloneFeedbackHandler } from "./feedback.js";
 import type { StandaloneLifecycleOccupant } from "./shell-update.js";
+import { activationPolicyCommand, type GenerationState, type UpdateActivationPolicy } from "./state-machine.js";
 
 export type StandaloneUpdateSource = {
   readChannelHead(channel: string): Promise<SignedStandaloneChannelHead>;
@@ -38,6 +39,29 @@ export type UpdateApplication =
       reason: "occupied" | "transition-active" | "unavailable";
       occupants: readonly StandaloneLifecycleOccupant[];
     }>;
+
+async function applyActivationPolicy(
+  store: StandaloneStore,
+  generationId: string,
+  policy: UpdateActivationPolicy,
+): Promise<GenerationState> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const state = await store.readState();
+    if (state.prepared !== generationId) throw new Error("prepared generation changed concurrently");
+    const command = activationPolicyCommand(state, generationId, policy);
+    if (command == null) return state;
+    try {
+      if (command.type === "revoke-silent") return await store.revokeSilentAuthorization(generationId, state.revision);
+      await store.authorizePrepared(generationId, command.source, state.revision);
+      const updated = await store.readState();
+      if (updated.prepared !== generationId) throw new Error("prepared generation changed concurrently");
+      return updated;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("stale generation state revision:")) throw error;
+    }
+  }
+  throw new Error("activation policy did not converge");
+}
 
 function parseEnvelope(bytes: Uint8Array): SignedStandaloneMetadata {
   return JSON.parse(Buffer.from(bytes).toString("utf8")) as SignedStandaloneMetadata;
@@ -69,7 +93,7 @@ export class StandaloneUpdater {
     private readonly feedback?: StandaloneFeedbackHandler,
   ) {}
 
-  async prepareLatest(activationSource?: ActivationSource): Promise<UpdatePreparation> {
+  async prepareLatest(activationPolicy: UpdateActivationPolicy): Promise<UpdatePreparation> {
     const signedHead = await this.source.readChannelHead(this.channel);
     verifyStandaloneChannelHead(signedHead, this.trustedKeys);
     const head = signedHead.head;
@@ -92,8 +116,8 @@ export class StandaloneUpdater {
     const state = await this.store.readState();
     if (state.prepared === id) {
       const generation = await this.store.readGeneration(id);
-      if (activationSource != null && state.activationIntent?.generationId !== id) await this.store.authorizePrepared(activationSource);
-      return { status: "prepared", generation, authorized: activationSource != null || state.activationIntent?.generationId === id };
+      const updated = await applyActivationPolicy(this.store, id, activationPolicy);
+      return { status: "prepared", generation, authorized: updated.activationIntent?.generationId === id };
     }
     const retainedIds = new Set([state.active?.generationId, state.prepared].filter((value): value is string => value != null));
     for (const retainedId of retainedIds) {
@@ -106,24 +130,25 @@ export class StandaloneUpdater {
       }
     }
     const generation = await this.store.prepare(envelope, this.trustedKeys, { ...this.source.prepare, feedback: this.feedback });
-    if (activationSource != null) await this.store.authorizePrepared(activationSource);
-    return { status: "prepared", generation, authorized: activationSource != null };
+    const updated = await applyActivationPolicy(this.store, generation.id, activationPolicy);
+    return { status: "prepared", generation, authorized: updated.activationIntent?.generationId === generation.id };
   }
 
-  authorizePrepared(source: ActivationSource): Promise<unknown> { return this.store.authorizePrepared(source); }
   activateOnColdStart(bootloader: FossilBootloader): Promise<LifecycleStatus> { return bootloader.start(); }
 
   async applyNow(launcher: VersionedLauncher, options: Readonly<{ force?: boolean }> = {}): Promise<UpdateApplication> {
     const state = await this.store.readState();
     if (state.prepared == null) throw new Error("no prepared generation to apply");
-    if (state.activationIntent?.generationId !== state.prepared) await this.store.authorizePrepared("user-restart");
+    const targetGenerationId = state.prepared;
+    await applyActivationPolicy(this.store, targetGenerationId, "authorize-user");
     const transition = await launcher.beginTransition("content-restart", options);
     if (transition.state === "blocked") return { status: "blocked", reason: transition.reason, occupants: transition.occupants };
     await transition.transition.renew();
     await transition.transition.forceStop();
     await this.store.recoverInterruptedAttempt();
-    const activated = await this.store.activatePrepared(this.shell);
-    if (activated == null) throw new Error("no prepared generation to apply");
-    return { status: "applied", lifecycle: await launcher.start() };
+    const prepared = await this.store.readState();
+    if (prepared.prepared !== targetGenerationId) throw new Error("prepared generation changed before activation");
+    await this.store.activatePrepared(targetGenerationId, this.shell, prepared.revision);
+    return { status: "applied", lifecycle: await launcher.startDuringTransition(transition.transition) };
   }
 }

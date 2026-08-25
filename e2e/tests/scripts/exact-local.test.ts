@@ -154,7 +154,7 @@ async function terminal(
   channel: string,
   namespace: string,
   operation: string,
-  options: { activationSource?: string; attachmentCapability?: string; attachmentId?: string; channelHeadUrl?: string; feedbackFile?: string } = {},
+  options: { activationPolicy?: string; attachmentCapability?: string; attachmentId?: string; channelHeadUrl?: string; feedbackFile?: string } = {},
 ): Promise<Json> {
   const args = [
     join(installRoot, "sh/terminal.sh"),
@@ -166,7 +166,7 @@ async function terminal(
     ...(options.attachmentId == null ? [] : ["--attachment-id", options.attachmentId]),
     ...(options.attachmentCapability == null ? [] : ["--attachment-capability", options.attachmentCapability]),
     ...(options.channelHeadUrl == null ? [] : ["--channel-head-url", options.channelHeadUrl]),
-    ...(options.activationSource == null ? [] : ["--activation-source", options.activationSource]),
+    ...(options.activationPolicy == null ? [] : ["--activation-policy", options.activationPolicy]),
     ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile]),
   ];
   return JSON.parse(await command("sh", args));
@@ -319,21 +319,6 @@ describe("local exact Terminal release line", () => {
       const initialSidecar = await startFixtureSidecar(installRoot, store);
       fixtureSidecarUrl = initialSidecar.endpointUrl;
 
-      const first = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
-      const second = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
-      expect(first.result).toMatchObject({ state: "running", references: 1 });
-      expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2 });
-      await expect(terminal(installRoot, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b" })).rejects.toThrow();
-      expect((await terminal(installRoot, store, "betahyx", "shared", "heartbeat", {
-        attachmentId: "terminal-b",
-        attachmentCapability: second.result.attachmentCapability,
-      })).result.references).toBe(2);
-      expect(await fixtureSidecarRequest(fixtureSidecarUrl, {
-        domain: "maintenance",
-        operation: "sweep-if-idle",
-        scope: { channel: "betahyx", namespace: "shared" },
-      })).toMatchObject({ status: "deferred", reason: "occupied" });
-
       const beta2 = await publish({
         channel: "betahyx",
         releaseVersion: "0.1.0-betahyx.2",
@@ -341,9 +326,41 @@ describe("local exact Terminal release line", () => {
         closure: Buffer.concat([baseClosure, Buffer.from("\n// local exact beta 2\n")]),
         previousContentMetadataFile: beta1.contentMetadataFile,
       });
+      const prebootPrepared = await terminal(installRoot, store, "betahyx", "shared", "prepare-update", {
+        channelHeadUrl: beta2.channelHeadUrl,
+        activationPolicy: "observe",
+      });
+      expect(prebootPrepared.result).toMatchObject({ status: "prepared", authorized: false });
+
+      const first = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
+      const second = await terminal(installRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
+      expect(first.result).toMatchObject({ state: "running", references: 1 });
+      expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2 });
+      expect(await json(join(store, "channels/betahyx/generations", `${first.result.generationId}.json`)))
+        .toMatchObject({ releaseVersion: beta1.releaseVersion });
+      await expect(terminal(installRoot, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b" })).rejects.toThrow();
+      expect((await terminal(installRoot, store, "betahyx", "shared", "heartbeat", {
+        attachmentId: "terminal-b",
+        attachmentCapability: second.result.attachmentCapability,
+      })).result.references).toBe(2);
+      await Promise.all(Array.from({ length: 8 }, () => terminal(
+        installRoot,
+        store,
+        "betahyx",
+        "updater-concurrency",
+        "shell-update-check",
+      )));
+      expect((await terminal(installRoot, store, "betahyx", "updater-concurrency", "shell-update-status")).result)
+        .toMatchObject({ schemaVersion: 2, revision: 8, state: "available" });
+      expect(await fixtureSidecarRequest(fixtureSidecarUrl, {
+        domain: "maintenance",
+        operation: "sweep-if-idle",
+        scope: { channel: "betahyx", namespace: "shared" },
+      })).toMatchObject({ status: "deferred", reason: "occupied" });
+
       const prepared = await terminal(installRoot, store, "betahyx", "shared", "prepare-update", {
         channelHeadUrl: beta2.channelHeadUrl,
-        activationSource: "silent-policy",
+        activationPolicy: "authorize-silent",
         feedbackFile,
       });
       expect(prepared.result).toMatchObject({ status: "prepared", authorized: true });
@@ -404,7 +421,7 @@ describe("local exact Terminal release line", () => {
         closure: Buffer.concat([baseClosure, Buffer.from("\n// local exact beta 3\n")]),
         previousContentMetadataFile: beta2.contentMetadataFile,
       });
-      const shellUpdate = (await terminal(installRoot, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: beta3.channelHeadUrl })).result;
+      const shellUpdate = (await terminal(installRoot, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: beta3.channelHeadUrl, activationPolicy: "observe" })).result;
       expect(shellUpdate).toMatchObject({
         state: "update-required",
         minimumVersion: "0.2.0",
@@ -416,6 +433,33 @@ describe("local exact Terminal release line", () => {
       });
       expect(sha256(await readFile(shellUpdate.snapshot.handoff.artifact.path))).toBe(shellUpdate.snapshot.handoff.artifact.sha256);
 
+      const handedOff = await terminal(installRoot, store, "betahyx", "shared", "shell-update-force");
+      expect(handedOff.result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
+      const oldShellConfirmation = await terminal(installRoot, store, "betahyx", "shared", "shell-update-confirm");
+      expect(oldShellConfirmation.result).toMatchObject({
+        outcome: "failed",
+        snapshot: { state: "handed-off", error: { code: "installed-shell-mismatch" } },
+      });
+
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 160));
+      const beta3Installed = join(root, "installed-beta3");
+      await mkdir(beta3Installed);
+      await command("tar", ["-xzf", shellUpdate.snapshot.handoff.artifact.path, "-C", beta3Installed]);
+      const beta3InstallRoot = join(beta3Installed, "nexu-terminal");
+      await chmod(join(beta3InstallRoot, "sh/terminal.sh"), 0o755);
+      const replacement = await terminal(beta3InstallRoot, store, "betahyx", "shared", "start", { attachmentId: "terminal-v2" });
+      expect(replacement.result).toMatchObject({ state: "running", references: 1 });
+      const installedConfirmation = await terminal(beta3InstallRoot, store, "betahyx", "shared", "shell-update-confirm");
+      expect(installedConfirmation.result).toMatchObject({ outcome: "accepted", snapshot: { state: "installed" } });
+      expect((await terminal(beta3InstallRoot, store, "betahyx", "shared", "shell-update-confirm")).result)
+        .toMatchObject({ outcome: "accepted", snapshot: { state: "installed", revision: installedConfirmation.result.snapshot.revision } });
+      expect((await terminal(installRoot, store, "betahyx", "shared", "shell-update-confirm")).result)
+        .toMatchObject({ outcome: "failed", snapshot: { state: "installed", revision: installedConfirmation.result.snapshot.revision } });
+      await terminal(beta3InstallRoot, store, "betahyx", "shared", "release", {
+        attachmentId: "terminal-v2",
+        attachmentCapability: replacement.result.attachmentCapability,
+      });
+
       const preview = await publish({
         channel: "previewhyx",
         releaseVersion: "0.1.0-previewhyx.1",
@@ -424,7 +468,7 @@ describe("local exact Terminal release line", () => {
       });
       expect((await terminal(installRoot, store, "previewhyx", "shared", "prepare-update", {
         channelHeadUrl: preview.channelHeadUrl,
-        activationSource: "user-restart",
+        activationPolicy: "authorize-user",
         feedbackFile,
       })).result).toMatchObject({ status: "prepared", authorized: true });
       expect((await terminal(installRoot, store, "previewhyx", "shared", "apply-update")).result.lifecycle.scope).toMatchObject({ channel: "previewhyx", namespace: "shared" });

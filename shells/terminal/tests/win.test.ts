@@ -38,7 +38,7 @@ describe("Terminal Windows carrier", () => {
         const result = powershell(join(installRoot, "ps1/terminal.ps1"), ["-Root", installRoot, "-StoreRoot", storeRoot, "-Channel", channel, "-Namespace", namespace, "-Operation", operation,
           ...(options.attachmentId == null ? [] : ["-AttachmentId", options.attachmentId]),
           ...(options.channelHeadUrl == null ? [] : ["-ChannelHeadUrl", options.channelHeadUrl]),
-          ...(options.activationSource == null ? [] : ["-ActivationSource", options.activationSource]),
+          ...(options.activationPolicy == null ? [] : ["-ActivationPolicy", options.activationPolicy]),
           ...(options.feedbackFile == null ? [] : ["-Feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };

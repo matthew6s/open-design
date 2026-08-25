@@ -38,7 +38,7 @@ describe("Terminal macOS carrier", () => {
         const result = run("sh", [join(installRoot, "sh/terminal.sh"), "--root", installRoot, "--store-root", storeRoot, "--channel", channel, "--namespace", namespace, "--operation", operation,
           ...(options.attachmentId == null ? [] : ["--attachment-id", options.attachmentId]),
           ...(options.channelHeadUrl == null ? [] : ["--channel-head-url", options.channelHeadUrl]),
-          ...(options.activationSource == null ? [] : ["--activation-source", options.activationSource]),
+          ...(options.activationPolicy == null ? [] : ["--activation-policy", options.activationPolicy]),
           ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };

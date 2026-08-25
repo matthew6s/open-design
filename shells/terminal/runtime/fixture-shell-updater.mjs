@@ -6,7 +6,7 @@ const sleep = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolve
 let sequence = 0;
 
 function initial(shellType) {
-  return { schemaVersion: 1, revision: 0, shellType, state: "idle", actions: [{ id: "check", emphasis: "primary" }], blockedBy: [] };
+  return { schemaVersion: 2, revision: 0, shellType, state: "idle", actions: [{ id: "check", emphasis: "primary" }], blockedBy: [] };
 }
 
 async function replaceFile(from, to) {
@@ -116,6 +116,7 @@ export class FixtureShellUpdaterPort {
       interaction: candidate.distribution.updater?.interaction ?? "restart-and-install",
       releaseVersion: candidate.releaseVersion,
       target: candidate.distribution.target,
+      shell: candidate.distribution.shell,
       artifact: { path: downloaded.path, sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
     };
     return this.update({
@@ -135,6 +136,35 @@ export class FixtureShellUpdaterPort {
       blockedBy: [],
       error: { code: error?.code ?? "shell-update-failed", message: error instanceof Error ? error.message : String(error) },
     });
+  }
+
+  async confirmInstalled(proof) {
+    const snapshot = await this.readSnapshot();
+    const expected = snapshot.handoff?.shell;
+    const matches = expected != null
+      && proof?.shell?.type === expected.type
+      && proof.shell.version === expected.version
+      && proof.buildHash === expected.buildHash;
+    if (snapshot.state === "installed") {
+      return { outcome: matches ? "accepted" : "failed", snapshot };
+    }
+    if (snapshot.state !== "handed-off" || expected == null) {
+      return { outcome: "failed", snapshot: await this.failed(new Error("Shell installation has no handed-off candidate")) };
+    }
+    if (!matches) {
+      return {
+        outcome: "failed",
+        snapshot: await this.update({
+          state: "handed-off",
+          actions: [{ id: "install", emphasis: "primary" }],
+          error: { code: "installed-shell-mismatch", message: "attached Shell does not match the handed-off distribution" },
+        }),
+      };
+    }
+    return {
+      outcome: "accepted",
+      snapshot: await this.update({ state: "installed", actions: [], blockedBy: [], error: undefined }),
+    };
   }
 
   async invoke(action) {

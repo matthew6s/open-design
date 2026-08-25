@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nexu.io/contracts/terminal/shell-updater-v1.schema.json",
-  "title": "Shell updater snapshot v1",
+  "$id": "https://nexu.io/contracts/terminal/shell-updater-v2.schema.json",
+  "title": "Shell updater snapshot v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "revision", "shellType", "state", "actions", "blockedBy"],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "revision": {"type": "integer", "minimum": 0},
     "shellType": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
-    "state": {"enum": ["idle", "checking", "available", "downloading", "ready", "applying", "handed-off", "failed"]},
+    "state": {"enum": ["idle", "checking", "available", "downloading", "ready", "applying", "handed-off", "installed", "failed"]},
     "progress": {
       "type": "object",
       "additionalProperties": false,
@@ -32,11 +32,21 @@
     "handoff": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["interaction", "releaseVersion", "target", "artifact"],
+      "required": ["interaction", "releaseVersion", "target", "artifact", "shell"],
       "properties": {
         "interaction": {"const": "restart-and-install"},
         "releaseVersion": {"type": "string"},
         "target": {"type": "string"},
+        "shell": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "version", "buildHash"],
+          "properties": {
+            "type": {"type": "string"},
+            "version": {"type": "string"},
+            "buildHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          }
+        },
         "artifact": {
           "type": "object",
           "additionalProperties": false,

@@ -20,7 +20,7 @@ const inside = (root, path) => {
 
 function validateRequest(value) {
   if (value?.schemaVersion !== 1) throw new Error("unsupported fossil request schema");
-  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force"]);
+  const operations = new Set(["probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm"]);
   if (!operations.has(value.operation)) throw new Error("unsupported fossil operation");
   if (!/^[a-z0-9]{1,12}$/.test(value.channel) || value.channel === "local") throw new Error("invalid exact channel");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.namespace)) throw new Error("invalid namespace");
@@ -30,7 +30,8 @@ function validateRequest(value) {
   if (new Set(["start", "heartbeat", "release"]).has(value.operation) && !/^[A-Za-z0-9._-]{1,128}$/.test(value.attachmentId)) throw new Error(`${value.operation} requires an attachment id`);
   if (value.attachmentCapability != null && !/^[a-f0-9]{64}$/.test(value.attachmentCapability)) throw new Error("invalid attachment capability");
   if (value.operation === "prepare-update" && (typeof value.channelHeadUrl !== "string" || !/^(https?:|file:)\/\//.test(value.channelHeadUrl))) throw new Error("prepare-update requires a channel head URL");
-  if (value.activationSource != null && !new Set(["initial-bootstrap", "repair", "silent-policy", "user-restart"]).has(value.activationSource)) throw new Error("invalid activation source");
+  if (new Set(["prepare-update", "apply-update", "apply-update-force"]).has(value.operation) && value.updateProtocolVersion !== 2) throw new Error("unsupported Standalone updater protocol");
+  if (value.operation === "prepare-update" && !new Set(["observe", "authorize-silent", "authorize-user", "revoke-silent"]).has(value.activationPolicy)) throw new Error("prepare-update requires an explicit activation policy");
   return value;
 }
 
@@ -104,7 +105,7 @@ function sidecarLifecycle(requestAttachmentCapability) {
       const result = await call("begin-transition", scope, { kind, options });
       if (result.state === "blocked") return result;
       const descriptor = result.transition;
-      const transitionCall = (action) => call("transition", scope, { action, token: descriptor.token });
+      const transitionCall = (action, input = {}) => call("transition", scope, { action, token: descriptor.token, ...input });
       return {
         state: "acquired",
         transition: {
@@ -115,6 +116,7 @@ function sidecarLifecycle(requestAttachmentCapability) {
           renew: () => transitionCall("renew"),
           release: () => transitionCall("release"),
           forceStop: () => transitionCall("force-stop"),
+          completeStart: (generation, attachment) => transitionCall("complete-start", { generation, attachment }),
         },
       };
     },
@@ -128,6 +130,7 @@ function sidecarShellUpdater(scope, options) {
     readSnapshot: () => request("read"),
     waitForChange: (afterRevision, timeoutMs) => request("wait", { afterRevision, timeoutMs }),
     invoke: (action) => request("invoke", { action }),
+    confirmInstalled: (proof) => request("confirm-installed", { proof }),
   };
 }
 
@@ -148,7 +151,11 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
   if (envelope.metadata.channel !== request.channel) throw new Error("installed seed belongs to another channel");
   const expectedId = installation.standalone.sha256Hex(installation.standalone.canonicalJson(envelope.metadata));
   let state = await store.readState();
-  if (state.active == null && state.prepared == null) {
+  if (state.lastSuccessful == null && state.attempt != null && state.attempt.generationId !== expectedId) {
+    await store.recoverInterruptedAttempt();
+    state = await store.readState();
+  }
+  if (state.lastSuccessful == null && state.active == null && state.prepared !== expectedId) {
     const seedBytes = new Uint8Array(await readFile(resolve(installation.root, installation.manifest.seed.closure.file)));
     const digest = installation.manifest.seed.closure.sha256;
     const declared = envelope.metadata.blobs?.[digest];
@@ -161,7 +168,7 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
     state = await store.readState();
   }
   if (state.active == null && state.prepared === expectedId && state.activationIntent?.generationId !== expectedId) {
-    await store.authorizePrepared("initial-bootstrap");
+    await store.authorizePrepared(expectedId, "initial-bootstrap", state.revision);
   }
 }
 
@@ -189,6 +196,9 @@ async function execute(request, installation) {
       "shell-update-later": "later",
       "shell-update-force": "force-stop-and-install",
     })[request.operation];
+    if (request.operation === "shell-update-confirm") {
+      return updater.confirmInstalled({ shell, buildHash: installation.manifest.shell.buildHash });
+    }
     return action == null ? updater.readSnapshot() : updater.invoke(action);
   }
   if (request.operation === "start") {
@@ -211,7 +221,7 @@ async function execute(request, installation) {
       };
   const updater = new standalone.StandaloneUpdater(request.channel, "content", shell, keys, store, source, feedback);
   if (request.operation === "prepare-update") {
-    const preparation = await updater.prepareLatest(request.activationSource);
+    const preparation = await updater.prepareLatest(request.activationPolicy);
     if (preparation.status !== "shell-reinstall-required") return preparation;
     const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
     const updaterOptions = {

@@ -2,12 +2,12 @@ param(
   [string]$Root,
   [Parameter(Mandatory = $true)][string]$Channel,
   [Parameter(Mandatory = $true)][string]$Namespace,
-  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force")][string]$Operation = "start",
+  [ValidateSet("probe", "start", "heartbeat", "release", "stop", "status", "prepare-update", "apply-update", "apply-update-force", "shell-update-status", "shell-update-check", "shell-update-download", "shell-update-install", "shell-update-later", "shell-update-force", "shell-update-confirm")][string]$Operation = "start",
   [string]$AttachmentId,
   [string]$AttachmentCapability,
   [string]$StoreRoot,
   [string]$ChannelHeadUrl,
-  [ValidateSet("initial-bootstrap", "repair", "silent-policy", "user-restart")][string]$ActivationSource,
+  [ValidateSet("observe", "authorize-silent", "authorize-user", "revoke-silent")][string]$ActivationPolicy,
   [string]$Result,
   [string]$Feedback
 )
@@ -39,6 +39,7 @@ if ($Channel -eq "local" -or $Channel -notmatch '^[a-z0-9]{1,12}$') { Fail "inva
 if ($Namespace -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') { Fail "invalid namespace" }
 if ($AttachmentId -and $AttachmentId -notmatch '^[A-Za-z0-9._-]{1,128}$') { Fail "invalid attachment id" }
 if ($AttachmentCapability -and $AttachmentCapability -notmatch '^[a-f0-9]{64}$') { Fail "invalid attachment capability" }
+if ($Operation -eq "prepare-update" -and -not $ActivationPolicy) { Fail "prepare-update requires an explicit activation policy" }
 
 $lockPath = Join-Path $Root "carrier.lock"
 $manifestPath = Join-Path $Root "install-manifest.json"
@@ -98,7 +99,8 @@ try {
   if ($AttachmentCapability) { $request.attachmentCapability = $AttachmentCapability }
   if ($StoreRoot) { $request.storeRoot = [IO.Path]::GetFullPath($StoreRoot) }
   if ($ChannelHeadUrl) { $request.channelHeadUrl = $ChannelHeadUrl }
-  if ($ActivationSource) { $request.activationSource = $ActivationSource }
+  if ($ActivationPolicy) { $request.activationPolicy = $ActivationPolicy }
+  if ($Operation -in @("prepare-update", "apply-update", "apply-update-force")) { $request.updateProtocolVersion = 2 }
   if ($Feedback) { $request.feedbackFile = [IO.Path]::GetFullPath($Feedback) }
   [IO.File]::WriteAllText($requestPath, (($request | ConvertTo-Json -Compress -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
   $env:OD_TERMINAL_FOSSIL_REQUEST_V1 = $requestPath

@@ -21,13 +21,14 @@ describe("Closure cold-start fixture", () => {
     const snapshots: string[] = [];
     const updater = {
       shellType: "electron",
-      readSnapshot: async () => ({ schemaVersion: 1 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
-      waitForChange: async () => ({ schemaVersion: 1 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
+      readSnapshot: async () => ({ schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
+      waitForChange: async () => ({ schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] }),
       invoke: async (action: string) => {
         revision += 1;
         state = action === "check" ? "available" : "ready";
-        return { outcome: "accepted" as const, snapshot: { schemaVersion: 1 as const, revision, shellType: "electron", state, actions: [], blockedBy: [], ...(state === "ready" ? { progress: { completed: 2, total: 2 } } : {}) } };
+        return { outcome: "accepted" as const, snapshot: { schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [], ...(state === "ready" ? { progress: { completed: 2, total: 2 } } : {}) } };
       },
+      confirmInstalled: async () => ({ outcome: "unsupported" as const, snapshot: { schemaVersion: 2 as const, revision, shellType: "electron", state, actions: [], blockedBy: [] } }),
     };
     await expect(prepareClosureShellUpdate({
       requirement: { type: "electron", minVersion: "2.0.0", buildHash: "b".repeat(64) },

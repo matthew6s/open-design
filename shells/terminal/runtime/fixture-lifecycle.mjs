@@ -140,7 +140,7 @@ export class FileFixtureLifecyclePort {
     }
   }
 
-  start(scope, generation, attachment) {
+  startInternal(scope, generation, attachment, capability = null) {
     return this.transaction(scope, async (state) => {
       if (state.transition != null) {
         const error = new Error("fixture lifecycle transition is active");
@@ -162,10 +162,26 @@ export class FileFixtureLifecyclePort {
       }
       const heartbeatAt = new Date().toISOString();
       state.leaseExpiresAt = new Date(Date.parse(heartbeatAt) + this.leaseDurationMs).toISOString();
+      const existing = state.attachments.find(({ id }) => id === attachment.id);
+      if (capability != null && existing != null && existing.capabilityHash !== capability.presentedHash) {
+        const error = new Error("fixture Sidecar attachment capability is invalid");
+        error.code = "attachment-capability-required";
+        throw error;
+      }
       state.attachments = state.attachments.filter(({ id }) => id !== attachment.id);
-      state.attachments.push({ ...attachment, heartbeatAt });
+      state.attachments.push({
+        ...attachment,
+        heartbeatAt,
+        ...(capability == null ? {} : { capabilityHash: existing?.capabilityHash ?? capability.candidateHash }),
+      });
       return state;
     });
+  }
+
+  start(scope, generation, attachment) { return this.startInternal(scope, generation, attachment); }
+
+  startWithCapability(scope, generation, attachment, capability) {
+    return this.startInternal(scope, generation, attachment, capability);
   }
 
   heartbeat(scope, attachment) {
@@ -178,8 +194,35 @@ export class FileFixtureLifecyclePort {
     });
   }
 
+  heartbeatWithCapability(scope, attachment, capabilityHash) {
+    return this.transaction(scope, async (state) => {
+      const existing = state.attachments.find(({ id }) => id === attachment.id);
+      if (state.state !== "running" || existing?.capabilityHash !== capabilityHash) {
+        const error = new Error("fixture Sidecar attachment capability is invalid");
+        error.code = "attachment-capability-required";
+        throw error;
+      }
+      Object.assign(existing, attachment, { heartbeatAt: new Date().toISOString(), capabilityHash });
+      state.leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs).toISOString();
+      return state;
+    });
+  }
+
   release(scope, attachmentId) {
     return this.transaction(scope, async (state) => {
+      state.attachments = state.attachments.filter(({ id }) => id !== attachmentId);
+      return state;
+    });
+  }
+
+  releaseWithCapability(scope, attachmentId, capabilityHash) {
+    return this.transaction(scope, async (state) => {
+      const existing = state.attachments.find(({ id }) => id === attachmentId);
+      if (existing?.capabilityHash !== capabilityHash) {
+        const error = new Error("fixture Sidecar attachment capability is invalid");
+        error.code = "attachment-capability-required";
+        throw error;
+      }
       state.attachments = state.attachments.filter(({ id }) => id !== attachmentId);
       return state;
     });
@@ -197,6 +240,7 @@ export class FileFixtureLifecyclePort {
     if (kind !== "shell-install" && kind !== "content-restart") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
     const token = randomUUID();
     let outcome;
+    let transitionFence;
     const status = await this.transaction(scope, async (state) => {
       if (state.transition != null) {
         outcome = { state: "blocked", reason: "transition-active" };
@@ -217,6 +261,7 @@ export class FileFixtureLifecyclePort {
         acquiredAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + this.transitionLeaseDurationMs).toISOString(),
       };
+      transitionFence = state.fence;
       outcome = { state: "acquired", occupants };
       return state;
     });
@@ -224,7 +269,7 @@ export class FileFixtureLifecyclePort {
     let expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
     const renew = async () => {
       await this.transaction(scope, async (state) => {
-        if (state.transition?.token !== token || state.transition.fence !== status.fence || state.fence !== status.fence) {
+        if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
           throw new Error("stale fixture lifecycle transition");
         }
         expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
@@ -240,7 +285,7 @@ export class FileFixtureLifecyclePort {
     };
     const forceStop = async () => {
       await this.transaction(scope, async (state) => {
-        if (state.transition?.token !== token || state.transition.fence !== status.fence || state.fence !== status.fence) {
+        if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
           throw new Error("stale fixture lifecycle transition");
         }
         state.stop = { requestedAt: new Date().toISOString(), fence: state.fence + 1 };
@@ -249,21 +294,42 @@ export class FileFixtureLifecyclePort {
         state.instanceId = null;
         state.attachments = [];
         state.leaseExpiresAt = null;
-        state.transition = null;
         state.fence += 1;
+        transitionFence = state.fence;
+        expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
+        state.transition.fence = transitionFence;
+        state.transition.expiresAt = expiresAt;
         return state;
       });
     };
+    const completeStart = async (generation, attachment, capabilityHash) => this.transaction(scope, async (state) => {
+      if (state.transition?.token !== token || state.transition.fence !== transitionFence || state.fence !== transitionFence) {
+        throw new Error("stale fixture lifecycle transition");
+      }
+      state.state = "running";
+      state.generationId = generation.id;
+      state.instanceId = randomUUID();
+      state.attachments = [{
+        ...attachment,
+        heartbeatAt: new Date().toISOString(),
+        ...(capabilityHash == null ? {} : { capabilityHash }),
+      }];
+      state.leaseExpiresAt = new Date(Date.now() + this.leaseDurationMs).toISOString();
+      state.transition = null;
+      state.stop = null;
+      return state;
+    });
     return {
       state: "acquired",
       transition: {
-        fence: status.fence,
+        get fence() { return transitionFence; },
         get expiresAt() { return expiresAt; },
         heartbeatIntervalMs: this.transitionHeartbeatIntervalMs,
         occupants: outcome.occupants,
         renew,
         release,
         forceStop,
+        completeStart,
       },
     };
   }

@@ -2,7 +2,7 @@ import { compareVersions, StandaloneBootstrapError, type StandaloneShellIdentity
 import type { GenerationRecord, RuntimeBinding, StandaloneStore } from "./store.js";
 import { StandaloneFeedbackEmitter, type StandaloneFeedbackHandler } from "./feedback.js";
 import { randomUUID } from "node:crypto";
-import type { StandaloneLifecycleTransitionPort, StandaloneLifecycleTransitionResult } from "./shell-update.js";
+import type { StandaloneLifecycleTransition, StandaloneLifecycleTransitionPort, StandaloneLifecycleTransitionResult } from "./shell-update.js";
 
 export type LifecycleAttachment = { id: string; shell: StandaloneShellIdentity };
 export type LifecycleScope = { channel: string; namespace: string };
@@ -45,7 +45,18 @@ export class VersionedLauncher {
 
   private readonly feedback: StandaloneFeedbackEmitter;
 
-  async start(): Promise<LifecycleStatus> {
+  start(): Promise<LifecycleStatus> {
+    return this.startWith((generation, attachment) => this.lifecycle.start(this.scope, generation, attachment), false);
+  }
+
+  startDuringTransition(transition: StandaloneLifecycleTransition): Promise<LifecycleStatus> {
+    return this.startWith((generation, attachment) => transition.completeStart(generation, attachment), true);
+  }
+
+  private async startWith(
+    start: (generation: GenerationRecord, attachment: LifecycleAttachment) => Promise<LifecycleStatus>,
+    transitioning: boolean,
+  ): Promise<LifecycleStatus> {
     const attempt = await this.store.beginActiveAttempt(this.attachment.shell);
     this.feedback.emit({ phase: "closure-starting", state: "begin", generationId: attempt.generation.id });
     try {
@@ -61,7 +72,7 @@ export class VersionedLauncher {
           );
         }
       }
-      const status = await this.lifecycle.start(this.scope, attempt.generation, this.attachment);
+      const status = await start(attempt.generation, this.attachment);
       if (status.state !== "running" || status.generationId !== attempt.generation.id || status.references < 1) {
         throw new Error("lifecycle did not acknowledge the active generation attachment");
       }
@@ -73,8 +84,8 @@ export class VersionedLauncher {
       const fallback = await this.store.rollbackFailedAttempt();
       this.feedback.emit({ phase: "rollback", state: "begin", generationId: fallback?.id });
       if (fallback == null || fallback.id === attempt.generation.id) throw error;
-      await this.stop();
-      const recovered = await this.lifecycle.start(this.scope, fallback, this.attachment);
+      if (!transitioning) await this.stop();
+      const recovered = await start(fallback, this.attachment);
       if (recovered.state !== "running" || recovered.generationId !== fallback.id) throw error;
       this.feedback.emit({ phase: "rollback", state: "complete", generationId: fallback.id });
       return recovered;
@@ -123,7 +134,7 @@ export class FossilBootloader {
             : `Shell ${this.shell.type} ${this.shell.version} is below required ${required}`,
         );
       }
-      await this.store.activatePrepared(this.shell);
+      await this.store.activatePrepared(prepared.id, this.shell, state.revision);
     }
     let generation: GenerationRecord;
     try { generation = await this.store.activeGeneration(); }

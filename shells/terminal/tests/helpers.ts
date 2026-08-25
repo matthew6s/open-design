@@ -12,7 +12,7 @@ export const terminalRoot = resolve(import.meta.dirname, "..");
 const temporaryRoots: string[] = [];
 const fixtureServers: ChildProcess[] = [];
 
-export type TerminalOptions = { attachmentId?: string; channelHeadUrl?: string; activationSource?: string; feedbackFile?: string };
+export type TerminalOptions = { attachmentId?: string; channelHeadUrl?: string; activationPolicy?: string; feedbackFile?: string };
 export type TerminalRunner = (root: string, storeRoot: string, channel: string, namespace: string, operation: string, options?: TerminalOptions) => Record<string, any>;
 type SceneRequestInput = { target: string; shellVersion: string; nodeVersion: string; nodeArchive: string; nodeArchiveSha256: string; closureFile: string; standaloneDirectory: string; sceneDirectory: string };
 type DistributionRequestInput = { target: string; sceneDirectory: string; sceneManifestSha256: string; releaseDocumentsDirectory: string; trustFile: string; release: { channel: string; releaseVersion: string; sourceCommit: string; publishedAt: string; artifactBaseUrl: string }; outputDirectory: string };
@@ -210,19 +210,19 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-later").result).toMatchObject({ snapshot: { state: "ready" } });
   expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-force").result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
   releases.promote(releases.beta2);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationSource: "silent-policy", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "authorize-silent", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
   expect(applied.result).toMatchObject({ status: "applied", lifecycle: { state: "running" } });
   expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);
   releases.promote(releases.beta3);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx }).result).toMatchObject({
+  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "observe" }).result).toMatchObject({
     state: "update-required",
     minimumVersion: "0.2.0",
     snapshot: { state: "failed", error: { message: expect.stringContaining("lacks Shell lane") } },
   });
   releases.promote(releases.preview1);
-  expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationSource: "user-restart" }).result).toMatchObject({ status: "prepared", authorized: true });
+  expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationPolicy: "authorize-user" }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ status: "applied", lifecycle: { state: "running", scope: { channel: "previewhyx", namespace: "shared" } } });
   const feedback = readFileSync(feedbackFile, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
   const phases = feedback.map((event) => event.phase);

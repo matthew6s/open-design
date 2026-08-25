@@ -20,4 +20,5 @@ export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
   readSnapshot(): ReturnType<StandaloneShellUpdaterPort["readSnapshot"]>;
   waitForChange(afterRevision: number, timeoutMs: number): ReturnType<StandaloneShellUpdaterPort["waitForChange"]>;
   invoke(action: Parameters<StandaloneShellUpdaterPort["invoke"]>[0]): ReturnType<StandaloneShellUpdaterPort["invoke"]>;
+  confirmInstalled(...input: Parameters<StandaloneShellUpdaterPort["confirmInstalled"]>): ReturnType<StandaloneShellUpdaterPort["confirmInstalled"]>;
 }

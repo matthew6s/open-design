@@ -266,7 +266,7 @@ def finalize(request: dict[str, Any], receipt_path: Path) -> None:
             "shell": {"type": "terminal", "version": prepared["shellVersion"], "buildHash": scene_by_target[target]["shellBuildHash"]},
             "target": target,
             "artifact": {"url": f"{prepared['artifactBaseUrl']}/{path.name}", "sha256": artifact["sha256"], "size": artifact["size"], "mediaType": artifact["mediaType"]},
-            "updater": {"protocol": "standalone-shell-updater-v1", "handler": "fixture-v1", "interaction": "restart-and-install"},
+            "updater": {"protocol": "standalone-shell-updater-v2", "handler": "fixture-v2", "interaction": "restart-and-install"},
         })
     if seen != set(scene_by_target):
         raise SystemExit("native distributions do not cover every prepared scene")

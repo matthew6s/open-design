@@ -46,7 +46,7 @@ attachment_id=
 attachment_capability=
 store_root=
 channel_head_url=
-activation_source=
+activation_policy=
 result_file=
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -58,7 +58,7 @@ while [ "$#" -gt 0 ]; do
     --attachment-capability) [ "$#" -ge 2 ] || fail "--attachment-capability requires a value"; attachment_capability=$2; shift 2;;
     --store-root) [ "$#" -ge 2 ] || fail "--store-root requires a value"; store_root=$2; shift 2;;
     --channel-head-url) [ "$#" -ge 2 ] || fail "--channel-head-url requires a value"; channel_head_url=$2; shift 2;;
-    --activation-source) [ "$#" -ge 2 ] || fail "--activation-source requires a value"; activation_source=$2; shift 2;;
+    --activation-policy) [ "$#" -ge 2 ] || fail "--activation-policy requires a value"; activation_policy=$2; shift 2;;
     --result) [ "$#" -ge 2 ] || fail "--result requires a value"; result_file=$2; shift 2;;
     --feedback) [ "$#" -ge 2 ] || fail "--feedback requires a value"; feedback_file=$2; shift 2;;
     *) fail "unknown argument: $1";;
@@ -75,7 +75,9 @@ case "$channel" in ""|local|*[!a-z0-9]* ) fail "invalid exact channel";; esac
 [ "${#channel}" -le 12 ] || fail "invalid exact channel"
 case "$namespace" in ""|*[!A-Za-z0-9._-]*|[-._]*) fail "invalid namespace";; esac
 [ "${#namespace}" -le 128 ] || fail "invalid namespace"
-case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|apply-update-force|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force) :;; *) fail "invalid operation";; esac
+case "$operation" in probe|start|heartbeat|release|stop|status|prepare-update|apply-update|apply-update-force|shell-update-status|shell-update-check|shell-update-download|shell-update-install|shell-update-later|shell-update-force|shell-update-confirm) :;; *) fail "invalid operation";; esac
+case "$activation_policy" in ""|observe|authorize-silent|authorize-user|revoke-silent) :;; *) fail "invalid activation policy";; esac
+if [ "$operation" = "prepare-update" ] && [ -z "$activation_policy" ]; then fail "prepare-update requires an explicit activation policy"; fi
 if [ -n "$attachment_id" ]; then case "$attachment_id" in *[!A-Za-z0-9._-]*) fail "invalid attachment id";; esac; fi
 if [ -n "$attachment_capability" ]; then case "$attachment_capability" in *[!a-f0-9]*) fail "invalid attachment capability";; esac; [ "${#attachment_capability}" -eq 64 ] || fail "invalid attachment capability"; fi
 
@@ -127,11 +129,13 @@ store_json=
 head_json=
 [ -z "$channel_head_url" ] || head_json=",\"channelHeadUrl\":\"$(json_escape "$channel_head_url")\""
 activation_json=
-[ -z "$activation_source" ] || activation_json=",\"activationSource\":\"$(json_escape "$activation_source")\""
+[ -z "$activation_policy" ] || activation_json=",\"activationPolicy\":\"$(json_escape "$activation_policy")\""
+update_protocol_json=
+case "$operation" in prepare-update|apply-update|apply-update-force) update_protocol_json=',"updateProtocolVersion":2';; esac
 feedback_json=
 [ -z "$feedback_file" ] || feedback_json=",\"feedbackFile\":\"$(json_escape "$feedback_file")\""
-printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s%s}\n' \
-  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$attachment_capability_json" "$store_json" "$head_json" "$activation_json" "$feedback_json" > "$request_file"
+printf '{"carrierResolutionFile":"%s","channel":"%s","namespace":"%s","operation":"%s","schemaVersion":1%s%s%s%s%s%s%s}\n' \
+  "$(json_escape "$resolution_file")" "$channel" "$namespace" "$operation" "$attachment_json" "$attachment_capability_json" "$store_json" "$head_json" "$activation_json" "$update_protocol_json" "$feedback_json" > "$request_file"
 
 set +e
 OD_TERMINAL_FOSSIL_REQUEST_V1=$request_file OD_TERMINAL_FOSSIL_RESULT_V1=$result_file \

@@ -106,7 +106,7 @@ describe("Terminal native contract", () => {
     }
   });
 
-  it("seals new references behind an acquired Shell install transition", async () => {
+  it("refines a forced Shell transition into one atomic replacement start", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-transition-"));
     try {
       const lifecycle = new FileFixtureLifecyclePort(root);
@@ -120,6 +120,15 @@ describe("Terminal native contract", () => {
       await expect(lifecycle.start(scope, generation, { id: "late-terminal", shell: terminal })).rejects.toThrow("transition is active");
       await result.transition.forceStop();
       await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
+      await expect(lifecycle.start(scope, generation, { id: "late-after-stop", shell: terminal })).rejects.toThrow("transition is active");
+      const replacement = { id: "terminal-v2", shell: { ...terminal, version: "0.2.0", digest: "3".repeat(64) } };
+      await expect(result.transition.completeStart(generation, replacement)).resolves.toMatchObject({
+        state: "running",
+        generationId: generation.id,
+        references: 1,
+        occupants: [{ attachmentId: replacement.id, shell: replacement.shell }],
+      });
+      await expect(result.transition.completeStart(generation, replacement)).rejects.toThrow("stale fixture lifecycle transition");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -64,7 +64,7 @@ try {
   }
   $sceneManifest = Get-Content -LiteralPath (Join-Path $root "scene.json") -Raw | ConvertFrom-Json
   $manifest = [ordered]@{
-    capabilities = [ordered]@{ contentUpdater = "standalone-v1"; sharedInstance = "fixture-v1"; shellUpdater = "fixture-v1" }
+    capabilities = [ordered]@{ contentUpdater = "standalone-v2"; sharedInstance = "fixture-v1"; shellUpdater = "fixture-v2" }
     carrierLock = [ordered]@{ file = "carrier.lock"; sha256 = Digest (Join-Path $root "carrier.lock") }
     contracts = [ordered]@{ file = "contract/index.json"; sha256 = Digest $contractIndexPath }
     fixtureLifecycle = [ordered]@{ entrypoint = "runtime/fixture-lifecycle.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-lifecycle.mjs") }

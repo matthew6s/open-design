@@ -1,7 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { FileFixtureLifecyclePort } from "./fixture-lifecycle.mjs";
@@ -19,34 +18,8 @@ const lifecycle = new FileFixtureLifecyclePort(storeRoot, {
   transitionLeaseDurationMs: Number.parseInt(process.env.OD_FIXTURE_TRANSITION_LEASE_MS ?? "30000", 10),
 });
 const transitions = new Map();
-const capabilityPath = join(storeRoot, "fixture-sidecar-capabilities.json");
-const capabilities = await readFile(capabilityPath, "utf8").then(JSON.parse).catch((error) => {
-  if (error?.code === "ENOENT") return {};
-  throw error;
-});
-let capabilitySequence = 0;
-
-const capabilityKey = (scope, attachmentId) => `${scope.channel}/${scope.namespace}/${attachmentId}`;
+const updaterQueues = new Map();
 const capabilityDigest = (token) => createHash("sha256").update(token).digest("hex");
-async function persistCapabilities() {
-  await mkdir(dirname(capabilityPath), { recursive: true });
-  const temporary = `${capabilityPath}.${process.pid}.${capabilitySequence++}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(capabilities)}\n`, { encoding: "utf8", flag: "wx" });
-  await rename(temporary, capabilityPath);
-}
-function assertCapability(scope, attachmentId, token) {
-  const expected = capabilities[capabilityKey(scope, attachmentId)];
-  if (expected == null || typeof token !== "string" || capabilityDigest(token) !== expected) {
-    const error = new Error("fixture Sidecar attachment capability is invalid");
-    error.code = "attachment-capability-required";
-    throw error;
-  }
-}
-async function clearScopeCapabilities(scope) {
-  const prefix = `${scope.channel}/${scope.namespace}/`;
-  for (const key of Object.keys(capabilities)) if (key.startsWith(prefix)) delete capabilities[key];
-  await persistCapabilities();
-}
 
 function errorPayload(error) {
   return { code: error?.code ?? "fixture-sidecar-error", message: error instanceof Error ? error.message : String(error) };
@@ -67,30 +40,26 @@ async function lifecycleRequest(message) {
   if (message.operation === "start") {
     const status = await lifecycle.status(scope);
     const existing = status.occupants.some(({ attachmentId }) => attachmentId === message.attachment.id);
-    if (existing) assertCapability(scope, message.attachment.id, message.attachmentCapability);
     const token = existing ? message.attachmentCapability : randomBytes(32).toString("hex");
-    const started = await lifecycle.start(scope, message.generation, message.attachment);
-    capabilities[capabilityKey(scope, message.attachment.id)] = capabilityDigest(token);
-    await persistCapabilities();
+    if (typeof token !== "string") {
+      const error = new Error("fixture Sidecar attachment capability is invalid");
+      error.code = "attachment-capability-required";
+      throw error;
+    }
+    const started = await lifecycle.startWithCapability(scope, message.generation, message.attachment, {
+      candidateHash: capabilityDigest(token),
+      presentedHash: message.attachmentCapability == null ? null : capabilityDigest(message.attachmentCapability),
+    });
     return { ...started, attachmentCapability: token };
   }
   if (message.operation === "heartbeat") {
-    assertCapability(scope, message.attachment.id, message.attachmentCapability);
-    return lifecycle.heartbeat(scope, message.attachment);
+    return lifecycle.heartbeatWithCapability(scope, message.attachment, capabilityDigest(message.attachmentCapability ?? ""));
   }
   if (message.operation === "release") {
-    assertCapability(scope, message.attachmentId, message.attachmentCapability);
-    const status = await lifecycle.release(scope, message.attachmentId);
-    delete capabilities[capabilityKey(scope, message.attachmentId)];
-    await persistCapabilities();
-    return status;
+    return lifecycle.releaseWithCapability(scope, message.attachmentId, capabilityDigest(message.attachmentCapability ?? ""));
   }
   if (message.operation === "status") return lifecycle.status(scope);
-  if (message.operation === "stop") {
-    const status = await lifecycle.stop(scope, message.fence);
-    await clearScopeCapabilities(scope);
-    return status;
-  }
+  if (message.operation === "stop") return lifecycle.stop(scope, message.fence);
   if (message.operation === "occupants") return lifecycle.occupants(scope);
   if (message.operation === "begin-transition") {
     const result = await lifecycle.beginTransition(scope, message.kind, message.options);
@@ -107,14 +76,21 @@ async function lifecycleRequest(message) {
       await transition.renew();
       return transitionDescriptor(message.token, transition);
     }
-    if (message.action === "release") await transition.release();
+    if (message.action === "release") {
+      await transition.release();
+      transitions.delete(message.token);
+      return { released: true };
+    }
     else if (message.action === "force-stop") {
       await transition.forceStop();
-      await clearScopeCapabilities(held.scope);
+      return transitionDescriptor(message.token, transition);
+    } else if (message.action === "complete-start") {
+      const capability = randomBytes(32).toString("hex");
+      const status = await transition.completeStart(message.generation, message.attachment, capabilityDigest(capability));
+      transitions.delete(message.token);
+      return { ...status, attachmentCapability: capability };
     }
     else throw new Error("fixture Sidecar transition action is invalid");
-    transitions.delete(message.token);
-    return { released: true };
   }
   throw new Error(`unsupported fixture Sidecar lifecycle operation: ${message.operation}`);
 }
@@ -128,8 +104,16 @@ async function updaterRequest(message) {
   });
   if (message.operation === "read") return updater.readSnapshot();
   if (message.operation === "wait") return updater.waitForChange(message.afterRevision, message.timeoutMs);
-  if (message.operation === "invoke") return updater.invoke(message.action);
-  throw new Error(`unsupported fixture Sidecar updater operation: ${message.operation}`);
+  const key = `${message.scope.channel}/${message.scope.namespace}/${message.options.shellType ?? "electron"}`;
+  const previous = updaterQueues.get(key) ?? Promise.resolve();
+  const operation = previous.catch(() => undefined).then(() => {
+    if (message.operation === "invoke") return updater.invoke(message.action);
+    if (message.operation === "confirm-installed") return updater.confirmInstalled(message.proof);
+    throw new Error(`unsupported fixture Sidecar updater operation: ${message.operation}`);
+  });
+  updaterQueues.set(key, operation);
+  try { return await operation; }
+  finally { if (updaterQueues.get(key) === operation) updaterQueues.delete(key); }
 }
 
 async function maintenanceRequest(message) {

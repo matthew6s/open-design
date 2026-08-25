@@ -141,6 +141,18 @@ async function fixtureStore(root: string, bytes: Buffer, releaseVersion = "0.1.0
   return { generation, keys, store, trusted };
 }
 
+async function authorize(store: StandaloneStore, source: "initial-bootstrap" | "repair" | "silent-policy" | "user-restart") {
+  const state = await store.readState();
+  if (state.prepared == null) throw new Error("fixture has no prepared generation");
+  return store.authorizePrepared(state.prepared, source, state.revision);
+}
+
+async function activate(store: StandaloneStore, shell: StandaloneShellIdentity) {
+  const state = await store.readState();
+  if (state.prepared == null) throw new Error("fixture has no prepared generation");
+  return store.activatePrepared(state.prepared, shell, state.revision);
+}
+
 describe("standalone exact lifecycle", () => {
   it("shares the repository namespace character and length contract", () => {
     expect(new StandaloneStore("/unused", { channel: "betahyx", namespace: "Team.Shared_01" }).namespace).toBe("Team.Shared_01");
@@ -151,13 +163,13 @@ describe("standalone exact lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-store-")); roots.push(root);
     const bytes = Buffer.from("export default 'fixture';\n");
     const { generation, store } = await fixtureStore(root, bytes);
-    expect(await store.readState()).toEqual({ schemaVersion: 2, prepared: generation.id, activationIntent: null, attempt: null, active: null, lastSuccessful: null });
-    await store.authorizePrepared("initial-bootstrap");
+    expect(await store.readState()).toEqual({ schemaVersion: 3, revision: 1, prepared: generation.id, activationIntent: null, attempt: null, attemptLaunches: null, active: null, lastSuccessful: null });
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     const launcher = new VersionedLauncher(store, lifecycle, terminal, "terminal-1");
     const fossil = new FossilBootloader(store, terminal, async () => launcher);
     await expect(fossil.start()).resolves.toMatchObject({ state: "running", generationId: generation.id, references: 1 });
-    expect(await store.readState()).toEqual({ schemaVersion: 2, prepared: null, activationIntent: null, attempt: null, active: { generationId: generation.id, shell: terminal }, lastSuccessful: { generationId: generation.id, shell: terminal } });
+    expect(await store.readState()).toMatchObject({ schemaVersion: 3, revision: 5, prepared: null, activationIntent: null, attempt: null, attemptLaunches: null, active: { generationId: generation.id, shell: terminal }, lastSuccessful: { generationId: generation.id, shell: terminal } });
     expect(await readFile(generation.resources.fixture!.path, "utf8")).toContain("fixture");
   });
 
@@ -169,20 +181,21 @@ describe("standalone exact lifecycle", () => {
     envelope.metadata.releaseVersion = "0.1.0-betahyx.2";
     const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
     await expect(store.prepare(envelope, new Map([["test", keys.publicKey]]), await blobOptions(root, bytes))).rejects.toThrow("signature verification failed");
-    expect(await store.readState()).toEqual({ schemaVersion: 2, prepared: null, activationIntent: null, attempt: null, active: null, lastSuccessful: null });
+    expect(await store.readState()).toEqual({ schemaVersion: 3, revision: 0, prepared: null, activationIntent: null, attempt: null, attemptLaunches: null, active: null, lastSuccessful: null });
   });
 
   it("retries an interrupted attempt and rolls back only after a failed health proof", async () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-recover-")); roots.push(root);
     const { keys, store, trusted } = await fixtureStore(root, Buffer.from("first"));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     await new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "first-shell")).start();
     const first = await store.activeGeneration();
     const secondBytes = Buffer.from("second");
     const second = await store.prepare(signStandaloneMetadata(metadata(secondBytes, "0.1.0-betahyx.2"), "test", keys.privateKey), trusted, await blobOptions(root, secondBytes));
-    await store.authorizePrepared("silent-policy");
-    await store.activatePrepared(terminal);
+    await authorize(store, "silent-policy");
+    await activate(store, terminal);
+    await store.beginActiveAttempt(terminal);
     expect(await store.readState()).toMatchObject({ active: { generationId: second.id }, attempt: { generationId: second.id }, lastSuccessful: { generationId: first.id } });
     await stopFixture(lifecycle);
     lifecycle.failGenerationId = second.id;
@@ -193,18 +206,18 @@ describe("standalone exact lifecycle", () => {
   it("rolls an unsuccessful first activation back to an empty binding", async () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-first-failure-")); roots.push(root);
     const { generation, store } = await fixtureStore(root, Buffer.from("first"));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     lifecycle.failGenerationId = generation.id;
     const launcher = new VersionedLauncher(store, lifecycle, terminal, "terminal");
     await expect(new FossilBootloader(store, terminal, async () => launcher).start()).rejects.toThrow("activation failed");
-    expect(await store.readState()).toEqual({ schemaVersion: 2, prepared: null, activationIntent: null, attempt: null, active: null, lastSuccessful: null });
+    expect(await store.readState()).toMatchObject({ schemaVersion: 3, prepared: null, activationIntent: null, attempt: null, active: null, lastSuccessful: null });
   });
 
   it("health-proves a new Shell identity without forking the generation", async () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-shell-")); roots.push(root);
     const { generation, store } = await fixtureStore(root, Buffer.from("fixture"));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     await new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "terminal")).start();
     await stopFixture(lifecycle);
@@ -226,7 +239,7 @@ describe("standalone exact lifecycle", () => {
       new Map([["test", keys.publicKey]]),
       await blobOptions(root, artifact),
     );
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     const terminalLauncher = new VersionedLauncher(store, lifecycle, terminal, "terminal");
     const terminalStatus = await new FossilBootloader(store, terminal, async () => terminalLauncher).start();
@@ -248,7 +261,7 @@ describe("standalone exact lifecycle", () => {
     const keys = generateKeyPairSync("ed25519");
     const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
     await store.prepare(signStandaloneMetadata(metadata(bytes, "0.1.0-betahyx.1", "0.2.0"), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const fossil = new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, new FixturePort(), terminal, "terminal"));
     await expect(fossil.start()).rejects.toMatchObject({ code: "installer-required" } satisfies Partial<StandaloneBootstrapError>);
   });
@@ -262,7 +275,7 @@ describe("standalone exact lifecycle", () => {
       { type: "terminal", minVersion: "0.2.0", buildHash: "b".repeat(64) },
       { type: "electron", minVersion: "1.0.0", buildHash: "c".repeat(64) },
     ]), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     await lifecycle.start(fixtureScope, { ...generation, id: "d".repeat(64) }, { id: "old-terminal", shell: terminal });
     const electron = { type: "electron", version: "1.0.0", digest: "e".repeat(64) } satisfies StandaloneShellIdentity;
@@ -274,7 +287,7 @@ describe("standalone exact lifecycle", () => {
   it("leaves an unauthorized prepared update inactive during cold start", async () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-prepared-")); roots.push(root);
     const { keys, store, trusted } = await fixtureStore(root, Buffer.from("first"));
-    await store.authorizePrepared("initial-bootstrap");
+    await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
     await new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "first")).start();
     const active = await store.activeGeneration();
@@ -306,9 +319,9 @@ describe("standalone exact lifecycle", () => {
       readDocument: async () => metadataBytes,
       prepare: await blobOptions(root, artifact),
     });
-    await expect(updater.prepareLatest()).resolves.toMatchObject({ status: "prepared", authorized: false });
+    await expect(updater.prepareLatest("observe")).resolves.toMatchObject({ status: "prepared", authorized: false });
     expect(await store.readState()).toMatchObject({ prepared: expect.any(String), activationIntent: null, active: null, attempt: null });
-    await expect(updater.prepareLatest("silent-policy")).resolves.toMatchObject({ status: "prepared", authorized: true });
+    await expect(updater.prepareLatest("authorize-silent")).resolves.toMatchObject({ status: "prepared", authorized: true });
     expect(await store.readState()).toMatchObject({ activationIntent: { source: "silent-policy" } });
 
     const updaterFor = (candidate: SignedStandaloneMetadata) => {
@@ -325,9 +338,9 @@ describe("standalone exact lifecycle", () => {
       });
     };
     const downgrade = signStandaloneMetadata(metadata(artifact, "0.1.0-betahyx.0"), "next", nextKeys.privateKey);
-    await expect(updaterFor(downgrade).prepareLatest()).rejects.toThrow("would downgrade");
+    await expect(updaterFor(downgrade).prepareLatest("observe")).rejects.toThrow("would downgrade");
     const collision = signStandaloneMetadata(metadata(Buffer.from("collision")), "next", nextKeys.privateKey);
-    await expect(updaterFor(collision).prepareLatest()).rejects.toThrow("immutable release metadata collision");
+    await expect(updaterFor(collision).prepareLatest("observe")).rejects.toThrow("immutable release metadata collision");
   });
 
   it("binds optional Shell updater sidecars to immutable target distributions", () => {
@@ -342,7 +355,7 @@ describe("standalone exact lifecycle", () => {
         shell: { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64) },
         target: "darwin-arm64",
         artifact: { url: "https://fixtures.invalid/terminal.tar.gz", sha256: "c".repeat(64), size: 1024, mediaType: "application/gzip" },
-        updater: { protocol: "standalone-shell-updater-v1", handler: "fixture-v1", interaction: "restart-and-install" },
+        updater: { protocol: "standalone-shell-updater-v2", handler: "fixture-v2", interaction: "restart-and-install" },
       }],
     }, [{ keyId: "terminal", privateKey: keys.privateKey }]);
     expect(verifyStandaloneShellMetadata(envelope, new Map([["terminal", keys.publicKey]]))).toBe("terminal");
