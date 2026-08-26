@@ -67,14 +67,12 @@ export interface AppConfigPrefs {
   /** Project location id used for new projects when the create request does not choose one explicitly. */
   defaultProjectLocationId?: string | null;
   /**
-   * Whether this installation opts into the OD Next design strategy, and in
-   * which mode.
+   * Optional installation override for the OD Next design strategy mode.
    *
-   * OD Next is opt-in: an installation that never chose runs the ordinary
-   * strategy route, so absent (and `null`) mean `off`. Setting this to
-   * `'active'` is the whole configuration step — the next run admits through
-   * the strategy without restarting the daemon, because the run route reads
-   * this field per request rather than latching it at boot.
+   * This strategy branch defaults to `active`, so absent (and `null`) use that
+   * default. Setting this to `off` or `observe` opts the installation out of
+   * active execution. Changes take effect on the next run without restarting
+   * the daemon because the run route reads this field per request.
    *
    * `OD_NEXT_STRATEGY_ROLLOUT` still outranks this when it is set, so an
    * operator, a packaged smoke run, or a test can pin a mode for one process
