@@ -4,8 +4,8 @@
 // answers `{}` for the two states that legitimately mean "nothing configured"
 // — no file, unparseable file — and throws only when the daemon genuinely
 // cannot read its own config. Substituting `{}` for that throw would tell an
-// operator the active branch default is authoritative, which is a claim about
-// configuration precedence rather than about this daemon's unreadable disk.
+// operator the installation was never opted in, which is a claim about their
+// choice rather than about this daemon's disk.
 import type { Server } from 'node:http';
 
 import Database from 'better-sqlite3';
@@ -75,14 +75,13 @@ describe('GET /api/strategies/od-next/rollout', () => {
     });
   });
 
-  it('reports active/default when the installation genuinely configured nothing', async () => {
+  it('reports off/default when the installation genuinely configured nothing', async () => {
     await start(async () => ({}));
     const response = await fetch(`${baseUrl}/api/strategies/od-next/rollout`);
     expect(response.status).toBe(200);
     expect((await response.json() as { status: unknown }).status).toMatchObject({
-      requestedMode: 'active',
+      requestedMode: 'off',
       requestedModeSource: 'default',
-      effectiveMode: 'active',
     });
   });
 

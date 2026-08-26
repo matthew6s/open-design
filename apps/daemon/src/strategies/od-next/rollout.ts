@@ -71,8 +71,9 @@ function configuredMode(value: unknown): OdNextRolloutMode | null {
 /**
  * Which authority decides the requested mode, and what it decided.
  *
- * This strategy branch defaults to `active`. An operator can still pin a
- * process or installation to `observe` or `off` for controlled rollback.
+ * OD Next is opt-in. An installation that configured nothing runs `off` — the
+ * ordinary strategy route — so shipping the strategy in a build never changes
+ * how a run behaves until someone asks for it.
  *
  * `OD_NEXT_STRATEGY_ROLLOUT` outranks the saved `odNextStrategyMode` so that a
  * pinned process stays pinned: an operator debugging one daemon, a packaged
@@ -88,7 +89,7 @@ function resolveRequestedMode(
   if (fromEnv) return { mode: fromEnv, source: 'env' };
   const fromConfig = configuredMode(appConfig?.odNextStrategyMode);
   if (fromConfig) return { mode: fromConfig, source: 'app_config' };
-  return { mode: 'active', source: 'default' };
+  return { mode: 'off', source: 'default' };
 }
 
 export function readOdNextRolloutPolicy(
