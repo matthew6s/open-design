@@ -22,6 +22,26 @@ async function readUrl(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+export function requireCompleteStandaloneRetirement(result) {
+  if (result == null || !Array.isArray(result.remainingPids)) {
+    throw Object.assign(new Error("Standalone retirement returned an invalid terminal result"), {
+      code: "standalone-retirement-invalid",
+    });
+  }
+  const remainingPids = result.remainingPids.filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+  if (remainingPids.length !== result.remainingPids.length) {
+    throw Object.assign(new Error("Standalone retirement returned invalid remaining process identities"), {
+      code: "standalone-retirement-invalid",
+    });
+  }
+  if (remainingPids.length > 0) {
+    throw Object.assign(
+      new Error(`Standalone retirement remains incomplete: ${remainingPids.join(", ")}`),
+      { code: "standalone-retirement-incomplete", remainingPids },
+    );
+  }
+}
+
 export class FixtureShellUpdaterPort {
   constructor(root, scope, lifecycle, options = {}) {
     const fixtureRoot = join(root, "channels", scope.channel, "namespaces", scope.namespace, "fixture");
@@ -39,9 +59,13 @@ export class FixtureShellUpdaterPort {
     this.standalone = options.standalone;
     this.faultAt = options.faultAt;
     this.installDelayMs = options.installDelayMs ?? 0;
+    this.retireStandalone = options.retireStandalone ?? (async () => ({ remainingPids: [] }));
     this.algebra = options.algebra;
     if (this.algebra == null || !["initial", "validate", "reduce"].every((name) => typeof this.algebra[name] === "function")) {
       throw new Error("fixture Shell updater requires the Standalone updater algebra");
+    }
+    if (typeof this.retireStandalone !== "function") {
+      throw new Error("fixture Shell updater requires a callable Standalone retirement port");
     }
   }
 
@@ -262,11 +286,23 @@ export class FixtureShellUpdaterPort {
       heartbeat = setInterval(() => { void transition.transition.renew().catch(() => undefined); }, transition.transition.heartbeatIntervalMs);
       heartbeat.unref();
       if (this.installDelayMs > 0) await sleep(this.installDelayMs);
+      // A Shell adapter may seal the logical transition only after its
+      // process authority reports a terminal, survivor-free retirement.
+      const retirement = await this.retireStandalone({
+        scope: this.scope,
+        kind: "shell-install",
+        fence: transition.transition.fence,
+        occupants: transition.transition.occupants,
+      });
+      requireCompleteStandaloneRetirement(retirement);
       await transition.transition.forceStop();
       sealed = true;
       return { outcome: "accepted", snapshot: await this.update({ state: "handed-off", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff }) };
     } catch (error) {
       if (!error?.abandonedTransition && !sealed) await transition.transition.release();
+      if (!error?.abandonedTransition && !sealed) {
+        return { outcome: "failed", snapshot: await this.failed(error) };
+      }
       throw error;
     } finally {
       if (heartbeat != null) clearInterval(heartbeat);

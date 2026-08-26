@@ -3,7 +3,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type * as Standalone from "@open-design/standalone";
 
 import { FileFixtureLifecyclePort } from "../../../../shells/terminal/runtime/fixture-lifecycle.mjs";
-import { FixtureShellUpdaterPort } from "../../../../shells/terminal/runtime/fixture-shell-updater.mjs";
+import {
+  FixtureShellUpdaterPort,
+  requireCompleteStandaloneRetirement,
+} from "../../../../shells/terminal/runtime/fixture-shell-updater.mjs";
 
 type StandaloneRuntime = typeof Standalone;
 type JsonObject = Record<string, any>;
@@ -14,6 +17,12 @@ type FixtureTransition = Omit<Standalone.StandaloneLifecycleTransition, "complet
     capabilityHash?: string,
   ): Promise<Standalone.LifecycleStatus>;
 };
+type RetireStandalone = (input: Readonly<{
+  scope: Standalone.LifecycleScope;
+  kind: "content-restart" | "shell-install";
+  fence: number;
+  occupants: readonly Standalone.StandaloneLifecycleOccupant[];
+}>) => Promise<Readonly<{ remainingPids: readonly number[] }>>;
 
 const capabilityDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
 
@@ -26,7 +35,9 @@ export class TerminalExactSidecarHandlers {
   readonly #lifecycle: FileFixtureLifecyclePort;
   readonly #standalone: StandaloneRuntime;
   readonly #storeRoot: string;
+  readonly #retireStandalone: RetireStandalone;
   readonly #transitions = new Map<string, {
+    kind: "content-restart" | "shell-install";
     scope: Standalone.LifecycleScope;
     transition: FixtureTransition;
   }>();
@@ -35,10 +46,16 @@ export class TerminalExactSidecarHandlers {
   constructor(
     storeRoot: string,
     standalone: StandaloneRuntime,
-    options: { transitionLeaseDurationMs: number },
+    options: { retireStandalone?: RetireStandalone; transitionLeaseDurationMs: number },
   ) {
     this.#storeRoot = storeRoot;
     this.#standalone = standalone;
+    const retireStandalone = options.retireStandalone ?? (async () => ({ remainingPids: [] }));
+    this.#retireStandalone = async (input) => {
+      const result = await retireStandalone(input);
+      requireCompleteStandaloneRetirement(result);
+      return result;
+    };
     this.#lifecycle = new FileFixtureLifecyclePort(storeRoot, {
       algebra: standalone.SHARED_LIFECYCLE_ALGEBRA,
       transitionLeaseDurationMs: options.transitionLeaseDurationMs,
@@ -92,7 +109,11 @@ export class TerminalExactSidecarHandlers {
       const result = await this.#lifecycle.beginTransition(scope, message.kind, message.options);
       if (result.state === "blocked") return result;
       const token = randomUUID();
-      this.#transitions.set(token, { scope, transition: result.transition as FixtureTransition });
+      this.#transitions.set(token, {
+        kind: message.kind,
+        scope,
+        transition: result.transition as FixtureTransition,
+      });
       return { state: "acquired", transition: this.#transitionDescriptor(token, result.transition) };
     }
     if (message.operation === "transition") {
@@ -112,6 +133,12 @@ export class TerminalExactSidecarHandlers {
         return { released: true };
       }
       if (message.action === "force-stop") {
+        await this.#retireStandalone({
+          scope,
+          kind: held.kind,
+          fence: transition.fence,
+          occupants: transition.occupants,
+        });
         await transition.forceStop();
         return this.#transitionDescriptor(message.token, transition);
       }
@@ -135,6 +162,7 @@ export class TerminalExactSidecarHandlers {
       algebra: this.#standalone.SHELL_UPDATE_ALGEBRA,
       standalone: this.#standalone,
       trustedKeys,
+      retireStandalone: this.#retireStandalone,
     });
     if (message.operation === "read") return await updater.readSnapshot();
     if (message.operation === "wait") return await updater.waitForChange(message.afterRevision, message.timeoutMs);

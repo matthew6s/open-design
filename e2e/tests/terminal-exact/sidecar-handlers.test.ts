@@ -16,10 +16,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(async (root) => await rm(root, { force: true, recursive: true })));
 });
 
-async function fixture(): Promise<TerminalExactSidecarHandlers> {
+async function fixture(options: ConstructorParameters<typeof TerminalExactSidecarHandlers>[2] = {
+  transitionLeaseDurationMs: 30_000,
+}): Promise<TerminalExactSidecarHandlers> {
   const root = await mkdtemp(join(tmpdir(), "terminal-exact-sidecar-handlers-"));
   roots.push(root);
-  return new TerminalExactSidecarHandlers(root, standalone, { transitionLeaseDurationMs: 30_000 });
+  return new TerminalExactSidecarHandlers(root, standalone, options);
 }
 
 const scope = { channel: "betahyx", namespace: "shared" } as const;
@@ -88,6 +90,129 @@ describe("Terminal exact Sidecar business handlers", () => {
       token: acquired.transition.token,
       action: "force-stop",
     })).rejects.toThrow("transition scope mismatch");
+  });
+
+  it("keeps a content transition reserved until physical retirement is complete", async () => {
+    const handlers = await fixture({
+      transitionLeaseDurationMs: 30_000,
+      retireStandalone: async () => ({ remainingPids: [51_337] }),
+    });
+    await handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "start",
+      scope,
+      generation,
+      attachment: { id: "terminal-owner", shell: terminal },
+    });
+    const acquired = await handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "begin-transition",
+      scope,
+      kind: "content-restart",
+      options: { ownerAttachmentId: "terminal-owner", force: true },
+    }) as Record<string, any>;
+
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "transition",
+      scope,
+      token: acquired.transition.token,
+      action: "force-stop",
+    })).rejects.toMatchObject({ code: "standalone-retirement-incomplete", remainingPids: [51_337] });
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "status",
+      scope,
+    })).resolves.toMatchObject({ state: "running", references: 1 });
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "transition",
+      scope,
+      token: acquired.transition.token,
+      action: "release",
+    })).resolves.toEqual({ released: true });
+  });
+
+  it("does not seal logical stop or hand off an installer while physical retirement has survivors", async () => {
+    let handlers!: TerminalExactSidecarHandlers;
+    const retirementStates: string[] = [];
+    const retirementCalls: Record<string, any>[] = [];
+    handlers = await fixture({
+      transitionLeaseDurationMs: 30_000,
+      retireStandalone: async (input) => {
+        const status = await handlers.request({
+          schemaVersion: 1,
+          domain: "lifecycle",
+          operation: "status",
+          scope,
+        }) as Record<string, any>;
+        retirementStates.push(status.state);
+        retirementCalls.push(input);
+        return { remainingPids: [41_241] };
+      },
+    });
+    await handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "start",
+      scope,
+      generation,
+      attachment: { id: "terminal-active", shell: terminal },
+    });
+    const updaterOptions = { shellType: "electron", attachmentId: "electron-updater" };
+    for (const action of ["check", "download"] as const) {
+      await handlers.request({
+        schemaVersion: 1,
+        domain: "shell-updater",
+        operation: "invoke",
+        scope,
+        options: updaterOptions,
+        action,
+      });
+    }
+
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "shell-updater",
+      operation: "invoke",
+      scope,
+      options: updaterOptions,
+      action: "force-stop-and-install",
+    })).resolves.toMatchObject({
+      outcome: "failed",
+      snapshot: {
+        state: "failed",
+        error: {
+          code: "standalone-retirement-incomplete",
+          message: expect.stringContaining("41241"),
+        },
+      },
+    });
+    expect(retirementStates).toEqual(["running"]);
+    expect(retirementCalls).toMatchObject([{
+      scope,
+      kind: "shell-install",
+      occupants: [{ attachmentId: "terminal-active", shell: { type: "terminal" } }],
+    }]);
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "status",
+      scope,
+    })).resolves.toMatchObject({ state: "running", references: 1 });
+    await expect(handlers.request({
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "start",
+      scope,
+      generation,
+      attachment: { id: "terminal-after-failure", shell: terminal },
+    })).resolves.toMatchObject({ state: "running", references: 2 });
   });
 
   it("keeps the HTTP process host outside the Terminal distribution", async () => {

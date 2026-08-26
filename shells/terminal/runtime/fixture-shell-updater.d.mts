@@ -5,6 +5,10 @@ import type {
   StandaloneShellUpdaterPort,
 } from "@open-design/standalone";
 
+export function requireCompleteStandaloneRetirement(
+  result: Readonly<{ remainingPids: readonly number[] }> | null,
+): void;
+
 export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
   readonly shellType: string;
   constructor(root: string, scope: LifecycleScope, lifecycle: LifecyclePort & StandaloneLifecycleTransitionPort, options?: {
@@ -13,6 +17,12 @@ export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
     channelHeadUrl?: string;
     faultAt?: "after-transition";
     installDelayMs?: number;
+    retireStandalone?: (input: Readonly<{
+      scope: LifecycleScope;
+      kind: "shell-install";
+      fence: number;
+      occupants: readonly import("@open-design/standalone").StandaloneLifecycleOccupant[];
+    }>) => Promise<Readonly<{ remainingPids: readonly number[] }>>;
     shellType?: string;
     standalone?: typeof import("@open-design/standalone");
     target?: string;

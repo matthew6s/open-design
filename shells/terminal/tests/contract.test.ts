@@ -92,7 +92,16 @@ describe("Terminal native contract", () => {
       const scope = { channel: "betahyx", namespace: "shared" };
       const generation = { id: "f".repeat(64) } as any;
       await lifecycle.start(scope, generation, { id: "terminal-active", shell: { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64), digest: "a".repeat(64) } });
-      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, { algebra: SHELL_UPDATE_ALGEBRA, attachmentId: "electron-updater", shellType: "electron" });
+      const retirementStates: string[] = [];
+      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        attachmentId: "electron-updater",
+        shellType: "electron",
+        retireStandalone: async () => {
+          retirementStates.push((await lifecycle.status(scope)).state);
+          return { remainingPids: [] };
+        },
+      });
       await expect(updater.invoke("check")).resolves.toMatchObject({ snapshot: { state: "available" } });
       await expect(updater.invoke("download")).resolves.toMatchObject({ snapshot: { state: "ready", progress: { completed: 2, total: 2 } } });
       const blocked = await updater.invoke("install");
@@ -109,6 +118,7 @@ describe("Terminal native contract", () => {
         outcome: "accepted",
         snapshot: { state: "handed-off", blockedBy: [], actions: [{ id: "abandon" }] },
       });
+      expect(retirementStates).toEqual(["running"]);
       await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
       await expect(updater.invoke("abandon")).resolves.toMatchObject({
         outcome: "accepted",
