@@ -495,12 +495,49 @@ describe('OD Next automatic production through the real server', () => {
     }
   });
 
-  // ACCEPTANCE for the opt-in switch. Nothing configured takes the ordinary
-  // route; the SAME running daemon takes the OD Next route on the next run
-  // once `odNextStrategyMode` is saved through the public app-config API. No
-  // restart, no environment variable — that is what "configure it and it
-  // takes effect" has to mean for a packaged install.
-  it('admits OD Next on the next run once the installation configures it, and not before', async () => {
+  it('admits OD Next by default on an unconfigured installation', async () => {
+    const fixture = await createPublicRolloutFixture('default-active', 'design');
+    started = fixture.started;
+    binDir = fixture.binDir;
+    clearOdNextRolloutStop(database());
+    delete process.env.OD_NEXT_STRATEGY_ROLLOUT;
+    process.env.OD_NEXT_STRATEGY_LOCAL_SYNTHETIC_CANARY = '1';
+
+    const created = await postRun(started.url, publicRunRequest(
+      fixture,
+      'Run with the strategy branch default.',
+      'default-active-request',
+    ));
+    expect(created.strategyTask).toMatchObject({ inputStage: 'request', terminal: false });
+    expect(await readDurableRunState(created.runId as string)).toMatchObject({
+      strategyRolloutDecision: {
+        requestedMode: 'active',
+        effectiveMode: 'active',
+        decisionClass: 'active',
+        taskType: 'prototype',
+      },
+    });
+
+    const status = await fetch(`${started.url}/api/strategies/od-next/rollout`);
+    expect(status.status).toBe(200);
+    expect((await status.json() as { status: unknown }).status).toMatchObject({
+      requestedMode: 'active',
+      requestedModeSource: 'default',
+      effectiveMode: 'active',
+    });
+
+    await fetch(
+      `${started.url}/api/runs/${encodeURIComponent(created.runId as string)}/cancel`,
+      { method: 'POST' },
+    );
+    await waitForRunTerminal(started.url, created.runId as string);
+  }, 60_000);
+
+  // ACCEPTANCE for the saved control. The SAME running daemon moves from an
+  // explicit opt-out to OD Next on the next run once `odNextStrategyMode` is
+  // saved as active through the public app-config API. No restart or process
+  // environment change is required.
+  it('admits OD Next on the next run when an installation changes off to active', async () => {
     const fixture = await createPublicRolloutFixture('app-config-opt-in', 'design');
     started = fixture.started;
     binDir = fixture.binDir;
@@ -508,9 +545,16 @@ describe('OD Next automatic production through the real server', () => {
     delete process.env.OD_NEXT_STRATEGY_ROLLOUT;
     process.env.OD_NEXT_STRATEGY_LOCAL_SYNTHETIC_CANARY = '1';
 
+    const optOut = await fetch(`${started.url}/api/app-config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ odNextStrategyMode: 'off' }),
+    });
+    expect(optOut.status).toBe(200);
+
     const beforeOptIn = await postRun(started.url, publicRunRequest(
       fixture,
-      'Run before this installation opted in.',
+      'Run while this installation is explicitly off.',
       'app-config-opt-in-before',
     ));
     expect(beforeOptIn.strategyTask).toBeUndefined();
@@ -530,9 +574,8 @@ describe('OD Next automatic production through the real server', () => {
     expect((await optIn.json() as { config?: { odNextStrategyMode?: string } }).config?.odNextStrategyMode)
       .toBe('active');
 
-    // A typo is refused rather than absorbed. Dropping it would switch this
-    // installation back off while the caller saw success — the one failure
-    // mode a control switch must not have.
+    // A typo is refused rather than absorbed. A control write must not report
+    // success while silently selecting the branch default instead.
     const typo = await fetch(`${started.url}/api/app-config`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -547,7 +590,7 @@ describe('OD Next automatic production through the real server', () => {
 
     const afterOptIn = await postRun(started.url, publicRunRequest(
       fixture,
-      'Run after this installation opted in.',
+      'Run after this installation explicitly selected active.',
       'app-config-opt-in-after',
     ));
     expect(afterOptIn.strategyTask).toMatchObject({ inputStage: 'request', terminal: false });

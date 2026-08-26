@@ -29,7 +29,7 @@ function syntheticPolicy() {
 }
 
 describe('OD Next controlled rollout', () => {
-  it('owns all five artifact types once a mode is asked for, and none until then', () => {
+  it('owns all five artifact types by default while honoring an explicit off mode', () => {
     const policy = readOdNextRolloutPolicy({ OD_NEXT_STRATEGY_ROLLOUT: 'active' });
     expect(policy).toMatchObject({
       requestedMode: 'active',
@@ -38,10 +38,10 @@ describe('OD Next controlled rollout', () => {
       productionActiveApproved: true,
       assignmentPercent: 100,
     });
-    // Shipping the strategy in a build is not the same as turning it on: an
-    // installation that configured nothing takes the ordinary route.
+    // This strategy branch is active unless an operator explicitly pins a
+    // different mode.
     expect(readOdNextRolloutPolicy({})).toMatchObject({
-      requestedMode: 'off',
+      requestedMode: 'active',
       requestedModeSource: 'default',
     });
     expect(readOdNextRolloutPolicy({ OD_NEXT_STRATEGY_ROLLOUT: 'off' }).requestedMode)
@@ -68,7 +68,7 @@ describe('OD Next controlled rollout', () => {
     }
   });
 
-  describe('opting one installation in', () => {
+  describe('controlling one installation', () => {
     it('takes the saved mode when the environment names none', () => {
       expect(readOdNextRolloutPolicy({}, { odNextStrategyMode: 'active' })).toMatchObject({
         requestedMode: 'active',
@@ -76,6 +76,8 @@ describe('OD Next controlled rollout', () => {
       });
       expect(readOdNextRolloutPolicy({}, { odNextStrategyMode: 'observe' }).requestedMode)
         .toBe('observe');
+      expect(readOdNextRolloutPolicy({}, { odNextStrategyMode: 'off' }).requestedMode)
+        .toBe('off');
       // An empty variable is not a choice; it is how a shell exports nothing.
       expect(readOdNextRolloutPolicy(
         { OD_NEXT_STRATEGY_ROLLOUT: '  ' },
@@ -97,16 +99,16 @@ describe('OD Next controlled rollout', () => {
       )).toMatchObject({ requestedMode: 'active', requestedModeSource: 'env' });
     });
 
-    it('stays off for a saved value that is not a mode', () => {
+    it('uses the active default for a saved value that is not a mode', () => {
       for (const saved of ['acive', '', 'true', 1, null, undefined, {}] as unknown[]) {
         expect(readOdNextRolloutPolicy(
           {},
           { odNextStrategyMode: saved as never },
-        )).toMatchObject({ requestedMode: 'off', requestedModeSource: 'default' });
+        )).toMatchObject({ requestedMode: 'active', requestedModeSource: 'default' });
       }
     });
 
-    it('admits an eligible task once the installation opted in', () => {
+    it('admits an eligible task when the installation explicitly pins active', () => {
       const decision = evaluateOdNextRollout({
         policy: readOdNextRolloutPolicy(
           { OD_NEXT_STRATEGY_LOCAL_SYNTHETIC_CANARY: '1' },
@@ -129,7 +131,7 @@ describe('OD Next controlled rollout', () => {
       const db = new Database(':memory:');
       migrateOdNextRolloutStore(db);
       expect(readOdNextRolloutControlStatus(db, {}))
-        .toMatchObject({ requestedMode: 'off', requestedModeSource: 'default', effectiveMode: 'off' });
+        .toMatchObject({ requestedMode: 'active', requestedModeSource: 'default', effectiveMode: 'active' });
       expect(readOdNextRolloutControlStatus(db, {}, { odNextStrategyMode: 'active' }))
         .toMatchObject({
           requestedMode: 'active',
@@ -332,9 +334,8 @@ describe('OD Next controlled rollout', () => {
       appVersion: '0.19.2',
       mode: 'observe',
       reasonCode: 'native_resume_failed',
-      // The latch only means anything on an installation that opted in, so the
-      // event has to report the mode that run was admitted under rather than
-      // the unconfigured default.
+      // The event has to report the explicit mode that run was admitted under
+      // rather than recomputing the branch default.
       readAppConfig: () => ({ odNextStrategyMode: 'active' }),
     });
     await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
@@ -355,8 +356,8 @@ describe('OD Next controlled rollout', () => {
 
   it('still latches when the app config cannot be read, and stays silent', async () => {
     // The latch is the safety stop. It must land whether or not this daemon
-    // can read its own config — and the event must not claim the installation
-    // is `off` when what actually happened is that the disk did not answer.
+    // can read its own config — and the event must not claim the active branch
+    // default was authoritative when the disk did not answer.
     const db = new Database(':memory:');
     migrateOdNextRolloutStore(db);
     const capture = vi.fn().mockResolvedValue(undefined);
