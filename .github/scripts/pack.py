@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose exact content and Shell documents around native Terminal distributions."""
+"""Compose exact content and Shell documents from generic Shell contributions."""
 
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ import shutil
 import subprocess
 from typing import Any
 
-
-CHANNELS = {"betahyx", "previewhyx"}
 DIGEST = re.compile(r"^[a-f0-9]{64}$")
+IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 SOURCE_COMMIT = re.compile(r"^[a-f0-9]{40}$")
 TARGET = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9a-z]+(?:[.-][0-9a-z]+)*)?$")
@@ -38,9 +37,12 @@ def write_json(path: Path, value: Any) -> None:
     path.write_bytes(canonical_bytes(value))
 
 
-def described(path: Path) -> dict[str, Any]:
+def described(path: Path, media_type: str | None = None) -> dict[str, Any]:
     body = path.read_bytes()
-    return {"file": str(path.resolve()), "sha256": hashlib.sha256(body).hexdigest(), "size": len(body)}
+    value = {"file": str(path.resolve()), "sha256": hashlib.sha256(body).hexdigest(), "size": len(body)}
+    if media_type is not None:
+        value["mediaType"] = media_type
+    return value
 
 
 def checked_description(value: dict[str, Any], label: str, override: str | None = None) -> Path:
@@ -52,18 +54,16 @@ def checked_description(value: dict[str, Any], label: str, override: str | None 
 
 
 def require_release(value: dict[str, Any]) -> None:
-    channel = value.get("channel")
-    release = value.get("releaseVersion", "")
-    if channel not in CHANNELS:
-        raise SystemExit("channel must be betahyx or previewhyx")
-    if re.fullmatch(rf"\d+\.\d+\.\d+-{channel}\.\d+", str(release)) is None:
+    channel = str(value.get("channel", ""))
+    release = str(value.get("releaseVersion", ""))
+    if not IDENTIFIER.fullmatch(channel):
+        raise SystemExit("invalid release channel")
+    if re.fullmatch(rf"\d+\.\d+\.\d+-{re.escape(channel)}\.\d+", release) is None:
         raise SystemExit("releaseVersion does not belong to channel")
     if not SOURCE_COMMIT.fullmatch(str(value.get("sourceCommit", ""))):
         raise SystemExit("sourceCommit must be a full lowercase SHA")
     if not VERSION.fullmatch(str(value.get("standaloneVersion", ""))):
         raise SystemExit("invalid standaloneVersion")
-    if not VERSION.fullmatch(str(value.get("shellVersion", ""))):
-        raise SystemExit("invalid shellVersion")
     if not isinstance(value.get("publishedAt"), str) or "T" not in value["publishedAt"]:
         raise SystemExit("publishedAt must be an ISO timestamp")
     if not re.fullmatch(r"https?://[^\s]+", str(value.get("artifactBaseUrl", ""))):
@@ -104,30 +104,19 @@ process.stdin.on('end', () => {
     keys: keys.map(({keyId, publicKey}) => ({keyId, publicKey})),
     signatures: keys.map(({keyId, privateKey}) => ({algorithm: 'Ed25519', keyId, value: sign(null, payload, privateKey).toString('base64')})),
   };
-  if (input.verify) {
-    result.verified = input.verify.some(signature => {
-      const key = keys.find(candidate => candidate.keyId === signature.keyId);
-      return key && signature.algorithm === 'Ed25519' && verify(null, payload, key.publicKey, Buffer.from(signature.value, 'base64'));
-    });
-  }
+  if (input.verify) result.verified = input.verify.some(signature => {
+    const key = keys.find(candidate => candidate.keyId === signature.keyId);
+    return key && signature.algorithm === 'Ed25519' && verify(null, payload, key.publicKey, Buffer.from(signature.value, 'base64'));
+  });
   process.stdout.write(JSON.stringify(result));
 });
 """
 
 
 def crypto(value: Any, keys: list[dict[str, str]], verify_signatures: Any = None) -> dict[str, Any]:
-    payload = {
-        "payload": base64.b64encode(canonical_bytes(value)).decode(),
-        "keys": keys,
-        **({"verify": verify_signatures} if verify_signatures is not None else {}),
-    }
-    result = subprocess.run(
-        ["node", "-e", CRYPTO_SCRIPT],
-        input=json.dumps(payload),
-        text=True,
-        check=True,
-        stdout=subprocess.PIPE,
-    )
+    payload = {"payload": base64.b64encode(canonical_bytes(value)).decode(), "keys": keys,
+               **({"verify": verify_signatures} if verify_signatures is not None else {})}
+    result = subprocess.run(["node", "-e", CRYPTO_SCRIPT], input=json.dumps(payload), text=True, check=True, stdout=subprocess.PIPE)
     return json.loads(result.stdout)
 
 
@@ -135,142 +124,171 @@ def signed(field: str, value: dict[str, Any], keys: list[dict[str, str]]) -> dic
     return {field: value, "signatures": crypto(value, keys)["signatures"]}
 
 
-def previous_floor(path: str | None, channel: str, build_hash: str, shell_version: str, keys: list[dict[str, str]]) -> str:
+def semver_core(version: str) -> tuple[int, int, int]:
+    return tuple(map(int, version.split("-")[0].split(".")))
+
+
+def previous_requirements(path: str | None, channel: str, keys: list[dict[str, str]]) -> dict[str, dict[str, str]]:
     if not path:
-        return shell_version
+        return {}
     try:
         envelope = read_json(Path(path).resolve())
         metadata = envelope["metadata"]
         if not crypto(metadata, keys, envelope.get("signatures"))["verified"]:
-            return shell_version
+            return {}
         if metadata.get("schemaVersion") != 3 or metadata.get("channel") != channel:
-            return shell_version
-        requirement = next(item for item in metadata["shellRequirements"] if item["type"] == "terminal")
-        floor = requirement["minVersion"]
-        if requirement["buildHash"] == build_hash and VERSION.fullmatch(floor) and tuple(map(int, floor.split("-")[0].split("."))) <= tuple(map(int, shell_version.split("-")[0].split("."))):
-            return requirement["minVersion"]
-    except (KeyError, StopIteration, TypeError, ValueError, OSError, subprocess.SubprocessError):
-        pass
-    return shell_version
+            return {}
+        requirements = metadata["shellRequirements"]
+        if not isinstance(requirements, list):
+            return {}
+        return {str(item["type"]): item for item in requirements}
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+        return {}
 
 
 def prepare(request: dict[str, Any], receipt_path: Path) -> None:
     require_release(request)
-    scenes = request.get("scenes")
-    if not isinstance(scenes, list) or not scenes:
-        raise SystemExit("exact.prepare requires at least one Terminal scene")
-    scene_records: list[dict[str, Any]] = []
-    targets: set[str] = set()
+    shells = request.get("shells")
+    legacy_terminal = shells is None and request.get("shellVersion") is not None
+    if legacy_terminal:
+        shells = [{"type": "terminal", "version": request.get("shellVersion"), "scenes": request.get("scenes")}]
+    if not isinstance(shells, list) or not shells:
+        raise SystemExit("exact.prepare requires at least one Shell")
+    shell_records: list[dict[str, Any]] = []
+    shell_types: set[str] = set()
     closure_scene_digest: str | None = None
-    for raw in scenes:
-        if not isinstance(raw, dict) or not TARGET.fullmatch(str(raw.get("target", ""))):
-            raise SystemExit("invalid Terminal scene target")
-        target = raw["target"]
-        if target in targets:
-            raise SystemExit(f"duplicate Terminal scene target: {target}")
-        targets.add(target)
-        directory = Path(str(raw.get("sceneDirectory", ""))).resolve()
-        manifest_path = directory / "scene.json"
-        binding = str(raw.get("sceneManifestSha256", ""))
-        if not DIGEST.fullmatch(binding) or hashlib.sha256(manifest_path.read_bytes()).hexdigest() != binding:
-            raise SystemExit(f"Terminal scene manifest binding failed: {target}")
-        manifest = read_json(manifest_path)
-        if manifest.get("schemaVersion") != 1 or manifest.get("target") != target or manifest.get("shellVersion") != request["shellVersion"]:
-            raise SystemExit(f"Terminal scene identity mismatch: {target}")
-        build_hash = str(manifest.get("shellBuildHash", ""))
-        if not DIGEST.fullmatch(build_hash):
-            raise SystemExit(f"Terminal scene lacks a valid build hash: {target}")
-        scene_closure_digest = str(manifest.get("closure", {}).get("sha256", ""))
-        if not DIGEST.fullmatch(scene_closure_digest):
-            raise SystemExit(f"Terminal scene lacks a valid Closure seed binding: {target}")
-        if closure_scene_digest is not None and scene_closure_digest != closure_scene_digest:
-            raise SystemExit("Terminal scenes contain different Closure seeds")
-        closure_scene_digest = scene_closure_digest
-        scene_records.append({"target": target, "directory": str(directory), "sceneManifestSha256": binding, "shellBuildHash": build_hash})
-    scene_records.sort(key=lambda item: item["target"])
-    composite_hash = hashlib.sha256(canonical_bytes([{"target": item["target"], "shellBuildHash": item["shellBuildHash"]} for item in scene_records])).hexdigest()
+    for shell in shells:
+        if not isinstance(shell, dict):
+            raise SystemExit("invalid Shell descriptor")
+        shell_type, shell_version, scenes = str(shell.get("type", "")), str(shell.get("version", "")), shell.get("scenes")
+        if not IDENTIFIER.fullmatch(shell_type) or shell_type in shell_types or not VERSION.fullmatch(shell_version):
+            raise SystemExit(f"invalid or duplicate Shell identity: {shell_type}")
+        if not isinstance(scenes, list) or not scenes:
+            raise SystemExit(f"{shell_type} requires at least one scene")
+        shell_types.add(shell_type)
+        scene_records: list[dict[str, Any]] = []
+        targets: set[str] = set()
+        for raw in scenes:
+            if not isinstance(raw, dict) or not TARGET.fullmatch(str(raw.get("target", ""))):
+                raise SystemExit(f"invalid {shell_type} scene target")
+            target = raw["target"]
+            if target in targets:
+                raise SystemExit(f"duplicate {shell_type} scene target: {target}")
+            targets.add(target)
+            directory = Path(str(raw.get("sceneDirectory", ""))).resolve()
+            manifest_path = directory / "scene.json"
+            binding = str(raw.get("sceneManifestSha256", ""))
+            if not DIGEST.fullmatch(binding) or hashlib.sha256(manifest_path.read_bytes()).hexdigest() != binding:
+                raise SystemExit(f"{shell_type} scene manifest binding failed: {target}")
+            manifest = read_json(manifest_path)
+            if manifest.get("schemaVersion") != 1 or manifest.get("target") != target or manifest.get("shellVersion") != shell_version:
+                raise SystemExit(f"{shell_type} scene identity mismatch: {target}")
+            build_hash = str(manifest.get("shellBuildHash", ""))
+            scene_closure_digest = str(manifest.get("closure", {}).get("sha256", ""))
+            if not DIGEST.fullmatch(build_hash) or not DIGEST.fullmatch(scene_closure_digest):
+                raise SystemExit(f"{shell_type} scene lacks a valid build or Closure binding: {target}")
+            if closure_scene_digest is not None and scene_closure_digest != closure_scene_digest:
+                raise SystemExit("Shell scenes contain different Closure seeds")
+            closure_scene_digest = scene_closure_digest
+            scene_records.append({"target": target, "directory": str(directory), "sceneManifestSha256": binding, "shellBuildHash": build_hash})
+        scene_records.sort(key=lambda item: item["target"])
+        composite_hash = hashlib.sha256(canonical_bytes([{"target": item["target"], "shellBuildHash": item["shellBuildHash"]} for item in scene_records])).hexdigest()
+        shell_records.append({"type": shell_type, "version": shell_version, "buildHash": composite_hash, "scenes": scene_records})
+    shell_records.sort(key=lambda item: item["type"])
     keys = signing_keys()
-    minimum_version = previous_floor(request.get("previousContentMetadataFile"), request["channel"], composite_hash, request["shellVersion"], keys)
+    old = previous_requirements(request.get("previousContentMetadataFile"), request["channel"], keys)
+    for shell in shell_records:
+        prior = old.get(shell["type"])
+        shell["minimumVersion"] = shell["version"]
+        if (prior and prior.get("buildHash") == shell["buildHash"] and VERSION.fullmatch(str(prior.get("minVersion", "")))
+                and semver_core(prior["minVersion"]) <= semver_core(shell["version"])):
+            shell["minimumVersion"] = prior["minVersion"]
+
     output = Path(str(request.get("outputDirectory", ""))).resolve()
-    artifacts = output / "artifacts"
-    documents = output / "documents"
-    trust = output / "trust" / "keys.json"
+    artifacts, documents, trust = output / "artifacts", output / "documents", output / "trust" / "keys.json"
     artifacts.mkdir(parents=True, exist_ok=True)
     closure_source = Path(str(request.get("closureArtifactFile", ""))).resolve()
     closure_digest = hashlib.sha256(closure_source.read_bytes()).hexdigest()
     if closure_digest != closure_scene_digest:
-        raise SystemExit("Closure promotion input differs from Terminal scenes")
+        raise SystemExit("Closure promotion input differs from Shell scenes")
     closure_file = artifacts / f"closure-{closure_digest}.mjs"
     shutil.copyfile(closure_source, closure_file)
-    closure = described(closure_file)
+    closure = described(closure_file, "text/javascript")
     base = request["artifactBaseUrl"].rstrip("/")
     metadata = {
-        "schemaVersion": 3,
-        "channel": request["channel"],
-        "releaseVersion": request["releaseVersion"],
-        "standaloneVersion": request["standaloneVersion"],
-        "sourceCommit": request["sourceCommit"],
-        "publishedAt": request["publishedAt"],
+        "schemaVersion": 3, "channel": request["channel"], "releaseVersion": request["releaseVersion"],
+        "standaloneVersion": request["standaloneVersion"], "sourceCommit": request["sourceCommit"], "publishedAt": request["publishedAt"],
         "blobs": {closure["sha256"]: {"sha256": closure["sha256"], "size": closure["size"], "mediaType": "text/javascript", "sources": [{"kind": "remote", "url": f"{base}/{closure_file.name}"}]}},
         "resources": [{"id": "closure-fixture", "blob": closure["sha256"], "sync": True, "materialization": {"type": "file", "entrypoint": "fixture.mjs"}}],
-        "shellRequirements": [{"type": "terminal", "minVersion": minimum_version, "buildHash": composite_hash}],
+        "shellRequirements": [{"type": item["type"], "minVersion": item["minimumVersion"], "buildHash": item["buildHash"]} for item in shell_records],
     }
     content_file = documents / "content-metadata.json"
     write_json(content_file, signed("metadata", metadata, keys))
     write_json(trust, {"schemaVersion": 1, "keys": crypto({}, keys)["keys"]})
-    write_json(receipt_path, {
-        "schemaVersion": 1,
-        "operation": "exact.prepare",
-        "channel": request["channel"],
-        "releaseVersion": request["releaseVersion"],
-        "sourceCommit": request["sourceCommit"],
-        "publishedAt": request["publishedAt"],
-        "artifactBaseUrl": base,
-        "standaloneVersion": request["standaloneVersion"],
-        "shellVersion": request["shellVersion"],
-        "shellBuildHash": composite_hash,
-        "minimumShellVersion": minimum_version,
-        "scenes": scene_records,
-        "closureArtifact": closure,
-        "contentMetadata": described(content_file),
-        "trustFile": described(trust),
-    })
+    receipt = {
+        "schemaVersion": 2, "operation": "exact.prepare", "channel": request["channel"], "releaseVersion": request["releaseVersion"],
+        "sourceCommit": request["sourceCommit"], "publishedAt": request["publishedAt"], "artifactBaseUrl": base,
+        "standaloneVersion": request["standaloneVersion"], "shells": shell_records, "closureArtifact": closure,
+        "contentMetadata": described(content_file), "trustFile": described(trust),
+    }
+    if legacy_terminal:
+        terminal = shell_records[0]
+        receipt.update({"shellVersion": terminal["version"], "shellBuildHash": terminal["buildHash"],
+                        "minimumShellVersion": terminal["minimumVersion"], "scenes": terminal["scenes"]})
+    write_json(receipt_path, receipt)
 
 
 def finalize(request: dict[str, Any], receipt_path: Path) -> None:
-    prepare_receipt_path = Path(str(request.get("prepareReceipt", ""))).resolve()
-    prepared = read_json(prepare_receipt_path)
-    if prepared.get("schemaVersion") != 1 or prepared.get("operation") != "exact.prepare":
+    prepared = read_json(Path(str(request.get("prepareReceipt", ""))).resolve())
+    if prepared.get("schemaVersion") != 2 or prepared.get("operation") != "exact.prepare":
         raise SystemExit("invalid exact.prepare receipt")
-    distributions = request.get("distributions")
-    if not isinstance(distributions, list) or not distributions:
-        raise SystemExit("exact.finalize requires native distributions")
-    scene_by_target = {item["target"]: item for item in prepared["scenes"]}
-    terminal_distributions: list[dict[str, Any]] = []
+    contributions = request.get("contributions")
+    legacy_distributions = contributions is None and isinstance(request.get("distributions"), list)
+    if legacy_distributions:
+        contributions = request["distributions"]
+    if not isinstance(contributions, list) or not contributions:
+        raise SystemExit("exact.finalize requires Shell contributions")
+    prepared_shells = {shell["type"]: shell for shell in prepared["shells"]}
+    expected = {(shell["type"], scene["target"]) for shell in prepared["shells"] for scene in shell["scenes"]}
+    seen: set[tuple[str, str]] = set()
+    distributions: dict[str, list[dict[str, Any]]] = {shell_type: [] for shell_type in prepared_shells}
     closure_path = checked_description(prepared["closureArtifact"], "Closure artifact", request.get("closureArtifactFile"))
-    artifacts = [{**described(closure_path), **({"mediaType": prepared["closureArtifact"]["mediaType"]} if "mediaType" in prepared["closureArtifact"] else {})}]
-    seen: set[str] = set()
-    for value in distributions:
-        if not isinstance(value, dict):
-            raise SystemExit("invalid distribution receipt descriptor")
-        receipt = read_json(Path(str(value.get("receipt", ""))).resolve())
-        target = receipt.get("target")
-        if receipt.get("schemaVersion") != 1 or receipt.get("operation") != "terminal.distribution.build" or target not in scene_by_target or target in seen:
-            raise SystemExit(f"invalid or duplicate Terminal distribution: {target}")
-        seen.add(target)
-        archive = dict(receipt["archive"])
-        path = checked_description(archive, f"{target} Terminal distribution", value.get("archiveFile"))
-        artifact = {**described(path), "mediaType": archive["mediaType"]}
+    artifacts = [described(closure_path, prepared["closureArtifact"].get("mediaType", "application/octet-stream"))]
+    for descriptor in contributions:
+        if not isinstance(descriptor, dict):
+            raise SystemExit("invalid Shell contribution descriptor")
+        source_receipt = read_json(Path(str(descriptor.get("receipt", ""))).resolve())
+        if legacy_distributions:
+            target = str(source_receipt.get("target", ""))
+            terminal = prepared_shells.get("terminal")
+            scene = next((value for value in terminal["scenes"] if value["target"] == target), None) if terminal else None
+            contribution = {"schemaVersion": 1, "operation": "shell.distribution.contribute", "target": target,
+                "shell": {"type": "terminal", "version": terminal["version"] if terminal else "", "buildHash": scene["shellBuildHash"] if scene else ""},
+                "artifact": source_receipt.get("archive", {}),
+                "updater": {"protocol": "standalone-shell-updater-v3", "handler": "fixture-v3", "interaction": "restart-and-install"}}
+        else:
+            contribution = source_receipt
+        shell_type, target = str(contribution.get("shell", {}).get("type", "")), str(contribution.get("target", ""))
+        key, shell = (shell_type, target), prepared_shells.get(shell_type)
+        scene = next((value for value in shell["scenes"] if value["target"] == target), None) if shell else None
+        if contribution.get("schemaVersion") != 1 or contribution.get("operation") != "shell.distribution.contribute" or key not in expected or key in seen:
+            raise SystemExit(f"invalid or duplicate Shell contribution: {shell_type}/{target}")
+        if contribution["shell"].get("version") != shell["version"] or contribution["shell"].get("buildHash") != scene["shellBuildHash"]:
+            raise SystemExit(f"Shell contribution identity mismatch: {shell_type}/{target}")
+        seen.add(key)
+        archive = dict(contribution.get("artifact", {}))
+        path = checked_description(archive, f"{shell_type}/{target} distribution", descriptor.get("archiveFile"))
+        media_type = str(archive.get("mediaType", "application/octet-stream"))
+        artifact = described(path, media_type)
         artifacts.append(artifact)
-        terminal_distributions.append({
-            "shell": {"type": "terminal", "version": prepared["shellVersion"], "buildHash": scene_by_target[target]["shellBuildHash"]},
-            "target": target,
-            "artifact": {"url": f"{prepared['artifactBaseUrl']}/{path.name}", "sha256": artifact["sha256"], "size": artifact["size"], "mediaType": artifact["mediaType"]},
-            "updater": {"protocol": "standalone-shell-updater-v3", "handler": "fixture-v3", "interaction": "restart-and-install"},
-        })
-    if seen != set(scene_by_target):
-        raise SystemExit("native distributions do not cover every prepared scene")
-    terminal_distributions.sort(key=lambda item: item["target"])
+        updater = contribution.get("updater")
+        if not isinstance(updater, dict) or updater.get("protocol") != "standalone-shell-updater-v3":
+            raise SystemExit(f"Shell contribution lacks updater contract: {shell_type}/{target}")
+        distributions[shell_type].append({"shell": {"type": shell_type, "version": shell["version"], "buildHash": scene["shellBuildHash"]},
+            "target": target, "artifact": {"url": f"{prepared['artifactBaseUrl']}/{path.name}", "sha256": artifact["sha256"], "size": artifact["size"], "mediaType": media_type}, "updater": updater})
+    if seen != expected:
+        raise SystemExit(f"Shell contributions do not cover prepared topology: missing {sorted(expected - seen)}")
+
     keys = signing_keys()
     output = Path(str(request.get("outputDirectory", ""))).resolve()
     documents = output / "documents"
@@ -278,45 +296,38 @@ def finalize(request: dict[str, Any], receipt_path: Path) -> None:
     content_source = checked_description(prepared["contentMetadata"], "content metadata", request.get("contentMetadataFile"))
     content_file = documents / "content-metadata.json"
     shutil.copyfile(content_source, content_file)
-    shell_document = {
-        "schemaVersion": 1,
-        "channel": prepared["channel"],
-        "releaseVersion": prepared["releaseVersion"],
-        "sourceCommit": prepared["sourceCommit"],
-        "publishedAt": prepared["publishedAt"],
-        "distributions": terminal_distributions,
-    }
-    shell_file = documents / "terminal-metadata.json"
-    write_json(shell_file, signed("document", shell_document, keys))
-    content = described(content_file)
-    shell = described(shell_file)
-    base = prepared["artifactBaseUrl"]
-    head = {
-        "schemaVersion": 1,
-        "channel": prepared["channel"],
-        "publishedAt": prepared["publishedAt"],
-        "lanes": {
-            "content": {"releaseVersion": prepared["releaseVersion"], "url": f"{base}/{content_file.name}", "sha256": content["sha256"], "size": content["size"]},
-            "terminal": {"releaseVersion": prepared["releaseVersion"], "url": f"{base}/{shell_file.name}", "sha256": shell["sha256"], "size": shell["size"]},
-        },
-    }
+    content, base = described(content_file), prepared["artifactBaseUrl"]
+    lanes = {"content": {"releaseVersion": prepared["releaseVersion"], "url": f"{base}/{content_file.name}", "sha256": content["sha256"], "size": content["size"]}}
+    shell_metadata: dict[str, dict[str, Any]] = {}
+    required_acceptances: list[dict[str, Any]] = []
+    shell_files: list[Path] = []
+    for shell_type in sorted(distributions):
+        values = sorted(distributions[shell_type], key=lambda item: item["target"])
+        shell_document = {"schemaVersion": 1, "channel": prepared["channel"], "releaseVersion": prepared["releaseVersion"],
+                          "sourceCommit": prepared["sourceCommit"], "publishedAt": prepared["publishedAt"], "distributions": values}
+        shell_file = documents / f"{shell_type}-metadata.json"
+        write_json(shell_file, signed("document", shell_document, keys))
+        shell_files.append(shell_file)
+        shell_description = described(shell_file)
+        shell_metadata[shell_type] = shell_description
+        lanes[shell_type] = {"releaseVersion": prepared["releaseVersion"], "url": f"{base}/{shell_file.name}", "sha256": shell_description["sha256"], "size": shell_description["size"]}
+        for value in values:
+            required_acceptances.append({"shell": value["shell"], "target": value["target"], "artifact": value["artifact"],
+                "shellMetadata": {"url": lanes[shell_type]["url"], "sha256": shell_description["sha256"], "size": shell_description["size"]}})
+    head = {"schemaVersion": 1, "channel": prepared["channel"], "publishedAt": prepared["publishedAt"], "lanes": lanes}
     head_file = documents / "channel-head.json"
     write_json(head_file, signed("head", head, keys))
-    documents_described = [described(path) for path in (content_file, shell_file, head_file)]
-    write_json(receipt_path, {
-        "schemaVersion": 1,
-        "operation": "exact.pack",
-        "channel": prepared["channel"],
-        "releaseVersion": prepared["releaseVersion"],
-        "sourceCommit": prepared["sourceCommit"],
-        "shellBuildHash": prepared["shellBuildHash"],
-        "minimumShellVersion": prepared["minimumShellVersion"],
-        "artifacts": artifacts,
-        "documents": documents_described,
-        "contentMetadataFile": str(content_file),
-        "terminalMetadataFile": str(shell_file),
-        "channelHeadFile": str(head_file),
-    })
+    receipt = {"schemaVersion": 2, "operation": "exact.pack", "channel": prepared["channel"],
+        "releaseVersion": prepared["releaseVersion"], "sourceCommit": prepared["sourceCommit"],
+        "shells": [{key: shell[key] for key in ("type", "version", "buildHash", "minimumVersion")} for shell in prepared["shells"]],
+        "artifacts": artifacts, "documents": [described(path) for path in [content_file, *shell_files, head_file]],
+        "contentMetadataFile": str(content_file), "shellMetadataFiles": {key: value["file"] for key, value in shell_metadata.items()},
+        "channelHeadFile": str(head_file), "requiredAcceptances": required_acceptances}
+    if "terminal" in shell_metadata:
+        terminal = prepared_shells["terminal"]
+        receipt.update({"terminalMetadataFile": shell_metadata["terminal"]["file"], "shellBuildHash": terminal["buildHash"],
+                        "minimumShellVersion": terminal["minimumVersion"]})
+    write_json(receipt_path, receipt)
 
 
 def main() -> None:
@@ -327,10 +338,9 @@ def main() -> None:
     request = read_json(args.request.resolve())
     if request.get("schemaVersion") != 1:
         raise SystemExit("unsupported exact pack request schema")
-    operation = request.get("operation")
-    if operation == "exact.prepare":
+    if request.get("operation") == "exact.prepare":
         prepare(request, args.receipt.resolve())
-    elif operation == "exact.finalize":
+    elif request.get("operation") == "exact.finalize":
         finalize(request, args.receipt.resolve())
     else:
         raise SystemExit("unsupported exact pack operation")
