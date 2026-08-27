@@ -97,9 +97,11 @@ describe("Terminal native contract", () => {
         algebra: SHELL_UPDATE_ALGEBRA,
         attachmentId: "electron-updater",
         shellType: "electron",
-        retireStandalone: async () => {
+        withRetiredStandalone: async (_input, commit) => {
           retirementStates.push((await lifecycle.status(scope)).state);
-          return { remainingPids: [] };
+          const result = await commit();
+          retirementStates.push((await lifecycle.status(scope)).state);
+          return result;
         },
       });
       await expect(updater.invoke("check")).resolves.toMatchObject({ snapshot: { state: "available" } });
@@ -118,11 +120,113 @@ describe("Terminal native contract", () => {
         outcome: "accepted",
         snapshot: { state: "handed-off", blockedBy: [], actions: [{ id: "abandon" }] },
       });
-      expect(retirementStates).toEqual(["running"]);
+      expect(retirementStates).toEqual(["running", "stopped"]);
       await expect(lifecycle.status(scope)).resolves.toMatchObject({ state: "stopped", references: 0 });
       await expect(updater.invoke("abandon")).resolves.toMatchObject({
         outcome: "accepted",
         snapshot: { state: "failed", error: { code: "shell-install-abandoned" }, actions: [{ id: "check" }] },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes the same sealed install attempt after handoff persistence fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-handoff-recovery-"));
+    try {
+      const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 2_000 });
+      const scope = { channel: "betahyx", namespace: "handoff-recovery" };
+      const generation = { id: "6".repeat(64) } as any;
+      await lifecycle.start(scope, generation, {
+        id: "terminal-active",
+        shell: { type: "terminal", version: "0.1.0", buildHash: "7".repeat(64), digest: "8".repeat(64) },
+      });
+      const guarded = async <T>(_input: unknown, commit: () => Promise<T>): Promise<T> => await commit();
+      const failing = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        faultAt: "before-handoff-persist",
+        shellType: "electron",
+        withRetiredStandalone: guarded,
+      });
+      await failing.invoke("check");
+      await failing.invoke("download");
+      await expect(failing.invoke("force-stop-and-install")).rejects.toThrow("durable installer handoff");
+      const applying = await failing.readSnapshot();
+      expect(applying).toMatchObject({ state: "applying" });
+      await expect(lifecycle.status(scope)).resolves.toMatchObject({
+        state: "stopped",
+        references: 0,
+      });
+
+      const recovered = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        shellType: "electron",
+        withRetiredStandalone: guarded,
+      });
+      await expect(recovered.invoke("install")).resolves.toMatchObject({
+        outcome: "accepted",
+        snapshot: { state: "handed-off", installAttemptId: applying.installAttemptId },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when physical authority returns without invoking the guarded commit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-missing-commit-"));
+    try {
+      const lifecycle = fixtureLifecycle(root);
+      const scope = { channel: "betahyx", namespace: "missing-commit" };
+      const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        shellType: "electron",
+        withRetiredStandalone: async <T>() => undefined as T,
+      });
+      await updater.invoke("check");
+      await updater.invoke("download");
+      await expect(updater.invoke("install")).resolves.toMatchObject({
+        outcome: "failed",
+        snapshot: { state: "failed", error: { code: "standalone-retirement-commit-missing" } },
+      });
+      const result = await lifecycle.beginTransition(scope, "shell-install", { attemptId: "next-attempt" });
+      expect(result.state).toBe("acquired");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds an applying install attempt after its sealed transition lease expires", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-expired-handoff-"));
+    try {
+      const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 40 });
+      const scope = { channel: "betahyx", namespace: "expired-handoff" };
+      const generation = { id: "9".repeat(64) } as any;
+      await lifecycle.start(scope, generation, {
+        id: "terminal-active",
+        shell: { type: "terminal", version: "0.1.0", buildHash: "a".repeat(64), digest: "b".repeat(64) },
+      });
+      const guarded = async <T>(_input: unknown, commit: () => Promise<T>): Promise<T> => await commit();
+      const failing = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        faultAt: "before-handoff-persist",
+        shellType: "electron",
+        withRetiredStandalone: guarded,
+      });
+      await failing.invoke("check");
+      await failing.invoke("download");
+      await expect(failing.invoke("force-stop-and-install")).rejects.toThrow("durable installer handoff");
+      const attemptId = (await failing.readSnapshot()).installAttemptId;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 60));
+      await lifecycle.status(scope);
+
+      const recovered = new FixtureShellUpdaterPort(root, scope, lifecycle, {
+        algebra: SHELL_UPDATE_ALGEBRA,
+        shellType: "electron",
+        withRetiredStandalone: guarded,
+      });
+      await expect(recovered.invoke("install")).resolves.toMatchObject({
+        outcome: "accepted",
+        snapshot: { state: "handed-off", installAttemptId: attemptId },
       });
     } finally {
       rmSync(root, { recursive: true, force: true });

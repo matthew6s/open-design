@@ -83,6 +83,11 @@ withRetiredResourceSet(request, async (verified) => {
 });
 ```
 
+The install attempt id is also supplied when reserving the logical transition.
+Re-presenting that id resumes the same unexpired reservation or sealed
+transition; it cannot adopt another attempt. This binding is what lets a Shell
+restart after logical commit but before durable handoff creation.
+
 Standalone owns the logical transition. Sidecar owns observation, generation
 fencing, retirement, and the physical guard primitive. A product Shell kit owns
 the resource-set declaration and composes both authorities. Closure sees only
@@ -114,6 +119,8 @@ The executable reference model checks these laws after every accepted command:
     succeed before a logical commit fails. Recovery must tolerate this safe,
     stopped-but-not-committed intermediate condition.
 12. No failure before logical commit may create an installer handoff.
+13. Recovery after a lost guard must re-observe and re-verify the complete
+    physical set. An earlier certificate never crosses a guard lifetime.
 
 ## 5. Algebraic laws
 
@@ -176,3 +183,8 @@ The archive POC gold snapshot is
 The model intentionally does not modify `e2e`, `tools-*`, Web, daemon, or the
 Electron Shell. Platform refinement tests belong to their eventual owning
 adapter; Terminal keeps this proof fast and local.
+
+The fixture temporarily accepts the old result-returning `retireStandalone`
+option solely so the frozen E2E host remains source-compatible. New Terminal
+proofs use `withRetiredStandalone(input, commit)`. The legacy option cannot
+establish the guard invariant and is not a production adapter contract.

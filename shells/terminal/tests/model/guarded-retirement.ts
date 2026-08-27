@@ -95,6 +95,13 @@ function ownsReservedTransition(state: GuardedRetirementState, attemptId: Attemp
     && state.logical.transition.fence === state.logical.fence;
 }
 
+function ownsRecoverableTransition(state: GuardedRetirementState, attemptId: AttemptId): boolean {
+  const transition = state.logical.transition;
+  return transition?.attemptId === attemptId
+    && transition.fence === state.logical.fence
+    && (transition.phase === "reserved" || (transition.phase === "stopped-sealed" && state.handoff == null));
+}
+
 function ownsGuard(state: GuardedRetirementState, attemptId: AttemptId): boolean {
   return state.physical.guardOwner === attemptId;
 }
@@ -112,7 +119,7 @@ export function reduceGuardedRetirement(
   if (command.type === "reserve") {
     const transition = state.logical.transition;
     if (transition?.attemptId === command.attemptId) return accepted(state, "replayed");
-    if (transition != null || state.logical.phase !== "running") return rejected(state, "transition-unavailable");
+    if (transition != null || state.handoff != null) return rejected(state, "transition-unavailable");
     return accepted({
       ...state,
       logical: {
@@ -123,7 +130,7 @@ export function reduceGuardedRetirement(
   }
 
   if (command.type === "acquire-guard") {
-    if (!ownsReservedTransition(state, command.attemptId)) return rejected(state, "stale-transition");
+    if (!ownsRecoverableTransition(state, command.attemptId)) return rejected(state, "stale-transition");
     if (state.physical.guardOwner === command.attemptId) return accepted(state, "replayed");
     if (state.physical.guardOwner != null) return rejected(state, "physical-guard-held");
     return accepted({
@@ -137,7 +144,7 @@ export function reduceGuardedRetirement(
   }
 
   if (command.type === "observe") {
-    if (!ownsReservedTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
+    if (!ownsRecoverableTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
       return rejected(state, "physical-authority-required");
     }
     if (state.physical.evidence?.observed != null) return accepted(state, "replayed");
@@ -155,7 +162,7 @@ export function reduceGuardedRetirement(
   }
 
   if (command.type === "retire") {
-    if (!ownsReservedTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
+    if (!ownsRecoverableTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
       return rejected(state, "physical-authority-required");
     }
     const evidence = state.physical.evidence;
@@ -181,7 +188,7 @@ export function reduceGuardedRetirement(
   }
 
   if (command.type === "verify") {
-    if (!ownsReservedTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
+    if (!ownsRecoverableTransition(state, command.attemptId) || !ownsGuard(state, command.attemptId)) {
       return rejected(state, "physical-authority-required");
     }
     const evidence = state.physical.evidence;
@@ -192,9 +199,10 @@ export function reduceGuardedRetirement(
       return rejected(state, "physical-survivor");
     }
     if (evidence.certificate != null) return accepted(state, "replayed");
+    const transition = state.logical.transition!;
     const certificate: RetirementCertificate = {
       attemptId: command.attemptId,
-      logicalFence: state.logical.fence,
+      logicalFence: transition.phase === "stopped-sealed" ? transition.fence - 1 : transition.fence,
       physicalEpoch: state.physical.epoch,
       resourceSetId: state.physical.resourceSetId,
       retired: { ...evidence.observed },
@@ -275,7 +283,7 @@ export function reduceGuardedRetirement(
 
   if (command.type === "expire-transition") {
     const transition = state.logical.transition;
-    if (transition == null || transition.phase === "stopped-sealed") return accepted(state, "replayed");
+    if (transition == null) return accepted(state, "replayed");
     return accepted({
       ...state,
       logical: { ...state.logical, fence: state.logical.fence + 1, transition: null },
@@ -328,10 +336,13 @@ export function assertGuardedRetirementInvariants(state: GuardedRetirementState)
   }
   if (state.handoff != null) {
     if (
-      transition?.phase !== "stopped-sealed"
-      || transition.attemptId !== state.handoff.attemptId
-      || transition.fence !== state.handoff.logicalFence + 1
+      state.logical.phase !== "stopped"
       || state.handoff.resourceSetId !== state.physical.resourceSetId
+      || (transition != null && (
+        transition.phase !== "stopped-sealed"
+        || transition.attemptId !== state.handoff.attemptId
+        || transition.fence !== state.handoff.logicalFence + 1
+      ))
     ) {
       throw new Error("installer handoff lacks a matching sealed retirement");
     }

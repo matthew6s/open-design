@@ -11,10 +11,12 @@ export type StandaloneLifecycleOccupant = Readonly<{
 }>;
 
 export type StandaloneLifecycleTransition = Readonly<{
+  attemptId: string;
   fence: number;
   expiresAt: string;
   heartbeatIntervalMs: number;
   occupants: readonly StandaloneLifecycleOccupant[];
+  phase: "reserved" | "stopped-sealed";
   renew(): Promise<void>;
   release(): Promise<void>;
   forceStop(): Promise<void>;
@@ -34,7 +36,7 @@ export interface StandaloneLifecycleTransitionPort {
   beginTransition(
     scope: Readonly<{ channel: string; namespace: string }>,
     kind: "content-restart" | "shell-install",
-    options?: Readonly<{ ownerAttachmentId?: string; ownerShellType?: string; force?: boolean }>,
+    options?: Readonly<{ attemptId?: string; ownerAttachmentId?: string; ownerShellType?: string; force?: boolean }>,
   ): Promise<StandaloneLifecycleTransitionResult>;
 }
 

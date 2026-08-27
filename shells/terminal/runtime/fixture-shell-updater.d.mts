@@ -15,8 +15,16 @@ export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
     algebra: typeof import("@open-design/standalone").SHELL_UPDATE_ALGEBRA;
     attachmentId?: string;
     channelHeadUrl?: string;
-    faultAt?: "after-transition";
+    faultAt?: "after-transition" | "before-handoff-persist";
     installDelayMs?: number;
+    withRetiredStandalone?: <T>(input: Readonly<{
+      scope: LifecycleScope;
+      kind: "shell-install";
+      attemptId: string;
+      fence: number;
+      occupants: readonly import("@open-design/standalone").StandaloneLifecycleOccupant[];
+    }>, commit: () => Promise<T>) => Promise<T>;
+    /** @deprecated Compatibility for the unchanged legacy E2E host only. */
     retireStandalone?: (input: Readonly<{
       scope: LifecycleScope;
       kind: "shell-install";

@@ -138,9 +138,21 @@ export class FileFixtureLifecyclePort {
 
   async beginTransition(scope, kind, options = {}) {
     if (kind !== "shell-install" && kind !== "content-restart") throw new Error(`unsupported fixture lifecycle transition: ${kind}`);
-    const token = randomUUID();
+    const token = options.attemptId ?? randomUUID();
     const acquired = await this.transaction(scope, async (state) => {
-      if (state.transition != null) return { state, result: { state: "blocked", reason: "transition-active", occupants: this.algebra.project(state, this.heartbeatIntervalMs).occupants } };
+      if (state.transition != null) {
+        if (state.transition.token !== token || state.transition.kind !== kind) {
+          return { state, result: { state: "blocked", reason: "transition-active", occupants: this.algebra.project(state, this.heartbeatIntervalMs).occupants } };
+        }
+        return {
+          state,
+          result: {
+            state: "acquired",
+            occupants: this.algebra.project(state, this.heartbeatIntervalMs).occupants,
+            transition: state.transition,
+          },
+        };
+      }
       const blockers = this.algebra.blockers(state, kind, { attachmentId: options.ownerAttachmentId, shellType: options.ownerShellType });
       if (blockers.length > 0 && options.force !== true) return { state, result: { state: "blocked", reason: "occupied", occupants: blockers } };
       const acquiredAt = iso();
@@ -158,6 +170,7 @@ export class FileFixtureLifecyclePort {
     if (acquired.state === "blocked") return acquired;
     let transitionFence = acquired.transition.fence;
     let expiresAt = acquired.transition.expiresAt;
+    let phase = acquired.transition.phase;
     const renew = async () => {
       expiresAt = new Date(Date.now() + this.transitionLeaseDurationMs).toISOString();
       await this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, { type: "renew-transition", token, fence: transitionFence, expiresAt }) }));
@@ -172,6 +185,7 @@ export class FileFixtureLifecyclePort {
         return { state: next };
       });
       transitionFence = status.fence;
+      phase = "stopped-sealed";
     };
     const completeStart = async (generation, attachment, capabilityHash) => {
       const heartbeatAt = iso();
@@ -190,8 +204,10 @@ export class FileFixtureLifecyclePort {
     return {
       state: "acquired",
       transition: {
+        attemptId: token,
         get fence() { return transitionFence; },
         get expiresAt() { return expiresAt; },
+        get phase() { return phase; },
         heartbeatIntervalMs: this.transitionHeartbeatIntervalMs,
         occupants: acquired.occupants,
         renew,

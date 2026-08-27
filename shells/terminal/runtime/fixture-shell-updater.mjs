@@ -59,13 +59,22 @@ export class FixtureShellUpdaterPort {
     this.standalone = options.standalone;
     this.faultAt = options.faultAt;
     this.installDelayMs = options.installDelayMs ?? 0;
-    this.retireStandalone = options.retireStandalone ?? (async () => ({ remainingPids: [] }));
+    // `retireStandalone` remains a narrow compatibility seam for the unchanged
+    // legacy E2E host. It is not a valid production refinement because it
+    // cannot prove that physical authority spans the logical commit.
+    this.withRetiredStandalone = options.withRetiredStandalone
+      ?? (options.retireStandalone == null
+        ? async (_input, commit) => await commit()
+        : async (input, commit) => {
+            requireCompleteStandaloneRetirement(await options.retireStandalone(input));
+            return await commit();
+          });
     this.algebra = options.algebra;
     if (this.algebra == null || !["initial", "validate", "reduce"].every((name) => typeof this.algebra[name] === "function")) {
       throw new Error("fixture Shell updater requires the Standalone updater algebra");
     }
-    if (typeof this.retireStandalone !== "function") {
-      throw new Error("fixture Shell updater requires a callable Standalone retirement port");
+    if (typeof this.withRetiredStandalone !== "function") {
+      throw new Error("fixture Shell updater requires a guarded Standalone retirement continuation");
     }
   }
 
@@ -260,9 +269,22 @@ export class FixtureShellUpdaterPort {
       };
     }
     if (action !== "install" && action !== "force-stop-and-install") return { outcome: "unsupported", snapshot: await this.readSnapshot() };
-    const transition = await this.lifecycle.beginTransition(this.scope, "shell-install", { ownerShellType: this.shellType, force: action === "force-stop-and-install" });
+    const current = await this.readSnapshot();
+    const resuming = current.state === "applying";
+    if (!resuming && current.state !== "ready") return { outcome: "unsupported", snapshot: current };
+    const installAttemptId = resuming ? current.installAttemptId : randomUUID();
+    if (installAttemptId == null) throw new Error("applying Shell update lacks an install attempt identity");
+    const transition = await this.lifecycle.beginTransition(this.scope, "shell-install", {
+      attemptId: installAttemptId,
+      ownerShellType: this.shellType,
+      force: resuming || action === "force-stop-and-install",
+    });
     if (transition.state === "blocked") {
-      const current = await this.readSnapshot();
+      if (resuming) {
+        throw Object.assign(new Error("Shell install attempt cannot resume its lifecycle transition"), {
+          code: "shell-install-transition-unavailable",
+        });
+      }
       const snapshot = await this.update({
         state: "ready",
         candidateId: current.candidateId,
@@ -273,11 +295,12 @@ export class FixtureShellUpdaterPort {
       return { outcome: "blocked", snapshot };
     }
     let heartbeat;
-    let sealed = false;
+    let sealed = transition.transition.phase === "stopped-sealed";
     try {
-      const ready = await this.readSnapshot();
-      const installAttemptId = randomUUID();
-      await this.update({ state: "applying", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff, blockedBy: transition.transition.occupants });
+      const ready = current;
+      if (!resuming) {
+        await this.update({ state: "applying", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff, blockedBy: transition.transition.occupants });
+      }
       if (this.faultAt === "after-transition") {
         const error = new Error("injected Sidecar crash after transition acquisition");
         error.abandonedTransition = true;
@@ -286,20 +309,43 @@ export class FixtureShellUpdaterPort {
       heartbeat = setInterval(() => { void transition.transition.renew().catch(() => undefined); }, transition.transition.heartbeatIntervalMs);
       heartbeat.unref();
       if (this.installDelayMs > 0) await sleep(this.installDelayMs);
-      // A Shell adapter may seal the logical transition only after its
-      // process authority reports a terminal, survivor-free retirement.
-      const retirement = await this.retireStandalone({
+      let continuationInvoked = false;
+      const result = await this.withRetiredStandalone({
         scope: this.scope,
         kind: "shell-install",
+        attemptId: installAttemptId,
         fence: transition.transition.fence,
         occupants: transition.transition.occupants,
+      }, async () => {
+        if (continuationInvoked) {
+          throw Object.assign(new Error("physical retirement continuation was invoked more than once"), {
+            code: "standalone-retirement-continuation-replayed",
+          });
+        }
+        continuationInvoked = true;
+        await transition.transition.forceStop();
+        sealed = true;
+        if (this.faultAt === "before-handoff-persist") {
+          throw new Error("injected failure before durable installer handoff");
+        }
+        return {
+          outcome: "accepted",
+          snapshot: await this.update({
+            state: "handed-off",
+            candidateId: ready.candidateId,
+            installAttemptId,
+            handoff: ready.handoff,
+          }),
+        };
       });
-      requireCompleteStandaloneRetirement(retirement);
-      await transition.transition.forceStop();
-      sealed = true;
-      return { outcome: "accepted", snapshot: await this.update({ state: "handed-off", candidateId: ready.candidateId, installAttemptId, handoff: ready.handoff }) };
+      if (!continuationInvoked) {
+        throw Object.assign(new Error("physical retirement did not invoke its guarded commit"), {
+          code: "standalone-retirement-commit-missing",
+        });
+      }
+      return result;
     } catch (error) {
-      if (!error?.abandonedTransition && !sealed) await transition.transition.release();
+      if (!error?.abandonedTransition && !sealed) await transition.transition.release().catch(() => undefined);
       if (!error?.abandonedTransition && !sealed) {
         return { outcome: "failed", snapshot: await this.failed(error) };
       }

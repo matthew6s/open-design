@@ -110,10 +110,12 @@ function sidecarLifecycle(requestAttachmentCapability) {
       return {
         state: "acquired",
         transition: {
+          attemptId: descriptor.attemptId ?? descriptor.token,
           fence: descriptor.fence,
           expiresAt: descriptor.expiresAt,
           heartbeatIntervalMs: descriptor.heartbeatIntervalMs,
           occupants: descriptor.occupants,
+          phase: descriptor.phase ?? "reserved",
           renew: () => transitionCall("renew"),
           release: () => transitionCall("release"),
           forceStop: () => transitionCall("force-stop"),

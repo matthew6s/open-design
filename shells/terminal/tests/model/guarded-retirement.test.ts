@@ -134,6 +134,66 @@ describe("guarded Shell retirement algebra", () => {
     expect(state.logical.transition).toMatchObject({ attemptId: "attempt-b", fence: 2 });
   });
 
+  it("re-observes the resource set before recovering a sealed handoff", () => {
+    let state = apply(
+      initialGuardedRetirementState(),
+      { type: "reserve", attemptId: "attempt-a" },
+      { type: "acquire-guard", attemptId: "attempt-a" },
+      { type: "observe", attemptId: "attempt-a" },
+      { type: "retire", attemptId: "attempt-a" },
+      { type: "verify", attemptId: "attempt-a" },
+      { type: "commit", attemptId: "attempt-a" },
+      { type: "crash-owner", attemptId: "attempt-a" },
+    );
+    expect(state).toMatchObject({
+      logical: { phase: "stopped", transition: { phase: "stopped-sealed" } },
+      physical: { evidence: null, guardOwner: null },
+      handoff: null,
+    });
+
+    state = apply(
+      state,
+      { type: "acquire-guard", attemptId: "attempt-a" },
+      { type: "observe", attemptId: "attempt-a" },
+      { type: "retire", attemptId: "attempt-a" },
+      { type: "verify", attemptId: "attempt-a" },
+      { type: "commit", attemptId: "attempt-a" },
+      { type: "persist-handoff", attemptId: "attempt-a" },
+      { type: "release-guard", attemptId: "attempt-a" },
+    );
+    expect(state.handoff).toMatchObject({ attemptId: "attempt-a", logicalFence: 1 });
+  });
+
+  it("rebuilds recovery authority on a newer fence after the sealed lease expires", () => {
+    let state = apply(
+      initialGuardedRetirementState(),
+      { type: "reserve", attemptId: "attempt-a" },
+      { type: "acquire-guard", attemptId: "attempt-a" },
+      { type: "observe", attemptId: "attempt-a" },
+      { type: "retire", attemptId: "attempt-a" },
+      { type: "verify", attemptId: "attempt-a" },
+      { type: "commit", attemptId: "attempt-a" },
+      { type: "crash-owner", attemptId: "attempt-a" },
+      { type: "expire-transition" },
+    );
+    expect(state).toMatchObject({ logical: { fence: 3, phase: "stopped", transition: null } });
+
+    state = apply(
+      state,
+      { type: "reserve", attemptId: "attempt-a" },
+      { type: "acquire-guard", attemptId: "attempt-a" },
+      { type: "observe", attemptId: "attempt-a" },
+      { type: "retire", attemptId: "attempt-a" },
+      { type: "verify", attemptId: "attempt-a" },
+      { type: "commit", attemptId: "attempt-a" },
+      { type: "persist-handoff", attemptId: "attempt-a" },
+    );
+    expect(state).toMatchObject({
+      logical: { fence: 4, transition: { phase: "stopped-sealed" } },
+      handoff: { attemptId: "attempt-a", logicalFence: 3 },
+    });
+  });
+
   it("exhausts bounded interleavings without violating the safety invariants", () => {
     const commands = guardedCommands();
     const seen = new Set<string>();
