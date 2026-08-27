@@ -34,6 +34,11 @@ The archived standalone-closure proof of concept remains the behavioral referenc
 at commit `715c0cb9d8ffdedd47d8c27a78a1d5dfdb2dc201`; this implementation preserves
 its fossil/handoff lessons without copying Electron-specific policy.
 
+The formal lifecycle decomposition, invariants, linearization points, failure
+semantics, and POC reference ledger live in [`model/README.md`](model/README.md).
+Its executable state model is test-only: it constrains future Sidecar and
+Electron adapters without becoming part of the distributed Terminal runtime.
+
 ## Boundary and lifecycle
 
 The installation root is immutable Shell material. `carrier.lock` is deliberately
