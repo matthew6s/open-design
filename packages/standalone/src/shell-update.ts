@@ -1,6 +1,7 @@
 import { compareVersions, type StandaloneShellIdentity, type StandaloneShellRequirement } from "./protocol.js";
 import type { GenerationRecord } from "./store.js";
 import type { LifecycleAttachment, LifecycleStatus } from "./launcher.js";
+import type { StandaloneGenerationBinding } from "./bootloader-handoff.js";
 
 export const STANDALONE_SHELL_UPDATER_SCHEMA = 3 as const;
 
@@ -20,7 +21,8 @@ export type StandaloneLifecycleTransition = Readonly<{
   renew(): Promise<void>;
   release(): Promise<void>;
   forceStop(): Promise<void>;
-  completeStart(generation: GenerationRecord, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
+  completeStart(generation: GenerationRecord, attachment: LifecycleAttachment, capabilityHash?: string): Promise<LifecycleStatus>;
+  completeBoundStart?(generation: GenerationRecord, attachment: LifecycleAttachment, binding: StandaloneGenerationBinding): Promise<LifecycleStatus>;
 }>;
 
 export type StandaloneLifecycleTransitionResult =

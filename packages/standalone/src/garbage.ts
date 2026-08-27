@@ -39,7 +39,7 @@ async function liveStoreReferences(root: string): Promise<Readonly<{ blobs: Set<
       ].filter((value): value is string => value != null));
       for (const id of ids) {
         const generation = await readJson<GenerationRecord>(join(channelRoot, "generations", `${id}.json`));
-        if (generation.schemaVersion !== 3 || generation.id !== id || generation.channel !== channel.name) {
+        if (generation.schemaVersion !== 4 || generation.id !== id || generation.channel !== channel.name) {
           throw new Error(`invalid retained generation while sweeping: ${channel.name}/${id}`);
         }
         for (const resource of Object.values(generation.resources)) {

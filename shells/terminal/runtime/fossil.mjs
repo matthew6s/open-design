@@ -48,7 +48,7 @@ async function validateInstallation(value) {
   if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || !digestPattern.test(manifest.shell?.buildHash) || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
   if (manifest.runtime?.name !== "node" || manifest.runtime?.version !== value.runtime.version || manifest.runtime?.sha256 !== value.runtime.digest) throw new Error("installed runtime binding mismatch");
   const descriptorPath = (descriptor) => descriptor?.file ?? descriptor?.entrypoint;
-  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.releaseDocuments?.content, manifest.trust,
+  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.seed?.standaloneLauncher, manifest.releaseDocuments?.content, manifest.trust,
     manifest.shellFiles?.sh?.terminal, manifest.shellFiles?.sh?.install, manifest.shellFiles?.ps1?.terminal, manifest.shellFiles?.ps1?.install];
   for (const descriptor of descriptors) {
     const entrypoint = descriptorPath(descriptor);
@@ -95,7 +95,7 @@ async function sidecarRequest(message) {
 function sidecarLifecycle(requestAttachmentCapability) {
   const call = (operation, scope, input = {}) => sidecarRequest({ domain: "lifecycle", operation, scope, ...input });
   return {
-    start: (scope, generation, attachment) => call("start", scope, { generation, attachment, attachmentCapability: requestAttachmentCapability }),
+    start: (scope, generation, attachment, binding) => call("start", scope, { generation, binding, attachment, attachmentCapability: requestAttachmentCapability }),
     awaitReady: (scope, readiness) => call("ready", scope, { readiness }),
     heartbeat: (scope, attachment) => call("heartbeat", scope, { attachment, attachmentCapability: requestAttachmentCapability }),
     release: (scope, attachmentId) => call("release", scope, { attachmentId, attachmentCapability: requestAttachmentCapability }),
@@ -119,7 +119,8 @@ function sidecarLifecycle(requestAttachmentCapability) {
           renew: () => transitionCall("renew"),
           release: () => transitionCall("release"),
           forceStop: () => transitionCall("force-stop"),
-          completeStart: (generation, attachment) => transitionCall("complete-start", { generation, attachment }),
+          completeStart: (generation, attachment, capabilityHash) => transitionCall("complete-start", { generation, attachment, capabilityHash }),
+          completeBoundStart: (generation, attachment, binding) => transitionCall("complete-start", { generation, binding, attachment }),
         },
       };
     },
@@ -134,6 +135,102 @@ function sidecarShellUpdater(scope, options) {
     waitForChange: (afterRevision, timeoutMs) => request("wait", { afterRevision, timeoutMs }),
     invoke: (action) => request("invoke", { action }),
     confirmInstalled: (proof) => request("confirm-installed", { proof }),
+  };
+}
+
+function terminalGenerationHandoff(standalone, lifecycle, scope) {
+  const pending = new Map();
+  const runtimeHandle = (request) => ({
+    async readStatus() {
+      const status = await lifecycle.status(scope);
+      return {
+        bindingDigest: request.binding.digest,
+        generationId: request.binding.generationId,
+        instanceId: status.instanceId ?? `stopped-${status.fence}`,
+        state: status.state,
+        references: status.references,
+      };
+    },
+    async invoke(command) {
+      return {
+        requestId: command.requestId,
+        attachmentId: command.attachmentId,
+        bindingDigest: request.binding.digest,
+        outcome: "unsupported",
+        error: { code: "terminal-capability-unavailable" },
+      };
+    },
+    async close() {
+      await lifecycle.release(scope, request.attachment.id);
+      return this.readStatus();
+    },
+    async waitForTerminal() {
+      for (;;) {
+        const status = await this.readStatus();
+        if (status.state !== "running") return status;
+        await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      }
+    },
+  });
+  const host = new standalone.FossilHandoffHost(async (binding) => {
+    if (sha256(await readFile(binding.launcher.path)) !== binding.launcher.blobSha256) {
+      throw new Error("materialized Standalone launcher failed handoff binding");
+    }
+    const generation = await import(pathToFileURL(binding.launcher.path).href);
+    if (typeof generation.createStandaloneGenerationBootloader !== "function") {
+      throw new Error("materialized Standalone launcher lacks its generation bootloader");
+    }
+    return generation.createStandaloneGenerationBootloader(async (request) => {
+      const entry = pending.get(request.attachment.id);
+      if (entry == null || entry.input.binding.digest !== request.binding.digest) {
+        throw new Error("generation body start escaped its lifecycle continuation");
+      }
+      await entry.run();
+      return runtimeHandle(request);
+    });
+  });
+  return {
+    async start(input) {
+      if (pending.has(input.attachment.id)) throw new Error("attachment already has a pending generation start");
+      const entry = {
+        input,
+        status: null,
+        task: null,
+        run() {
+          this.task ??= input.start().then((status) => {
+            this.status = status;
+            return status;
+          });
+          return this.task;
+        },
+      };
+      pending.set(input.attachment.id, entry);
+      try {
+        const handle = await host.handoff({
+          binding: input.binding,
+          attachment: input.attachment,
+          capabilities: {
+            invoke: async (request) => ({
+              requestId: request.requestId,
+              attachmentId: request.attachmentId,
+              bindingDigest: request.bindingDigest,
+              outcome: "unsupported",
+              error: { code: "terminal-capability-unavailable" },
+            }),
+          },
+        });
+        await entry.run();
+        const runtime = await handle.readStatus();
+        if (
+          runtime.state !== "running"
+          || runtime.bindingDigest !== input.binding.digest
+          || runtime.generationId !== input.generation.id
+        ) throw new Error("materialized Standalone launcher did not acknowledge its exact generation");
+        return entry.status;
+      } finally {
+        pending.delete(input.attachment.id);
+      }
+    },
   };
 }
 
@@ -159,15 +256,18 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
     state = await store.readState();
   }
   if (state.lastHealthy == null && state.active == null && state.prepared !== expectedId) {
-    const seedBytes = new Uint8Array(await readFile(resolve(installation.root, installation.manifest.seed.closure.file)));
-    const digest = installation.manifest.seed.closure.sha256;
-    const declared = envelope.metadata.blobs?.[digest];
-    if (declared == null || declared.size !== seedBytes.byteLength) {
-      const error = new Error("required installed seed is incomplete");
-      error.code = "resource-unavailable";
-      throw error;
+    const candidates = {};
+    for (const seed of [installation.manifest.seed.closure, installation.manifest.seed.standaloneLauncher]) {
+      const seedBytes = new Uint8Array(await readFile(resolve(installation.root, seed.file)));
+      const declared = envelope.metadata.blobs?.[seed.sha256];
+      if (declared == null || declared.size !== seedBytes.byteLength) {
+        const error = new Error("required installed seed is incomplete");
+        error.code = "resource-unavailable";
+        throw error;
+      }
+      candidates[seed.sha256] = [{ path: resolve(installation.root, seed.file), source: "shell" }];
     }
-    await store.prepare(envelope, keys, { candidates: { [digest]: [{ path: resolve(installation.root, installation.manifest.seed.closure.file), source: "shell" }] }, feedback });
+    await store.prepare(envelope, keys, { candidates, feedback });
     state = await store.readState();
   }
   if (state.active == null && state.prepared === expectedId && state.activationIntent?.generationId !== expectedId) {
@@ -192,7 +292,8 @@ async function execute(request, installation) {
     digest: sha256(installation.manifestBytes),
   };
   const feedback = request.feedbackFile == null ? undefined : async (event) => appendFile(request.feedbackFile, `${JSON.stringify(event)}\n`, "utf8");
-  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback);
+  const handoff = terminalGenerationHandoff(standalone, lifecycle, { channel: request.channel, namespace: request.namespace });
+  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback, handoff);
   if (request.operation.startsWith("shell-update-")) {
     const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
     const updaterOptions = { algebra: standalone.SHELL_UPDATE_ALGEBRA, attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };

@@ -114,7 +114,7 @@ fetch(process.argv[1], { method: "PUT", body: fs.readFileSync(process.argv[2]) }
   run(process.execPath, ["-e", source, `${baseUrl}/${key}`, file]);
 }
 
-function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
+function releaseDocuments(root: string, closure: Uint8Array, launcher: Uint8Array, baseUrl: string) {
   const keys = generateKeyPairSync("ed25519");
   const signer = { keyId: "terminal-e2e", privateKey: keys.privateKey };
   writeFileSync(join(root, "trust.json"), canonicalJson({ schemaVersion: 1, keys: [{ keyId: signer.keyId, publicKey: keys.publicKey.export({ type: "spki", format: "pem" }) }] }));
@@ -122,15 +122,24 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
     const artifactFile = join(root, `${releaseVersion}-closure.mjs`);
     writeFileSync(artifactFile, artifactBytes);
     const artifactSha256 = sha256Hex(artifactBytes);
+    const launcherFile = join(root, `${releaseVersion}-standalone-launcher.mjs`);
+    writeFileSync(launcherFile, launcher);
+    const launcherSha256 = sha256Hex(launcher);
     const metadata: StandaloneMetadata = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       channel,
       releaseVersion,
       standaloneVersion: "0.1.0",
       sourceCommit: "993f2e1a90845f7068b705e970ada2bf48d0cb84",
       publishedAt: "2026-08-24T00:00:00.000Z",
-      blobs: { [artifactSha256]: { sha256: artifactSha256, size: artifactBytes.byteLength, mediaType: "text/javascript", sources: [{ kind: "remote", url: `${baseUrl}/${encodeURIComponent(basename(artifactFile))}` }] } },
-      resources: [{ id: "closure-fixture", blob: artifactSha256, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } }],
+      blobs: {
+        [artifactSha256]: { sha256: artifactSha256, size: artifactBytes.byteLength, mediaType: "text/javascript", sources: [{ kind: "remote", url: `${baseUrl}/${encodeURIComponent(basename(artifactFile))}` }] },
+        [launcherSha256]: { sha256: launcherSha256, size: launcher.byteLength, mediaType: "text/javascript", sources: [{ kind: "remote", url: `${baseUrl}/${encodeURIComponent(basename(launcherFile))}` }] },
+      },
+      resources: [
+        { id: "standalone-launcher", component: "standalone.launcher", blob: launcherSha256, sync: true, materialization: { type: "file", entrypoint: "launcher.mjs" } },
+        { id: "closure-fixture", component: "standalone.resource", blob: artifactSha256, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } },
+      ],
       shellRequirements: [{ type: "terminal", minVersion, buildHash: "b".repeat(64) }],
     };
     const metadataBytes = Buffer.from(canonicalJson(signStandaloneMetadata(metadata, [signer])));
@@ -144,6 +153,8 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
     return {
       artifactFile,
       artifactSha256,
+      launcherFile,
+      launcherSha256,
       headFile,
       metadataFile,
       release: { channel, releaseVersion, sourceCommit: metadata.sourceCommit, publishedAt: metadata.publishedAt, artifactBaseUrl: baseUrl },
@@ -165,6 +176,7 @@ function releaseDocuments(root: string, closure: Uint8Array, baseUrl: string) {
   };
   for (const release of [releases.beta1, releases.beta2, releases.beta3, releases.preview1]) {
     publishFixtureFile(baseUrl, release.artifactFile);
+    publishFixtureFile(baseUrl, release.launcherFile);
     publishFixtureFile(baseUrl, release.metadataFile);
   }
   const promote = (release: typeof releases.beta1) => {
@@ -186,7 +198,12 @@ export function prepareExactFixture(target: string) {
   const work = mkdtempSync(join(tmpdir(), `terminal-${target}-e2e-`)); temporaryRoots.push(work);
   const directories = { documents: join(work, "documents"), output: join(work, "output"), unpacked: join(work, "unpacked"), store: join(work, "store") };
   mkdirSync(directories.documents); mkdirSync(directories.output); mkdirSync(directories.unpacked);
-  const releases = releaseDocuments(work, new Uint8Array(readFileSync(closureFile)), startToolsServeReleaseStorage(work));
+  const releases = releaseDocuments(
+    work,
+    new Uint8Array(readFileSync(closureFile)),
+    new Uint8Array(readFileSync(join(standaloneDirectory, "index.mjs"))),
+    startToolsServeReleaseStorage(work),
+  );
   writeFileSync(join(directories.documents, "content-metadata.json"), readFileSync(releases.beta1.metadataFile));
   return { archive, closureFile, directories, lock, locked, releases, standaloneDirectory, work };
 }
@@ -211,6 +228,7 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   releases.promote(releases.beta2);
   expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "authorize-silent", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
+  expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.launcherSha256))).toEqual(readFileSync(releases.beta2.launcherFile));
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
   expect(applied.result).toMatchObject({ status: "applied", lifecycle: { state: "running" } });
   expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);

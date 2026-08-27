@@ -67,9 +67,9 @@ heartbeat and release cannot take over a live reference by guessing its ID.
 Content restart uses the same transition protocol as Shell install: it defers by
 default while foreign references exist and only stops them on an explicit force.
 Standalone owns this shared lifecycle as a pure reducer; Terminal only supplies
-the locked-file persistence and process adapter. Instance health is keyed solely
-to a generation, while Shell identities and capability hashes remain attachment
-facts. A transition advances from `reserved` to `stopped-sealed` before the stop
+the locked-file persistence and process adapter. Instance health is keyed to the
+exact generation launcher binding, while Shell identities and capability hashes
+remain attachment facts. A transition advances from `reserved` to `stopped-sealed` before the stop
 effect; a sealed fence can only be completed exactly or expire, never released.
 Shell auto-update is independently declared by `contract/shell-updater.schema.json`.
 Terminal ships a non-user-facing fixture provider that exercises Electron's
@@ -91,10 +91,28 @@ cannot retarget an in-flight transaction. A candidate receives one initial launc
 and at most one recovery launch before rollback to the last health-proved
 generation. Readiness is an explicit proof bound to generation, instance,
 and attachment; Standalone combines it with the exact activation-attempt and
-launch token. Accepting a start request is not a health proof, and a delayed
+launch token. The readiness envelope also carries the digest of
+`channel + namespace + generation + standalone.launcher`; accepting a start
+request is not a health proof, and a delayed
 acknowledgement from the failed launch cannot confirm its recovery launch.
 Terminal tests exhaust the finite control-state graph and then refine the critical
 transition trace through the file Sidecar fixture.
+
+Every signed content graph contains exactly one required `standalone.launcher`
+sync component. The installed archive carries the same bytes only as an offline
+seed; Store materializes them into the selected generation and the immutable
+fossil resolves the absolute generation entrypoint. Selection, import and
+failure are sticky for the lifetime of the host. Once selected, a failed
+launcher is never replaced by baseline code or a rollback generation in the
+same host; Store may roll state back, but recovery requires a fresh host
+lifecycle. One selected generation body serves multiple Shell attachments,
+routes attachment-scoped capabilities, and closes only after the final handle.
+Terminal's real fossil start imports this materialized entry before invoking
+the lifecycle continuation; normal cold start and transition-owned update start
+therefore cannot drift into separate launch paths. The focused long-lived fake
+host additionally exercises the complete Electron-facing multi-attachment
+shape, including cold-start progress, without introducing Web, daemon or a real
+Sidecar transport.
 
 Standalone owns the global mark/quarantine sweep and bounded asynchronous trash
 cleanup APIs. The fixture Sidecar only schedules them after the requested scope is
@@ -113,7 +131,9 @@ handlers; human-facing terminal presentation is deliberately minimal.
 Scenes are target-specific but channel-neutral build sites. They contain official
 Node, conventional Closure and Standalone artifacts, native scripts, fossil and
 contracts; they contain no release version, URL, publication time, signature or
-private key.
+private key. Promotion publishes the Standalone artifact again as the required
+versioned launcher component; the scene copy is only its verified offline seed,
+not execution authority.
 
 Promotion always copies a scene through the target owner's
 `distribution.sh`/`distribution.ps1`, adds public trust and signed content

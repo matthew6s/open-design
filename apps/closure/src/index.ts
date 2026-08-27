@@ -18,6 +18,7 @@ export function createClosureFixtureContribution(input: {
   const sha256 = sha256Hex(input.artifactBytes);
   return {
     id: CLOSURE_FIXTURE_COMPONENT,
+    component: "standalone.resource",
     sync: true,
     blob: {
       mediaType: "text/javascript",

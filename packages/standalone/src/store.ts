@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat, unlink, writeFile, type FileHandle } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   canonicalJson,
@@ -39,14 +39,22 @@ export type StandalonePrepareOptions = Readonly<{
 }>;
 
 export type GenerationRecord = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   id: string;
   channel: string;
   releaseVersion: string;
   standaloneVersion: string;
   sourceCommit: string;
   minimumShellVersions: Record<string, string>;
+  launcher: Readonly<{
+    protocol: "standalone-launcher-v1";
+    resourceId: string;
+    blobSha256: string;
+    entrypoint: string;
+    path: string;
+  }>;
   resources: Record<string, {
+    component: "standalone.launcher" | "standalone.resource";
     blobSha256: string;
     entrypoint: string;
     materialization: StandaloneMaterialization;
@@ -95,7 +103,7 @@ export class StandaloneStore {
 
   constructor(root: string, scope: Readonly<{ channel: string; namespace: string }>) {
     validateStandaloneScope(scope);
-    this.root = root;
+    this.root = resolve(root);
     this.channel = scope.channel;
     this.namespace = scope.namespace;
   }
@@ -155,7 +163,7 @@ export class StandaloneStore {
 
   async readGeneration(id: string): Promise<GenerationRecord> {
     const generation = await readJson<GenerationRecord>(this.generationPath(id));
-    if (generation.schemaVersion !== 3 || generation.id !== id || generation.channel !== this.channel) throw new Error(`invalid generation record: ${id}`);
+    if (generation.schemaVersion !== 4 || generation.id !== id || generation.channel !== this.channel) throw new Error(`invalid generation record: ${id}`);
     return generation;
   }
 
@@ -182,6 +190,7 @@ export class StandaloneStore {
       });
       const materialized = await materializeStandaloneBlob(this.root, blob, ensured.path, resource.materialization, { feedback, resourceId: resource.id });
       resources[resource.id] = {
+        component: resource.component,
         blobSha256: blob.sha256,
         entrypoint: materialized.entrypoint,
         materialization: resource.materialization,
@@ -192,14 +201,24 @@ export class StandaloneStore {
       };
     }
     feedback.emit({ phase: "sync-ready", state: "complete", generationId: id });
+    const launcherEntry = Object.entries(resources).find(([, resource]) => resource.component === "standalone.launcher");
+    if (launcherEntry == null) throw new Error("prepared generation lacks standalone.launcher");
+    const [launcherResourceId, launcherResource] = launcherEntry;
     const generation: GenerationRecord = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       id,
       channel: envelope.metadata.channel,
       releaseVersion: envelope.metadata.releaseVersion,
       standaloneVersion: envelope.metadata.standaloneVersion,
       sourceCommit: envelope.metadata.sourceCommit,
       minimumShellVersions: Object.fromEntries(envelope.metadata.shellRequirements.map(({ type, minVersion }) => [type, minVersion])),
+      launcher: {
+        protocol: "standalone-launcher-v1",
+        resourceId: launcherResourceId,
+        blobSha256: launcherResource.blobSha256,
+        entrypoint: launcherResource.entrypoint,
+        path: launcherResource.path,
+      },
       resources,
     };
     await writeJsonAtomic(this.generationPath(id), generation);

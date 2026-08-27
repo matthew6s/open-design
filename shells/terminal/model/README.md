@@ -26,6 +26,7 @@ another one.
 | transition token + logical fence | Standalone | Exclusive authority to change one logical instance. |
 | install attempt id | Shell updater | One immutable candidate-to-installer transaction. |
 | blob digest | Standalone | Immutable content identity. Node is deliberately excluded because it is the Shell-carried cold-start anchor. |
+| bootloader binding digest | Standalone | Exact `scope + generation + launcher protocol/path/blob + Shell floors` selected by one long-lived host. |
 
 In particular, attachment occupants are sufficient for blocking policy and user
 interaction, but never prove which processes exist. Only the product resource
@@ -37,6 +38,7 @@ The product state is a constrained product of smaller algebras:
 
 ```text
 Instance       = stopped | running(generation, instance)
+Bootloader     = unselected | selected(binding) | terminal-failure(binding, error)
 Attachments    = finite map attachment -> heartbeat/capability/Shell identity
 Transition     = idle | reserved(token, fence, lease) | stopped-sealed(token, fence, lease)
 Physical set   = finite map resource -> absent | generation(ref)
@@ -121,6 +123,17 @@ The executable reference model checks these laws after every accepted command:
 12. No failure before logical commit may create an installer handoff.
 13. Recovery after a lost guard must re-observe and re-verify the complete
     physical set. An earlier certificate never crosses a guard lifetime.
+14. A running instance carries one bootloader binding digest; readiness,
+    commands and Shell capabilities must echo that exact digest.
+15. Bootloader selection is monotonic for one host. A selected launcher failure
+    is terminal and cannot fall back in-process; rollback becomes eligible only
+    to a fresh host lifecycle.
+16. One selected generation body may serve many compatible attachments, but a
+    changed attachment identity or another generation binding fails closed. The
+    body closes only after its last handle is released.
+17. Cold start and transition-owned restart enter the same handoff continuation;
+    neither path may mutate lifecycle state before the exact generation launcher
+    has been selected and imported.
 
 ## 5. Algebraic laws
 
@@ -152,6 +165,8 @@ lease renewal, lock timeouts, and an external retry policy.
 | Handoff persistence fails after logical commit | Keep the sealed transition; retry the same attempt idempotently. Do not start an unrelated generation through the guarded set. |
 | Shell owner crashes | Kernel/process guard releases; transient physical evidence disappears; logical reservation is recovered by its lease/fence. |
 | Installer opens successfully | Persist `handed-off`; wait for an exact newly installed Shell identity before recording `installed`. |
+| Selected generation launcher import/start fails | Roll back only the durable generation state, return the original failure, and require a fresh host for recovery. Never invoke baseline or last-healthy code in the selected host. |
+| Readiness/status/capability returns another binding | Reject it as stale or corrupt; never confirm the activation attempt. |
 
 ## 7. Refinement boundaries
 
@@ -177,6 +192,9 @@ The archive POC gold snapshot is
 | `shells/electron/src/main/updater/release-lifecycle.ts` | Exclusive lifecycle work, retryable cleanup, and observations that are not authority. | mkdir/PID lock as a cross-platform process-generation proof; Electron store layout. |
 | `shells/electron/tests/main/updater-host-boundary.test.ts` | Installer launch separated from quit, one transition owner, and host handlers around domain ports. | Source-text tests as the formal lifecycle proof. |
 | `shells/electron/tests/main/session-lifecycle.test.ts` | Monotonic persisted observations and retry-until-ack failure reporting. | Desktop session/crash policy in Standalone. |
+| `apps/standalone/src/bootloader.ts` and its tests | One selected inner bootloader, shared body, attachment multiplexing, generation-fenced status/capabilities, final-reference close, and no fallback after selection. | The historical app placement and Electron-specific body wiring. |
+| `apps/standalone/src/fossil-bootloader.ts`, `apps/standalone/src/generation-bootloader.ts` | Immutable fossil to absolute generation launcher handoff using Shell-owned Node. | Historical Closure store paths, Web/daemon layout, and fixed Electron process policy. |
+| `shells/electron/src/standalone-handoff.ts` | Import-once and fail-closed handling of invalid or conflicting selected generations. | Electron window, deep-link and after-quit policy. |
 | current Sidecar convergence `generation.ts` | Set observation, PID-start-time fencing, survivor/replacement verification. | Product resource membership in Sidecar. |
 | current Sidecar convergence `lifecycle-lock.ts` | One physical guard primitive shared by start and stop paths. | Treating a Windows-only implementation as the complete cross-platform contract. |
 

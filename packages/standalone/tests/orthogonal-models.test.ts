@@ -21,6 +21,7 @@ function running(): SharedLifecycleState {
   return reduceSharedLifecycleState(initialSharedLifecycleState(scope), {
     type: "start",
     generationId: generation,
+    bindingDigest: "e".repeat(64),
     instanceId: "instance-a",
     attachment,
     heartbeatAt: now,
@@ -45,6 +46,7 @@ describe("orthogonal Standalone lifecycle models", () => {
     state = reduceSharedLifecycleState(state, {
       type: "start",
       generationId: generation,
+      bindingDigest: "e".repeat(64),
       instanceId: "ignored-existing-instance",
       attachment: { id: "electron", shell: { type: "electron", version: "1.0.0", buildHash: "1".repeat(64), digest: "2".repeat(64) } },
       heartbeatAt: now,
@@ -69,6 +71,7 @@ describe("orthogonal Standalone lifecycle models", () => {
       token: "transition-a",
       fence: state.fence,
       generationId: generation,
+      bindingDigest: "e".repeat(64),
       instanceId: "instance-b",
       attachment,
       heartbeatAt: now,

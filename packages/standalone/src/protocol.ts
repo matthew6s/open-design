@@ -1,6 +1,6 @@
 import { createHash, sign, verify, type KeyLike } from "node:crypto";
 
-export const STANDALONE_METADATA_SCHEMA = 3 as const;
+export const STANDALONE_METADATA_SCHEMA = 4 as const;
 export const STANDALONE_SHELL_METADATA_SCHEMA = 1 as const;
 export const STANDALONE_CHANNEL_HEAD_SCHEMA = 1 as const;
 export const STANDALONE_SIGNATURE_ALGORITHM = "Ed25519" as const;
@@ -22,12 +22,14 @@ export type StandaloneMaterialization =
   | Readonly<{ type: "zip"; entrypoint: string; treeSha256: string }>;
 export type StandaloneResource = Readonly<{
   id: string;
+  component: "standalone.launcher" | "standalone.resource";
   blob: string;
   sync: true;
   materialization: StandaloneMaterialization;
 }>;
 export type StandaloneResourceContribution = Readonly<{
   id: string;
+  component: "standalone.launcher" | "standalone.resource";
   sync: true;
   blob: StandaloneBlob;
   materialization: StandaloneMaterialization;
@@ -246,11 +248,14 @@ export function validateStandaloneMetadata(metadata: StandaloneMetadata): void {
   }
   if (metadata.resources.length === 0) throw new Error("metadata must declare at least one resource");
   const resourceIds = new Set<string>();
+  let launcherCount = 0;
   const referenced = new Set<string>();
   for (const resource of metadata.resources) {
     validateToken(resource.id, "resource id");
     if (resourceIds.has(resource.id)) throw new Error(`duplicate resource: ${resource.id}`);
     resourceIds.add(resource.id);
+    if (resource.component === "standalone.launcher") launcherCount += 1;
+    else if (resource.component !== "standalone.resource") throw new Error(`unsupported standalone component: ${resource.id}`);
     validateDigest(resource.blob, `${resource.id} blob`);
     if (metadata.blobs[resource.blob] == null) throw new Error(`resource references unknown blob: ${resource.id}`);
     referenced.add(resource.blob);
@@ -259,6 +264,7 @@ export function validateStandaloneMetadata(metadata: StandaloneMetadata): void {
     if (resource.materialization.type === "zip") validateDigest(resource.materialization.treeSha256, `${resource.id} tree`);
     else if (resource.materialization.type !== "file") throw new Error(`unsupported materialization: ${resource.id}`);
   }
+  if (launcherCount !== 1) throw new Error("metadata must declare exactly one standalone.launcher component");
   for (const digest of Object.keys(metadata.blobs)) {
     if (!referenced.has(digest)) throw new Error(`metadata contains unused blob: ${digest}`);
   }
@@ -288,7 +294,7 @@ export function mergeStandaloneResourceContributions(
       throw new Error(`conflicting blob contribution: ${contribution.blob.sha256}`);
     }
     blobs[contribution.blob.sha256] = contribution.blob;
-    resources.push({ id: contribution.id, blob: contribution.blob.sha256, sync: true, materialization: contribution.materialization });
+    resources.push({ id: contribution.id, component: contribution.component, blob: contribution.blob.sha256, sync: true, materialization: contribution.materialization });
   }
   if (resources.length === 0) throw new Error("at least one resource contribution is required");
   return Object.freeze({ blobs, resources: Object.freeze(resources) });

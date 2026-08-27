@@ -345,6 +345,7 @@ jobs:
               "standaloneVersion": os.environ["STANDALONE_VERSION"],
               "artifactBaseUrl": f"{os.environ['PUBLIC_ORIGIN'].rstrip('/')}/{os.environ['CHANNEL']}/{os.environ['RELEASE_VERSION']}",
               "closureArtifactFile": str(root / "scenes" / f"exact-terminal-scene-darwin-arm64-{os.environ['SOURCE_SHA']}" / "seed" / "closure.mjs"),
+              "standaloneArtifactFile": str(root / "scenes" / f"exact-terminal-scene-darwin-arm64-{os.environ['SOURCE_SHA']}" / "runtime" / "standalone" / "index.mjs"),
               "shells": [{"type": "terminal", "version": Path("shells/terminal/version").read_text().strip(), "scenes": scenes}],
               "outputDirectory": str(root / "exact-prepare"),
           }
@@ -496,7 +497,8 @@ jobs:
               "operation": "exact.finalize",
               "prepareReceipt": str(root / "prepared" / "prepare-receipt.json"),
               "contentMetadataFile": str(root / "prepared" / "documents" / "content-metadata.json"),
-              "closureArtifactFile": str(root / "prepared" / "artifacts" / next((root / "prepared" / "artifacts").iterdir()).name),
+              "closureArtifactFile": str(next((root / "prepared" / "artifacts").glob("closure-*.mjs"))),
+              "standaloneArtifactFile": str(next((root / "prepared" / "artifacts").glob("standalone-launcher-*.mjs"))),
               "contributions": contributions,
               "outputDirectory": str(root / "exact-final"),
           }

@@ -5,6 +5,7 @@ import type {
   LifecycleScope,
   LifecycleStatus,
   StandaloneLifecycleTransitionPort,
+  StandaloneGenerationBinding,
 } from "@open-design/standalone";
 
 export class FileFixtureLifecyclePort implements LifecyclePort, StandaloneLifecycleTransitionPort {
@@ -14,12 +15,13 @@ export class FileFixtureLifecyclePort implements LifecyclePort, StandaloneLifecy
     leaseDurationMs?: number;
     transitionLeaseDurationMs?: number;
   });
-  start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
+  start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding?: StandaloneGenerationBinding): Promise<LifecycleStatus>;
   startWithCapability(
     scope: LifecycleScope,
     generation: GenerationRecord,
     attachment: LifecycleAttachment,
     capability: Readonly<{ candidateHash: string; presentedHash: string | null }>,
+    binding?: StandaloneGenerationBinding,
   ): Promise<LifecycleStatus>;
   awaitReady(...input: Parameters<LifecyclePort["awaitReady"]>): ReturnType<LifecyclePort["awaitReady"]>;
   heartbeat(scope: LifecycleScope, attachment: LifecycleAttachment): Promise<LifecycleStatus>;

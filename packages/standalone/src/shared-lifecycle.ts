@@ -1,7 +1,7 @@
 import { validateShellIdentity, type StandaloneShellIdentity } from "./protocol.js";
 import type { LifecycleAttachment, LifecycleReadiness, LifecycleScope, LifecycleStatus } from "./launcher.js";
 
-export const STANDALONE_SHARED_LIFECYCLE_SCHEMA = 2 as const;
+export const STANDALONE_SHARED_LIFECYCLE_SCHEMA = 3 as const;
 
 export type SharedLifecycleAttachment = LifecycleAttachment & { heartbeatAt: string; capabilityHash?: string };
 export type SharedLifecycleTransitionState = {
@@ -17,6 +17,7 @@ export type SharedLifecycleState = {
   scope: LifecycleScope;
   state: "running" | "stopped";
   generationId: string | null;
+  bindingDigest: string | null;
   instanceId: string | null;
   attachments: SharedLifecycleAttachment[];
   fence: number;
@@ -30,6 +31,7 @@ export type SharedLifecycleCommand =
   | Readonly<{
       type: "start";
       generationId: string;
+      bindingDigest: string;
       instanceId: string;
       attachment: LifecycleAttachment;
       heartbeatAt: string;
@@ -47,6 +49,7 @@ export type SharedLifecycleCommand =
       token: string;
       fence: number;
       generationId: string;
+      bindingDigest: string;
       instanceId: string;
       attachment: LifecycleAttachment;
       heartbeatAt: string;
@@ -72,6 +75,7 @@ export function initialSharedLifecycleState(scope: LifecycleScope): SharedLifecy
     scope: { ...scope },
     state: "stopped",
     generationId: null,
+    bindingDigest: null,
     instanceId: null,
     attachments: [],
     fence: 0,
@@ -94,8 +98,8 @@ export function validateSharedLifecycleState(value: unknown, expectedScope?: Lif
     if (attachment.capabilityHash != null && !DIGEST_PATTERN.test(attachment.capabilityHash)) throw new Error("invalid attachment capability hash");
   }
   if (state.state === "running") {
-    if (typeof state.generationId !== "string" || !DIGEST_PATTERN.test(state.generationId) || !TOKEN_PATTERN.test(state.instanceId ?? "") || !validTime(state.leaseExpiresAt)) throw new Error("invalid running lifecycle identity");
-  } else if (state.generationId != null || state.instanceId != null || state.attachments.length !== 0 || state.leaseExpiresAt != null) {
+    if (typeof state.generationId !== "string" || !DIGEST_PATTERN.test(state.generationId) || !DIGEST_PATTERN.test(state.bindingDigest ?? "") || !TOKEN_PATTERN.test(state.instanceId ?? "") || !validTime(state.leaseExpiresAt)) throw new Error("invalid running lifecycle identity");
+  } else if (state.generationId != null || state.bindingDigest != null || state.instanceId != null || state.attachments.length !== 0 || state.leaseExpiresAt != null) {
     throw new Error("stopped lifecycle retains a running identity");
   }
   if (state.transition != null) {
@@ -113,6 +117,7 @@ export function projectSharedLifecycleStatus(stateInput: SharedLifecycleState, h
     scope: state.scope,
     state: state.state,
     generationId: state.generationId,
+    bindingDigest: state.bindingDigest,
     instanceId: state.instanceId,
     references: state.attachments.length,
     occupants: state.attachments.map(({ id, shell }) => ({ attachmentId: id, generationId: state.generationId!, shell })),
@@ -154,6 +159,7 @@ export function reduceSharedLifecycleState(stateInput: SharedLifecycleState, com
       if (state.attachments.length === 0 && (state.leaseExpiresAt == null || Date.parse(state.leaseExpiresAt) <= now)) {
         state.state = "stopped";
         state.generationId = null;
+        state.bindingDigest = null;
         state.instanceId = null;
         state.leaseExpiresAt = null;
         state.transition = null;
@@ -164,10 +170,13 @@ export function reduceSharedLifecycleState(stateInput: SharedLifecycleState, com
   }
   if (command.type === "start") {
     if (state.transition != null) throw domainError("standalone-transition-active", "shared lifecycle transition is active");
-    if (state.state === "running" && state.generationId !== command.generationId) throw domainError("standalone-occupied", "another generation owns the shared instance");
+    if (state.state === "running" && (state.generationId !== command.generationId || state.bindingDigest !== command.bindingDigest)) {
+      throw domainError("standalone-occupied", "another generation binding owns the shared instance");
+    }
     if (state.state !== "running") {
       state.state = "running";
       state.generationId = command.generationId;
+      state.bindingDigest = command.bindingDigest;
       state.instanceId = command.instanceId;
       state.attachments = [];
       state.fence += 1;
@@ -221,6 +230,7 @@ export function reduceSharedLifecycleState(stateInput: SharedLifecycleState, com
     state.stop = { requestedAt: command.requestedAt, fence: state.fence + 1 };
     state.state = "stopped";
     state.generationId = null;
+    state.bindingDigest = null;
     state.instanceId = null;
     state.attachments = [];
     state.leaseExpiresAt = null;
@@ -233,6 +243,7 @@ export function reduceSharedLifecycleState(stateInput: SharedLifecycleState, com
     if (transition.phase !== "stopped-sealed") throw domainError("transition-not-sealed", "shared lifecycle transition has not stopped the instance");
     state.state = "running";
     state.generationId = command.generationId;
+    state.bindingDigest = command.bindingDigest;
     state.instanceId = command.instanceId;
     state.attachments = [{ ...command.attachment, heartbeatAt: command.heartbeatAt, ...(command.capabilityHash == null ? {} : { capabilityHash: command.capabilityHash }) }];
     state.leaseExpiresAt = command.leaseExpiresAt;
@@ -245,6 +256,7 @@ export function reduceSharedLifecycleState(stateInput: SharedLifecycleState, com
   state.stop = { requestedAt: command.requestedAt, fence: state.fence + 1 };
   state.state = "stopped";
   state.generationId = null;
+  state.bindingDigest = null;
   state.instanceId = null;
   state.attachments = [];
   state.leaseExpiresAt = null;
@@ -257,6 +269,7 @@ export function assertSharedLifecycleReadiness(state: SharedLifecycleState, read
   if (
     status.state !== "running"
     || status.generationId !== readiness.generationId
+    || status.bindingDigest !== readiness.bindingDigest
     || status.instanceId !== readiness.instanceId
     || !status.occupants.some(({ attachmentId }) => attachmentId === readiness.attachmentId)
   ) throw new Error("shared lifecycle readiness acknowledgement is stale");

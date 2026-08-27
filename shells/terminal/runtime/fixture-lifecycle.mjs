@@ -84,12 +84,13 @@ export class FileFixtureLifecyclePort {
     }
   }
 
-  startInternal(scope, generation, attachment, capability) {
+  startInternal(scope, generation, attachment, capability, binding) {
     return this.transaction(scope, async (state) => {
       const heartbeatAt = iso();
       const next = this.algebra.reduce(state, {
         type: "start",
         generationId: generation.id,
+        bindingDigest: binding?.digest ?? generation.id,
         instanceId: state.instanceId ?? randomUUID(),
         attachment,
         heartbeatAt,
@@ -100,8 +101,8 @@ export class FileFixtureLifecyclePort {
     });
   }
 
-  start(scope, generation, attachment) { return this.startInternal(scope, generation, attachment); }
-  startWithCapability(scope, generation, attachment, capability) { return this.startInternal(scope, generation, attachment, capability); }
+  start(scope, generation, attachment, binding) { return this.startInternal(scope, generation, attachment, undefined, binding); }
+  startWithCapability(scope, generation, attachment, capability, binding) { return this.startInternal(scope, generation, attachment, capability, binding); }
 
   awaitReady(scope, readiness) {
     return this.transaction(scope, async (state) => ({ state, result: this.algebra.ready(state, readiness) }));
@@ -187,13 +188,14 @@ export class FileFixtureLifecyclePort {
       transitionFence = status.fence;
       phase = "stopped-sealed";
     };
-    const completeStart = async (generation, attachment, capabilityHash) => {
+    const complete = async (generation, attachment, binding, capabilityHash) => {
       const heartbeatAt = iso();
       return this.transaction(scope, async (state) => ({ state: this.algebra.reduce(state, {
         type: "complete-start",
         token,
         fence: transitionFence,
         generationId: generation.id,
+        bindingDigest: binding?.digest ?? generation.id,
         instanceId: randomUUID(),
         attachment,
         heartbeatAt,
@@ -213,7 +215,8 @@ export class FileFixtureLifecyclePort {
         renew,
         release,
         forceStop,
-        completeStart,
+        completeStart: (generation, attachment, capabilityHash) => complete(generation, attachment, undefined, capabilityHash),
+        completeBoundStart: (generation, attachment, binding) => complete(generation, attachment, binding),
       },
     };
   }

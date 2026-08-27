@@ -64,7 +64,7 @@ try {
   }
   $sceneManifest = Get-Content -LiteralPath (Join-Path $root "scene.json") -Raw | ConvertFrom-Json
   $manifest = [ordered]@{
-    capabilities = [ordered]@{ contentUpdater = "standalone-v3"; sharedInstance = "fixture-v2"; shellUpdater = "fixture-v3" }
+    capabilities = [ordered]@{ contentUpdater = "standalone-v4"; sharedInstance = "fixture-v3"; shellUpdater = "fixture-v3" }
     carrierLock = [ordered]@{ file = "carrier.lock"; sha256 = Digest (Join-Path $root "carrier.lock") }
     contracts = [ordered]@{ file = "contract/index.json"; sha256 = Digest $contractIndexPath }
     fixtureLifecycle = [ordered]@{ entrypoint = "runtime/fixture-lifecycle.mjs"; sha256 = Digest (Join-Path $root "runtime/fixture-lifecycle.mjs") }
@@ -75,7 +75,10 @@ try {
     }
     runtime = [ordered]@{ executable = $lock.node_executable; name = "node"; sha256 = $lock.node_sha256; version = $lock.node_version }
     schemaVersion = 1
-    seed = [ordered]@{ closure = [ordered]@{ file = "seed/closure.mjs"; sha256 = Digest (Join-Path $root "seed/closure.mjs") } }
+    seed = [ordered]@{
+      closure = [ordered]@{ file = "seed/closure.mjs"; sha256 = Digest (Join-Path $root "seed/closure.mjs") }
+      standaloneLauncher = [ordered]@{ file = "runtime/standalone/index.mjs"; sha256 = Digest (Join-Path $root "runtime/standalone/index.mjs") }
+    }
     shell = [ordered]@{ buildHash = [string]$sceneManifest.shellBuildHash; type = "terminal"; version = $lock.shell_version }
     shellFiles = [ordered]@{
       ps1 = [ordered]@{

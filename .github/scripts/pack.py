@@ -136,7 +136,7 @@ def previous_requirements(path: str | None, channel: str, keys: list[dict[str, s
         metadata = envelope["metadata"]
         if not crypto(metadata, keys, envelope.get("signatures"))["verified"]:
             return {}
-        if metadata.get("schemaVersion") != 3 or metadata.get("channel") != channel:
+        if metadata.get("schemaVersion") != 4 or metadata.get("channel") != channel:
             return {}
         requirements = metadata["shellRequirements"]
         if not isinstance(requirements, list):
@@ -157,6 +157,7 @@ def prepare(request: dict[str, Any], receipt_path: Path) -> None:
     shell_records: list[dict[str, Any]] = []
     shell_types: set[str] = set()
     closure_scene_digest: str | None = None
+    standalone_scene_digest: str | None = None
     for shell in shells:
         if not isinstance(shell, dict):
             raise SystemExit("invalid Shell descriptor")
@@ -185,11 +186,15 @@ def prepare(request: dict[str, Any], receipt_path: Path) -> None:
                 raise SystemExit(f"{shell_type} scene identity mismatch: {target}")
             build_hash = str(manifest.get("shellBuildHash", ""))
             scene_closure_digest = str(manifest.get("closure", {}).get("sha256", ""))
-            if not DIGEST.fullmatch(build_hash) or not DIGEST.fullmatch(scene_closure_digest):
-                raise SystemExit(f"{shell_type} scene lacks a valid build or Closure binding: {target}")
+            scene_standalone_digest = str(manifest.get("standalone", {}).get("sha256", ""))
+            if not DIGEST.fullmatch(build_hash) or not DIGEST.fullmatch(scene_closure_digest) or not DIGEST.fullmatch(scene_standalone_digest):
+                raise SystemExit(f"{shell_type} scene lacks a valid build, Closure, or Standalone binding: {target}")
             if closure_scene_digest is not None and scene_closure_digest != closure_scene_digest:
                 raise SystemExit("Shell scenes contain different Closure seeds")
             closure_scene_digest = scene_closure_digest
+            if standalone_scene_digest is not None and scene_standalone_digest != standalone_scene_digest:
+                raise SystemExit("Shell scenes contain different Standalone launcher seeds")
+            standalone_scene_digest = scene_standalone_digest
             scene_records.append({"target": target, "directory": str(directory), "sceneManifestSha256": binding, "shellBuildHash": build_hash})
         scene_records.sort(key=lambda item: item["target"])
         composite_hash = hashlib.sha256(canonical_bytes([{"target": item["target"], "shellBuildHash": item["shellBuildHash"]} for item in scene_records])).hexdigest()
@@ -214,12 +219,25 @@ def prepare(request: dict[str, Any], receipt_path: Path) -> None:
     closure_file = artifacts / f"closure-{closure_digest}.mjs"
     shutil.copyfile(closure_source, closure_file)
     closure = described(closure_file, "text/javascript")
+    standalone_source = Path(str(request.get("standaloneArtifactFile", ""))).resolve()
+    standalone_digest = hashlib.sha256(standalone_source.read_bytes()).hexdigest()
+    if standalone_digest != standalone_scene_digest:
+        raise SystemExit("Standalone launcher promotion input differs from Shell scenes")
+    standalone_file = artifacts / f"standalone-launcher-{standalone_digest}.mjs"
+    shutil.copyfile(standalone_source, standalone_file)
+    standalone = described(standalone_file, "text/javascript")
     base = request["artifactBaseUrl"].rstrip("/")
     metadata = {
-        "schemaVersion": 3, "channel": request["channel"], "releaseVersion": request["releaseVersion"],
+        "schemaVersion": 4, "channel": request["channel"], "releaseVersion": request["releaseVersion"],
         "standaloneVersion": request["standaloneVersion"], "sourceCommit": request["sourceCommit"], "publishedAt": request["publishedAt"],
-        "blobs": {closure["sha256"]: {"sha256": closure["sha256"], "size": closure["size"], "mediaType": "text/javascript", "sources": [{"kind": "remote", "url": f"{base}/{closure_file.name}"}]}},
-        "resources": [{"id": "closure-fixture", "blob": closure["sha256"], "sync": True, "materialization": {"type": "file", "entrypoint": "fixture.mjs"}}],
+        "blobs": {
+            closure["sha256"]: {"sha256": closure["sha256"], "size": closure["size"], "mediaType": "text/javascript", "sources": [{"kind": "remote", "url": f"{base}/{closure_file.name}"}]},
+            standalone["sha256"]: {"sha256": standalone["sha256"], "size": standalone["size"], "mediaType": "text/javascript", "sources": [{"kind": "remote", "url": f"{base}/{standalone_file.name}"}]},
+        },
+        "resources": [
+            {"id": "standalone-launcher", "component": "standalone.launcher", "blob": standalone["sha256"], "sync": True, "materialization": {"type": "file", "entrypoint": "launcher.mjs"}},
+            {"id": "closure-fixture", "component": "standalone.resource", "blob": closure["sha256"], "sync": True, "materialization": {"type": "file", "entrypoint": "fixture.mjs"}},
+        ],
         "shellRequirements": [{"type": item["type"], "minVersion": item["minimumVersion"], "buildHash": item["buildHash"]} for item in shell_records],
     }
     content_file = documents / "content-metadata.json"
@@ -229,6 +247,7 @@ def prepare(request: dict[str, Any], receipt_path: Path) -> None:
         "schemaVersion": 2, "operation": "exact.prepare", "channel": request["channel"], "releaseVersion": request["releaseVersion"],
         "sourceCommit": request["sourceCommit"], "publishedAt": request["publishedAt"], "artifactBaseUrl": base,
         "standaloneVersion": request["standaloneVersion"], "shells": shell_records, "closureArtifact": closure,
+        "standaloneArtifact": standalone,
         "contentMetadata": described(content_file), "trustFile": described(trust),
     }
     if legacy_terminal:
@@ -253,7 +272,11 @@ def finalize(request: dict[str, Any], receipt_path: Path) -> None:
     seen: set[tuple[str, str]] = set()
     distributions: dict[str, list[dict[str, Any]]] = {shell_type: [] for shell_type in prepared_shells}
     closure_path = checked_description(prepared["closureArtifact"], "Closure artifact", request.get("closureArtifactFile"))
-    artifacts = [described(closure_path, prepared["closureArtifact"].get("mediaType", "application/octet-stream"))]
+    standalone_path = checked_description(prepared["standaloneArtifact"], "Standalone launcher artifact", request.get("standaloneArtifactFile"))
+    artifacts = [
+        described(closure_path, prepared["closureArtifact"].get("mediaType", "application/octet-stream")),
+        described(standalone_path, prepared["standaloneArtifact"].get("mediaType", "application/octet-stream")),
+    ]
     for descriptor in contributions:
         if not isinstance(descriptor, dict):
             raise SystemExit("invalid Shell contribution descriptor")

@@ -17,6 +17,7 @@ import {
   signStandaloneShellMetadata,
   sweepStandaloneStore,
   verifyStandaloneChannelHead,
+  validateStandaloneMetadata,
   verifyStandaloneShellMetadata,
   type GenerationRecord,
   type LifecycleAttachment,
@@ -25,6 +26,7 @@ import {
   type LifecycleStatus,
   type SignedStandaloneMetadata,
   type StandaloneMetadata,
+  type StandaloneGenerationHandoffPort,
   type StandaloneShellIdentity,
 } from "../src/index.js";
 
@@ -42,14 +44,17 @@ function metadata(
 ): StandaloneMetadata {
   const digest = sha256Hex(bytes);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     channel,
     releaseVersion,
     standaloneVersion: "0.1.0",
     sourceCommit: "7a4175c86fe305b6432081c3dc269cd4bd4ec04d",
     publishedAt: "2026-08-24T00:00:00.000Z",
     blobs: { [digest]: { sha256: digest, size: bytes.byteLength, mediaType: "text/javascript", sources: [{ kind: "remote", url: "https://fixtures.invalid/content.mjs" }] } },
-    resources: [{ id: "fixture", blob: digest, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } }],
+    resources: [
+      { id: "standalone-launcher", component: "standalone.launcher", blob: digest, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } },
+      { id: "fixture", component: "standalone.resource", blob: digest, sync: true, materialization: { type: "file", entrypoint: "fixture.mjs" } },
+    ],
     shellRequirements,
   };
 }
@@ -65,6 +70,7 @@ async function blobOptions(root: string, bytes: Uint8Array) {
 class FixturePort implements LifecyclePort {
   private scope: LifecycleScope | null = null;
   private generationId: string | null = null;
+  private bindingDigest: string | null = null;
   private instanceId: string | null = null;
   private readonly attachments = new Map<string, LifecycleAttachment>();
   private fence = 0;
@@ -82,6 +88,7 @@ class FixturePort implements LifecyclePort {
       scope: this.scope ?? { channel: "betahyx", namespace: "shared" },
       state,
       generationId: this.generationId,
+      bindingDigest: this.bindingDigest,
       instanceId: this.instanceId,
       references: this.attachments.size,
       occupants: [...this.attachments.values()].map((attachment) => ({ attachmentId: attachment.id, generationId: this.generationId!, shell: attachment.shell })),
@@ -90,23 +97,26 @@ class FixturePort implements LifecyclePort {
     };
   }
 
-  async start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment): Promise<LifecycleStatus> {
+  async start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding?: import("../src/index.js").StandaloneGenerationBinding): Promise<LifecycleStatus> {
     this.bindScope(scope);
     if (generation.id === this.failGenerationId) throw new Error("activation failed");
     if (this.generationId != null && this.generationId !== generation.id) throw new Error("different generation is already running");
+    if (this.bindingDigest != null && this.bindingDigest !== (binding?.digest ?? generation.id)) throw new Error("different generation binding is already running");
     if (this.generationId == null) this.fence += 1;
     this.generationId = generation.id;
+    this.bindingDigest ??= binding?.digest ?? generation.id;
     this.instanceId ??= `fixture-instance-${this.fence}`;
     this.attachments.set(attachment.id, attachment);
     return this.snapshot();
   }
 
-  async awaitReady(scope: LifecycleScope, readiness: { generationId: string; instanceId: string; attachmentId: string }) {
+  async awaitReady(scope: LifecycleScope, readiness: { generationId: string; bindingDigest: string; instanceId: string; attachmentId: string }) {
     this.bindScope(scope);
     const current = this.snapshot();
     if (
       current.state !== "running"
       || current.generationId !== readiness.generationId
+      || current.bindingDigest !== readiness.bindingDigest
       || current.instanceId !== readiness.instanceId
       || !current.occupants.some(({ attachmentId }) => attachmentId === readiness.attachmentId)
     ) throw new Error("fixture readiness acknowledgement is stale");
@@ -132,6 +142,7 @@ class FixturePort implements LifecyclePort {
     if (fence !== this.fence) throw new Error("stale lifecycle stop fence");
     this.attachments.clear();
     this.generationId = null;
+    this.bindingDigest = null;
     this.instanceId = null;
     this.fence += 1;
     return this.snapshot("stopped");
@@ -186,9 +197,18 @@ describe("standalone exact lifecycle", () => {
     expect(await store.readState()).toEqual({ schemaVersion: 4, revision: 1, prepared: generation.id, activationIntent: null, activationAttempt: null, active: null, lastHealthy: null });
     await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
-    const launcher = new VersionedLauncher(store, lifecycle, terminal, "terminal-1");
+    const handoffs: string[] = [];
+    const handoff: StandaloneGenerationHandoffPort = {
+      async start(input) {
+        handoffs.push(input.binding.digest);
+        expect(input.binding.launcher.path).toBe(generation.launcher.path);
+        return input.start();
+      },
+    };
+    const launcher = new VersionedLauncher(store, lifecycle, terminal, "terminal-1", undefined, handoff);
     const fossil = new FossilBootloader(store, terminal, async () => launcher);
     await expect(fossil.start()).resolves.toMatchObject({ state: "running", generationId: generation.id, references: 1 });
+    expect(handoffs).toHaveLength(1);
     expect(await store.readState()).toMatchObject({ schemaVersion: 4, revision: 5, prepared: null, activationIntent: null, activationAttempt: null, active: generation.id, lastHealthy: generation.id });
     expect(await readFile(generation.resources.fixture!.path, "utf8")).toContain("fixture");
   });
@@ -202,6 +222,14 @@ describe("standalone exact lifecycle", () => {
     const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
     await expect(store.prepare(envelope, new Map([["test", keys.publicKey]]), await blobOptions(root, bytes))).rejects.toThrow("signature verification failed");
     expect(await store.readState()).toEqual({ schemaVersion: 4, revision: 0, prepared: null, activationIntent: null, activationAttempt: null, active: null, lastHealthy: null });
+  });
+
+  it("requires exactly one typed standalone.launcher in every signed content graph", () => {
+    const value = metadata(Buffer.from("fixture"));
+    expect(() => validateStandaloneMetadata({ ...value, resources: value.resources.filter(({ component }) => component !== "standalone.launcher") }))
+      .toThrow("exactly one standalone.launcher");
+    expect(() => validateStandaloneMetadata({ ...value, resources: [...value.resources, { ...value.resources[0]!, id: "other-launcher" }] }))
+      .toThrow("exactly one standalone.launcher");
   });
 
   it("retries an interrupted attempt and rolls back only after a failed health proof", async () => {
@@ -219,8 +247,10 @@ describe("standalone exact lifecycle", () => {
     expect(await store.readState()).toMatchObject({ active: second.id, activationAttempt: { generationId: second.id, launchCount: 1 }, lastHealthy: first.id });
     await stopFixture(lifecycle);
     lifecycle.failGenerationId = second.id;
-    await expect(new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "second-shell")).start()).resolves.toMatchObject({ generationId: first.id });
+    await expect(new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "second-shell")).start()).rejects.toThrow("activation failed");
     expect(await store.readState()).toMatchObject({ active: first.id, activationAttempt: null, lastHealthy: first.id });
+    lifecycle.failGenerationId = null;
+    await expect(new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "recovery-shell")).start()).resolves.toMatchObject({ generationId: first.id });
   });
 
   it("rolls an unsuccessful first activation back to an empty binding", async () => {
