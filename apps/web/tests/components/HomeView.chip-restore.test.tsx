@@ -200,10 +200,10 @@ describe('HomeView chip/plugin selection survives a real unmount+remount', () =>
     await screen.findByTestId('home-hero-input');
     await pickHomeTemplate('prototype');
 
-    // 'UI Mockup' is the current en localization of the `prototype` chip
-    // (homeHero.chip.prototype) — not literal string 'Prototype'.
+    // 'Prototype' is the current en localization of the `prototype` chip
+    // (homeHero.chip.prototype).
     await waitFor(() => {
-      expect(screen.getByTestId('home-hero-template-trigger').textContent).toContain('UI Mockup');
+      expect(screen.getByTestId('home-hero-template-trigger').textContent).toContain('Prototype');
     });
 
     // Real teardown — the same kind of unmount App.tsx performs when
@@ -223,7 +223,7 @@ describe('HomeView chip/plugin selection survives a real unmount+remount', () =>
 
     await screen.findByTestId('home-hero-input');
     await waitFor(() => {
-      expect(screen.getByTestId('home-hero-template-trigger').textContent).toContain('UI Mockup');
+      expect(screen.getByTestId('home-hero-template-trigger').textContent).toContain('Prototype');
     });
     // Restoring a persisted type is background hydration, not a submit: defer
     // the plugin apply until the user actually sends, and leave the type

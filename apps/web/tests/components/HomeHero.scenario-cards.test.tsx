@@ -84,11 +84,11 @@ function typePill(chipId: string): HTMLElement | null {
 describe('HomeHero scenario cards', () => {
   it('labels each create scenario in the composer template picker', () => {
     renderHero();
-    expect(typePill('prototype')?.textContent).toContain('UI Mockup');
+    expect(typePill('prototype')?.textContent).toContain('Prototype');
     expect(typePill('deck')?.textContent).toContain('Slide deck');
   });
 
-  it('leads the create rail with UI Mockup, then Slide deck, and trails the media scenarios', () => {
+  it('leads the create rail with Prototype, then Slide deck, and trails the media scenarios', () => {
     const ordered = orderedCreateChips();
     const ids = ordered.map((chip) => chip.id);
     expect(ids.slice(0, 2)).toEqual(['prototype', 'deck']);
@@ -104,8 +104,11 @@ describe('HomeHero scenario cards', () => {
 
   it('adds the finer-grained scenarios as templates routed to a scenario plugin', () => {
     renderHero();
+    // Document is one of the three row types; Wireframe and Mobile left the
+    // row (product, 2026-08-31) but stay in the catalog behind the composer's
+    // template picker, still bound to a scenario plugin.
+    expect(typePill('document')).toBeTruthy();
     for (const id of ['wireframe', 'mobile', 'document']) {
-      expect(typePill(id)).toBeTruthy();
       expect(findChip(id)?.action.kind).toBe('apply-scenario');
     }
     // Wireframe reuses the web-prototype seed at lo-fi fidelity.

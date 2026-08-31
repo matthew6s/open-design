@@ -266,6 +266,29 @@ export const HOME_HERO_CHIPS: ReadonlyArray<HomeHeroChip> = [
     },
   },
   {
+    id: 'web-clone',
+    label: 'Website clone',
+    icon: 'globe',
+    group: 'create',
+    description: 'Source-first site reproduction',
+    hint: 'Paste a target URL, then reconstruct the site and audit the clone.',
+    // Website reproduction binds the bundled `example-web-clone` plugin.
+    // Stored as a prototype so the artifact keeps prototype preview
+    // behavior; `intent: 'web-clone'` is what routes the scenario plugin
+    // (see `defaultScenarioPluginIdForProjectMetadata`) and splits these
+    // projects into their own `web_clone` analytics kind.
+    action: {
+      kind: 'apply-scenario',
+      pluginId: 'example-web-clone',
+      projectKind: 'prototype',
+      projectMetadata: {
+        kind: 'prototype',
+        intent: 'web-clone',
+        fidelity: 'high-fidelity',
+      },
+    },
+  },
+  {
     id: 'image',
     label: 'Image',
     icon: 'image',
@@ -358,34 +381,43 @@ export function chipsForGroup(group: ChipGroup): HomeHeroChip[] {
 }
 
 // Display order for the inline `create` scenario rail. The composer leads with
-// UI Mockup, followed by Slide deck and the remaining core build scenarios
+// Prototype, followed by Slide deck and the remaining core build scenarios
 // (Wireframe → Mobile → Document → Animation), then the media
 // scenarios. Brand Kit is intentionally omitted here so it trails the scenario
 // set — it dispatches into the Brand Kit tab rather than seeding a scenario
 // plugin. Any create chip not listed keeps its catalog order after the explicit
 // entries (see `orderedCreateChips`).
 export const CREATE_RAIL_ORDER = [
-  // UI Mockup leads and Slide deck follows; the media scenarios trail so at
-  // typical widths they live in the All overflow popover rather than the
+  // Prototype leads and Slide deck follows; the media scenarios trail so at
+  // typical widths they live in the 更多 overflow popover rather than the
   // visible pill row.
   'prototype',
   'deck',
+  'document',
+  'image',
+  'web-clone',
   'wireframe',
   'mobile',
-  'document',
   'hyperframes',
   'webgl',
   'live-artifact',
-  'image',
   'video',
   'audio',
 ] as const;
 
+// The Home type row is an explicit product decision, not a width computation
+// (2026-08-31): three entry types stay inline, and 更多 holds exactly two.
+// Everything else in the create catalog stays reachable through the composer's
+// template picker instead of widening this row.
+export const HOME_TYPE_ROW_IDS: readonly string[] = ['prototype', 'deck', 'document'];
+export const HOME_TYPE_ROW_MORE_IDS: readonly string[] = ['image', 'web-clone'];
+
 // Chip ids the onboarding "build a design system" teaser intentionally omits.
 // Video and Audio are the trailing pure-media outputs in CREATE_RAIL_ORDER and
 // the least central to the design-system story, so they are the first to drop
-// when keeping the teaser chips to a single tidy row.
-const ONBOARDING_ARTIFACT_OMIT = new Set<string>(['video', 'audio']);
+// when keeping the teaser chips to a single tidy row. Website clone joins them:
+// it starts from someone else's site rather than from the design system.
+const ONBOARDING_ARTIFACT_OMIT = new Set<string>(['video', 'audio', 'web-clone']);
 
 // The artifact chips shown on the onboarding "build a design system" step — a
 // curated single-row subset of the create rail. Derived from CREATE_RAIL_ORDER
@@ -398,7 +430,7 @@ export const ONBOARDING_ARTIFACT_CHIP_IDS = CREATE_RAIL_ORDER.filter(
 // The `create` chips in rail-display order. Listed ids come first in
 // `CREATE_RAIL_ORDER`; any unlisted create chip (e.g. `create-brand-kit`)
 // trails in catalog order. Reordering through this helper keeps the catalog
-// data table stable while letting the rail lead with UI Mockup.
+// data table stable while letting the rail lead with Prototype.
 export function orderedCreateChips(): HomeHeroChip[] {
   const create = chipsForGroup('create');
   const listed = CREATE_RAIL_ORDER

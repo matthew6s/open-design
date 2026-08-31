@@ -19,6 +19,8 @@ vi.mock('../../src/components/home-hero/PlaceholderCarousel', () => ({
 import { HomeHero, homeHeroExamplePluginsForChip } from '../../src/components/HomeHero';
 import {
   HOME_HERO_CHIPS,
+  HOME_TYPE_ROW_IDS,
+  HOME_TYPE_ROW_MORE_IDS,
   findChip,
 } from '../../src/components/home-hero/chips';
 
@@ -107,14 +109,21 @@ function renderHero(overrides: Partial<React.ComponentProps<typeof HomeHero>> = 
 // footer's radial template picker is now the only in-hero scenario surface, so
 // tests reach templates through the pill instead of `home-hero-rail-*` cards.
 // Types are a horizontal pill row under the working-directory row (product,
-// 2026-08-21); the pill inside the card is the committed VALUE, not a picker.
-// A type that does not fit the row folds into its 全部 popover, hence the
-// `-more` fallback.
+// 2026-08-21). The row's membership is fixed (product, 2026-08-31):
+// `HOME_TYPE_ROW_IDS` inline, `HOME_TYPE_ROW_MORE_IDS` behind 更多. The 更多
+// popover only mounts while open, so reaching one of its entries means opening
+// it first — `typePill` does that rather than making every caller remember.
+function openMore() {
+  if (screen.queryByTestId('home-hero-type-pills-popover')) return;
+  const trigger = screen.queryByTestId('home-hero-type-pills-more');
+  if (trigger) fireEvent.click(trigger);
+}
+
 function typePill(chipId: string): HTMLElement | null {
-  return (
-    screen.queryByTestId(`home-hero-type-pill-${chipId}`) ??
-    screen.queryByTestId(`home-hero-type-pill-${chipId}-more`)
-  );
+  const inline = screen.queryByTestId(`home-hero-type-pill-${chipId}`);
+  if (inline) return inline;
+  openMore();
+  return screen.queryByTestId(`home-hero-type-pill-${chipId}-more`);
 }
 
 function pickTemplate(chipId: string) {
@@ -124,15 +133,18 @@ function pickTemplate(chipId: string) {
 }
 
 describe('HomeHero intent rail', () => {
-  it('offers every scenario template through the composer template picker', () => {
+  it('offers exactly the three row types plus the two behind 更多', () => {
     renderHero();
+    // The row is a curated entry set, not the whole create catalog (product,
+    // 2026-08-31). Everything else — Brand Kit's own action, the migrate
+    // shortcuts, and the create scenarios that left the row — is reached from
+    // the Brand Kit tab, the Extensions tab, and the composer + menu.
+    const reachable = new Set([...HOME_TYPE_ROW_IDS, ...HOME_TYPE_ROW_MORE_IDS]);
     for (const chip of HOME_HERO_CHIPS) {
       const wedge = typePill(chip.id);
-      if (chip.group === 'create' && chip.action.kind === 'apply-scenario') {
+      if (reachable.has(chip.id)) {
         expect(wedge).toBeTruthy();
       } else {
-        // Brand Kit (its own action) and the migrate shortcuts are reached from
-        // the Brand Kit tab, the Extensions tab, and the composer + menu.
         expect(wedge).toBeNull();
       }
     }
@@ -479,15 +491,17 @@ describe('HomeHero intent rail', () => {
       pendingPluginId: 'od-figma-migration',
       pendingChipId: 'figma',
     });
-    const scenarioChips = HOME_HERO_CHIPS.filter(
-      (item) => item.group === 'create' && item.action.kind === 'apply-scenario',
-    );
-    for (const chip of scenarioChips) {
-      const pill = typePill(chip.id);
-      expect(pill).toBeTruthy();
+    for (const id of HOME_TYPE_ROW_IDS) {
+      const pill = screen.getByTestId(`home-hero-type-pill-${id}`);
       expect((pill as HTMLButtonElement).disabled).toBe(true);
     }
-    pickTemplate(scenarioChips[0]!.id);
+    // 更多 is disabled too, so the types behind it are unreachable rather than
+    // reachable-but-inert — the whole row is out of service for the apply.
+    const more = screen.getByTestId('home-hero-type-pills-more') as HTMLButtonElement;
+    expect(more.disabled).toBe(true);
+    fireEvent.click(more);
+    expect(screen.queryByTestId('home-hero-type-pills-popover')).toBeNull();
+    pickTemplate(HOME_TYPE_ROW_IDS[0]!);
     expect(onPickChip).not.toHaveBeenCalled();
   });
 
