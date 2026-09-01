@@ -16624,6 +16624,19 @@ function HtmlViewer({
       )}
     </section>
   ) : null;
+  const previewRuntimeVersionChangeBlocked =
+    previewRuntimeScopeRemintRequiredGeneration !== null
+    && previewRuntimeScopeRemintRequiredGeneration === previewRuntimeNavigationGeneration;
+  const retryPreviewRuntimeNavigation = () => {
+    setPreviewRuntimeTimedOutGeneration(null);
+    if (previewRuntimeVersionChangeBlocked) {
+      previewVersionRemintBudgetRef.current!.reset(previewRuntimeContentGeneration);
+      setPreviewRuntimeScopeRemintRequiredGeneration(null);
+      setPreviewRuntimeScopeRetryToken((currentToken) => currentToken + 1);
+      return;
+    }
+    setPreviewRuntimeNavigationRetryToken((currentToken) => currentToken + 1);
+  };
 
   return (
     <div ref={viewerRootRef} className={`viewer html-viewer${inTabPresent ? ' is-tab-present' : ''}${viewerOnly ? ' html-viewer--viewer-only' : ''}`}>
@@ -17693,7 +17706,23 @@ function HtmlViewer({
                             srcDoc={redirectLoopBlockedDoc}
                           />
                         ) : previewRuntimeNavigation.navigation ? (
-                          <>
+                          previewRuntimeVersionChangeBlocked ? (
+                            <div
+                              className="artifact-preview-first-load preview-runtime-navigation-error"
+                              role="alert"
+                              data-testid="preview-runtime-navigation-error"
+                            >
+                              <p>{t('fileViewer.previewUnavailable')}</p>
+                              <Button
+                                variant="ghost"
+                                data-testid="preview-runtime-navigation-retry"
+                                onClick={retryPreviewRuntimeNavigation}
+                              >
+                                {`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
                             <PreviewRuntimeTransport
                               projectId={projectId}
                               fileName={file.name}
@@ -17786,25 +17815,7 @@ function HtmlViewer({
                                       <Button
                                         variant="ghost"
                                         data-testid="preview-runtime-navigation-retry"
-                                        onClick={() => {
-                                          setPreviewRuntimeTimedOutGeneration(null);
-                                          if (
-                                            previewRuntimeScopeRemintRequiredGeneration
-                                              === previewRuntimeNavigationGeneration
-                                          ) {
-                                            previewVersionRemintBudgetRef.current!.reset(
-                                              previewRuntimeContentGeneration,
-                                            );
-                                            setPreviewRuntimeScopeRemintRequiredGeneration(null);
-                                            setPreviewRuntimeScopeRetryToken(
-                                              (currentToken) => currentToken + 1,
-                                            );
-                                          } else {
-                                            setPreviewRuntimeNavigationRetryToken(
-                                              (currentToken) => currentToken + 1,
-                                            );
-                                          }
-                                        }}
+                                        onClick={retryPreviewRuntimeNavigation}
                                       >
                                         {`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}
                                       </Button>
@@ -17821,7 +17832,8 @@ function HtmlViewer({
                                     </div>
                                   )
                               ) : null}
-                          </>
+                            </>
+                          )
                         ) : previewRuntimeNavigation.unavailable ? (
                           <div
                             className="artifact-preview-first-load preview-runtime-navigation-error"
