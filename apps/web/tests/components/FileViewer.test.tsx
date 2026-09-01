@@ -9647,7 +9647,7 @@ describe('FileViewer tweaks toolbar', () => {
     expect(document.body.contains(first)).toBe(false);
   });
 
-  it('stops exposing the last-good frame when its replacement cannot settle', async () => {
+  it('keeps exposing the last-good frame when its replacement cannot settle', async () => {
     const fileV1 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 1_000, size: 100 });
     const fileV2 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 2_000, size: 120 });
     let servedVersion = 1;
@@ -9746,12 +9746,12 @@ describe('FileViewer tweaks toolbar', () => {
       vi.advanceTimersByTime(PREVIEW_SESSION_STANDBY_TIMEOUT_MS);
     });
 
-    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
-    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
     expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
-    expect(first.dataset.odActive).toBe('false');
-    expect(first).toHaveAttribute('aria-hidden', 'true');
-    expect(first).toHaveAttribute('tabindex', '-1');
+    expect(first.dataset.odActive).toBe('true');
+    expect(first).not.toHaveAttribute('aria-hidden');
+    expect(first).toHaveAttribute('tabindex', '0');
     expect(document.body.contains(replacement)).toBe(false);
   });
 

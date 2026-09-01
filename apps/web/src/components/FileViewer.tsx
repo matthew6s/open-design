@@ -17716,7 +17716,7 @@ function HtmlViewer({
                               onStandbyFrameChange={(frame) => {
                                 previewRuntimeStandbyIframeRef.current = frame;
                               }}
-                              onStandbyTimedOut={(failed, _current) => {
+                              onStandbyTimedOut={(failed, current) => {
                                 if (
                                   previewRuntimeNavigationGeneration === null
                                   || failed.sessionId
@@ -17724,6 +17724,11 @@ function HtmlViewer({
                                   || failed.documentVersion
                                     !== previewRuntimeNavigation.navigation?.documentVersion
                                 ) return;
+                                // PreviewSession already discarded the bad
+                                // standby while retaining this browsing
+                                // context. Only block a failed first load,
+                                // where there is no usable current document.
+                                if (current) return;
                                 setPreviewRuntimeTimedOutGeneration(
                                   previewRuntimeNavigationGeneration,
                                 );
