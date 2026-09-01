@@ -726,6 +726,20 @@ function pickPackagedDesktopHandoffEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEn
   return selected;
 }
 
+export function packagedChildStamp(
+  app: AppKey,
+  channel: string,
+  runtime: SidecarRuntimeContext<SidecarStamp>,
+): SidecarStamp {
+  return {
+    app,
+    channel,
+    mode: runtime.mode,
+    namespace: runtime.namespace,
+    source: runtime.source,
+  };
+}
+
 async function spawnSidecarChild(options: {
   app: AppKey;
   channel: string;
@@ -736,13 +750,7 @@ async function spawnSidecarChild(options: {
   paths: PackagedNamespacePaths;
   runtime: SidecarRuntimeContext<SidecarStamp>;
 }): Promise<ManagedSidecarChild> {
-  const stamp = {
-    app: options.app,
-    channel: options.channel,
-    mode: SIDECAR_MODES.RUNTIME,
-    namespace: options.runtime.namespace,
-    source: options.runtime.source,
-  } satisfies SidecarStamp;
+  const stamp = packagedChildStamp(options.app, options.channel, options.runtime);
   const logPath = logPathFor(options.paths, options.app);
   const logHandle = await openLog(logPath);
   await retireExistingSidecar(stamp, logPath);

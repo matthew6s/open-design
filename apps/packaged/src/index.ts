@@ -1,5 +1,6 @@
 import {
   APP_KEYS,
+  SIDECAR_MESSAGES,
   SIDECAR_MODES,
   SIDECAR_SOURCES,
   type SidecarSource,
@@ -345,16 +346,16 @@ async function main(): Promise<void> {
   let client!: SidecarClient<DesktopMainHandle>;
   client = SidecarFactory.create<DesktopMainHandle>({
     handlers: Object.fromEntries([
-      "click",
-      "console",
-      "eval",
-      "export-artifact",
-      "export-pdf",
-      "render-frames",
-      "render-slides",
-      "screenshot",
-      "show",
-      "update",
+      SIDECAR_MESSAGES.CLICK,
+      SIDECAR_MESSAGES.CONSOLE,
+      SIDECAR_MESSAGES.EVAL,
+      SIDECAR_MESSAGES.EXPORT_ARTIFACT,
+      SIDECAR_MESSAGES.EXPORT_PDF,
+      SIDECAR_MESSAGES.RENDER_FRAMES,
+      SIDECAR_MESSAGES.RENDER_SLIDES,
+      SIDECAR_MESSAGES.SCREENSHOT,
+      SIDECAR_MESSAGES.SHOW,
+      SIDECAR_MESSAGES.UPDATE,
     ].map((action) => [action, (input: unknown) => invokeDesktop(action, input)])),
     lifecycle: {
       async start() {
