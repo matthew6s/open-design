@@ -30,6 +30,7 @@ export type PackagedHomeFirstRunReadiness = {
   composerContentEditable: boolean;
   composerFound: boolean;
   composerVisible: boolean;
+  lexicalEditorReady: boolean;
   loadingVisible: boolean;
   onboardingVisible: boolean;
   pathname: string;
@@ -108,6 +109,7 @@ function isPackagedHomeFirstRunReadiness(
     typeof candidate.composerContentEditable === 'boolean'
     && typeof candidate.composerFound === 'boolean'
     && typeof candidate.composerVisible === 'boolean'
+    && typeof candidate.lexicalEditorReady === 'boolean'
     && typeof candidate.loadingVisible === 'boolean'
     && typeof candidate.onboardingVisible === 'boolean'
     && typeof candidate.pathname === 'string'
@@ -155,6 +157,10 @@ export function packagedHomeFirstRunExpression(): string {
         input instanceof HTMLElement && input.getClientRects().length > 0;
       const composerContentEditable =
         input instanceof HTMLElement && input.isContentEditable;
+      const editor = input?.__lexicalEditor;
+      const lexicalEditorReady =
+        typeof editor?.parseEditorState === 'function'
+        && typeof editor?.setEditorState === 'function';
       const readiness = {
         pathname: location.pathname,
         loadingVisible:
@@ -164,8 +170,9 @@ export function packagedHomeFirstRunExpression(): string {
         composerFound: input != null,
         composerVisible,
         composerContentEditable,
+        lexicalEditorReady,
       };
-      if (!composerVisible || !composerContentEditable) {
+      if (!composerVisible || !composerContentEditable || !lexicalEditorReady) {
         return { instrumented: false, readiness };
       }
 
@@ -242,10 +249,6 @@ export function packagedHomeFirstRunExpression(): string {
         }
       }, true);
 
-      const editor = input.__lexicalEditor;
-      if (!editor?.parseEditorState || !editor?.setEditorState) {
-        throw new Error('packaged first Home run could not resolve the Lexical editor');
-      }
       input.focus();
       editor.setEditorState(editor.parseEditorState(JSON.stringify({
         root: {

@@ -30,6 +30,7 @@ type FixtureDocumentOptions = {
   composerAfterQueries?: number;
   composerContentEditable?: boolean;
   composerVisible?: boolean;
+  editorAfterQueries?: number;
   loadingVisible?: boolean;
   onboardingVisible?: boolean;
 };
@@ -37,15 +38,16 @@ type FixtureDocumentOptions = {
 function renderFixture(options: FixtureDocumentOptions = {}) {
   const input = new FixtureElement(options.composerVisible ?? true);
   input.isContentEditable = options.composerContentEditable ?? true;
-  input.__lexicalEditor = {
-    parseEditorState: (value) => JSON.parse(value),
-    setEditorState: (value) => {
+  const editor = {
+    parseEditorState: (value: string) => JSON.parse(value),
+    setEditorState: (value: unknown) => {
       const root = value as {
         root?: { children?: Array<{ children?: Array<{ text?: string }> }> };
       };
       input.textContent = root.root?.children?.[0]?.children?.[0]?.text ?? '';
     },
   };
+  if (options.editorAfterQueries == null) input.__lexicalEditor = editor;
 
   const loading = options.loadingVisible ? new FixtureElement() : null;
   const onboarding = options.onboardingVisible ? new FixtureElement() : null;
@@ -57,6 +59,9 @@ function renderFixture(options: FixtureDocumentOptions = {}) {
       querySelector: (selector: string) => {
         if (selector === '[data-testid="home-hero-input"]') {
           composerQueries += 1;
+          if (composerQueries > (options.editorAfterQueries ?? Number.POSITIVE_INFINITY)) {
+            input.__lexicalEditor = editor;
+          }
           return composerQueries > (options.composerAfterQueries ?? 0) ? input : null;
         }
         if (selector === '.od-loading-shell, .centered-loader') return loading;
@@ -69,11 +74,10 @@ function renderFixture(options: FixtureDocumentOptions = {}) {
   };
 }
 
-async function evaluateExpression(
-  expression: string,
+function createExpressionEvaluator(
   fixture: ReturnType<typeof renderFixture>,
   pathname = '/',
-): Promise<unknown> {
+) {
   const sandbox = {
     document: fixture.document,
     Element: FixtureElement,
@@ -89,7 +93,17 @@ async function evaluateExpression(
     fetch: async () => new Response('{}', { status: 200 }),
     setTimeout,
   };
-  return await runInNewContext(expression, sandbox);
+  return async (expression: string): Promise<unknown> => {
+    return await runInNewContext(expression, sandbox);
+  };
+}
+
+async function evaluateExpression(
+  expression: string,
+  fixture: ReturnType<typeof renderFixture>,
+  pathname = '/',
+): Promise<unknown> {
+  return await createExpressionEvaluator(fixture, pathname)(expression);
 }
 
 describe('packaged Home first-run readiness', () => {
@@ -130,6 +144,29 @@ describe('packaged Home first-run readiness', () => {
     expect(setup).toMatchObject({
       instrumented: true,
       inputTextBeforeSubmit: PACKAGED_HOME_FIRST_RUN_PROMPT,
+    });
+  });
+
+  it('waits for Lexical attachment without persisting a poisoned setup', async () => {
+    const fixture = renderFixture({ editorAfterQueries: 2 });
+    const evaluate = createExpressionEvaluator(fixture);
+
+    const first = await evaluate(packagedHomeFirstRunExpression());
+    const second = await evaluate(packagedHomeFirstRunExpression());
+    const ready = await evaluate(packagedHomeFirstRunExpression());
+
+    expect(first).toMatchObject({
+      instrumented: false,
+      readiness: { lexicalEditorReady: false },
+    });
+    expect(second).toMatchObject({
+      instrumented: false,
+      readiness: { lexicalEditorReady: false },
+    });
+    expect(ready).toMatchObject({
+      instrumented: true,
+      inputTextBeforeSubmit: PACKAGED_HOME_FIRST_RUN_PROMPT,
+      readiness: { lexicalEditorReady: true },
     });
   });
 
