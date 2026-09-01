@@ -64,15 +64,16 @@ SUSPENDED
 
 UPDATING(nextVersion)
   -> READY(nextVersion)        exact Runtime + DOM + presentation state; atomic swap
-  -> STALE(previousVersion)    transport fails; visibly label the retained old version
-  -> FAILED                    no last-good document exists
+  -> FAILED(nextVersion)       bounded recovery exhausted; stop exposing previousVersion
 
-STALE(previousVersion)
-  -> LOADING(nextVersion)      explicit retry or a newer file version
-
-FAILED
+FAILED(nextVersion)
   -> LOADING                   explicit retry or a newer file version
 ```
+
+The previous browsing context may remain parked inside the bounded LRU while recovery is
+possible, but it is hidden, removed from keyboard navigation, and cannot receive product
+commands. Keeping it in memory is an implementation optimization, not permission to show
+stale output as if it were the requested file version.
 
 `Preview` to `Code`, file-tab changes, and project-tab changes only move between
 `READY` and `SUSPENDED`. They must not set the document URL to `about:blank`.
@@ -213,8 +214,10 @@ current product behavior, including slide sidebar retention and edit-without-rel
 - Make Preview/Code and tab switches visibility-only operations.
 - Introduce an explicit LRU budget for suspended sessions.
 - Load changed versions in a temporary standby frame and swap after exact Runtime ready plus
-  presentation-state acknowledgement. A transport failure may retain same-file last-good
-  only with an explicit stale label; authored blank/error output is still the current version.
+  presentation-state acknowledgement. During that bounded handoff the previous version may
+  remain visible; if recovery is exhausted, replace it with an explicit unavailable/retry
+  state instead of leaving stale output interactive. Authored blank/error output is still the
+  current version once the exact Runtime handshake completes.
 - Scope failure/retry state to a navigation token and cap retries.
 
 Exit gate: high-frequency switches, edits during inactivity, project switching, and agent

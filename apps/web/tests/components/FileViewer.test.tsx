@@ -10552,7 +10552,11 @@ describe('FileViewer tweaks toolbar', () => {
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
     expect(first.dataset.odActive).toBe('true');
     expect(replacement.dataset.odActive).toBe('false');
-    expect(replacement.src).toBe('http://n-scope-v2.localhost:43111/preview.html');
+    expectScopedPreviewNavigationUrl(
+      replacement,
+      'http://n-scope-v2.localhost:43111/preview.html',
+      'scope-v2.0',
+    );
 
     signal(replacement, 2, 'od:preview:hello');
     signal(replacement, 2, 'od:preview:capabilities-applied');
@@ -10563,6 +10567,114 @@ describe('FileViewer tweaks toolbar', () => {
 
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(replacement);
     expect(document.body.contains(first)).toBe(false);
+  });
+
+  it('stops exposing the last-good frame when its replacement cannot settle', async () => {
+    const fileV1 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 1_000, size: 100 });
+    const fileV2 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 2_000, size: 120 });
+    let servedVersion = 1;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+      if (url.startsWith('/api/projects/project-1/raw/failed-replacement.html')) {
+        return new Response(`<!doctype html><main>Version ${servedVersion}</main>`, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+      if (url === '/api/projects/project-1/files') {
+        return new Response(JSON.stringify({ files: [servedVersion === 1 ? fileV1 : fileV2] }), {
+          status: 200,
+        });
+      }
+      if (url.includes('/api/projects/project-1/preview-url')) {
+        return new Response(JSON.stringify({
+          url: `/api/projects/project-1/preview/legacy-scope/failed-replacement.html?v=${servedVersion}`,
+          file: 'failed-replacement.html',
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          scopedOrigin: {
+            normalUrl: `http://n-scope-failed-v${servedVersion}.localhost:43111/failed-replacement.html`,
+            poweredUrl: `http://p-scope-failed-v${servedVersion}.localhost:43111/failed-replacement.html`,
+            documentVersion: `preview-failed-v${servedVersion}`,
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ deployments: [] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const capabilities: PreviewRuntimeCapability[] = [
+      'content_measurement',
+      'scroll',
+      'snapshot',
+      'observability',
+      'selection',
+      'tweaks',
+      'palette',
+    ];
+    const signal = (
+      frame: HTMLIFrameElement,
+      version: number,
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
+    ) => {
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+          source: frame.contentWindow,
+          data: {
+            type,
+            protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+            sessionId: `scope-failed-v${version}`,
+            documentVersion: `preview-failed-v${version}`,
+            ...(type === 'od:preview:hello' ? { availableCapabilities: capabilities } : {}),
+            ...(type === 'od:preview:capabilities-applied'
+              ? { enabledCapabilities: capabilities }
+              : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
+          },
+        }));
+      });
+    };
+    const view = (file: ProjectFile, filesRefreshKey: number) => (
+      <IframeKeepAliveProvider>
+        <FileViewer
+          projectId="project-1"
+          projectKind="prototype"
+          file={file}
+          filesRefreshKey={filesRefreshKey}
+        />
+      </IframeKeepAliveProvider>
+    );
+    const { rerender } = render(view(fileV1, 0));
+    const first = await screen.findByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    signal(first, 1, 'od:preview:hello');
+    signal(first, 1, 'od:preview:capabilities-applied');
+    signal(first, 1, 'od:preview:ready');
+    signal(first, 1, 'od:preview:presentation-state-applied');
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
+
+    vi.useFakeTimers();
+    servedVersion = 2;
+    rerender(view(fileV2, 1));
+    const replacement = await vi.waitFor(() => {
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      expect(frame).not.toBe(first);
+      return frame;
+    });
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
+
+    act(() => {
+      vi.advanceTimersByTime(PREVIEW_SESSION_STANDBY_TIMEOUT_MS);
+    });
+
+    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
+    expect(first.dataset.odActive).toBe('false');
+    expect(first).toHaveAttribute('aria-hidden', 'true');
+    expect(first).toHaveAttribute('tabindex', '-1');
+    expect(document.body.contains(replacement)).toBe(false);
   });
 
   it('ignores file-list refreshes when the converged document identity is unchanged', async () => {
