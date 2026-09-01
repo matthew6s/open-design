@@ -25,10 +25,9 @@ const { JSDOM } = require('jsdom') as {
 
 function createObservabilityRuntimeHarness(options: {
   bodyHtml?: string;
-  bodyStyle?: string;
 } = {}) {
   const dom = new JSDOM(
-    `<!doctype html><html><head></head><body style="${options.bodyStyle ?? ''}">${options.bodyHtml ?? ''}</body></html>`,
+    `<!doctype html><html><head></head><body>${options.bodyHtml ?? ''}</body></html>`,
     { runScripts: 'outside-only', url: 'http://n-scope.localhost/index.html' },
   );
   const posted: unknown[] = [];
@@ -88,55 +87,15 @@ function createObservabilityRuntimeHarness(options: {
   };
 }
 
-function diagnosticVisiblePaintCount(messages: readonly unknown[]): number {
-  return messages.filter((message) => (
-    parsePreviewObservabilityMessage(message)?.event === 'visible_paint'
-  )).length;
-}
-
 describe('preview runtime modules', () => {
-  it('keeps a delayed renderer blank until the observability detector finds positive paint', async () => {
-    const harness = createObservabilityRuntimeHarness();
-    harness.flushImmediateTimers();
-    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(0);
-
-    const mutationObserved = new Promise<void>((resolve) => {
-      const observer = new harness.dom.window.MutationObserver(() => {
-        observer.disconnect();
-        resolve();
-      });
-      observer.observe(harness.dom.window.document.body, { childList: true });
-    });
+  it('installs observability without emitting visual readiness signals', () => {
+    const harness = createObservabilityRuntimeHarness({ bodyHtml: '<main>Rendered</main>' });
     const rendered = harness.dom.window.document.createElement('main');
     rendered.textContent = 'Rendered asynchronously';
     harness.dom.window.document.body.appendChild(rendered);
-    await mutationObserved;
     harness.flushImmediateTimers();
 
-    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(1);
-    harness.dom.window.close();
-  });
-
-  it.each([
-    ['canvas', '<canvas width="800" height="600"></canvas>', ''],
-    ['svg', '<svg width="800" height="600"><rect width="800" height="600" /></svg>', ''],
-    ['authored background', '', 'background-color:rgb(20,30,40)'],
-  ])('accepts a visible %s as positive paint evidence', (_name, bodyHtml, bodyStyle) => {
-    const harness = createObservabilityRuntimeHarness({ bodyHtml, bodyStyle });
-    harness.flushImmediateTimers();
-
-    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(1);
-    harness.dom.window.close();
-  });
-
-  it('keeps an empty white document and hidden canvas unpainted', () => {
-    const harness = createObservabilityRuntimeHarness({
-      bodyHtml: '<canvas style="display:none" width="800" height="600"></canvas>',
-      bodyStyle: 'background-color:white',
-    });
-    harness.flushImmediateTimers();
-
-    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(0);
+    expect(harness.posted.map(parsePreviewObservabilityMessage).filter(Boolean)).toEqual([]);
     harness.dom.window.close();
   });
 

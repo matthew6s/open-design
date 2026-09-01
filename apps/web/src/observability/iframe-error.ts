@@ -165,11 +165,6 @@ export function reportPreviewIframeMessage(
   const message = parsePreviewObservabilityMessage(value);
   if (!message) return false;
 
-  // This positive readiness signal is consumed locally by FileViewer to drop
-  // its first-paint cover. It is not an error and must neither consume the
-  // bounded diagnostic dedupe budget nor enter PostHog's failure series.
-  if (message.event === 'visible_paint') return false;
-
   const sanitizedMessage = sanitizePreviewText(message.message, 500);
   const sanitizedSourceUrl = sanitizePreviewUrl(message.source_url);
   const sanitizedStack = sanitizePreviewText(message.stack, 2_000);

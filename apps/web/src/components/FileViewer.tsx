@@ -10653,44 +10653,6 @@ function HtmlViewer({
           ? urlPreviewIframeRef.current
           : srcDocPreviewIframeRef.current;
       if (!activeFrame || messageSource !== activeFrame.contentWindow) return;
-      if (!previewRuntimeConvergenceActive && useUrlLoadPreview && data.event === 'visible_paint') {
-        const keepAliveKey = urlPreviewKeepAliveKeyRef.current;
-        const sourceUrl = data.source_url;
-        const documentEpoch = data.document_epoch;
-        let exactCurrentDocument = false;
-        try {
-          const frameUrl = new URL(
-            activeFrame.getAttribute('src') ?? '',
-            window.location.href,
-          );
-          const expectedDocumentEpoch = frameUrl.searchParams.get('odPreviewEpoch');
-          // The bridge captures this epoch before author scripts run. Unlike
-          // location.href, it survives valid same-document hash changes and
-          // history.replaceState calls while still rejecting a late signal
-          // from the previous navigation in a reused iframe. Exact URL is the
-          // compatibility fallback for an older daemon bridge.
-          exactCurrentDocument = (
-            typeof documentEpoch === 'string'
-            && documentEpoch.length > 0
-            && documentEpoch === expectedDocumentEpoch
-          ) || (
-            documentEpoch === undefined
-            && typeof sourceUrl === 'string'
-            && new URL(sourceUrl).href === frameUrl.href
-          );
-        } catch {
-          exactCurrentDocument = false;
-        }
-        if (
-          keepAliveKey
-          && exactCurrentDocument
-          && (data.visible_element_count ?? 0) > 0
-        ) {
-          activeFrame.dataset.odVisiblePaintAtMs = String(Date.now());
-          urlPreviewLoadedKeysRef.current.add(keepAliveKey);
-          setUrlPreviewFirstLoadPending(false);
-        }
-      }
       reportPreviewIframeMessage(data, {
         surface: 'artifact_preview',
         renderMode: previewRuntimeConvergenceActive || useUrlLoadPreview ? 'url_load' : 'srcdoc',

@@ -1014,7 +1014,7 @@ test('[P0] @critical file workspace restores HTML preview after switching throug
   await expect(page.getByTestId('file-workspace')).toBeVisible();
 });
 
-test('[P0] @critical white-screen monitoring recovers layout stalls and confirms persistent blanks', async ({ page }) => {
+test('[P0] @critical white-screen monitoring reports persistent blanks without mutating the page', async ({ page }) => {
   const safetyEvents = await captureSafetyTelemetry(page);
   await routeMockAgents(page);
 
@@ -1022,58 +1022,33 @@ test('[P0] @critical white-screen monitoring recovers layout stalls and confirms
   await seedHtmlArtifact(
     page,
     projectId,
-    'recoverable-blank.html',
+    'persistent-blank.html',
     `<!doctype html>
       <html>
         <head><style>main { display: none; }</style></head>
-        <body data-monitor-fixture="recoverable" data-monitor-recovered="false">
-          <main><h1>Recovered preview paint</h1></main>
+        <body data-monitor-fixture="persistent" data-monitor-late-resize-count="0">
+          <main><h1>Authored hidden content</h1></main>
           <script>
             window.__monitorFixtureStartedAt = performance.now();
             window.addEventListener('resize', function () {
               if (performance.now() - window.__monitorFixtureStartedAt < 4500) return;
+              document.body.dataset.monitorLateResizeCount = String(
+                Number(document.body.dataset.monitorLateResizeCount || 0) + 1
+              );
               document.querySelector('main').style.display = 'block';
-              document.body.dataset.monitorRecovered = 'true';
             });
           </script>
-        </body>
-      </html>`,
-  );
-  await seedHtmlArtifact(
-    page,
-    projectId,
-    'persistent-blank.html',
-    `<!doctype html>
-      <html>
-        <body data-monitor-fixture="persistent">
-          <script>window.__monitorFixtureReady = true;</script>
         </body>
       </html>`,
   );
 
   await page.goto(`/projects/${projectId}?forceInline=1`, { waitUntil: 'domcontentloaded' });
   await expectWorkspaceReady(page);
-  await openDesignFile(page, 'recoverable-blank.html');
+  await openDesignFile(page, 'persistent-blank.html');
 
   const activePreview = activeArtifactPreviewFrame(page);
-  const recoverableBody = activePreview.locator('body[data-monitor-fixture="recoverable"]');
-  const recoverableMain = recoverableBody.locator('main');
-  await expect(recoverableBody).toBeVisible();
-  await expect(recoverableBody).toHaveAttribute('data-monitor-recovered', 'true', {
-    timeout: PREVIEW_WHITE_SCREEN_TIMEOUT_MS + T.short,
-  });
-  await expect(recoverableMain).toHaveCSS('display', 'block', {
-    timeout: PREVIEW_WHITE_SCREEN_TIMEOUT_MS + T.short,
-  });
-  await page.waitForTimeout(PREVIEW_WHITE_SCREEN_CONFIRMATION_MS + 100);
-  expect(capturedWhiteScreenEvents(safetyEvents)).toEqual([]);
-
-  await openAllProjectFiles(page);
-  const persistentRow = await revealDesignFileRow(page, 'persistent-blank.html');
-  await persistentRow.getByRole('button').first().click();
-  await expect(page.getByRole('tab', { name: /persistent-blank\.html/i }))
-    .toHaveAttribute('aria-selected', 'true');
   const persistentBody = activePreview.locator('body[data-monitor-fixture="persistent"]');
+  const authoredMain = persistentBody.locator('main');
   await expect(persistentBody).toBeAttached();
 
   await page.waitForTimeout(PREVIEW_WHITE_SCREEN_TIMEOUT_MS - 500);
@@ -1083,6 +1058,8 @@ test('[P0] @critical white-screen monitoring recovers layout stalls and confirms
     () => capturedWhiteScreenEvents(safetyEvents).length,
     { timeout: PREVIEW_WHITE_SCREEN_CONFIRMATION_MS + T.short },
   ).toBe(1);
+  await expect(persistentBody).toHaveAttribute('data-monitor-late-resize-count', '0');
+  await expect(authoredMain).toHaveCSS('display', 'none');
   const [whiteScreen] = capturedWhiteScreenEvents(safetyEvents);
   expect(whiteScreen?.properties).toMatchObject({
     blank_observation_count: 2,

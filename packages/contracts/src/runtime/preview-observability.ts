@@ -1,8 +1,8 @@
 /**
  * Cross-runtime protocol used by generated artifact previews to report
- * failures and first-visible-paint readiness to the OpenDesign host. The
- * bridge runs inside both srcDoc and URL-loaded preview iframes; the host
- * validates this narrow payload before any failure reaches analytics.
+ * failures and bounded visual diagnostics to the OpenDesign host. The bridge
+ * runs inside both srcDoc and URL-loaded preview iframes; the host validates
+ * this narrow payload before any failure reaches analytics.
  *
  * Keep this module browser-API free. The browser code is serialized as a
  * string so both the web and daemon runtimes inject exactly the same script.
@@ -88,7 +88,6 @@ export type PreviewObservabilityEvent =
   | 'unhandled_rejection'
   | 'console_error'
   | 'resource_error'
-  | 'visible_paint'
   | 'white_screen'
   | 'deck_stage_unscaled';
 
@@ -99,7 +98,6 @@ export interface PreviewObservabilityMessage {
   message?: string;
   name?: string;
   source_url?: string;
-  document_epoch?: string;
   stack?: string;
   line?: number;
   column?: number;
@@ -133,7 +131,6 @@ const EVENT_NAMES = new Set<PreviewObservabilityEvent>([
   'unhandled_rejection',
   'console_error',
   'resource_error',
-  'visible_paint',
   'white_screen',
   'deck_stage_unscaled',
 ]);
@@ -142,7 +139,6 @@ type PreviewStringField =
   | 'message'
   | 'name'
   | 'source_url'
-  | 'document_epoch'
   | 'stack'
   | 'resource_tag'
   | 'resource_url'
@@ -155,7 +151,6 @@ const STRING_FIELD_LIMITS: ReadonlyArray<readonly [PreviewStringField, number]> 
   ['message', 500],
   ['name', 120],
   ['source_url', 1_000],
-  ['document_epoch', 200],
   ['stack', 2_000],
   ['resource_tag', 32],
   ['resource_url', 1_000],
@@ -256,10 +251,6 @@ export function buildPreviewObservabilityBridge(): string {
   var bridgeStartedAt = Date.now();
   var WHITE_SCREEN_CONFIRMATION_DELAY = ${PREVIEW_WHITE_SCREEN_CONFIRMATION_MS};
   var HOST_STATE_TYPE = ${JSON.stringify(PREVIEW_OBSERVABILITY_HOST_STATE_MESSAGE_TYPE)};
-  var documentEpoch = '';
-  try {
-    documentEpoch = new URLSearchParams(window.location.search).get('odPreviewEpoch') || '';
-  } catch (_) {}
   var MAX_EVENTS = 12;
   var sentCount = 0;
   var sent = Object.create(null);
@@ -377,65 +368,10 @@ export function buildPreviewObservabilityBridge(): string {
     }
     return count;
   }
-  var visiblePaintDetected = 0;
-  var visiblePaintAnnounced = false;
-  var visiblePaintCheckTimer = null;
-  var visiblePaintObserver = null;
   var whiteScreenReported = false;
   var whiteScreenCheckTimer = null;
   var whiteScreenConfirmationTimer = null;
   var hostActive = false;
-  function announceVisiblePaint(force){
-    if (visiblePaintDetected <= 0 || (visiblePaintAnnounced && !force)) return;
-    visiblePaintAnnounced = true;
-    try {
-      window.parent.postMessage({
-        type: TYPE,
-        version: VERSION,
-        event: 'visible_paint',
-        source_url: text(String(window.location.href || ''), 1000),
-        document_epoch: documentEpoch,
-        ready_state: text(document.readyState, 32),
-        visibility_state: text(document.visibilityState, 32),
-        body_child_count: document.body ? document.body.children.length : 0,
-        visible_element_count: visiblePaintDetected,
-        viewport_width: Math.max(0, Math.round(window.innerWidth || 0)),
-        viewport_height: Math.max(0, Math.round(window.innerHeight || 0))
-      }, '*');
-    } catch (_) {}
-  }
-  function checkVisiblePaint(){
-    visiblePaintCheckTimer = null;
-    if (visiblePaintDetected > 0) {
-      announceVisiblePaint(false);
-      return;
-    }
-    visiblePaintDetected = visiblePaintCount();
-    if (visiblePaintDetected <= 0) return;
-    if (visiblePaintObserver) visiblePaintObserver.disconnect();
-    visiblePaintObserver = null;
-    announceVisiblePaint(false);
-  }
-  function scheduleVisiblePaintCheck(){
-    if (visiblePaintDetected > 0) {
-      announceVisiblePaint(false);
-      return;
-    }
-    if (visiblePaintCheckTimer !== null) return;
-    visiblePaintCheckTimer = setTimeout(checkVisiblePaint, 0);
-  }
-  try {
-    if (typeof MutationObserver === 'function') {
-      visiblePaintObserver = new MutationObserver(scheduleVisiblePaintCheck);
-      visiblePaintObserver.observe(document.documentElement, {
-        attributes: true,
-        childList: true,
-        subtree: true
-      });
-    }
-  } catch (_) {}
-  scheduleVisiblePaintCheck();
-  document.addEventListener('DOMContentLoaded', scheduleVisiblePaintCheck, { once: true });
   function clearWhiteScreenTimers(){
     if (whiteScreenCheckTimer !== null) clearTimeout(whiteScreenCheckTimer);
     if (whiteScreenConfirmationTimer !== null) clearTimeout(whiteScreenConfirmationTimer);
@@ -457,10 +393,6 @@ export function buildPreviewObservabilityBridge(): string {
       whiteScreenCheckTimer = null;
       checkWhiteScreen();
     }, delay);
-  }
-  function nudgePreviewLayout(){
-    try { document.documentElement && document.documentElement.getBoundingClientRect(); } catch (_) {}
-    try { window.dispatchEvent(new Event('resize')); } catch (_) {}
   }
   function confirmWhiteScreen(){
     whiteScreenConfirmationTimer = null;
@@ -484,7 +416,6 @@ export function buildPreviewObservabilityBridge(): string {
     var visible = visiblePaintCount();
     if (visible > 0) return;
     whiteScreenConfirmationTimer = setTimeout(confirmWhiteScreen, WHITE_SCREEN_CONFIRMATION_DELAY);
-    nudgePreviewLayout();
   }
   function scheduleWhiteScreenCheckWhenEligible(){
     if (whiteScreenCheckEligible()) scheduleWhiteScreenCheck(WHITE_SCREEN_TIMEOUT);
@@ -626,16 +557,12 @@ export function buildPreviewObservabilityBridge(): string {
       }
       return;
     }
-    announceVisiblePaint(true);
-    scheduleVisiblePaintCheck();
     scheduleSettledChecksWhenEligible();
   });
   if (document.readyState === 'complete') scheduleSettledChecksWhenEligible();
   else window.addEventListener('load', scheduleSettledChecksWhenEligible, { once: true });
   document.addEventListener('visibilitychange', scheduleSettledChecksWhenEligible);
-  document.addEventListener('visibilitychange', scheduleVisiblePaintCheck);
   window.addEventListener('resize', function(){
-    scheduleVisiblePaintCheck();
     scheduleSettledChecksWhenEligible();
   });
   setTimeout(scheduleSettledChecksWhenEligible, WHITE_SCREEN_TIMEOUT * 2);

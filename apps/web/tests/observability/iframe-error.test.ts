@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('preview iframe observability', () => {
-  it('accepts visible paint as a host readiness signal without reporting analytics', () => {
+  it('ignores the retired visible-paint event without reporting analytics', () => {
     const reported = reportPreviewIframeMessage({
       type: PREVIEW_OBSERVABILITY_MESSAGE_TYPE,
       version: 1,
