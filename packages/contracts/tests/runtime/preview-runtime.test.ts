@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PREVIEW_RUNTIME_PROTOCOL_VERSION,
+  createPreviewRuntimeNavigationFailedMessage,
   createPreviewRuntimePresentationStateBarrierMessage,
   createPreviewRuntimeProbeMessage,
   createPreviewRuntimeSetCapabilitiesMessage,
@@ -49,6 +50,14 @@ describe('preview runtime protocol', () => {
       ...identity,
       revision: 3,
     });
+    const navigationFailed = parsePreviewRuntimeMessage({
+      type: 'od:preview:navigation-failed',
+      protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+      ...identity,
+      reason: 'version_changed',
+      navigationAttempt: 2,
+      daemonStack: 'must not cross the contract',
+    });
 
     expect(hello).toEqual({
       type: 'od:preview:hello',
@@ -65,6 +74,14 @@ describe('preview runtime protocol', () => {
       ...identity,
       revision: 3,
     });
+    expect(navigationFailed).toEqual({
+      type: 'od:preview:navigation-failed',
+      protocolVersion: 1,
+      ...identity,
+      reason: 'version_changed',
+      navigationAttempt: 2,
+    });
+    expect(navigationFailed).not.toHaveProperty('daemonStack');
   });
 
   it('creates a canonical host capability command', () => {
@@ -91,6 +108,17 @@ describe('preview runtime protocol', () => {
       ...identity,
       revision: 7,
     });
+    expect(createPreviewRuntimeNavigationFailedMessage({
+      ...identity,
+      reason: 'version_changed',
+      navigationAttempt: 0,
+    })).toEqual({
+      type: 'od:preview:navigation-failed',
+      protocolVersion: 1,
+      ...identity,
+      reason: 'version_changed',
+      navigationAttempt: 0,
+    });
   });
 
   it('rejects unsupported versions, message types, identities, and capabilities', () => {
@@ -113,6 +141,18 @@ describe('preview runtime protocol', () => {
       ...base,
       type: 'od:preview:presentation-state-applied',
       revision: 0,
+    })).toBeNull();
+    expect(parsePreviewRuntimeMessage({
+      ...base,
+      type: 'od:preview:navigation-failed',
+      reason: 'version_changed',
+      navigationAttempt: -1,
+    })).toBeNull();
+    expect(parsePreviewRuntimeMessage({
+      ...base,
+      type: 'od:preview:navigation-failed',
+      reason: 'network_error',
+      navigationAttempt: 0,
     })).toBeNull();
   });
 

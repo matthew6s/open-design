@@ -34,6 +34,7 @@ import {
   useProjectScopedPreviewNavigation,
   usePreviewSessionNavigationFromScope,
 } from '../runtime/use-project-preview-session-navigation';
+import { PreviewVersionRemintBudget } from '../runtime/preview-version-remint';
 import {
   NORMAL_PREVIEW_FRAME_SANDBOX,
   POWERED_PREVIEW_FRAME_ALLOW,
@@ -8395,12 +8396,18 @@ function HtmlViewer({
     keepAliveKey: string;
   } | null>(null);
   const handledPreviewRuntimeNavigationFailureRef = useRef<string | null>(null);
+  const previewVersionRemintBudgetRef = useRef<PreviewVersionRemintBudget | null>(null);
+  if (previewVersionRemintBudgetRef.current === null) {
+    previewVersionRemintBudgetRef.current = new PreviewVersionRemintBudget();
+  }
   const [previewRuntimeNavigationRetryToken, setPreviewRuntimeNavigationRetryToken] = useState(0);
   const [previewRuntimeScopeRetryToken, setPreviewRuntimeScopeRetryToken] = useState(0);
   const [previewRuntimeCurrentFrame, setPreviewRuntimeCurrentFrame] =
     useState<HTMLIFrameElement | null>(null);
   const [previewRuntimeTimedOutGeneration, setPreviewRuntimeTimedOutGeneration] =
     useState<string | null>(null);
+  const [previewRuntimeScopeRemintRequiredGeneration, setPreviewRuntimeScopeRemintRequiredGeneration]
+    = useState<string | null>(null);
   const srcDocContentReadyRef = useRef<{
     frame: HTMLIFrameElement;
     generation: string;
@@ -9510,6 +9517,13 @@ function HtmlViewer({
   // one unchanged file, so it is deliberately excluded as well.
   const previewRuntimeRevisionKey =
     `${file.size}:${file.mtime}:scope-retry:${previewRuntimeScopeRetryToken}`;
+  const previewRuntimeContentGeneration = [
+    sourceAuthorizationScopeKey ?? 'pending',
+    projectId,
+    file.name,
+    String(file.size),
+    String(file.mtime),
+  ].join('\0');
   const previewRuntimeScopedNavigation = useProjectScopedPreviewNavigation({
     projectId,
     fileName: file.name,
@@ -9901,6 +9915,11 @@ function HtmlViewer({
     : null;
   useEffect(() => {
     setPreviewRuntimeTimedOutGeneration((failedGeneration) => (
+      failedGeneration === previewRuntimeNavigationGeneration ? failedGeneration : null
+    ));
+  }, [previewRuntimeNavigationGeneration]);
+  useEffect(() => {
+    setPreviewRuntimeScopeRemintRequiredGeneration((failedGeneration) => (
       failedGeneration === previewRuntimeNavigationGeneration ? failedGeneration : null
     ));
   }, [previewRuntimeNavigationGeneration]);
@@ -17715,6 +17734,40 @@ function HtmlViewer({
                                   previewRuntimeNavigationGeneration,
                                 );
                               }}
+                              onStandbyVersionChanged={(failed, _current, navigationAttempt) => {
+                                const expected = previewRuntimeNavigation.navigation;
+                                if (
+                                  previewRuntimeNavigationGeneration === null
+                                  || !expected
+                                  || failed.sessionId !== expected.sessionId
+                                  || failed.documentVersion !== expected.documentVersion
+                                ) return;
+                                const decision = previewVersionRemintBudgetRef.current!.consume(
+                                  previewRuntimeContentGeneration,
+                                  {
+                                    sessionId: failed.sessionId,
+                                    documentVersion: failed.documentVersion,
+                                    navigationAttempt,
+                                  },
+                                );
+                                if (decision === 'duplicate') return;
+                                if (decision === 'remint') {
+                                  setPreviewRuntimeTimedOutGeneration(null);
+                                  setPreviewRuntimeScopeRemintRequiredGeneration(null);
+                                  setPreviewRuntimeScopeRetryToken((currentToken) => currentToken + 1);
+                                  return;
+                                }
+                                // Continuous writes can invalidate multiple
+                                // freshly minted scopes. Stop automatic work
+                                // at the bounded budget and let one explicit
+                                // user action start a fresh bounded cycle.
+                                setPreviewRuntimeScopeRemintRequiredGeneration(
+                                  previewRuntimeNavigationGeneration,
+                                );
+                                setPreviewRuntimeTimedOutGeneration(
+                                  previewRuntimeNavigationGeneration,
+                                );
+                              }}
                               onPromoted={() => {
                                 onPreviewReadyChange?.(file.name, true);
                               }}
@@ -17735,9 +17788,22 @@ function HtmlViewer({
                                         data-testid="preview-runtime-navigation-retry"
                                         onClick={() => {
                                           setPreviewRuntimeTimedOutGeneration(null);
-                                          setPreviewRuntimeNavigationRetryToken(
-                                            (currentToken) => currentToken + 1,
-                                          );
+                                          if (
+                                            previewRuntimeScopeRemintRequiredGeneration
+                                              === previewRuntimeNavigationGeneration
+                                          ) {
+                                            previewVersionRemintBudgetRef.current!.reset(
+                                              previewRuntimeContentGeneration,
+                                            );
+                                            setPreviewRuntimeScopeRemintRequiredGeneration(null);
+                                            setPreviewRuntimeScopeRetryToken(
+                                              (currentToken) => currentToken + 1,
+                                            );
+                                          } else {
+                                            setPreviewRuntimeNavigationRetryToken(
+                                              (currentToken) => currentToken + 1,
+                                            );
+                                          }
                                         }}
                                       >
                                         {`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}

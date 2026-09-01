@@ -37,6 +37,10 @@ export interface PreviewSessionCallbacks {
     document: PreviewSessionDocument,
     capabilities: readonly PreviewRuntimeCapability[],
   ) => void;
+  onStandbyNavigationFailed?: (
+    document: PreviewSessionDocument,
+    failure: { reason: 'version_changed'; navigationAttempt: number },
+  ) => void;
   onSnapshotChanged?: (snapshot: PreviewSessionSnapshot) => void;
 }
 
@@ -92,6 +96,10 @@ export class PreviewSession {
             managed.presentationStateApplied = false;
             this.#callbacks.onCapabilitiesApplied?.(managed.document, capabilities);
             this.#emitSnapshot();
+          },
+          onNavigationFailed: (failure) => {
+            if (this.#standby !== managed) return;
+            this.#callbacks.onStandbyNavigationFailed?.(managed.document, failure);
           },
           onReady: () => {
             if (this.#standby !== managed) return;

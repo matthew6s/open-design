@@ -106,6 +106,11 @@ import {
   type PreviewDocumentSnapshot,
 } from '../../http/preview-document-snapshot.js';
 import {
+  buildPreviewVersionChangedNavigationDocument,
+  parsePreviewNavigationAttempt,
+  type PreviewVersionChangedNavigationIdentity,
+} from '../../http/preview-navigation-error.js';
+import {
   buildProjectPreviewOrigin,
   parseProjectPreviewOriginAuthority,
 } from '../../http/project-preview-origin.js';
@@ -6116,6 +6121,18 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     sendApiError(res, 400, 'BAD_REQUEST', String(error));
   }
 
+  function sendScopedPreviewVersionChanged(
+    res: Response,
+    identity: PreviewVersionChangedNavigationIdentity,
+  ): void {
+    res.status(409);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(buildPreviewVersionChangedNavigationDocument(identity));
+  }
+
   async function sendProjectFile(
     req: any,
     res: Response,
@@ -7284,6 +7301,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
 
     let previewSnapshot: PreviewDocumentSnapshot | null = null;
     let snapshotReleaseAttached = false;
+    let versionChangedNavigationIdentity: PreviewVersionChangedNavigationIdentity | null = null;
     try {
       const previewScope = projectPreviewScopes.resolveScope(authority.scope);
       if (!previewScope) {
@@ -7314,6 +7332,21 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         project.id,
         { mode: 'read', allowNavigationQuery: true },
       )) return;
+
+      const expectedDocumentForRequest = previewScope.document?.relPath === relPath
+        ? previewScope.document
+        : null;
+      const navigationAttempt = parsePreviewNavigationAttempt(
+        req.query.odPreviewAttempt,
+        authority.scope,
+      );
+      if (expectedDocumentForRequest && navigationAttempt !== null) {
+        versionChangedNavigationIdentity = {
+          sessionId: authority.scope,
+          documentVersion: expectedDocumentForRequest.documentVersion,
+          navigationAttempt,
+        };
+      }
 
       const previewMeta = await resolveProjectFilePath(
         PROJECTS_DIR,
@@ -7469,6 +7502,13 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         responseMeta,
       );
     } catch (err: any) {
+      if (
+        (err instanceof PreviewDocumentVersionChangedError || err?.code === 'VERSION_CHANGED')
+        && versionChangedNavigationIdentity
+      ) {
+        sendScopedPreviewVersionChanged(res, versionChangedNavigationIdentity);
+        return;
+      }
       sendPreviewDocumentReadError(res, err);
     } finally {
       if (!snapshotReleaseAttached) {

@@ -31,6 +31,7 @@ export const PREVIEW_RUNTIME_MESSAGE_TYPES = [
   'od:preview:capabilities-applied',
   'od:preview:presentation-state-barrier',
   'od:preview:presentation-state-applied',
+  'od:preview:navigation-failed',
   'od:preview:ready',
 ] as const;
 
@@ -74,6 +75,13 @@ export interface PreviewRuntimePresentationStateAppliedMessage extends PreviewRu
   revision: number;
 }
 
+export interface PreviewRuntimeNavigationFailedMessage extends PreviewRuntimeMessageBase {
+  type: 'od:preview:navigation-failed';
+  reason: 'version_changed';
+  /** Exact real-URL browsing-context attempt that received the failed response. */
+  navigationAttempt: number;
+}
+
 export interface PreviewRuntimeReadyMessage extends PreviewRuntimeMessageBase {
   type: 'od:preview:ready';
 }
@@ -85,6 +93,7 @@ export type PreviewRuntimeMessage =
   | PreviewRuntimeCapabilitiesAppliedMessage
   | PreviewRuntimePresentationStateBarrierMessage
   | PreviewRuntimePresentationStateAppliedMessage
+  | PreviewRuntimeNavigationFailedMessage
   | PreviewRuntimeReadyMessage;
 
 const MAX_IDENTITY_LENGTH = 200;
@@ -118,6 +127,14 @@ function parseRevision(value: unknown): number | null {
   return typeof value === 'number'
     && Number.isSafeInteger(value)
     && value > 0
+    ? value
+    : null;
+}
+
+function parseNavigationAttempt(value: unknown): number | null {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
     ? value
     : null;
 }
@@ -161,6 +178,16 @@ export function parsePreviewRuntimeMessage(value: unknown): PreviewRuntimeMessag
       const revision = parseRevision(value.revision);
       if (revision === null) return null;
       return { type: messageType, ...base, revision };
+    }
+    case 'od:preview:navigation-failed': {
+      const navigationAttempt = parseNavigationAttempt(value.navigationAttempt);
+      if (value.reason !== 'version_changed' || navigationAttempt === null) return null;
+      return {
+        type: messageType,
+        ...base,
+        reason: value.reason,
+        navigationAttempt,
+      };
     }
     case 'od:preview:ready':
       return { type: messageType, ...base };
@@ -214,6 +241,29 @@ export function createPreviewRuntimePresentationStateBarrierMessage(
     sessionId: input.sessionId,
     documentVersion: input.documentVersion,
     revision,
+  };
+}
+
+export function createPreviewRuntimeNavigationFailedMessage(
+  input: PreviewRuntimeDocumentIdentity & {
+    reason: 'version_changed';
+    navigationAttempt: number;
+  },
+): PreviewRuntimeNavigationFailedMessage {
+  if (!isBoundedIdentity(input.sessionId) || !isBoundedIdentity(input.documentVersion)) {
+    throw new TypeError('preview runtime document identity must be a non-empty bounded string');
+  }
+  const navigationAttempt = parseNavigationAttempt(input.navigationAttempt);
+  if (navigationAttempt === null) {
+    throw new TypeError('preview runtime navigation attempt must be a non-negative safe integer');
+  }
+  return {
+    type: 'od:preview:navigation-failed',
+    protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+    sessionId: input.sessionId,
+    documentVersion: input.documentVersion,
+    reason: input.reason,
+    navigationAttempt,
   };
 }
 

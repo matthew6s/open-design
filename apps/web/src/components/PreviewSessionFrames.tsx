@@ -56,6 +56,11 @@ export interface PreviewSessionFramesProps extends Omit<
     failed: PreviewSessionNavigation,
     current: PreviewSessionNavigation | null,
   ) => void;
+  onStandbyVersionChanged?: (
+    failed: PreviewSessionNavigation,
+    current: PreviewSessionNavigation | null,
+    navigationAttempt: number,
+  ) => void;
   standbyTimeoutMs?: number;
 }
 
@@ -271,6 +276,7 @@ function PreviewSessionFramesForFile({
   onCapabilitiesApplied,
   onPromoted,
   onStandbyTimedOut,
+  onStandbyVersionChanged,
   standbyTimeoutMs = PREVIEW_SESSION_STANDBY_TIMEOUT_MS,
   title = fileName,
   ...iframeProps
@@ -283,6 +289,7 @@ function PreviewSessionFramesForFile({
     onCapabilitiesApplied,
     onPromoted,
     onStandbyTimedOut,
+    onStandbyVersionChanged,
   });
   const frameByTargetRef = useRef(new Map<PreviewRuntimeMessageTarget, HTMLIFrameElement>());
   const attemptByTargetRef = useRef(new Map<PreviewRuntimeMessageTarget, number>());
@@ -294,10 +301,15 @@ function PreviewSessionFramesForFile({
     onCapabilitiesApplied,
     onPromoted,
     onStandbyTimedOut,
+    onStandbyVersionChanged,
   };
   const [current, setCurrent] = useState<RenderedPreviewDocument | null>(null);
   const [standbyFrame, setStandbyFrame] = useState<HTMLIFrameElement | null>(null);
   const [failedAttemptKey, setFailedAttemptKey] = useState<string | null>(null);
+  const currentRef = useRef<RenderedPreviewDocument | null>(current);
+  const failedAttemptKeyRef = useRef<string | null>(failedAttemptKey);
+  currentRef.current = current;
+  failedAttemptKeyRef.current = failedAttemptKey;
   const stalePoolKeysRef = useRef<string[]>([]);
 
   const session = useMemo(() => new PreviewSession({
@@ -329,8 +341,26 @@ function PreviewSessionFramesForFile({
           }
         }
       },
+      onStandbyNavigationFailed(document, failure) {
+        if (failure.reason !== 'version_changed') return;
+        const frame = frameByTargetRef.current.get(document.target);
+        const expectedAttempt = attemptByTargetRef.current.get(document.target);
+        if (!frame || expectedAttempt === undefined) return;
+        if (failure.navigationAttempt !== expectedAttempt) return;
+        const failureKey = `${identityKey(document)}\0retry:${expectedAttempt}`;
+        if (failedAttemptKeyRef.current === failureKey) return;
+        failedAttemptKeyRef.current = failureKey;
+        session.discardStandby(document);
+        setFailedAttemptKey(failureKey);
+        callbacksRef.current.onStandbyVersionChanged?.(
+          navigationOf(document),
+          currentRef.current ? navigationOf(currentRef.current) : null,
+          expectedAttempt,
+        );
+        pool.evictFrame(frame);
+      },
     },
-  }), [fileName, projectId]);
+  }), [fileName, pool, projectId]);
 
   useEffect(() => {
     session.setEnabledCapabilities(enabledCapabilities);

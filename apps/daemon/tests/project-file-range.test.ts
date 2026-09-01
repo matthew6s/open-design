@@ -1760,11 +1760,26 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
     );
     const port = new URL(baseUrl).port;
     const stale = await scopedRequest(
-      '/large-version-race.html',
+      `/large-version-race.html?odPreviewAttempt=${scope}.0`,
       `n-${scope}.localhost:${port}`,
     );
     expect(stale.status).toBe(409);
-    expect(JSON.parse(stale.body).error.code).toBe('VERSION_CHANGED');
+    expect(stale.headers['content-type']).toContain('text/html');
+    expect(stale.headers['cache-control']).toBe('no-store');
+    expect(stale.body).toContain('od:preview:navigation-failed');
+    expect(stale.body).toContain(JSON.stringify(firstPreview.scopedOrigin.documentVersion));
+    expect(stale.body).toContain('"navigationAttempt":0');
+    expect(stale.body).toContain('"reason":"version_changed"');
+
+    // Non-runtime callers and older clients do not send an attempt marker;
+    // preserve their existing structured API error instead of serving an
+    // executable document they do not understand.
+    const staleWithoutAttempt = await scopedRequest(
+      '/large-version-race.html',
+      `n-${scope}.localhost:${port}`,
+    );
+    expect(staleWithoutAttempt.status).toBe(409);
+    expect(JSON.parse(staleWithoutAttempt.body).error.code).toBe('VERSION_CHANGED');
 
     const reminted = await fetch(
       `${baseUrl}/api/projects/${projectId}/preview-url?file=large-version-race.html`,

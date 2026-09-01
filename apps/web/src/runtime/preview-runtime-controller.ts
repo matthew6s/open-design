@@ -16,6 +16,10 @@ export interface PreviewRuntimeMessageTarget {
 
 export interface PreviewRuntimeControllerCallbacks {
   onCapabilitiesApplied?: (capabilities: readonly PreviewRuntimeCapability[]) => void;
+  onNavigationFailed?: (failure: {
+    reason: 'version_changed';
+    navigationAttempt: number;
+  }) => void;
   onReady?: () => void;
   onPresentationStateApplied?: () => void;
 }
@@ -92,6 +96,12 @@ export class PreviewRuntimeController {
           this.#pendingPresentationRevision = null;
           this.#callbacks.onPresentationStateApplied?.();
         }
+        break;
+      case 'od:preview:navigation-failed':
+        this.#callbacks.onNavigationFailed?.({
+          reason: message.reason,
+          navigationAttempt: message.navigationAttempt,
+        });
         break;
       case 'od:preview:ready':
         this.#callbacks.onReady?.();

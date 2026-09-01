@@ -9921,6 +9921,122 @@ describe('FileViewer tweaks toolbar', () => {
     expect(screen.queryByText(/Preview unavailable/)).toBeNull();
   });
 
+  it('remints VERSION_CHANGED immediately, fences old attempts, and stops at a bounded budget', async () => {
+    const file = htmlPreviewFile({
+      name: 'version-race.html',
+      path: 'version-race.html',
+      mtime: 1_000,
+      size: 100,
+    });
+    let mintCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+      if (url.startsWith('/api/projects/project-1/raw/version-race.html')) {
+        return new Response('<!doctype html><main>Version race</main>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+      if (url === '/api/projects/project-1/files') {
+        return new Response(JSON.stringify({ files: [file] }), { status: 200 });
+      }
+      if (url.includes('/api/projects/project-1/preview-url')) {
+        mintCount += 1;
+        return new Response(JSON.stringify({
+          url: `/api/projects/project-1/preview/legacy-scope-${mintCount}/version-race.html`,
+          file: 'version-race.html',
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          scopedOrigin: {
+            normalUrl: `http://n-scope-race-${mintCount}.localhost:43111/version-race.html`,
+            poweredUrl: `http://p-scope-race-${mintCount}.localhost:43111/version-race.html`,
+            documentVersion: `version-race-v${mintCount}`,
+            previewPolicy: {
+              sandboxProfile: 'normal',
+              guards: { storage: false, focus: false, redirect: false },
+              deck: false,
+            },
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ deployments: [] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <IframeKeepAliveProvider>
+        <FileViewer
+          projectId="project-1"
+          projectKind="prototype"
+          file={file}
+        />
+      </IframeKeepAliveProvider>,
+    );
+
+    const fail = (
+      frame: HTMLIFrameElement,
+      mint: number,
+      navigationAttempt = 0,
+    ) => {
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+          source: frame.contentWindow,
+          data: {
+            type: 'od:preview:navigation-failed',
+            protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+            sessionId: `scope-race-${mint}`,
+            documentVersion: `version-race-v${mint}`,
+            reason: 'version_changed',
+            navigationAttempt,
+          },
+        }));
+      });
+    };
+
+    const first = await screen.findByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    expect(mintCount).toBe(1);
+    fail(first, 1);
+
+    const second = await waitFor(() => {
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      expect(frame).not.toBe(first);
+      expect(frame.src).toContain('n-scope-race-2.localhost');
+      return frame;
+    });
+    expect(mintCount).toBe(2);
+
+    // A delayed message from the removed first browsing context cannot spend
+    // another remint or replace the currently staged exact attempt.
+    fail(first, 1);
+    expect(mintCount).toBe(2);
+    expect(screen.getByTestId('preview-runtime-frame-standby')).toBe(second);
+
+    // The file may change again while the replacement scope is being minted;
+    // one more exact failed version is recovered without waiting five seconds.
+    fail(second, 2);
+    const third = await waitFor(() => {
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      expect(frame.src).toContain('n-scope-race-3.localhost');
+      return frame;
+    });
+    expect(mintCount).toBe(3);
+
+    fail(third, 3);
+    expect(mintCount).toBe(3);
+    expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
+    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
+    await waitFor(() => {
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      expect(frame.src).toContain('n-scope-race-4.localhost');
+    });
+    expect(mintCount).toBe(4);
+  });
+
   it('bounds an unsettled converged frame and retries it without reminting the scope', async () => {
     const file = htmlPreviewFile({ name: 'paint-timeout.html', path: 'paint-timeout.html' });
     const sessionId = 'scope-paint-timeout';

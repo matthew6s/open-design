@@ -38,9 +38,10 @@ function navigation(
 function signal(
   frame: HTMLIFrameElement,
   document: PreviewSessionNavigation,
-  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:presentation-state-applied' | 'od:preview:ready',
+  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:navigation-failed' | 'od:preview:presentation-state-applied' | 'od:preview:ready',
   enabledCapabilities: readonly PreviewRuntimeCapability[] = [],
   revision = 1,
+  navigationAttempt = 0,
 ) {
   act(() => {
     window.dispatchEvent(new MessageEvent('message', {
@@ -52,6 +53,9 @@ function signal(
         documentVersion: document.documentVersion,
         ...(type === 'od:preview:hello' ? { availableCapabilities: ['scroll', 'edit'] } : {}),
         ...(type === 'od:preview:capabilities-applied' ? { enabledCapabilities } : {}),
+        ...(type === 'od:preview:navigation-failed'
+          ? { reason: 'version_changed', navigationAttempt }
+          : {}),
         ...(type === 'od:preview:presentation-state-applied' ? { revision } : {}),
       },
     }));
@@ -295,6 +299,46 @@ describe('PreviewSessionFrames', () => {
 
     settle(retry, first);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
+  });
+
+  it('ends an exact version-changed attempt immediately and ignores duplicate or old attempts', () => {
+    const first = navigation('v1');
+    const onStandbyVersionChanged = vi.fn();
+    const view = (navigationRetryToken: number) => (
+      <IframeKeepAliveProvider>
+        <PreviewSessionFrames
+          projectId="project-1"
+          fileName="index.html"
+          navigation={first}
+          navigationRetryToken={navigationRetryToken}
+          active
+          onStandbyVersionChanged={onStandbyVersionChanged}
+        />
+      </IframeKeepAliveProvider>
+    );
+    const { rerender } = render(view(0));
+    const failed = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+
+    signal(failed, first, 'od:preview:navigation-failed', [], 1, 0);
+
+    expect(onStandbyVersionChanged).toHaveBeenCalledTimes(1);
+    expect(onStandbyVersionChanged).toHaveBeenCalledWith(first, null, 0);
+    expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
+    expect(document.body.contains(failed)).toBe(false);
+
+    signal(failed, first, 'od:preview:navigation-failed', [], 1, 0);
+    expect(onStandbyVersionChanged).toHaveBeenCalledTimes(1);
+
+    rerender(view(1));
+    const retry = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    signal(retry, first, 'od:preview:navigation-failed', [], 1, 0);
+    expect(onStandbyVersionChanged).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('preview-runtime-frame-standby')).toBe(retry);
+
+    signal(retry, first, 'od:preview:navigation-failed', [], 1, 1);
+    expect(onStandbyVersionChanged).toHaveBeenCalledTimes(2);
+    expect(onStandbyVersionChanged).toHaveBeenLastCalledWith(first, null, 1);
+    expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
   });
 
   it('drops a timed-out replacement without disturbing the last-good frame', () => {
