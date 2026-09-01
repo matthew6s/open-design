@@ -26,6 +26,10 @@ interface PoolEntry {
   lastUsedAt: number;
 }
 
+type AtomicMoveTarget = HTMLElement & {
+  moveBefore?: (node: Node, child: Node | null) => void;
+};
+
 interface IframeKeepAlivePoolValue {
   attach(key: string, host: HTMLElement, create: () => HTMLIFrameElement): HTMLIFrameElement;
   release(key: string): void;
@@ -65,6 +69,31 @@ function parkIframeElement(frame: HTMLIFrameElement) {
   frame.setAttribute('data-od-active', 'false');
   frame.setAttribute('aria-hidden', 'true');
   frame.setAttribute('tabindex', '-1');
+}
+
+function moveIframeElement(target: HTMLElement, frame: HTMLIFrameElement): void {
+  const moveBefore = (target as AtomicMoveTarget).moveBefore;
+  const canMoveAtomically =
+    frame.isConnected
+    && target.isConnected
+    && typeof moveBefore === 'function';
+  if (!canMoveAtomically) {
+    target.appendChild(frame);
+    return;
+  }
+
+  try {
+    // appendChild() removes and reinserts an existing iframe, which resets its
+    // browsing context. moveBefore() keeps the loaded document and JS runtime
+    // alive while the pool moves it between its visible and parked hosts.
+    moveBefore.call(target, frame, null);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'NotSupportedError') {
+      target.appendChild(frame);
+      return;
+    }
+    throw error;
+  }
 }
 
 function parseKeepAliveKey(key: string): { projectId: string; fileName: string } {
@@ -142,7 +171,7 @@ export function IframeKeepAliveProvider({
       }
       entry.lastUsedAt = Date.now();
       activeKeysRef.current.add(key);
-      host.appendChild(entry.element);
+      moveIframeElement(host, entry.element);
       // A project switch can leave parked entries behind immediately before
       // the next project's viewers attach. Enforce the bound here as well as
       // on release so a newly attached frame cannot temporarily push the pool
@@ -156,7 +185,7 @@ export function IframeKeepAliveProvider({
       activeKeysRef.current.delete(key);
       if (entry && parkedHost) {
         parkIframeElement(entry.element);
-        parkedHost.appendChild(entry.element);
+        moveIframeElement(parkedHost, entry.element);
       }
       enforceLimit();
     },

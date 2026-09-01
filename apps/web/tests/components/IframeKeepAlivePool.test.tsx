@@ -12,6 +12,66 @@ import {
 afterEach(cleanup);
 
 describe('PooledIframe', () => {
+  it('uses an atomic DOM move when parking and reattaching a loaded frame', () => {
+    const elementPrototype = Element.prototype as Element & {
+      moveBefore?: (node: Node, child: Node | null) => void;
+    };
+    const originalMoveBefore = elementPrototype.moveBefore;
+    const moveBefore = vi.fn(function moveBeforePolyfill(
+      this: Element,
+      node: Node,
+      child: Node | null,
+    ) {
+      this.insertBefore(node, child);
+    });
+    Object.defineProperty(Element.prototype, 'moveBefore', {
+      configurable: true,
+      value: moveBefore,
+      writable: true,
+    });
+
+    function Harness({ shown }: { shown: boolean }) {
+      return (
+        <IframeKeepAliveProvider>
+          {shown ? (
+            <PooledIframe
+              cacheKey={previewIframeKeepAliveKey('project-1', 'index.html')}
+              src="http://n-scope-0001.localhost:17456/index.html"
+              title="index.html"
+              data-testid="pooled-frame"
+            />
+          ) : null}
+        </IframeKeepAliveProvider>
+      );
+    }
+
+    try {
+      const { container, rerender } = render(<Harness shown />);
+      const frame = screen.getByTestId('pooled-frame');
+      const src = frame.getAttribute('src');
+
+      rerender(<Harness shown={false} />);
+      expect(moveBefore).toHaveBeenNthCalledWith(1, frame, null);
+      expect(container.querySelector('.iframe-keep-alive-pool iframe')).toBe(frame);
+      expect(frame.getAttribute('src')).toBe(src);
+
+      rerender(<Harness shown />);
+      expect(screen.getByTestId('pooled-frame')).toBe(frame);
+      expect(moveBefore).toHaveBeenNthCalledWith(2, frame, null);
+      expect(frame.getAttribute('src')).toBe(src);
+    } finally {
+      if (originalMoveBefore) {
+        Object.defineProperty(Element.prototype, 'moveBefore', {
+          configurable: true,
+          value: originalMoveBefore,
+          writable: true,
+        });
+      } else {
+        Reflect.deleteProperty(Element.prototype, 'moveBefore');
+      }
+    }
+  });
+
   it('updates a forwarded ref without parking or reattaching the browsing context', () => {
     const firstRef = vi.fn();
     const secondRef = vi.fn();
