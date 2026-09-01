@@ -32,7 +32,7 @@ import { examplePresetSeedPrompt } from './plugins-home/presetSeedPrompt';
 import { inferPluginPreview, type MediaPreviewSpec } from './plugins-home/preview';
 import { pluginSubfacetLabel } from './plugins-home/subfacetLabel';
 
-export type TemplateType = 'Prototype' | 'Live Artifact' | 'Slides' | 'Image' | 'Video' | 'HyperFrames' | 'Audio';
+export type TemplateType = 'Prototype' | 'Live Artifact' | 'Slides' | 'Document' | 'Image' | 'Video' | 'HyperFrames' | 'Audio';
 
 export type TemplateDemo = {
   id: string;
@@ -60,7 +60,14 @@ export type TemplateDemo = {
   prompt: string;
 };
 
-export const TEMPLATE_TYPE_ORDER: TemplateType[] = ['Slides', 'Prototype', 'Live Artifact', 'Image', 'Video', 'HyperFrames', 'Audio'];
+export const TEMPLATE_TYPE_ORDER: TemplateType[] = ['Slides', 'Prototype', 'Live Artifact', 'Document', 'Image', 'Video', 'HyperFrames', 'Audio'];
+
+/** The tabs the Community gallery actually renders, mirroring the Home type
+ *  row's taxonomy and order (`HOME_TYPE_ROW_IDS` + Image; web-clone stays a
+ *  Home-only entry). Fixed rather than derived from the catalogue so the row
+ *  reads the same set of artifact kinds as Home even while a kind (Document)
+ *  has no published templates yet. */
+export const COMMUNITY_TAB_TYPES: readonly TemplateType[] = ['Prototype', 'Slides', 'Document', 'Image'];
 
 /** The Community grid is the plugin catalogue seen through the artifact a user
  *  wants to make. Membership comes from the shared facet derivation in
@@ -70,6 +77,7 @@ export const TEMPLATE_TYPE_ORDER: TemplateType[] = ['Slides', 'Prototype', 'Live
 const FACET_CATEGORY_TYPE: Record<string, TemplateType> = {
   'deck': 'Slides',
   'prototype': 'Prototype',
+  'document': 'Document',
   'live-artifact': 'Live Artifact',
   'image': 'Image',
   'video': 'Video',
@@ -84,6 +92,7 @@ export const TEMPLATE_TYPE_LABEL_KEY: Record<TemplateType, keyof Dict> = {
   'Prototype': 'community.typePrototype',
   'Live Artifact': 'community.typeLiveArtifact',
   'Slides': 'community.typeSlides',
+  'Document': 'community.typeDocument',
   'Image': 'community.typeImage',
   'Video': 'community.typeVideo',
   'HyperFrames': 'community.typeHyperFrames',

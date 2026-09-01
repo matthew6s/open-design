@@ -5213,6 +5213,7 @@ export const zhTW: Dict = {
   'community.typePrototype': '原型',
   'community.typeLiveArtifact': '即時產物',
   'community.typeSlides': '簡報',
+  'community.typeDocument': '文件',
   'community.typeImage': '圖片',
   'community.typeVideo': '影片',
   'community.typeHyperFrames': 'HyperFrames',

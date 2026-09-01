@@ -4771,6 +4771,7 @@ export const en: Dict = {
   'community.typePrototype': 'Prototype',
   'community.typeLiveArtifact': 'Live Artifact',
   'community.typeSlides': 'Slides',
+  'community.typeDocument': 'Document',
   'community.typeImage': 'Image',
   'community.typeVideo': 'Video',
   'community.typeHyperFrames': 'HyperFrames',

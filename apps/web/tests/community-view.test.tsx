@@ -174,7 +174,15 @@ function renderedCards() {
 
 async function renderCommunity(props: Parameters<typeof CommunityView>[0] = {}) {
   render(<CommunityView {...props} />);
-  await waitFor(() => expect(readFacets().length).toBeGreaterThan(0));
+  // The tab row is fixed (it renders before the catalogue arrives), so readiness
+  // is the grid: the default Prototype tab grids its one fixture card once
+  // GET /api/plugins resolves.
+  await waitFor(() => expect(renderedCards().length).toBeGreaterThan(0));
+}
+
+/** Activate the tab whose (English) label matches, e.g. 'Slides'. */
+function clickTab(label: string) {
+  fireEvent.click(readFacets().find((facet) => facet.label === label)!.tab);
 }
 
 describe('CommunityView analytics', () => {
@@ -201,20 +209,21 @@ describe('CommunityView catalogue source', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/plugins', undefined);
 
-    // Slides leads, and it carries exactly the two deck plugins the daemon
-    // served — not a bundled demo array.
+    // The row mirrors the Home type row's taxonomy and order — Prototype leads
+    // — and renders all four kinds even though the fixture catalogue has no
+    // Document template yet.
     const facets = readFacets();
-    expect(facets.map((facet) => facet.label)).toEqual(['Slides', 'Prototype', 'Image']);
+    expect(facets.map((facet) => facet.label)).toEqual(['Prototype', 'Slides', 'Document', 'Image']);
 
-    // The card caption is the template's own title now — the type · sub-facet
-    // line it used to carry is what the filters above the grid already say.
-    // Asserted before the tab walk below, which leaves a different facet active.
+    // The card caption is the template's own title now — the type line it used
+    // to carry is what the filters above the grid already say. Asserted before
+    // the tab walk below, which leaves a different facet active.
     expect(renderedCards().map((card) => card.querySelector('.community-template-card__foot span')?.textContent))
-      .toEqual(['Seed Round Pitch', 'Enterprise Sales Deck']);
+      .toEqual(['SaaS Landing Page']);
 
-    // Slides leads and carries exactly the two deck plugins the daemon served
-    // — not a bundled demo array.
-    expect(readFacetCardCounts()).toEqual([2, 1, 1]);
+    // Each tab grids exactly the plugins the daemon served for its kind — not
+    // a bundled demo array. Document is empty until document templates ship.
+    expect(readFacetCardCounts()).toEqual([1, 2, 0, 1]);
   });
 
   it('leaves hidden and design-system plugins out of the gallery', async () => {
@@ -228,22 +237,17 @@ describe('CommunityView catalogue source', () => {
     expect(screen.queryByText(/Hidden Utility/)).toBeNull();
   });
 
-  it('renders the sub-facet pills the selected type actually has plugins for', async () => {
+  it('renders no sub-facet pill row — the type tabs are the whole filter surface', async () => {
     await renderCommunity();
 
-    const pills = Array.from(
-      document.querySelectorAll('.community-template-view__subtabs button'),
-    ).map((button) => button.textContent?.trim());
-    expect(pills).toEqual(['All', 'Fundraising pitch', 'B2B sales']);
-
-    fireEvent.click(screen.getByRole('button', { name: 'B2B sales' }));
-    expect(renderedCards()).toHaveLength(1);
+    expect(document.querySelector('.community-template-view__subtabs')).toBeNull();
   });
 });
 
 describe('CommunityView previews', () => {
   it('shows the plugin\'s own poster on the card and its live page in the full details modal', async () => {
     await renderCommunity();
+    clickTab('Slides');
 
     // Card thumbnail: the daemon-baked poster for that plugin.
     const thumb = renderedCards()[0]!.querySelector('img.plugins-home__media-img');
@@ -269,6 +273,7 @@ describe('CommunityView previews', () => {
     // floor even though the daemon still attached it and the classifier still
     // resolved it.
     await renderCommunity();
+    clickTab('Slides');
 
     const card = renderedCards()[0]!;
     expect(card.querySelector('img.community-template-thumb__image')).toBeNull();
@@ -299,6 +304,7 @@ describe('CommunityView previews', () => {
     // The B2B deck ships an html preview and no bake, so there is no media spec
     // to mount — that card must still fall back to the stylized paper tile.
     await renderCommunity();
+    clickTab('Slides');
 
     const card = renderedCards()[1]!;
     expect(card.querySelector('.community-template-thumb__paper')).not.toBeNull();
@@ -329,6 +335,7 @@ describe('CommunityView remix', () => {
     // "Remix the ... community template" sentence.
     const onRemix = vi.fn();
     await renderCommunity({ onRemixTemplate: onRemix });
+    clickTab('Slides');
 
     const remixButtons = screen.getAllByRole('button', { name: 'Remix' });
     expect(remixButtons.length).toBeGreaterThan(0);
@@ -364,6 +371,7 @@ describe('CommunityView remix', () => {
     // mode a synchronous ref does not have.
     const onRemix = vi.fn();
     await renderCommunity({ onRemixTemplate: onRemix });
+    clickTab('Slides');
 
     const remixButton = screen.getAllByRole('button', { name: 'Remix' })[0]!;
     for (let i = 0; i < 5; i += 1) {
@@ -382,6 +390,7 @@ describe('CommunityView remix', () => {
     // handler invocation really runs (see the rapid-click note above).
     const onRemix = vi.fn();
     await renderCommunity({ onRemixTemplate: onRemix });
+    clickTab('Slides');
 
     fireEvent.click(renderedCards()[0]!);
     await waitFor(() => {
@@ -417,6 +426,7 @@ describe('CommunityView use handoff', () => {
   it('carries the selected Community type with the card prompt action', async () => {
     const onUsePrompt = vi.fn();
     await renderCommunity({ onUsePrompt });
+    clickTab('Slides');
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Try it now' })[0]!);
 
@@ -468,10 +478,12 @@ describe('CommunityView facet counts', () => {
       // The caption is the template name now, so the type it was gridded under
       // is read off the card itself rather than parsed out of the caption.
       const types = renderedCards().map((card) => card.getAttribute('data-template-type') ?? '');
-      expect(types.length).toBeGreaterThan(0);
-      // `TemplateType` and its English tab label are the same string ('Slides',
-      // 'Prototype', …) and this suite renders in English, so the tab's own
-      // label is the expected value without a lookup table.
+      // The row is fixed to the Home taxonomy, so a tab may legitimately grid
+      // nothing (Document has no published templates yet) — but every card it
+      // does grid must be its own type. `TemplateType` and its English tab
+      // label are the same string ('Slides', 'Prototype', …) and this suite
+      // renders in English, so the tab's own label is the expected value
+      // without a lookup table.
       for (const type of types) expect(type).toBe(label);
     }
   });
@@ -488,82 +500,11 @@ describe('CommunityView facet counts', () => {
   });
 });
 
-describe('CommunityView header search', () => {
-  /** The header field, plus the round toggle that owns the collapsed state. */
-  function searchParts() {
-    const root = document.querySelector('.community-template-view__search') as HTMLElement;
-    return {
-      root,
-      toggle: root.querySelector('.community-template-view__search-toggle') as HTMLButtonElement,
-      input: root.querySelector('input') as HTMLInputElement,
-    };
-  }
-
-  it('starts collapsed as a circle and expands into the field on click', async () => {
+describe('CommunityView header', () => {
+  it('ships no header search — the tab row is the whole filter surface', async () => {
     await renderCommunity();
-    const { root, toggle, input } = searchParts();
 
-    expect(root.classList.contains('is-open')).toBe(false);
-    expect(input.tabIndex).toBe(-1);
-
-    fireEvent.click(toggle);
-
-    expect(root.classList.contains('is-open')).toBe(true);
-    expect(input.tabIndex).toBe(0);
-    expect(document.activeElement).toBe(input);
-  });
-
-  it('narrows the grid to matching templates and reports an empty result', async () => {
-    await renderCommunity();
-    const { toggle, input } = searchParts();
-    const slidesCount = renderedCards().length;
-    expect(slidesCount).toBeGreaterThan(1);
-
-    fireEvent.click(toggle);
-    fireEvent.change(input, { target: { value: 'enterprise' } });
-
-    const matches = renderedCards();
-    expect(matches.length).toBe(1);
-    expect(matches.length).toBeLessThan(slidesCount);
-
-    fireEvent.change(input, { target: { value: 'no-such-template' } });
-    expect(renderedCards()).toHaveLength(0);
-    const empty = document.querySelector('.community-template-view__no-results');
-    expect(empty?.textContent).toContain('no-such-template');
-    // Copy on top, blueprint mark under it.
-    expect(empty?.firstElementChild?.tagName).toBe('P');
-    expect(empty?.querySelector('img.community-template-view__no-results-mark')
-      ?.getAttribute('src')).toBe('/community-empty-mark.svg');
-  });
-
-  it('clears the query and collapses again on Escape', async () => {
-    await renderCommunity();
-    const { root, toggle, input } = searchParts();
-    const slidesCount = renderedCards().length;
-
-    fireEvent.click(toggle);
-    fireEvent.change(input, { target: { value: 'enterprise' } });
-    expect(renderedCards().length).toBeLessThan(slidesCount);
-
-    fireEvent.keyDown(input, { key: 'Escape' });
-
-    expect(root.classList.contains('is-open')).toBe(false);
-    expect(input.value).toBe('');
-    expect(renderedCards()).toHaveLength(slidesCount);
-  });
-
-  it('stays open on blur while a query is live', async () => {
-    await renderCommunity();
-    const { root, toggle, input } = searchParts();
-
-    fireEvent.click(toggle);
-    fireEvent.change(input, { target: { value: 'enterprise' } });
-    fireEvent.blur(input);
-    expect(root.classList.contains('is-open')).toBe(true);
-
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
-    expect(root.classList.contains('is-open')).toBe(false);
+    expect(document.querySelector('.community-template-view__search')).toBeNull();
   });
 });
 
@@ -577,25 +518,10 @@ describe('CommunityView tab signal', () => {
     await renderCommunity({ onTabsChange });
     onTabsChange.mockClear();
 
-    const prototype = readFacets().find(({ label }) => label === 'Prototype')!.tab;
-    fireEvent.click(prototype);
+    // Prototype is the default, so switching AWAY from it is what re-fires
+    // the signal.
+    clickTab('Slides');
 
     expect(onTabsChange).toHaveBeenCalled();
-  });
-
-  it('reports a tab change for the category row too', async () => {
-    const onTabsChange = vi.fn();
-    const onActiveTypeChange = vi.fn();
-    await renderCommunity({ onTabsChange, onActiveTypeChange });
-    onTabsChange.mockClear();
-    onActiveTypeChange.mockClear();
-
-    fireEvent.click(screen.getByRole('button', { name: 'B2B sales' }));
-
-    // This is the half `onActiveTypeChange` cannot carry: a category pill
-    // leaves the composer's TYPE alone, but it is still a tab change to the
-    // person looking at the page.
-    expect(onTabsChange).toHaveBeenCalled();
-    expect(onActiveTypeChange).not.toHaveBeenCalled();
   });
 });

@@ -5206,6 +5206,7 @@ export const zhCN: Dict = {
   'community.typePrototype': '原型',
   'community.typeLiveArtifact': '实时产物',
   'community.typeSlides': '幻灯片',
+  'community.typeDocument': '文档',
   'community.typeImage': '图片',
   'community.typeVideo': '视频',
   'community.typeHyperFrames': 'HyperFrames',

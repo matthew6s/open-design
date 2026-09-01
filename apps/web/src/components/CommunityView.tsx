@@ -5,11 +5,11 @@ import { useI18n } from '../i18n';
 import { listPlugins } from '../state/projects';
 import {
   buildCommunityTemplates,
+  COMMUNITY_TAB_TYPES,
   copyTemplatePrompt,
   isPromptArtifact,
   templateActionLabel,
   TEMPLATE_TYPE_LABEL_KEY,
-  TEMPLATE_TYPE_ORDER,
   type TemplateDemo,
   type TemplateType,
 } from './CommunityTemplatePreview';
@@ -33,6 +33,9 @@ const TEMPLATE_HOME_TARGET: Record<TemplateType, Pick<CommunityTemplateUseTarget
   'Prototype': { chipId: 'prototype', projectKind: 'prototype' },
   'Live Artifact': { chipId: 'live-artifact', projectKind: 'prototype' },
   'Slides': { chipId: 'deck', projectKind: 'deck' },
+  // Documents route through the generic scenario under `other` — the same pair
+  // the Home `document` chip dispatches (see home-hero/chips.ts).
+  'Document': { chipId: 'document', projectKind: 'other' },
   'Image': { chipId: 'image', projectKind: 'image' },
   'Video': { chipId: 'video', projectKind: 'video' },
   'HyperFrames': { chipId: 'hyperframes', projectKind: 'video' },
@@ -53,6 +56,7 @@ function templateUseTarget(template: TemplateDemo): CommunityTemplateUseTarget {
 const TEMPLATE_TYPE_ICON: Record<TemplateType, IconName> = {
   'Slides': 'present',
   'Prototype': 'artboard',
+  'Document': 'file-text',
   'Live Artifact': 'bar-chart-box',
   'Image': 'image',
   'Video': 'video-ai',
@@ -124,30 +128,20 @@ export function CommunityView({
   // chip (飞书 recvqxDuYM6Uxk). Keep the raw record here: the modal renders
   // from `InstalledPluginRecord`, not from the card view-model.
   const [detailsRecord, setDetailsRecord] = useState<InstalledPluginRecord | null>(null);
-  const [activeType, setActiveType] = useState<TemplateType>('Slides');
-  const [activeSubtype, setActiveSubtype] = useState('All');
+  // The tab row leads with Prototype, mirroring the Home type row's order.
+  const [activeType, setActiveType] = useState<TemplateType>('Prototype');
   // Mirror the picked type into whatever composer the host has on screen. Runs
   // on mount too: this gallery is ALWAYS filtered to one type (unlike Home,
   // which starts unbound), so the composer should open already carrying it.
   useEffect(() => {
     onActiveTypeChange?.(TEMPLATE_HOME_TARGET[activeType]);
   }, [activeType, onActiveTypeChange]);
-  // Both rows, one signal. Keyed on the pair rather than folded into the effect
-  // above because a category change leaves the composer's TYPE alone — it is
-  // still a tab change to the person looking at the page.
+  // A shell hosting a composer under this view folds it back to its collapsed
+  // default on every tab change (per product: tab 之间的切换的时候这个输入框
+  // 默认是收起来的).
   useEffect(() => {
     onTabsChange?.();
-  }, [activeType, activeSubtype, onTabsChange]);
-  // Header search starts collapsed as a round icon button and expands into a
-  // pill-shaped field on click. `searchOpen` only drives the affordance —
-  // the query keeps filtering while collapsed is impossible because a
-  // non-empty query holds the field open (see the blur handler below).
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
+  }, [activeType, onTabsChange]);
   // Remix (and the prompt-artifact copy path it shares) hands off to a
   // fire-and-forget parent callback (`onRemixTemplate`/`onUsePrompt` return
   // void) that kicks off a real POST /api/projects — nothing here observes
@@ -193,27 +187,7 @@ export function CommunityView({
     () => buildCommunityTemplates(plugins, locale, t, workspaceContext),
     [plugins, locale, t, workspaceContext],
   );
-  const typeOptions = TEMPLATE_TYPE_ORDER.filter((type) =>
-    templates.some((template) => template.type === type),
-  );
-  const subtypeOptions = Array.from(new Set(
-    templates
-      .filter((template) => template.type === activeType && template.subtype)
-      .map((template) => template.subtype),
-  ));
-  // Search narrows WITHIN the active type/subtype tabs so the visible filter
-  // chips never lie about what the grid is showing.
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredTemplates = templates.filter((template) => {
-    const typeMatches = template.type === activeType;
-    const subtypeMatches = activeSubtype === 'All' || template.subtype === activeSubtype;
-    if (!typeMatches || !subtypeMatches) return false;
-    if (!normalizedQuery) return true;
-    return [template.title, template.meta, template.subtype, ...template.tags]
-      .join(' ')
-      .toLowerCase()
-      .includes(normalizedQuery);
-  });
+  const filteredTemplates = templates.filter((template) => template.type === activeType);
   const templateScope = (templateId: string) => {
     const sourceKind = plugins.find((row) => row.id === templateId)?.sourceKind;
     return sourceKind === 'bundled' || sourceKind === 'marketplace' ? 'official' as const : 'personal' as const;
@@ -293,56 +267,18 @@ export function CommunityView({
 
   return (
     <section className="community-template-view" aria-labelledby="community-template-title">
-      {/* Header (title + search + filter rows) scrolls away with the grid. */}
+      {/* Header (title + filter row) scrolls away with the grid. */}
       <div className="community-template-view__header">
       <header className="community-template-view__hero">
         <div>
           <h1 id="community-template-title" className="entry-section__title">{t('community.title')}</h1>
-        </div>
-        <div
-          className={`community-template-view__search${searchOpen ? ' is-open' : ''}`}
-          role="search"
-        >
-          <button
-            type="button"
-            className="community-template-view__search-toggle"
-            aria-label={t('community.searchAria')}
-            aria-expanded={searchOpen}
-            onClick={() => {
-              if (searchOpen) searchInputRef.current?.focus();
-              else setSearchOpen(true);
-            }}
-          >
-            <Icon name="search" size={16} aria-hidden />
-          </button>
-          <input
-            ref={searchInputRef}
-            type="search"
-            value={searchQuery}
-            placeholder={t('community.searchPlaceholder')}
-            aria-label={t('community.searchAria')}
-            aria-hidden={!searchOpen}
-            tabIndex={searchOpen ? 0 : -1}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Escape') return;
-              event.stopPropagation();
-              setSearchQuery('');
-              setSearchOpen(false);
-            }}
-            // Collapse back to the circle only when the field is empty —
-            // clicking a card while a query is live must not wipe the filter.
-            onBlur={() => {
-              if (!searchQuery.trim()) setSearchOpen(false);
-            }}
-          />
         </div>
       </header>
 
       <div className="community-template-view__filters" aria-label={t('community.filtersAria')}>
         <div className="community-template-view__filter-main">
           <div className="community-template-view__type-tabs">
-            {typeOptions.map((type) => (
+            {COMMUNITY_TAB_TYPES.map((type) => (
               <button
                 key={type}
                 type="button"
@@ -357,7 +293,6 @@ export function CommunityView({
                     ...workspaceDimensions,
                   });
                   setActiveType(type);
-                  setActiveSubtype('All');
                 }}
               >
                 <Icon name={TEMPLATE_TYPE_ICON[type]} size={16} aria-hidden />
@@ -366,47 +301,6 @@ export function CommunityView({
             ))}
           </div>
         </div>
-        {subtypeOptions.length > 0 ? (
-          <div className="community-template-view__subtabs">
-            <button
-              type="button"
-              className={activeSubtype === 'All' ? 'is-active' : ''}
-              onClick={() => {
-                trackCommunityTemplateClick(analytics.track, {
-                  page_name: 'community',
-                  area: 'community_templates',
-                  element: 'filter',
-                  filter_type: 'subtype',
-                  filter_value: 'all',
-                  ...workspaceDimensions,
-                });
-                setActiveSubtype('All');
-              }}
-            >
-              {t('common.all')}
-            </button>
-            {subtypeOptions.map((subtype) => (
-              <button
-                key={subtype}
-                type="button"
-                className={activeSubtype === subtype ? 'is-active' : ''}
-                onClick={() => {
-                  trackCommunityTemplateClick(analytics.track, {
-                    page_name: 'community',
-                    area: 'community_templates',
-                    element: 'filter',
-                    filter_type: 'subtype',
-                    filter_value: subtype,
-                    ...workspaceDimensions,
-                  });
-                  setActiveSubtype(subtype);
-                }}
-              >
-                {subtype}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
       </div>
 
@@ -495,17 +389,6 @@ export function CommunityView({
           </article>
         ))}
       </div>
-      {normalizedQuery && filteredTemplates.length === 0 ? (
-        <div className="community-template-view__no-results">
-          <p>{t('homeHero.noResults', { query: searchQuery.trim() })}</p>
-          <img
-            className="community-template-view__no-results-mark"
-            src="/community-empty-mark.svg"
-            alt=""
-            aria-hidden
-          />
-        </div>
-      ) : null}
       {detailsRecord ? (
         <PluginDetailsModal
           record={detailsRecord}
