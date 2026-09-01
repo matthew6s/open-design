@@ -364,13 +364,13 @@
 
 ### 22. Question Form select 与 Chat 底部滚动 / Plan 浮层
 
-- 状态：**当前三个现场问题已修复，补丁待提交；滚动专项审计另有两个 P1 尚未实现。**
+- 状态：**现场问题与滚动专项审计的两个 P1 均已修复。**
 - Question Form `type: "select"`：撤掉原生下拉框，复用设计稿现有的纵向单选行和内联“自己填”。不改 schema / 提交协议；旧会话里的 machine value、显示 label 和未知自定义文本均可恢复，已固化三类兼容用例。
 - 距底几十像素自动吸底：旧状态机在 40–120px resume band 内提前清除 escape intent。现在只有同一次真实用户下滚到 8px bottom tolerance 内才重启跟随；`scrollHeight` / `clientHeight` 变化和原生 scroll anchoring 不得伪装成用户动作。ResizeObserver 落定后同步刷新几何 baseline，避免下一次真滚动仍拿旧高度比较。
 - Plan Pill 白带：根因是 Plan 作为 `.pane` 的普通 flex 子项，mount 时压缩 chat-log clientHeight，不是单纯背景色问题。现已新增 `.chat-log-viewport`，Plan 在其底部绝对定位，满宽透明层不接管 pointer events；queue / composer 仍按普通布局改变 viewport，project toast 保持在 viewport 外。“回到最新”同时出现时 Plan 上移一档。
 - Question Form 初始定位：撤掉 `scrollIntoView(... smooth)` 的中间帧竞争，改为 instant/auto 定位；预测落点只有真底部才恢复 follow，不再使用 near-bottom band。
 - 聚焦验证：Question Form / scroll-following / stick-to-bottom / Plan Pill / jump / feedback 共 7 个文件 98 条通过；Web typecheck 通过。仅有 jsdom 既有 canvas warning，按用户要求未跑全量测试。
-- 审计剩余 P1：① Question Form Next / Back / 自己填导致的卡片高度切换缺少 first-visible rect 补偿；② `>80` 条消息时虚拟行从估算高度切到实测高度，对 viewport 上方行的 transform-only 重排没有 first-visible anchor。两者需独立红规格和真浏览器几何复验，本次不伪装为已完成。
+- 滚动专项 P1 收口：① Question Form Next / Back / 自己填现在优先锚定切换前首个可见消息，卡片局部高度变化不再把阅读位置整体上推；无可用 viewport 几何的宿主仍回落到原 named control anchor。② `>80` 条消息的虚拟窗口在行高从估算值切到实测值前捕获 first-visible key 与 clipped offset，重排后恢复同一可见锚点；只变化 viewport 下方行时不写 scrollTop。两条均有独立红绿规格，分别覆盖普通 DOM rect 与 transform-only 虚拟重排。
 
 ### 23. `kind=other` 的 direction-cards 只显示空表单
 

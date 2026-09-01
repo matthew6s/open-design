@@ -199,17 +199,48 @@ describe('jump-to-latest button after landing on a question form (recvqajMdAnfmd
     expect(btn.getAttribute('tabindex')).toBe('0');
   });
 
-  it('keeps the clicked step footer at the same viewport coordinate after Next relayout', async () => {
+  it('keeps the first visible message at the same viewport coordinate after Next relayout', async () => {
     geom = { scrollHeight: 2000, clientHeight: 400, scrollTop: 0 };
     const { container } = render(chatPaneEl(steppedQuestionFormMessages(), {
       interactiveQuestionForm: true,
     }));
     await flushFrames();
 
+    const log = screen.getByTestId('chat-log');
+    log.getBoundingClientRect = () => ({
+      top: 100,
+      bottom: 500,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 400,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }) as DOMRect;
+    const message = container.querySelector<HTMLElement>(
+      '[data-assistant-message-id="assistant-stepped"]',
+    );
+    if (!message) throw new Error('expected assistant message root');
+    message.getBoundingClientRect = () => {
+      const top = 980 - geom.scrollTop;
+      return {
+        top,
+        bottom: top + 600,
+        left: 0,
+        right: 300,
+        width: 300,
+        height: 600,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
     const footer = container.querySelector<HTMLElement>('.question-form-foot');
     if (!footer) throw new Error('expected stepped question footer');
     footer.getBoundingClientRect = () => {
-      const top = screen.queryByText('2/2') ? 480 : 300;
+      const contentTop = screen.queryByText('2/2') ? 1_380 : 1_200;
+      const top = contentTop - geom.scrollTop;
       return {
         top,
         bottom: top + 36,
@@ -231,7 +262,11 @@ describe('jump-to-latest button after landing on a question form (recvqajMdAnfmd
     fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
     expect(screen.getByText('2/2')).toBeTruthy();
 
+    // Model a browser/layout correction that kept the replaced footer fixed.
+    // The ChatPane frame must undo it in favor of the first visible message.
+    geom.scrollTop = 1080;
     await flushFrames();
-    expect(geom.scrollTop).toBe(1080);
+    expect(geom.scrollTop).toBe(900);
+    expect(message.getBoundingClientRect().top).toBe(80);
   });
 });

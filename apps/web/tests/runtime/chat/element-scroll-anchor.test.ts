@@ -21,6 +21,46 @@ function rect(top: number): DOMRect {
 }
 
 describe('in-chat element scroll anchor', () => {
+  it.each([
+    ['Next', 'question-footer'],
+    ['Back', 'question-footer'],
+    ['own answer', 'question-own:tone'],
+  ])('keeps the first visible message fixed when %s changes form height', (_label, anchorId) => {
+    const container = document.createElement('div');
+    container.getBoundingClientRect = () => rect(100);
+    const message = document.createElement('div');
+    message.dataset.assistantMessageId = 'assistant-1';
+    message.getBoundingClientRect = () => ({
+      ...rect(80),
+      bottom: 360,
+      height: 280,
+    });
+    const form = document.createElement('div');
+    form.dataset.formId = 'brief';
+    const localAnchor = document.createElement('div');
+    localAnchor.dataset.chatScrollAnchor = anchorId;
+    localAnchor.getBoundingClientRect = () => rect(310);
+    const control = document.createElement('button');
+    control.dataset.chatPreserveScrollAnchor = anchorId;
+    localAnchor.append(control);
+    form.append(localAnchor);
+    message.append(form);
+    container.append(message);
+    document.body.append(container);
+    container.scrollTop = 700;
+
+    const snapshot = captureElementScrollAnchor(container, control);
+    expect(snapshot).not.toBeNull();
+
+    // The active step / own-answer row grew, but the message that was already
+    // clipped at the top of the viewport did not move in content coordinates.
+    // Keeping the clicked footer/row fixed would incorrectly add this 180px
+    // local height delta to scrollTop and make that first visible message jump.
+    localAnchor.getBoundingClientRect = () => rect(490);
+    expect(scrollTopForElementScrollAnchor(container, snapshot!)).toBe(700);
+    container.remove();
+  });
+
   it('keeps a stepped form footer at the same viewport position after Next changes height', () => {
     const container = document.createElement('div');
     const form = document.createElement('div');
