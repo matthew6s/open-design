@@ -10,6 +10,7 @@ import type {
   PreviewRuntimeCapability,
   PreviewRuntimeDocumentIdentity,
 } from '@open-design/contracts/runtime/preview-runtime';
+import { OPEN_DESIGN_PREVIEW_NAVIGATION_ATTEMPT_PARAM } from '@open-design/host';
 import {
   PreviewSession,
   type PreviewSessionDocument,
@@ -89,6 +90,19 @@ function documentKeepAliveKey(
   navigationAttempt: number,
 ): string {
   return `${previewIframeKeepAliveKey(projectId, fileName)}\0${identityKey(identity)}\0attempt:${navigationAttempt}`;
+}
+
+export function previewSessionNavigationAttemptUrl(
+  navigation: PreviewSessionNavigation,
+  navigationAttempt: number,
+): string {
+  if (navigation.runtimeProtocol !== 'universal') return navigation.url;
+  const url = new URL(navigation.url);
+  url.searchParams.set(
+    OPEN_DESIGN_PREVIEW_NAVIGATION_ATTEMPT_PARAM,
+    `${navigation.sessionId}.${navigationAttempt}`,
+  );
+  return url.href;
 }
 
 /**
@@ -450,7 +464,7 @@ function PreviewSessionFramesForFile({
             current,
             current.navigationAttempt,
           )}
-          src={current.url}
+          src={previewSessionNavigationAttemptUrl(current, current.navigationAttempt)}
           sandbox={previewSessionFramePolicy(current.sandboxProfile).sandbox}
           allow={previewSessionFramePolicy(current.sandboxProfile).allow}
           data-od-powered={
@@ -468,7 +482,7 @@ function PreviewSessionFramesForFile({
           {...commonProps}
           ref={stageFrame}
           cacheKey={documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)}
-          src={standby.url}
+          src={previewSessionNavigationAttemptUrl(standby, navigationRetryToken)}
           sandbox={previewSessionFramePolicy(standby.sandboxProfile).sandbox}
           allow={previewSessionFramePolicy(standby.sandboxProfile).allow}
           data-od-powered={

@@ -12,6 +12,7 @@ import {
 import {
   PREVIEW_SESSION_STANDBY_TIMEOUT_MS,
   PreviewSessionFrames,
+  previewSessionNavigationAttemptUrl,
   type PreviewSessionNavigation,
 } from '../../src/components/PreviewSessionFrames';
 
@@ -205,20 +206,25 @@ describe('PreviewSessionFrames', () => {
     );
     const { rerender } = render(view(0));
     const failed = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
-    const url = failed.getAttribute('src');
+    const failedUrl = new URL(failed.src);
+    expect(failedUrl.searchParams.get('odPreviewAttempt')).toBe('scope-0001.0');
 
     rerender(view(1));
 
     const retry = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(retry).not.toBe(failed);
-    expect(retry.getAttribute('src')).toBe(url);
+    const retryUrl = new URL(retry.src);
+    expect(retryUrl.searchParams.get('odPreviewAttempt')).toBe('scope-0001.1');
+    failedUrl.searchParams.delete('odPreviewAttempt');
+    retryUrl.searchParams.delete('odPreviewAttempt');
+    expect(retryUrl.href).toBe(failedUrl.href);
     expect(onStandbyFrameChange).toHaveBeenCalledWith(null);
     expect(onStandbyFrameChange).toHaveBeenLastCalledWith(retry);
 
     settle(retry, first);
     rerender(view(2));
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
-    expect(retry.getAttribute('src')).toBe(url);
+    expect(new URL(retry.src).searchParams.get('odPreviewAttempt')).toBe('scope-0001.1');
   });
 
   it('reloads a promoted same-version document behind the retained last-good frame', () => {
@@ -244,7 +250,8 @@ describe('PreviewSessionFrames', () => {
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retained);
     const replacement = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(replacement).not.toBe(retained);
-    expect(replacement.getAttribute('src')).toBe(url);
+    expect(new URL(url!).searchParams.get('odPreviewAttempt')).toBe('scope-0001.0');
+    expect(new URL(replacement.src).searchParams.get('odPreviewAttempt')).toBe('scope-0001.1');
 
     settle(replacement, first);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(replacement);
@@ -283,7 +290,8 @@ describe('PreviewSessionFrames', () => {
     rerender(view(1));
     const retry = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(retry).not.toBe(failed);
-    expect(retry.getAttribute('src')).toBe(url);
+    expect(new URL(url!).searchParams.get('odPreviewAttempt')).toBe('scope-0001.0');
+    expect(new URL(retry.src).searchParams.get('odPreviewAttempt')).toBe('scope-0001.1');
 
     settle(retry, first);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
@@ -385,7 +393,11 @@ describe('PreviewSessionFrames', () => {
 
   it('suspends the previous file session and reuses its exact frame when switching back', () => {
     const first = navigation('v1');
-    const second = { ...navigation('v1'), sessionId: 'scope-0002' };
+    const second = {
+      ...navigation('v1'),
+      sessionId: 'scope-0002',
+      url: 'http://n-scope-0002.localhost:17456/index.html?v=v1',
+    };
     const view = (projectId: string, fileName: string, next: PreviewSessionNavigation) => (
       <IframeKeepAliveProvider>
         <PreviewSessionFrames
@@ -405,7 +417,10 @@ describe('PreviewSessionFrames', () => {
     expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
     const standby = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(standby).not.toBe(oldFrame);
-    expect(standby).toHaveAttribute('src', second.url);
+    expect(standby).toHaveAttribute(
+      'src',
+      previewSessionNavigationAttemptUrl(second, 0),
+    );
     settle(standby, second);
 
     rerender(view('project-1', 'index.html', first));
@@ -413,7 +428,10 @@ describe('PreviewSessionFrames', () => {
     expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
     const restored = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(restored).toBe(oldFrame);
-    expect(restored).toHaveAttribute('src', first.url);
+    expect(restored).toHaveAttribute(
+      'src',
+      previewSessionNavigationAttemptUrl(first, 0),
+    );
     settle(restored, first);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(oldFrame);
   });

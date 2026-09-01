@@ -352,6 +352,17 @@ function postPreviewContentSizeResponse(
   }));
 }
 
+function expectScopedPreviewNavigationUrl(
+  frame: HTMLIFrameElement,
+  expectedBaseUrl: string,
+  expectedAttemptId: string,
+) {
+  const actual = new URL(frame.src);
+  expect(actual.searchParams.get('odPreviewAttempt')).toBe(expectedAttemptId);
+  actual.searchParams.delete('odPreviewAttempt');
+  expect(actual.href).toBe(new URL(expectedBaseUrl).href);
+}
+
 function clickAgentTool(testId: string) {
   fireEvent.click(screen.getByTestId(testId));
 }
@@ -8988,7 +8999,11 @@ describe('FileViewer tweaks toolbar', () => {
       screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement
     ));
     const initialSrc = frame.getAttribute('src');
-    expect(initialSrc).toBe(`http://n-${sessionId}.localhost:43111/preview.html`);
+    expectScopedPreviewNavigationUrl(
+      frame,
+      `http://n-${sessionId}.localhost:43111/preview.html`,
+      `${sessionId}.0`,
+    );
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     const baseCapabilities: PreviewRuntimeCapability[] = [
       'content_measurement',
@@ -9313,7 +9328,11 @@ describe('FileViewer tweaks toolbar', () => {
     signal('od:preview:ready', [...baseCapabilities, 'edit'], recoveredFrame);
     signal('od:preview:presentation-state-applied', [...baseCapabilities, 'edit'], recoveredFrame);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(recoveredFrame);
-    expect(recoveredFrame.getAttribute('src')).toBe(initialSrc);
+    expectScopedPreviewNavigationUrl(
+      recoveredFrame,
+      `http://n-${sessionId}.localhost:43111/preview.html`,
+      `${sessionId}.1`,
+    );
 
     const mintCount = fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
@@ -9322,7 +9341,11 @@ describe('FileViewer tweaks toolbar', () => {
       '<!doctype html><html><body><main data-od-id="hero">Streaming update</main></body></html>',
     ));
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(recoveredFrame);
-    expect(recoveredFrame.getAttribute('src')).toBe(initialSrc);
+    expectScopedPreviewNavigationUrl(
+      recoveredFrame,
+      `http://n-${sessionId}.localhost:43111/preview.html`,
+      `${sessionId}.1`,
+    );
     expect(fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
     ))).toHaveLength(mintCount);
@@ -9339,7 +9362,11 @@ describe('FileViewer tweaks toolbar', () => {
     signal('od:preview:ready', [...baseCapabilities, 'edit'], explicitReload);
     signal('od:preview:presentation-state-applied', [...baseCapabilities, 'edit'], explicitReload);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(explicitReload);
-    expect(explicitReload.getAttribute('src')).toBe(initialSrc);
+    expectScopedPreviewNavigationUrl(
+      explicitReload,
+      `http://n-${sessionId}.localhost:43111/preview.html`,
+      `${sessionId}.2`,
+    );
     expect(fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
     ))).toHaveLength(mintCount);
@@ -9527,9 +9554,10 @@ describe('FileViewer tweaks toolbar', () => {
     const frame = await screen.findByTestId(
       'preview-runtime-frame-standby',
     ) as HTMLIFrameElement;
-    expect(frame).toHaveAttribute(
-      'src',
+    expectScopedPreviewNavigationUrl(
+      frame,
       'http://n-scope-0002.localhost:43111/gated.html',
+      'scope-0002.0',
     );
     expect(fetchMock.mock.calls.some(([input]) => (
       String(input).startsWith('/api/projects/project-1/raw/gated.html')
@@ -9583,9 +9611,10 @@ describe('FileViewer tweaks toolbar', () => {
       { status: 200, headers: { 'Content-Type': 'text/html' } },
     ));
     await waitFor(() => {
-      expect(screen.getByTestId('preview-runtime-frame-current')).toHaveAttribute(
-        'src',
+      expectScopedPreviewNavigationUrl(
+        screen.getByTestId('preview-runtime-frame-current') as HTMLIFrameElement,
         'http://n-scope-0002.localhost:43111/gated.html',
+        'scope-0002.0',
       );
     });
     expect(fetchMock.mock.calls.filter(([input]) => (
@@ -9767,9 +9796,10 @@ describe('FileViewer tweaks toolbar', () => {
       { status: 200, headers: { 'Content-Type': 'text/html' } },
     ));
 
-    expect(await screen.findByTestId('preview-runtime-frame-standby')).toHaveAttribute(
-      'src',
+    expectScopedPreviewNavigationUrl(
+      await screen.findByTestId('preview-runtime-frame-standby') as HTMLIFrameElement,
       'http://p-scope-old.localhost:43111/old-daemon.html?odPreviewBridge=focus',
+      'scope-old.0',
     );
     expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
   });
@@ -9881,9 +9911,10 @@ describe('FileViewer tweaks toolbar', () => {
 
     fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
     await waitFor(() => {
-      expect(screen.getByTestId('preview-runtime-frame-standby')).toHaveAttribute(
-        'src',
+      expectScopedPreviewNavigationUrl(
+        screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement,
         'http://n-scope-retry.localhost:43111/mint-retry.html',
+        'scope-retry.0',
       );
     });
     expect(mintAttempt).toBe(2);
@@ -9937,8 +9968,11 @@ describe('FileViewer tweaks toolbar', () => {
     const failed = await waitFor(() => (
       screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement
     ));
-    const frameUrl = failed.getAttribute('src');
-    expect(frameUrl).toBe(`http://n-${sessionId}.localhost:43111/paint-timeout.html`);
+    expectScopedPreviewNavigationUrl(
+      failed,
+      `http://n-${sessionId}.localhost:43111/paint-timeout.html`,
+      `${sessionId}.0`,
+    );
 
     vi.useFakeTimers();
     rerender(view(true));
@@ -9954,7 +9988,11 @@ describe('FileViewer tweaks toolbar', () => {
     fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
     const retry = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
     expect(retry).not.toBe(failed);
-    expect(retry.getAttribute('src')).toBe(frameUrl);
+    expectScopedPreviewNavigationUrl(
+      retry,
+      `http://n-${sessionId}.localhost:43111/paint-timeout.html`,
+      `${sessionId}.1`,
+    );
     expect(screen.getByTestId('artifact-preview-first-load')).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
@@ -10050,9 +10088,10 @@ describe('FileViewer tweaks toolbar', () => {
     const frame = await waitFor(() => (
       screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement
     ));
-    expect(frame).toHaveAttribute(
-      'src',
+    expectScopedPreviewNavigationUrl(
+      frame,
       'http://p-scope-powered.localhost:43111/powered-runtime.html',
+      'scope-powered.0',
     );
     expect(frame).toHaveAttribute('data-od-powered', 'true');
     expect(frame.getAttribute('sandbox')).toContain('allow-same-origin');
@@ -10136,9 +10175,10 @@ describe('FileViewer tweaks toolbar', () => {
     expect(previewMints[0]?.url).not.toContain('workspaceId=');
     expect(previewMints[0]?.url).not.toContain('workspaceMemberId=');
     expect(new Headers(previewMints[0]?.init?.headers).get('x-od-workspace-id')).toBeNull();
-    expect(standby).toHaveAttribute(
-      'src',
+    expectScopedPreviewNavigationUrl(
+      standby,
       'http://n-scope-team.localhost:43111/team-gated.html',
+      'scope-team.0',
     );
 
     rerender(view({
@@ -10228,7 +10268,11 @@ describe('FileViewer tweaks toolbar', () => {
         expect(next).not.toBe(failed);
         return next;
       });
-      expect(retry.src).toBe(failedUrl);
+      expectScopedPreviewNavigationUrl(
+        retry,
+        'http://n-scope-retry.localhost:43111/retry.html',
+        'scope-retry.1',
+      );
 
       act(() => {
         navigationFailureListener?.({
@@ -10284,7 +10328,11 @@ describe('FileViewer tweaks toolbar', () => {
         });
       });
       expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
-      expect(retry.src).toBe(failedUrl);
+      expectScopedPreviewNavigationUrl(
+        retry,
+        'http://n-scope-retry.localhost:43111/retry.html',
+        'scope-retry.1',
+      );
     } finally {
       restoreHost();
     }
@@ -10572,8 +10620,10 @@ describe('FileViewer tweaks toolbar', () => {
       screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement
     ));
     const initialSrc = frame.getAttribute('src');
-    expect(initialSrc).toBe(
+    expectScopedPreviewNavigationUrl(
+      frame,
       `http://n-${sessionId}.localhost:43111/deck.html`,
+      `${sessionId}.0`,
     );
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     const capabilities: PreviewRuntimeCapability[] = [
