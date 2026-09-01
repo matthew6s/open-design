@@ -715,7 +715,7 @@ describe('AssistantMessage thinking blocks', () => {
   });
 
   it('keeps non-empty thinking content visible after leading whitespace deltas', () => {
-    render(
+    const { container } = render(
       <AssistantMessage
         message={baseMessage({
           content: '',
@@ -730,7 +730,9 @@ describe('AssistantMessage thinking blocks', () => {
     );
 
     // 已结束执行的折叠正文会延迟到首次展开再挂 DOM；展开后仍需保留非空 thinking。
-    fireEvent.click(screen.getByText('Done'));
+    const executionSummary = container.querySelector('details > summary');
+    expect(executionSummary).not.toBeNull();
+    fireEvent.click(executionSummary!);
     fireEvent.click(screen.getByText('Thoughts'));
     expect(screen.getByText('Reading the directory listing.')).toBeTruthy();
   });

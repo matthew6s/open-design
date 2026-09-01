@@ -1,16 +1,9 @@
 // @vitest-environment jsdom
 
 /**
- * 回合状态行(「已完成 · 👍👎 复制 分叉 · 20:28」)**只在最后一轮出**。
- *
- * 产品裁决(2026-08-26,用户转述):「应该只有最后一轮底部才会显示,
- * 之前轮次不要显示,hover 也不显示」。
- *
- * 为什么钉在**渲染层**:早先它是 `opacity: 0` + hover 显形,而同一份门控在
- * `styles/viewer/composio.css` 和 `styles/viewer/routines.css` **各写了一遍**,
- * 后者靠 `.app` 拔到 (0,2,0) 且排在 `index.css` 最后 —— 特异性和顺序两头都赢。
- * 只删一处不生效,而 jsdom 又不算层叠,CSS 层面的断言在这里等于没有。
- * 所以判据必须是「渲染不渲染」,这条测试才有意义。
+ * OPEND-2542: settled turns keep their action row in the DOM so history can
+ * reveal it on message hover/focus without changing the transcript's layout.
+ * The latest turn is marked separately for the always-visible CSS state.
  */
 
 import { cleanup, render, screen } from '@testing-library/react';
@@ -49,8 +42,8 @@ function finishedTurn(id: string): ChatMessage {
 
 const footerOf = (container: HTMLElement) => container.querySelector('.assistant-footer');
 
-describe('回合状态行只在最后一轮出', () => {
-  it('最后一轮:跑完之后出', () => {
+describe('settled assistant action row visibility markers', () => {
+  it('marks the final turn for the always-visible state', () => {
     const { container } = render(
       <AssistantMessage
         message={finishedTurn('m-last')}
@@ -61,10 +54,10 @@ describe('回合状态行只在最后一轮出', () => {
         onFeedback={vi.fn()}
       />,
     );
-    expect(footerOf(container)).toBeTruthy();
+    expect(footerOf(container)?.getAttribute('data-last')).toBe('true');
   });
 
-  it('**不是**最后一轮:整行不渲染 —— 所以 hover 也不可能把它带出来', () => {
+  it('keeps a historical turn rendered for hover and keyboard focus reveal', () => {
     const { container } = render(
       <AssistantMessage
         message={finishedTurn('m-old')}
@@ -72,11 +65,12 @@ describe('回合状态行只在最后一轮出', () => {
         projectId="p1"
         errorCardOwnerId={null}
         onFeedback={vi.fn()}
+        onForkFromMessage={vi.fn()}
       />,
     );
-    expect(footerOf(container)).toBeNull();
-    // 连同这一行上的动作一起消失(这是产品要的取舍,不是疏漏)
-    expect(screen.queryByText('已完成')).toBeNull();
+    expect(footerOf(container)?.getAttribute('data-last')).toBe('false');
+    expect(screen.getByTestId('assistant-label')).toBeTruthy();
+    expect(screen.getByTestId('assistant-fork-button')).toBeTruthy();
   });
 
   it('最后一轮但还在跑:仍然不出(壳头已经在报状态)', () => {

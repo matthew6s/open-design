@@ -80,12 +80,15 @@ export function QuoteBar({ scopeRef, onQuote }: QuoteBarProps): ReactElement | n
 
   useEffect(() => {
     // `selectionchange` 是唯一能同时覆盖鼠标拖选、双击选词、键盘 Shift+方向的信号
+    function dismissOnScroll(): void {
+      setBar(null);
+    }
     document.addEventListener('selectionchange', sync);
-    window.addEventListener('scroll', sync, true);
+    window.addEventListener('scroll', dismissOnScroll, true);
     window.addEventListener('resize', sync);
     return () => {
       document.removeEventListener('selectionchange', sync);
-      window.removeEventListener('scroll', sync, true);
+      window.removeEventListener('scroll', dismissOnScroll, true);
       window.removeEventListener('resize', sync);
     };
   }, [sync]);

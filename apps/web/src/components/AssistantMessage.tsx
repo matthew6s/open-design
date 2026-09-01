@@ -1089,30 +1089,16 @@ function AssistantMessageImpl({
       hasUnfinishedTodos: unfinishedTodos.length > 0,
     });
   /*
-   * 回合状态行(稿子组件 15)是**跑完之后**才出的一行 —— 运行中整行不出。
+   * OPEND-2542 supersedes the 2026-08-26 "last turn only" decision. Every
+   * settled reply keeps this row rendered: the latest row is always visible,
+   * while historical rows are revealed by message hover/focus in CSS. Keeping
+   * the same DOM footprint prevents the transcript from jumping on reveal.
    *
-   * 用户 2026-08-26 两次真机指认(「运行中没有这个了,干掉」/「不是说运行中时
-   * 最下面这一行不显示吗?」)。这覆盖了一条带单号的能力 `recvqacy887jsF`
-   * (流式中途就能复制已出的文字)—— 产品拍板整行不出,那条能力随之关掉,
-   * 记在 `specs/current/chat-panel-feedback.md` 的 B50。
-   */
-  /*
-   * 回合状态行**只在最后一轮出**(2026-08-26 产品裁决,用户转述:
-   * 「应该只有最后一轮底部才会显示,之前轮次不要显示,hover 也不显示」)。
-   *
-   * 判据放在**渲染层**而不是 CSS:早先它是 `opacity: 0` + hover 显形,同一份门控
-   * 在 `composio.css` 和 `routines.css` 各写了一遍,而旧皮肤那份靠 `.app` 拔到
-   * (0,2,0) 且排在最后,两头都赢 —— 想改行为得同时删两处。直接不渲染就没有这场
-   * 层叠仗,读起来也说得清:这一行属于「这一轮」,而只有最后一轮还是「这一轮」。
-   *
-   * `!streaming` 那一半仍然要:跑的过程中壳头已经在报状态,底下再报一遍是重复。
-   *
-   * **代价说清楚**:复制 / 反馈 / 分叉这几个动作在历史轮次上因此够不着了。
-   * 这是产品明确要的取舍,不是疏漏 —— 要给历史轮次留入口得另想落点。
+   * Running turns remain excluded: the execution shell already reports their
+   * state and this footer would duplicate it (`chat-panel-feedback.md` B50).
    */
   const showCompletionRow =
     !streaming &&
-    !!isLast &&
     (showFeedback ||
     !!message.startedAt ||
     !!message.endedAt ||
@@ -1123,13 +1109,10 @@ function AssistantMessageImpl({
     hasEmptyResponse ||
     !!copyMarkdown ||
     canFork);
-  /*
-   * 回合状态行只在**最后一轮**出(产品裁决,见上面那段注释),所以这颗按钮也只在
-   * 最后一轮够得着。这不是疏漏:「还欠着活」是**当下**的状态,用户往下发了新的一轮
-   * 之后,该由新的那一轮来回答它还欠不欠。历史轮次要留入口得连同整行的门控一起改。
-   */
+  // Continuing unfinished work is current-turn state, unlike copy/feedback/
+  // fork. Restoring historical action rows must not revive stale todo work.
   const continueRemaining =
-    onContinueRemainingTasks && continuableTodos.length > 0
+    isLast && onContinueRemainingTasks && continuableTodos.length > 0
       ? () => onContinueRemainingTasks(continuableTodos)
       : undefined;
   const canShowOpenDesignSubmission = !!onShareToOpenDesign && showFeedback && runSucceeded;

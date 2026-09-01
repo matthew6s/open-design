@@ -3873,16 +3873,23 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   font-size: 12px;
   color: var(--text-faint);
   width: fit-content;
+  opacity: 0;
+  transition: opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 /*
- * 这里**没有** opacity / hover 门控 —— 出不出由渲染层决定。
- *
- * 产品裁决(2026-08-26):这一行**只在最后一轮**出,之前轮次不显示、hover 也不显示。
- * 判据写在 `AssistantMessage` 的 `showCompletionRow` 上(那儿有完整理由)。
- * 原来这一档是 `opacity: 0` + hover 显形,而**同一份门控在 `routines.css` 里
- * 还有一份**靠 `.app` 拔到 (0,2,0) 且排在最后 —— 两头都赢,只改这里不生效。
- * 现在两处都删干净了:别再往任一处加回 opacity 门控。
+ * OPEND-2542: the final reply is always actionable; settled history reveals
+ * the same controls on message hover or keyboard focus. Opacity deliberately
+ * preserves the row's footprint, so reveal never shifts transcript content.
+ * Keep this as the only ownership point — a former `.app` duplicate in
+ * routines.css overrode the component rule through specificity/import order.
  */
+.msg.assistant:hover .assistant-footer,
+.msg.assistant:focus-within .assistant-footer,
+.assistant-footer[data-last="true"] {
+  opacity: 1;
+  transition-duration: 200ms;
+}
+
 .assistant-footer .dot {
   width: 5px;
   height: 5px;
