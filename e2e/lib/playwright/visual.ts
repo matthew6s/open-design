@@ -164,7 +164,6 @@ function visualPreviewRuntimeHtml(): string {
   return VISUAL_PROJECT_FILE_HTML.replace('<body>', `<head><script data-od-preview-runtime>(function(){
     var identity=${identity};
     var ready=false;
-    var painted=false;
     function send(type,extra){parent.postMessage(Object.assign({type:type},identity,extra||{}),'*');}
     function hello(){send('od:preview:hello',{availableCapabilities:[]});}
     window.addEventListener('message',function(event){
@@ -174,15 +173,15 @@ function visualPreviewRuntimeHtml(): string {
       if(data.type==='od:preview:probe'){
         hello();
         if(ready)send('od:preview:ready');
-        if(painted)send('od:preview:visible-paint');
       }else if(data.type==='od:preview:set-capabilities'){
         send('od:preview:capabilities-applied',{enabledCapabilities:[]});
+      }else if(data.type==='od:preview:presentation-state-barrier'&&Number.isSafeInteger(data.revision)&&data.revision>0){
+        send('od:preview:presentation-state-applied',{revision:data.revision});
       }
     });
     hello();
     window.addEventListener('DOMContentLoaded',function(){
       ready=true;send('od:preview:ready');
-      requestAnimationFrame(function(){requestAnimationFrame(function(){painted=true;send('od:preview:visible-paint');});});
     },{once:true});
   })();</script></head><body>`);
 }

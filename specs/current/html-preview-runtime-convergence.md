@@ -37,8 +37,9 @@ instead of adding another transport-specific fallback.
    resolve from the real file URL/scoped preview base; they are not host-inlined.
 8. Interactive capabilities are negotiated over `postMessage`; enabling or disabling Deck,
    comment, inspect, edit, draw, snapshot, or observability does not replace the iframe.
-9. The last visibly painted version remains visible until its replacement confirms visible
-   paint. Loading and recovery must never expose an empty transport frame.
+9. A same-file last-good version may cover only the short transport handoff. Exact Runtime
+   readiness and host presentation-state acknowledgement promote the requested version;
+   visual appearance never decides which file version is current.
 10. Recovery is navigation-token scoped, bounded, observable, and cannot loop indefinitely.
 11. Inactive files are retained by an explicit LRU policy, not by transport-specific parking.
 
@@ -62,9 +63,12 @@ SUSPENDED
   -> COLD                      LRU eviction
 
 UPDATING(nextVersion)
-  -> READY(nextVersion)        standby frame confirms visible paint; atomic swap
-  -> READY(previousVersion)    bounded attempt fails; retain last-good document
+  -> READY(nextVersion)        exact Runtime + DOM + presentation state; atomic swap
+  -> STALE(previousVersion)    transport fails; visibly label the retained old version
   -> FAILED                    no last-good document exists
+
+STALE(previousVersion)
+  -> LOADING(nextVersion)      explicit retry or a newer file version
 
 FAILED
   -> LOADING                   explicit retry or a newer file version
@@ -160,7 +164,8 @@ host -> iframe: od:preview:set-capabilities
 
 iframe -> host: od:preview:capabilities-applied
 iframe -> host: od:preview:ready
-iframe -> host: od:preview:visible-paint
+host -> iframe: od:preview:presentation-state-barrier
+iframe -> host: od:preview:presentation-state-applied
 ```
 
 The bootstrap discovers and installs Deck, comment, inspect, edit, draw, snapshot,
@@ -207,8 +212,9 @@ current product behavior, including slide sidebar retention and edit-without-rel
 - Introduce a session owner keyed by `(workspace, project, file)`.
 - Make Preview/Code and tab switches visibility-only operations.
 - Introduce an explicit LRU budget for suspended sessions.
-- Load changed versions in a temporary standby frame and swap only after visible-paint
-  acknowledgement; retain the last-good frame on failure.
+- Load changed versions in a temporary standby frame and swap after exact Runtime ready plus
+  presentation-state acknowledgement. A transport failure may retain same-file last-good
+  only with an explicit stale label; authored blank/error output is still the current version.
 - Scope failure/retry state to a navigation token and cap retries.
 
 Exit gate: high-frequency switches, edits during inactivity, project switching, and agent

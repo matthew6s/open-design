@@ -3282,13 +3282,9 @@ export function FileWorkspace({
     }
     setPresentedHtmlViewerName((current) => {
       if (htmlViewerReadyNamesRef.current.names.has(activeName)) return activeName;
-      // A cold LRU revisit has no current document yet. Keep the previous
-      // last-good viewer painted (but inert) until the target reports its
-      // first real visible paint; otherwise the workspace exposes a blank
-      // background between the tab click and the new iframe promotion.
-      if (current && mountedHtmlViewerNames.includes(current)) return current;
-      // First-ever materialization has no last-good surface, so present the
-      // target's localized loading/error state as before.
+      // last-good is file-scoped, never cross-file. A cold LRU revisit must
+      // show the target's loading state instead of silently presenting a
+      // different file's DOM while the requested document starts.
       return activeName;
     });
   }, [activeHtmlViewerFile?.name, mountedHtmlViewerNames.join('\0'), projectId]);

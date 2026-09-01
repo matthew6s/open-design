@@ -314,7 +314,8 @@ beforeEach(() => {
         for (const type of [
           'od:preview:hello',
           'od:preview:capabilities-applied',
-          'od:preview:visible-paint',
+          'od:preview:ready',
+          'od:preview:presentation-state-applied',
         ] as const) {
           window.dispatchEvent(new MessageEvent('message', {
             source: frame.contentWindow,
@@ -326,6 +327,9 @@ beforeEach(() => {
               ...(type === 'od:preview:hello' ? { availableCapabilities } : {}),
               ...(type === 'od:preview:capabilities-applied'
                 ? { enabledCapabilities: availableCapabilities }
+                : {}),
+              ...(type === 'od:preview:presentation-state-applied'
+                ? { revision: 1 }
                 : {}),
             },
           }));
@@ -1730,7 +1734,7 @@ describe('FileWorkspace launcher tab creation', () => {
     expect(mockedFetchProjectScopedPreviewNavigation).toHaveBeenCalledTimes(mintCount);
   });
 
-  it('keeps the last painted runtime viewer visible while an evicted HTML tab rematerializes', async () => {
+  it('never shows another file as last-good while an evicted HTML tab rematerializes', async () => {
     const files = ['alpha.html', 'beta.html', 'gamma.html', 'delta.html'].map(workspaceFile);
     projectPreviewNavigationCache.clear();
     mockedFetchProjectScopedPreviewNavigation.mockImplementation(async (_projectId, fileName) => {
@@ -1818,7 +1822,8 @@ describe('FileWorkspace launcher tab creation', () => {
       for (const type of [
         'od:preview:hello',
         'od:preview:capabilities-applied',
-        'od:preview:visible-paint',
+        'od:preview:ready',
+        'od:preview:presentation-state-applied',
       ] as const) {
         act(() => {
           window.dispatchEvent(new MessageEvent('message', {
@@ -1831,6 +1836,9 @@ describe('FileWorkspace launcher tab creation', () => {
               ...(type === 'od:preview:hello' ? { availableCapabilities: [] } : {}),
               ...(type === 'od:preview:capabilities-applied'
                 ? { enabledCapabilities: [] }
+                : {}),
+              ...(type === 'od:preview:presentation-state-applied'
+                ? { revision: 1 }
                 : {}),
             },
           }));
@@ -1856,18 +1864,17 @@ describe('FileWorkspace launcher tab creation', () => {
       'iframe[title="alpha.html"][data-testid="preview-runtime-frame-standby"]',
     )).not.toBeNull());
 
-    // The logical target is already alpha, but it has not painted yet. Keep
-    // the last-good delta surface presented while alpha remains inert and
-    // transparent; otherwise the workspace exposes its empty background.
-    expect(viewer('delta.html')?.style.opacity).toBe('');
-    expect(viewer('alpha.html')?.style.opacity).toBe('0');
+    // last-good is scoped to versions of the same file. Present alpha's own
+    // loading surface instead of silently showing delta under the wrong tab.
+    expect(viewer('delta.html')?.style.opacity).toBe('0');
+    expect(viewer('alpha.html')?.style.opacity).toBe('');
     expect(viewer('delta.html')?.querySelector<HTMLElement>('.viewer-toolbar')?.style.visibility)
-      .toBe('');
-    expect(viewer('alpha.html')?.querySelector<HTMLElement>('.viewer-toolbar')?.style.visibility)
       .toBe('hidden');
+    expect(viewer('alpha.html')?.querySelector<HTMLElement>('.viewer-toolbar')?.style.visibility)
+      .toBe('');
     expect(viewer('delta.html')?.hasAttribute('inert')).toBe(true);
-    expect(viewer('alpha.html')?.hasAttribute('inert')).toBe(true);
-    expect(viewer('delta.html')?.querySelector('iframe')?.dataset.odActive).toBe('true');
+    expect(viewer('alpha.html')?.hasAttribute('inert')).toBe(false);
+    expect(viewer('delta.html')?.querySelector('iframe')?.dataset.odActive).toBe('false');
     expect(viewer('alpha.html')?.querySelector('iframe')?.dataset.odActive).toBe('false');
 
     await settle('alpha.html');

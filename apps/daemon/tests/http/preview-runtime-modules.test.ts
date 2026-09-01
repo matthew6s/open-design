@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PREVIEW_OBSERVABILITY_BRIDGE_MARKER,
   buildPreviewObservabilityBridge,
+  parsePreviewObservabilityMessage,
 } from '@open-design/contracts/runtime/preview-observability';
-import { parsePreviewRuntimeMessage } from '@open-design/contracts/runtime/preview-runtime';
 import { buildPreviewRuntimeBootstrap } from '../../src/http/preview-runtime-bootstrap.js';
 import {
   buildInstalledScriptRuntimeModule,
@@ -88,9 +88,9 @@ function createObservabilityRuntimeHarness(options: {
   };
 }
 
-function runtimeVisiblePaintCount(messages: readonly unknown[]): number {
+function diagnosticVisiblePaintCount(messages: readonly unknown[]): number {
   return messages.filter((message) => (
-    parsePreviewRuntimeMessage(message)?.type === 'od:preview:visible-paint'
+    parsePreviewObservabilityMessage(message)?.event === 'visible_paint'
   )).length;
 }
 
@@ -98,7 +98,7 @@ describe('preview runtime modules', () => {
   it('keeps a delayed renderer blank until the observability detector finds positive paint', async () => {
     const harness = createObservabilityRuntimeHarness();
     harness.flushImmediateTimers();
-    expect(runtimeVisiblePaintCount(harness.posted)).toBe(0);
+    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(0);
 
     const mutationObserved = new Promise<void>((resolve) => {
       const observer = new harness.dom.window.MutationObserver(() => {
@@ -113,7 +113,7 @@ describe('preview runtime modules', () => {
     await mutationObserved;
     harness.flushImmediateTimers();
 
-    expect(runtimeVisiblePaintCount(harness.posted)).toBe(1);
+    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(1);
     harness.dom.window.close();
   });
 
@@ -125,7 +125,7 @@ describe('preview runtime modules', () => {
     const harness = createObservabilityRuntimeHarness({ bodyHtml, bodyStyle });
     harness.flushImmediateTimers();
 
-    expect(runtimeVisiblePaintCount(harness.posted)).toBe(1);
+    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(1);
     harness.dom.window.close();
   });
 
@@ -136,7 +136,7 @@ describe('preview runtime modules', () => {
     });
     harness.flushImmediateTimers();
 
-    expect(runtimeVisiblePaintCount(harness.posted)).toBe(0);
+    expect(diagnosticVisiblePaintCount(harness.posted)).toBe(0);
     harness.dom.window.close();
   });
 

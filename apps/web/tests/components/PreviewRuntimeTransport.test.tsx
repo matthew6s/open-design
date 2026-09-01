@@ -66,8 +66,9 @@ function view(options: {
 
 function signal(
   frame: HTMLIFrameElement,
-  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:presentation-state-applied' | 'od:preview:ready',
   capabilities: readonly PreviewRuntimeCapability[],
+  revision = 1,
 ) {
   act(() => {
     window.dispatchEvent(new MessageEvent('message', {
@@ -81,6 +82,7 @@ function signal(
         ...(type === 'od:preview:capabilities-applied'
           ? { enabledCapabilities: capabilities }
           : {}),
+        ...(type === 'od:preview:presentation-state-applied' ? { revision } : {}),
       },
     }));
   });
@@ -108,6 +110,10 @@ describe('PreviewRuntimeTransport', () => {
       enabled: true,
       mode: 'inspect',
     }, '*');
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'od:preview:presentation-state-barrier',
+      revision: 1,
+    }), '*');
   });
 
   it('changes comment mode on the retained frame without changing its URL', () => {
@@ -118,7 +124,8 @@ describe('PreviewRuntimeTransport', () => {
     const available: PreviewRuntimeCapability[] = ['observability', 'comment'];
     signal(frame, 'od:preview:hello', available);
     signal(frame, 'od:preview:capabilities-applied', available);
-    signal(frame, 'od:preview:visible-paint', available);
+    signal(frame, 'od:preview:ready', available);
+    signal(frame, 'od:preview:presentation-state-applied', available);
     const src = frame.getAttribute('src');
 
     postMessage.mockClear();
@@ -153,7 +160,8 @@ describe('PreviewRuntimeTransport', () => {
     ];
     signal(frame, 'od:preview:hello', capabilities);
     signal(frame, 'od:preview:capabilities-applied', capabilities);
-    signal(frame, 'od:preview:visible-paint', capabilities);
+    signal(frame, 'od:preview:ready', capabilities);
+    signal(frame, 'od:preview:presentation-state-applied', capabilities);
 
     postMessage.mockClear();
     rerender(view({ viewerState, modeState: currentModeState() }));
@@ -200,7 +208,8 @@ describe('PreviewRuntimeTransport', () => {
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     signal(frame, 'od:preview:hello', ['observability', 'edit']);
     signal(frame, 'od:preview:capabilities-applied', ['observability']);
-    signal(frame, 'od:preview:visible-paint', ['observability']);
+    signal(frame, 'od:preview:ready', ['observability']);
+    signal(frame, 'od:preview:presentation-state-applied', ['observability']);
     const src = frame.getAttribute('src');
 
     postMessage.mockClear();
@@ -224,6 +233,7 @@ describe('PreviewRuntimeTransport', () => {
     );
 
     signal(frame, 'od:preview:capabilities-applied', ['observability', 'edit']);
+    signal(frame, 'od:preview:presentation-state-applied', ['observability', 'edit'], 2);
     expect(frame.getAttribute('src')).toBe(src);
     expect(postMessage).toHaveBeenCalledWith({
       type: 'od-edit-preview-style',
@@ -239,7 +249,8 @@ describe('PreviewRuntimeTransport', () => {
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     signal(frame, 'od:preview:hello', ['observability', 'comment']);
     signal(frame, 'od:preview:capabilities-applied', ['observability', 'comment']);
-    signal(frame, 'od:preview:visible-paint', ['observability', 'comment']);
+    signal(frame, 'od:preview:ready', ['observability', 'comment']);
+    signal(frame, 'od:preview:presentation-state-applied', ['observability', 'comment']);
     const src = frame.getAttribute('src');
 
     postMessage.mockClear();
@@ -311,7 +322,9 @@ describe('PreviewRuntimeTransport', () => {
     }, '*');
 
     postMessage.mockClear();
-    signal(frame, 'od:preview:visible-paint', capabilities);
+    signal(frame, 'od:preview:ready', capabilities);
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    signal(frame, 'od:preview:presentation-state-applied', capabilities);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
     // Promotion asks the now-active Deck for its current state. This is a
     // read-only reconciliation probe; host-owned state restoration above must

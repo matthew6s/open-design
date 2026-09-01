@@ -89,7 +89,6 @@ var availableSet=new Set(available);
 var modules=Object.create(null);
 var activeSet=new Set();
 var readySent=false;
-var visiblePaintSent=false;
 function send(type,extra){parent.postMessage(Object.assign({type:type},identity,extra||{}),'*');}
 function announce(){send('od:preview:hello',{availableCapabilities:available});}
 function normalize(input){if(!Array.isArray(input))return [];return available.filter(function(capability){return input.indexOf(capability)!==-1&&availableSet.has(capability);});}
@@ -113,13 +112,6 @@ function applyCapabilities(input){
   });
   return available.filter(function(capability){return activeSet.has(capability);});
 }
-// The observability module captures this closure-local hook before authored
-// startup. Do not expose it on window: a page must not promote itself.
-function reportVisiblePaint(){
-  if(visiblePaintSent)return;
-  visiblePaintSent=true;
-  send('od:preview:visible-paint');
-}
 ${moduleSources}
 window.addEventListener('message',function(event){
   if(event.source!==parent)return;
@@ -127,7 +119,13 @@ window.addEventListener('message',function(event){
   if(data&&data.type==='od:preview:probe'&&data.protocolVersion===identity.protocolVersion&&data.sessionId===identity.sessionId&&data.documentVersion===identity.documentVersion){
     announce();
     if(readySent)send('od:preview:ready');
-    if(visiblePaintSent)send('od:preview:visible-paint');
+    return;
+  }
+  if(data&&data.type==='od:preview:presentation-state-barrier'&&data.protocolVersion===identity.protocolVersion&&data.sessionId===identity.sessionId&&data.documentVersion===identity.documentVersion&&Number.isSafeInteger(data.revision)&&data.revision>0){
+    // Host messages sent to this window are dispatched in order. Reaching the
+    // barrier proves the preceding Deck/edit/comment/scroll state messages
+    // have run; it says nothing about whether authored content looks valid.
+    send('od:preview:presentation-state-applied',{revision:data.revision});
     return;
   }
   if(!data||data.type!=='od:preview:set-capabilities'||data.protocolVersion!==identity.protocolVersion||data.sessionId!==identity.sessionId||data.documentVersion!==identity.documentVersion)return;

@@ -239,8 +239,9 @@ export function parsePreviewObservabilityMessage(
 
 /**
  * Runs before author scripts and emits a bounded, deduplicated diagnostic
- * stream plus a source-scoped first-visible-paint readiness signal. It
- * deliberately does not serialize arbitrary objects or DOM text.
+ * stream plus bounded visual diagnostics. It deliberately does not serialize
+ * arbitrary objects or DOM text, and visual evidence never controls which
+ * document version the host presents.
  */
 export function buildPreviewObservabilityBridge(): string {
   return `<script ${PREVIEW_OBSERVABILITY_BRIDGE_MARKER}>
@@ -249,10 +250,6 @@ export function buildPreviewObservabilityBridge(): string {
   window.__odPreviewObservability = true;
   var TYPE = ${JSON.stringify(PREVIEW_OBSERVABILITY_MESSAGE_TYPE)};
   var VERSION = ${PREVIEW_OBSERVABILITY_PROTOCOL_VERSION};
-  // When embedded in the versioned runtime this resolves its closure-local
-  // readiness callback. Standalone legacy injection captures null before any
-  // authored script runs, so page code cannot forge the promotion witness.
-  var reportRuntimeVisiblePaint = typeof reportVisiblePaint === 'function' ? reportVisiblePaint : null;
   var WHITE_SCREEN_TIMEOUT = ${PREVIEW_WHITE_SCREEN_TIMEOUT_MS};
   var DECK_STAGE_TIMEOUT = ${PREVIEW_DECK_STAGE_TIMEOUT_MS};
   var DECK_STAGE_MIN_SCALE = ${PREVIEW_DECK_STAGE_MIN_SCALE};
@@ -391,7 +388,6 @@ export function buildPreviewObservabilityBridge(): string {
   function announceVisiblePaint(force){
     if (visiblePaintDetected <= 0 || (visiblePaintAnnounced && !force)) return;
     visiblePaintAnnounced = true;
-    try { if (reportRuntimeVisiblePaint) reportRuntimeVisiblePaint(); } catch (_) {}
     try {
       window.parent.postMessage({
         type: TYPE,

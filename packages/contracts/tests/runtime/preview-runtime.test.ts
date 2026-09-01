@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PREVIEW_RUNTIME_PROTOCOL_VERSION,
+  createPreviewRuntimePresentationStateBarrierMessage,
   createPreviewRuntimeProbeMessage,
   createPreviewRuntimeSetCapabilitiesMessage,
   normalizePreviewRuntimeCapabilities,
@@ -42,10 +43,11 @@ describe('preview runtime protocol', () => {
       protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
       ...identity,
     });
-    const painted = parsePreviewRuntimeMessage({
-      type: 'od:preview:visible-paint',
+    const presentationApplied = parsePreviewRuntimeMessage({
+      type: 'od:preview:presentation-state-applied',
       protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
       ...identity,
+      revision: 3,
     });
 
     expect(hello).toEqual({
@@ -57,7 +59,12 @@ describe('preview runtime protocol', () => {
     expect(hello).not.toHaveProperty('artifactSource');
     expect(applied?.type).toBe('od:preview:capabilities-applied');
     expect(ready?.type).toBe('od:preview:ready');
-    expect(painted?.type).toBe('od:preview:visible-paint');
+    expect(presentationApplied).toEqual({
+      type: 'od:preview:presentation-state-applied',
+      protocolVersion: 1,
+      ...identity,
+      revision: 3,
+    });
   });
 
   it('creates a canonical host capability command', () => {
@@ -74,6 +81,15 @@ describe('preview runtime protocol', () => {
       protocolVersion: 1,
       ...identity,
       enabledCapabilities: ['selection', 'edit'],
+    });
+    expect(createPreviewRuntimePresentationStateBarrierMessage({
+      ...identity,
+      revision: 7,
+    })).toEqual({
+      type: 'od:preview:presentation-state-barrier',
+      protocolVersion: 1,
+      ...identity,
+      revision: 7,
     });
   });
 
@@ -92,6 +108,11 @@ describe('preview runtime protocol', () => {
       ...base,
       type: 'od:preview:hello',
       availableCapabilities: ['deck', 'arbitrary'],
+    })).toBeNull();
+    expect(parsePreviewRuntimeMessage({
+      ...base,
+      type: 'od:preview:presentation-state-applied',
+      revision: 0,
     })).toBeNull();
   });
 

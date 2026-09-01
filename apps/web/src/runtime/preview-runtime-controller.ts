@@ -1,5 +1,6 @@
 import {
   createPreviewRuntimeProbeMessage,
+  createPreviewRuntimePresentationStateBarrierMessage,
   createPreviewRuntimeSetCapabilitiesMessage,
   normalizePreviewRuntimeCapabilities,
   parsePreviewRuntimeMessage,
@@ -16,7 +17,7 @@ export interface PreviewRuntimeMessageTarget {
 export interface PreviewRuntimeControllerCallbacks {
   onCapabilitiesApplied?: (capabilities: readonly PreviewRuntimeCapability[]) => void;
   onReady?: () => void;
-  onVisiblePaint?: () => void;
+  onPresentationStateApplied?: () => void;
 }
 
 export interface PreviewRuntimeMessageEvent {
@@ -36,6 +37,8 @@ export class PreviewRuntimeController {
   #available: PreviewRuntimeCapability[] | null = null;
   #desired: PreviewRuntimeCapability[];
   #lastCommandKey: string | null = null;
+  #nextPresentationRevision = 1;
+  #pendingPresentationRevision: number | null = null;
 
   constructor(options: {
     identity: PreviewRuntimeDocumentIdentity;
@@ -69,20 +72,32 @@ export class PreviewRuntimeController {
       case 'od:preview:hello':
         this.#available = message.availableCapabilities;
         this.#lastCommandKey = null;
+        this.#pendingPresentationRevision = null;
         this.#sendCapabilityCommand();
         break;
       case 'od:preview:capabilities-applied':
         if (message.enabledCapabilities.join('\0') === this.#lastCommandKey) {
           this.#callbacks.onCapabilitiesApplied?.(message.enabledCapabilities);
+          const revision = this.#nextPresentationRevision;
+          this.#nextPresentationRevision = revision >= Number.MAX_SAFE_INTEGER ? 1 : revision + 1;
+          this.#pendingPresentationRevision = revision;
+          this.#target.postMessage(createPreviewRuntimePresentationStateBarrierMessage({
+            ...this.#identity,
+            revision,
+          }), '*');
+        }
+        break;
+      case 'od:preview:presentation-state-applied':
+        if (message.revision === this.#pendingPresentationRevision) {
+          this.#pendingPresentationRevision = null;
+          this.#callbacks.onPresentationStateApplied?.();
         }
         break;
       case 'od:preview:ready':
         this.#callbacks.onReady?.();
         break;
-      case 'od:preview:visible-paint':
-        this.#callbacks.onVisiblePaint?.();
-        break;
       case 'od:preview:set-capabilities':
+      case 'od:preview:presentation-state-barrier':
         return null;
     }
     return message;
@@ -95,6 +110,7 @@ export class PreviewRuntimeController {
     const commandKey = enabledCapabilities.join('\0');
     if (commandKey === this.#lastCommandKey) return false;
     this.#lastCommandKey = commandKey;
+    this.#pendingPresentationRevision = null;
     this.#target.postMessage(createPreviewRuntimeSetCapabilitiesMessage({
       ...this.#identity,
       enabledCapabilities,

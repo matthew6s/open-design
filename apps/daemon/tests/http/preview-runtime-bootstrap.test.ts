@@ -121,62 +121,27 @@ describe('preview runtime bootstrap', () => {
       ...identity,
       enabledCapabilities: ['snapshot', 'deck'],
     });
-  });
 
-  it('replays visible paint only after a runtime module provides the private witness', () => {
-    const bootstrap = buildPreviewRuntimeBootstrap({
+    for (const listener of listeners.get('message') ?? []) {
+      listener({
+        source: parent,
+        data: {
+          type: 'od:preview:presentation-state-barrier',
+          protocolVersion: 1,
+          ...identity,
+          revision: 4,
+        },
+      });
+    }
+    expect(parsePreviewRuntimeMessage(messages.at(-1))).toEqual({
+      type: 'od:preview:presentation-state-applied',
+      protocolVersion: 1,
       ...identity,
-      availableCapabilities: ['observability'],
-      modules: [{
-        capabilities: ['observability'],
-        source: "window.__testReportVisiblePaint=reportVisiblePaint;register('observability',function(){return {};});",
-      }],
+      revision: 4,
     });
-    const source = bootstrap.replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
-    const messages: unknown[] = [];
-    const listeners = new Map<string, Array<(event: any) => void>>();
-    const parent = { postMessage: (message: unknown) => messages.push(message) };
-    const context: Record<string, any> = {
-      document: { readyState: 'complete' },
-      parent,
-      queueMicrotask: (callback: () => void) => callback(),
-      Set,
-    };
-    context.window = context;
-    context.addEventListener = (type: string, listener: (event: any) => void) => {
-      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
-    };
-    const probe = () => {
-      for (const listener of listeners.get('message') ?? []) {
-        listener({
-          source: parent,
-          data: { type: 'od:preview:probe', protocolVersion: 1, ...identity },
-        });
-      }
-    };
-
-    vm.runInNewContext(source, context);
-    expect(context.reportVisiblePaint).toBeUndefined();
-    probe();
-    expect(messages.some((message) => (
-      parsePreviewRuntimeMessage(message)?.type === 'od:preview:visible-paint'
-    ))).toBe(false);
-
-    context.__testReportVisiblePaint();
-    probe();
-    expect(messages.slice(-3).map(parsePreviewRuntimeMessage)).toEqual([
-      {
-        type: 'od:preview:hello',
-        protocolVersion: 1,
-        ...identity,
-        availableCapabilities: ['observability'],
-      },
-      { type: 'od:preview:ready', protocolVersion: 1, ...identity },
-      { type: 'od:preview:visible-paint', protocolVersion: 1, ...identity },
-    ]);
   });
 
-  it('does not infer visible paint from DOM readiness or elapsed time', () => {
+  it('reports protocol readiness without making a visual-content claim', () => {
     const bootstrap = buildPreviewRuntimeBootstrap(identity);
     const source = bootstrap.replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
     const messages: unknown[] = [];

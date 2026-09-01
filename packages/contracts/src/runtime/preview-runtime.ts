@@ -29,8 +29,9 @@ export const PREVIEW_RUNTIME_MESSAGE_TYPES = [
   'od:preview:hello',
   'od:preview:set-capabilities',
   'od:preview:capabilities-applied',
+  'od:preview:presentation-state-barrier',
+  'od:preview:presentation-state-applied',
   'od:preview:ready',
-  'od:preview:visible-paint',
 ] as const;
 
 export type PreviewRuntimeMessageType = typeof PREVIEW_RUNTIME_MESSAGE_TYPES[number];
@@ -63,12 +64,18 @@ export interface PreviewRuntimeCapabilitiesAppliedMessage extends PreviewRuntime
   enabledCapabilities: PreviewRuntimeCapability[];
 }
 
-export interface PreviewRuntimeReadyMessage extends PreviewRuntimeMessageBase {
-  type: 'od:preview:ready';
+export interface PreviewRuntimePresentationStateBarrierMessage extends PreviewRuntimeMessageBase {
+  type: 'od:preview:presentation-state-barrier';
+  revision: number;
 }
 
-export interface PreviewRuntimeVisiblePaintMessage extends PreviewRuntimeMessageBase {
-  type: 'od:preview:visible-paint';
+export interface PreviewRuntimePresentationStateAppliedMessage extends PreviewRuntimeMessageBase {
+  type: 'od:preview:presentation-state-applied';
+  revision: number;
+}
+
+export interface PreviewRuntimeReadyMessage extends PreviewRuntimeMessageBase {
+  type: 'od:preview:ready';
 }
 
 export type PreviewRuntimeMessage =
@@ -76,8 +83,9 @@ export type PreviewRuntimeMessage =
   | PreviewRuntimeHelloMessage
   | PreviewRuntimeSetCapabilitiesMessage
   | PreviewRuntimeCapabilitiesAppliedMessage
-  | PreviewRuntimeReadyMessage
-  | PreviewRuntimeVisiblePaintMessage;
+  | PreviewRuntimePresentationStateBarrierMessage
+  | PreviewRuntimePresentationStateAppliedMessage
+  | PreviewRuntimeReadyMessage;
 
 const MAX_IDENTITY_LENGTH = 200;
 const CAPABILITY_SET = new Set<string>(PREVIEW_RUNTIME_CAPABILITIES);
@@ -104,6 +112,14 @@ function parseCapabilities(value: unknown): PreviewRuntimeCapability[] | null {
     capabilities.push(capability as PreviewRuntimeCapability);
   }
   return normalizePreviewRuntimeCapabilities(capabilities);
+}
+
+function parseRevision(value: unknown): number | null {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value > 0
+    ? value
+    : null;
 }
 
 export function normalizePreviewRuntimeCapabilities(
@@ -140,8 +156,13 @@ export function parsePreviewRuntimeMessage(value: unknown): PreviewRuntimeMessag
       if (enabledCapabilities === null) return null;
       return { type: messageType, ...base, enabledCapabilities };
     }
+    case 'od:preview:presentation-state-barrier':
+    case 'od:preview:presentation-state-applied': {
+      const revision = parseRevision(value.revision);
+      if (revision === null) return null;
+      return { type: messageType, ...base, revision };
+    }
     case 'od:preview:ready':
-    case 'od:preview:visible-paint':
       return { type: messageType, ...base };
   }
 }
@@ -174,6 +195,25 @@ export function createPreviewRuntimeSetCapabilitiesMessage(
     sessionId: input.sessionId,
     documentVersion: input.documentVersion,
     enabledCapabilities: normalizePreviewRuntimeCapabilities(input.enabledCapabilities),
+  };
+}
+
+export function createPreviewRuntimePresentationStateBarrierMessage(
+  input: PreviewRuntimeDocumentIdentity & { revision: number },
+): PreviewRuntimePresentationStateBarrierMessage {
+  if (!isBoundedIdentity(input.sessionId) || !isBoundedIdentity(input.documentVersion)) {
+    throw new TypeError('preview runtime document identity must be a non-empty bounded string');
+  }
+  const revision = parseRevision(input.revision);
+  if (revision === null) {
+    throw new TypeError('preview runtime presentation revision must be a positive safe integer');
+  }
+  return {
+    type: 'od:preview:presentation-state-barrier',
+    protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+    sessionId: input.sessionId,
+    documentVersion: input.documentVersion,
+    revision,
   };
 }
 

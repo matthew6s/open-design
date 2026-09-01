@@ -66,10 +66,9 @@ interface RenderedPreviewDocument extends Omit<PreviewSessionNavigation, 'runtim
 }
 
 const EMPTY_CAPABILITIES: readonly PreviewRuntimeCapability[] = [];
-// The bootstrap is injected before author scripts and emits visible-paint
-// after two animation frames. Standby frames remain paint-eligible while
-// transparent, so five seconds bounds a broken runtime handshake without
-// treating slow author resources as a successful preview.
+// This bounds a broken Runtime handshake. It is not a visual-content timeout:
+// authored blank/error output remains a valid current version once the exact
+// Runtime and presentation-state protocol has settled.
 export const PREVIEW_SESSION_STANDBY_TIMEOUT_MS = 5_000;
 
 function identityKey(identity: PreviewRuntimeDocumentIdentity): string {
@@ -93,8 +92,8 @@ function documentKeepAliveKey(
 }
 
 /**
- * Retain one last-good real-URL iframe while an exact new document version
- * paints in a transparent, inert standby iframe. The component never assigns
+ * Retain one same-file real-URL iframe while an exact new document version
+ * settles in a transparent, inert standby iframe. The component never assigns
  * about:blank and never mutates the URL of an existing browsing context.
  *
  * FileViewer uses this as its only settled-file document transport. Version

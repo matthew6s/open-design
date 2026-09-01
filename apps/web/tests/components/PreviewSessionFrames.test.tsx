@@ -37,8 +37,9 @@ function navigation(
 function signal(
   frame: HTMLIFrameElement,
   document: PreviewSessionNavigation,
-  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:visible-paint',
+  type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:presentation-state-applied' | 'od:preview:ready',
   enabledCapabilities: readonly PreviewRuntimeCapability[] = [],
+  revision = 1,
 ) {
   act(() => {
     window.dispatchEvent(new MessageEvent('message', {
@@ -50,6 +51,7 @@ function signal(
         documentVersion: document.documentVersion,
         ...(type === 'od:preview:hello' ? { availableCapabilities: ['scroll', 'edit'] } : {}),
         ...(type === 'od:preview:capabilities-applied' ? { enabledCapabilities } : {}),
+        ...(type === 'od:preview:presentation-state-applied' ? { revision } : {}),
       },
     }));
   });
@@ -58,11 +60,12 @@ function signal(
 function settle(frame: HTMLIFrameElement, document: PreviewSessionNavigation) {
   signal(frame, document, 'od:preview:hello');
   signal(frame, document, 'od:preview:capabilities-applied');
-  signal(frame, document, 'od:preview:visible-paint');
+  signal(frame, document, 'od:preview:ready');
+  signal(frame, document, 'od:preview:presentation-state-applied');
 }
 
 describe('PreviewSessionFrames', () => {
-  it('keeps standby paintable but inert until exact visible paint, then promotes the same frame', () => {
+  it('keeps standby inert until exact runtime and presentation readiness, then promotes it', () => {
     const first = navigation('v1');
     const onCurrentFrameChange = vi.fn();
     render(
@@ -88,9 +91,9 @@ describe('PreviewSessionFrames', () => {
     signal(standby, first, 'od:preview:ready');
     expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
 
-    signal(standby, first, 'od:preview:visible-paint');
-    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
     signal(standby, first, 'od:preview:capabilities-applied');
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    signal(standby, first, 'od:preview:presentation-state-applied');
     const current = screen.getByTestId('preview-runtime-frame-current');
     expect(current).toBe(standby);
     expect(current).toHaveAttribute('data-od-active', 'true');
@@ -438,7 +441,8 @@ describe('PreviewSessionFrames', () => {
     signal(frame, first, 'od:preview:hello');
     signal(frame, first, 'od:preview:capabilities-applied', ['edit']);
     expect(onCapabilitiesApplied).toHaveBeenLastCalledWith(frame, ['edit']);
-    signal(frame, first, 'od:preview:visible-paint');
+    signal(frame, first, 'od:preview:ready');
+    signal(frame, first, 'od:preview:presentation-state-applied');
 
     postMessage.mockClear();
     await act(async () => {
@@ -450,6 +454,7 @@ describe('PreviewSessionFrames', () => {
       enabledCapabilities: ['scroll'],
     }), '*');
     signal(frame, first, 'od:preview:capabilities-applied', ['scroll']);
+    signal(frame, first, 'od:preview:presentation-state-applied', ['scroll'], 2);
     expect(onCapabilitiesApplied).toHaveBeenLastCalledWith(frame, ['scroll']);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
   });

@@ -18,8 +18,7 @@ describe('preview observability contract', () => {
     expect(bridge).toContain("send('console_error'");
     expect(bridge).toContain("send('resource_error'");
     expect(bridge).toContain("event: 'visible_paint'");
-    expect(bridge).toContain("typeof reportVisiblePaint === 'function' ? reportVisiblePaint : null");
-    expect(bridge).toContain('if (reportRuntimeVisiblePaint) reportRuntimeVisiblePaint()');
+    expect(bridge).not.toContain('reportVisiblePaint');
     expect(bridge).toContain('document_epoch: documentEpoch');
     expect(bridge).toContain("send('white_screen'");
     expect(bridge).toContain('stack: text(value.stack, 2000)');

@@ -22,7 +22,7 @@ export interface PreviewSessionSnapshot {
   standby: PreviewRuntimeDocumentIdentity | null;
   standbyReady: boolean;
   standbyCapabilitiesApplied: boolean;
-  standbyVisiblePaint: boolean;
+  standbyPresentationStateApplied: boolean;
   suspended: boolean;
 }
 
@@ -45,7 +45,7 @@ interface ManagedPreviewDocument {
   controller: PreviewRuntimeController;
   ready: boolean;
   capabilitiesApplied: boolean;
-  visiblePaint: boolean;
+  presentationStateApplied: boolean;
 }
 
 /**
@@ -53,8 +53,9 @@ interface ManagedPreviewDocument {
  *
  * This class intentionally does not mutate iframe URLs or DOM visibility.
  * React owns those nodes; the session only promotes an exact, fenced standby
- * after the runtime proves a visible paint. Preview/Code and tab switches set
- * `suspended` and therefore never navigate the retained browsing context.
+ * after the exact runtime reaches DOM-ready and acknowledges all host-owned
+ * presentation state. Visual appearance is diagnostic only: a valid blank or
+ * broken authored page must still become the current file version.
  */
 export class PreviewSession {
   readonly #callbacks: PreviewSessionCallbacks;
@@ -80,7 +81,7 @@ export class PreviewSession {
       document,
       ready: false,
       capabilitiesApplied: false,
-      visiblePaint: false,
+      presentationStateApplied: false,
       controller: new PreviewRuntimeController({
         identity: document,
         target: document.target,
@@ -88,17 +89,18 @@ export class PreviewSession {
         callbacks: {
           onCapabilitiesApplied: (capabilities) => {
             managed.capabilitiesApplied = true;
+            managed.presentationStateApplied = false;
             this.#callbacks.onCapabilitiesApplied?.(managed.document, capabilities);
-            if (!this.#promoteIfSettled(managed)) this.#emitSnapshot();
+            this.#emitSnapshot();
           },
           onReady: () => {
             if (this.#standby !== managed) return;
             managed.ready = true;
             this.#callbacks.onStandbyReady?.(managed.document);
-            this.#emitSnapshot();
+            if (!this.#promoteIfSettled(managed)) this.#emitSnapshot();
           },
-          onVisiblePaint: () => {
-            managed.visiblePaint = true;
+          onPresentationStateApplied: () => {
+            managed.presentationStateApplied = true;
             if (!this.#promoteIfSettled(managed)) this.#emitSnapshot();
           },
         },
@@ -123,6 +125,7 @@ export class PreviewSession {
     for (const managed of [this.#current, this.#standby]) {
       if (managed?.controller.setEnabledCapabilities(capabilities)) {
         managed.capabilitiesApplied = false;
+        managed.presentationStateApplied = false;
       }
     }
   }
@@ -157,7 +160,7 @@ export class PreviewSession {
       standby: identityOf(this.#standby?.document),
       standbyReady: this.#standby?.ready ?? false,
       standbyCapabilitiesApplied: this.#standby?.capabilitiesApplied ?? false,
-      standbyVisiblePaint: this.#standby?.visiblePaint ?? false,
+      standbyPresentationStateApplied: this.#standby?.presentationStateApplied ?? false,
       suspended: this.#suspended,
     };
   }
@@ -172,7 +175,9 @@ export class PreviewSession {
   }
 
   #promoteIfSettled(managed: ManagedPreviewDocument): boolean {
-    if (!managed.capabilitiesApplied || !managed.visiblePaint) return false;
+    if (!managed.ready || !managed.capabilitiesApplied || !managed.presentationStateApplied) {
+      return false;
+    }
     this.#promote(managed);
     return true;
   }

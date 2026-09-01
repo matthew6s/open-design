@@ -9000,9 +9000,10 @@ describe('FileViewer tweaks toolbar', () => {
       'palette',
     ];
     const signal = (
-      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
       capabilities: readonly PreviewRuntimeCapability[],
       target: HTMLIFrameElement = frame,
+      revision = 1,
     ) => {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -9016,6 +9017,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision } : {}),
           },
         }));
       });
@@ -9023,7 +9025,8 @@ describe('FileViewer tweaks toolbar', () => {
 
     signal('od:preview:hello', [...baseCapabilities, 'comment', 'edit']);
     signal('od:preview:capabilities-applied', baseCapabilities);
-    signal('od:preview:visible-paint', baseCapabilities);
+    signal('od:preview:ready', baseCapabilities);
+    signal('od:preview:presentation-state-applied', baseCapabilities);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
 
     postMessage.mockImplementation((message: unknown) => {
@@ -9307,7 +9310,8 @@ describe('FileViewer tweaks toolbar', () => {
       enabledCapabilities: [...baseCapabilities, 'edit'],
     }), '*');
     signal('od:preview:capabilities-applied', [...baseCapabilities, 'edit'], recoveredFrame);
-    signal('od:preview:visible-paint', [...baseCapabilities, 'edit'], recoveredFrame);
+    signal('od:preview:ready', [...baseCapabilities, 'edit'], recoveredFrame);
+    signal('od:preview:presentation-state-applied', [...baseCapabilities, 'edit'], recoveredFrame);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(recoveredFrame);
     expect(recoveredFrame.getAttribute('src')).toBe(initialSrc);
 
@@ -9332,7 +9336,8 @@ describe('FileViewer tweaks toolbar', () => {
     });
     signal('od:preview:hello', [...baseCapabilities, 'comment', 'edit'], explicitReload);
     signal('od:preview:capabilities-applied', [...baseCapabilities, 'edit'], explicitReload);
-    signal('od:preview:visible-paint', [...baseCapabilities, 'edit'], explicitReload);
+    signal('od:preview:ready', [...baseCapabilities, 'edit'], explicitReload);
+    signal('od:preview:presentation-state-applied', [...baseCapabilities, 'edit'], explicitReload);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(explicitReload);
     expect(explicitReload.getAttribute('src')).toBe(initialSrc);
     expect(fetchMock.mock.calls.filter(([input]) => (
@@ -9408,8 +9413,9 @@ describe('FileViewer tweaks toolbar', () => {
       'palette',
     ];
     const signal = (
-      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
       capabilities: readonly PreviewRuntimeCapability[],
+      revision = 1,
     ) => {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -9423,6 +9429,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision } : {}),
           },
         }));
       });
@@ -9430,7 +9437,8 @@ describe('FileViewer tweaks toolbar', () => {
 
     signal('od:preview:hello', [...baseCapabilities, 'draw']);
     signal('od:preview:capabilities-applied', baseCapabilities);
-    signal('od:preview:visible-paint', baseCapabilities);
+    signal('od:preview:ready', baseCapabilities);
+    signal('od:preview:presentation-state-applied', baseCapabilities);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
 
     postMessage.mockClear();
@@ -9442,6 +9450,7 @@ describe('FileViewer tweaks toolbar', () => {
       }), '*');
     });
     signal('od:preview:capabilities-applied', drawCapabilities);
+    signal('od:preview:presentation-state-applied', drawCapabilities, 2);
     expect(screen.getByTestId('draw-overlay-toggle')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByPlaceholderText('Add a note for this mark')).toBeTruthy();
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
@@ -9456,6 +9465,7 @@ describe('FileViewer tweaks toolbar', () => {
       }), '*');
     });
     signal('od:preview:capabilities-applied', baseCapabilities);
+    signal('od:preview:presentation-state-applied', baseCapabilities, 3);
     expect(screen.getByTestId('draw-overlay-toggle')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByPlaceholderText('Add a note for this mark')).toBeNull();
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
@@ -9538,7 +9548,8 @@ describe('FileViewer tweaks toolbar', () => {
     for (const type of [
       'od:preview:hello',
       'od:preview:capabilities-applied',
-      'od:preview:visible-paint',
+      'od:preview:ready',
+      'od:preview:presentation-state-applied',
     ] as const) {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -9554,6 +9565,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
@@ -9659,7 +9671,8 @@ describe('FileViewer tweaks toolbar', () => {
     for (const type of [
       'od:preview:hello',
       'od:preview:capabilities-applied',
-      'od:preview:visible-paint',
+      'od:preview:ready',
+      'od:preview:presentation-state-applied',
     ] as const) {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -9675,6 +9688,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
@@ -9956,7 +9970,7 @@ describe('FileViewer tweaks toolbar', () => {
       'palette',
     ];
     const signal = (
-      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
     ) => {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -9970,13 +9984,15 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
     };
     signal('od:preview:hello');
     signal('od:preview:capabilities-applied');
-    signal('od:preview:visible-paint');
+    signal('od:preview:ready');
+    signal('od:preview:presentation-state-applied');
 
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
     expect(screen.queryByTestId('artifact-preview-first-load')).toBeNull();
@@ -10234,7 +10250,7 @@ describe('FileViewer tweaks toolbar', () => {
         'palette',
       ];
       const runtimeSignal = (
-        type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+        type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
       ) => {
         act(() => {
           window.dispatchEvent(new MessageEvent('message', {
@@ -10248,13 +10264,15 @@ describe('FileViewer tweaks toolbar', () => {
               ...(type === 'od:preview:capabilities-applied'
                 ? { enabledCapabilities: capabilities }
                 : {}),
+              ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
             },
           }));
         });
       };
       runtimeSignal('od:preview:hello');
       runtimeSignal('od:preview:capabilities-applied');
-      runtimeSignal('od:preview:visible-paint');
+      runtimeSignal('od:preview:ready');
+      runtimeSignal('od:preview:presentation-state-applied');
       expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
 
       act(() => {
@@ -10272,7 +10290,7 @@ describe('FileViewer tweaks toolbar', () => {
     }
   });
 
-  it('keeps the last-good frame visible until an agent-written revision paints', async () => {
+  it('keeps the same-file last-good frame visible until an agent-written revision applies presentation state', async () => {
     const fileV1 = htmlPreviewFile({ mtime: 1_000, size: 100 });
     const fileV2 = htmlPreviewFile({ mtime: 2_000, size: 120 });
     let servedVersion = 1;
@@ -10320,7 +10338,7 @@ describe('FileViewer tweaks toolbar', () => {
     const signal = (
       frame: HTMLIFrameElement,
       version: number,
-      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
     ) => {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -10334,6 +10352,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
@@ -10354,7 +10373,8 @@ describe('FileViewer tweaks toolbar', () => {
     ));
     signal(first, 1, 'od:preview:hello');
     signal(first, 1, 'od:preview:capabilities-applied');
-    signal(first, 1, 'od:preview:visible-paint');
+    signal(first, 1, 'od:preview:ready');
+    signal(first, 1, 'od:preview:presentation-state-applied');
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
 
     servedVersion = 2;
@@ -10373,7 +10393,9 @@ describe('FileViewer tweaks toolbar', () => {
     signal(replacement, 2, 'od:preview:hello');
     signal(replacement, 2, 'od:preview:capabilities-applied');
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
-    signal(replacement, 2, 'od:preview:visible-paint');
+    signal(replacement, 2, 'od:preview:ready');
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
+    signal(replacement, 2, 'od:preview:presentation-state-applied');
 
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(replacement);
     expect(document.body.contains(first)).toBe(false);
@@ -10444,7 +10466,8 @@ describe('FileViewer tweaks toolbar', () => {
     for (const type of [
       'od:preview:hello',
       'od:preview:capabilities-applied',
-      'od:preview:visible-paint',
+      'od:preview:ready',
+      'od:preview:presentation-state-applied',
     ] as const) {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -10460,6 +10483,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
@@ -10564,7 +10588,7 @@ describe('FileViewer tweaks toolbar', () => {
     ];
     const availableCapabilities: PreviewRuntimeCapability[] = [...capabilities, 'edit'];
     const signal = (
-      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:visible-paint',
+      type: 'od:preview:hello' | 'od:preview:capabilities-applied' | 'od:preview:ready' | 'od:preview:presentation-state-applied',
     ) => {
       act(() => {
         window.dispatchEvent(new MessageEvent('message', {
@@ -10578,6 +10602,7 @@ describe('FileViewer tweaks toolbar', () => {
             ...(type === 'od:preview:capabilities-applied'
               ? { enabledCapabilities: capabilities }
               : {}),
+            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
           },
         }));
       });
@@ -10595,7 +10620,8 @@ describe('FileViewer tweaks toolbar', () => {
         data: { type: 'od:slide-state', active: 0, count: 5 },
       }));
     });
-    signal('od:preview:visible-paint');
+    signal('od:preview:ready');
+    signal('od:preview:presentation-state-applied');
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
     expect(postMessage).toHaveBeenCalledWith({ type: 'od:slide-state-probe' }, '*');
     act(() => {

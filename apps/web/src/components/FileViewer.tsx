@@ -14813,8 +14813,8 @@ function HtmlViewer({
     if (previewRuntimeConvergenceActive) {
       // Reload the real URL in a fresh standby browsing context even when the
       // daemon's exact documentVersion is unchanged (for example, when only a
-      // relative support.js or stylesheet changed). The promoted last-good
-      // frame remains painted until this attempt reports visible-paint.
+      // relative support.js or stylesheet changed). The same-file current
+      // frame remains visible until the replacement protocol settles.
       setPreviewRuntimeNavigationRetryToken((current) => current + 1);
     }
     // The Edit path already navigated the hidden URL through its standby

@@ -68,14 +68,20 @@ describe('PreviewRuntimeController', () => {
       },
     });
     expect(onCapabilitiesApplied).toHaveBeenCalledWith([]);
+    expect(target.postMessage).toHaveBeenLastCalledWith({
+      type: 'od:preview:presentation-state-barrier',
+      protocolVersion: 1,
+      ...identity,
+      revision: 1,
+    }, '*');
   });
 
   it('ignores foreign and stale documents while reporting exact lifecycle signals', () => {
     const target = { postMessage: vi.fn() };
     const callbacks = {
       onCapabilitiesApplied: vi.fn(),
+      onPresentationStateApplied: vi.fn(),
       onReady: vi.fn(),
-      onVisiblePaint: vi.fn(),
     };
     const controller = new PreviewRuntimeController({ identity, target, callbacks });
     const message = (type: string, overrides: Record<string, unknown> = {}) => ({
@@ -98,7 +104,6 @@ describe('PreviewRuntimeController', () => {
       data: message('od:preview:hello', { availableCapabilities: [] }),
     });
     controller.handleMessage({ source: target, data: message('od:preview:ready') });
-    controller.handleMessage({ source: target, data: message('od:preview:visible-paint') });
     controller.handleMessage({
       source: target,
       data: message('od:preview:capabilities-applied', { enabledCapabilities: ['edit'] }),
@@ -111,7 +116,46 @@ describe('PreviewRuntimeController', () => {
     });
 
     expect(callbacks.onReady).toHaveBeenCalledOnce();
-    expect(callbacks.onVisiblePaint).toHaveBeenCalledOnce();
     expect(callbacks.onCapabilitiesApplied).toHaveBeenCalledWith([]);
+    controller.handleMessage({
+      source: target,
+      data: message('od:preview:presentation-state-applied', { revision: 1 }),
+    });
+    expect(callbacks.onPresentationStateApplied).toHaveBeenCalledOnce();
+  });
+
+  it('rejects stale presentation acknowledgements from prior commands', () => {
+    const target = { postMessage: vi.fn() };
+    const onPresentationStateApplied = vi.fn();
+    const controller = new PreviewRuntimeController({
+      identity,
+      target,
+      callbacks: { onPresentationStateApplied },
+    });
+    const message = (type: string, overrides: Record<string, unknown> = {}) => ({
+      type,
+      protocolVersion: 1,
+      ...identity,
+      ...overrides,
+    });
+
+    controller.handleMessage({
+      source: target,
+      data: message('od:preview:hello', { availableCapabilities: [] }),
+    });
+    controller.handleMessage({
+      source: target,
+      data: message('od:preview:capabilities-applied', { enabledCapabilities: [] }),
+    });
+    controller.handleMessage({
+      source: target,
+      data: message('od:preview:presentation-state-applied', { revision: 2 }),
+    });
+    expect(onPresentationStateApplied).not.toHaveBeenCalled();
+    controller.handleMessage({
+      source: target,
+      data: message('od:preview:presentation-state-applied', { revision: 1 }),
+    });
+    expect(onPresentationStateApplied).toHaveBeenCalledOnce();
   });
 });
