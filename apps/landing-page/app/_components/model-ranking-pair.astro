@@ -92,9 +92,11 @@ const labelRect = (input: RankingRow, dir: string): Box => {
   switch (dir) {
     case 'up': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y, y1: row.y + GAP_Y + LABEL_H };
     case 'down': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H, y1: row.y - GAP_Y };
-    // 两点几乎重合时，八个近距离方向可能全被占满，再给一档远距离出路。
+    // 两点几乎重合时，八个近距离方向可能全被占满，再给四个远距离出路。
     case 'up-far': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y + LABEL_H, y1: row.y + GAP_Y + LABEL_H * 2.1 };
     case 'down-far': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H * 2.1, y1: row.y - GAP_Y - LABEL_H };
+    case 'up-far2': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y + LABEL_H * 2.1, y1: row.y + GAP_Y + LABEL_H * 3.2 };
+    case 'down-far2': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H * 3.2, y1: row.y - GAP_Y - LABEL_H * 2.1 };
     case 'left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y - half, y1: row.y + half };
     case 'right': return { x0: row.x + GAP_X, x1: row.x + GAP_X + w, y0: row.y - half, y1: row.y + half };
     case 'up-left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y + GAP_Y - half, y1: row.y + GAP_Y + half };
@@ -104,7 +106,7 @@ const labelRect = (input: RankingRow, dir: string): Box => {
   }
 };
 const overlaps = (a: Box, b: Box) => a.x1 > b.x0 && a.x0 < b.x1 && a.y1 > b.y0 && a.y0 < b.y1;
-const DIRECTIONS = ['right', 'left', 'up', 'down', 'up-right', 'up-left', 'down-right', 'down-left', 'up-far', 'down-far'];
+const DIRECTIONS = ['right', 'left', 'up', 'down', 'up-right', 'up-left', 'down-right', 'down-left', 'up-far', 'down-far', 'up-far2', 'down-far2'];
 const labelDirs = new Map<string, string>();
 const boxes = new Map<string, Box>();
 
@@ -130,7 +132,7 @@ const bestDir = (row: RankingRow) => DIRECTIONS
 });
 // 贪心会把后放的标签逼进死角，再跑两轮局部修复：
 // 此时所有标签都已就位，重算一遍能让它们互相让开。
-for (let pass = 0; pass < 2; pass += 1) {
+for (let pass = 0; pass < 4; pass += 1) {
   group.rows.forEach((row) => {
     const best = bestDir(row);
     boxes.set(row.name, best.box);
@@ -156,7 +158,7 @@ for (let pass = 0; pass < 2; pass += 1) {
     </header>
     <div class="ranking-chart">
       <div class="ranking-chart-scroll">
-        <div class="ranking-list" aria-label={modelLabel}>
+        <div class="ranking-list" aria-label={modelLabel} style={`--ranking-columns:${group.rows.length}`}>
           {group.rows.map((model, index) => (
             <div
               class="ranking-row"

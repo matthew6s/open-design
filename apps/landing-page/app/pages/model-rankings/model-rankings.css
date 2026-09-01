@@ -391,8 +391,9 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   white-space: nowrap;
 }
 .ranking-chart {
-  height: 420px;
-  padding: 22px 18px 12px;
+  height: 468px;
+  /* 顶部留白要放得下最高柱子上方的分数标签（柱高上限 92%） */
+  padding: 34px 18px 12px;
   display: block;
 }
 .ranking-chart-scroll { min-width: 0; height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
@@ -400,7 +401,7 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   min-width: 0;
   height: 100%;
   display: grid;
-  grid-template-columns: repeat(12,minmax(0,1fr));
+  grid-template-columns: repeat(var(--ranking-columns,12),minmax(0,1fr));
   grid-template-rows: minmax(0,1fr);
   gap: 0 6px;
 }
@@ -408,7 +409,7 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   min-width: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0,1fr) 76px;
+  grid-template-rows: minmax(0,1fr) auto;
   transition: opacity .18s ease;
 }
 .ranking-row:hover { opacity: .86; }
@@ -493,7 +494,7 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .ranking-model strong {
   margin-top: 6px;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 12.5px;
@@ -559,6 +560,8 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .cost-point[data-label-dir='down-right'] .cost-point-name { top: calc(100% + 2px); left: calc(100% - 2px); }
 .cost-point[data-label-dir='up-far'] .cost-point-name { bottom: calc(100% + 17px); left: 50%; transform: translateX(-50%); }
 .cost-point[data-label-dir='down-far'] .cost-point-name { top: calc(100% + 17px); left: 50%; transform: translateX(-50%); }
+.cost-point[data-label-dir='up-far2'] .cost-point-name { bottom: calc(100% + 30px); left: 50%; transform: translateX(-50%); }
+.cost-point[data-label-dir='down-far2'] .cost-point-name { top: calc(100% + 30px); left: 50%; transform: translateX(-50%); }
 
 /* 具体数值只在 hover / focus 时出现，避免 12 个点全部堆数字 */
 .cost-point-tip {
