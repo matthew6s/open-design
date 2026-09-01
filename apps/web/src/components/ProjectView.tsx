@@ -4067,22 +4067,28 @@ export function ProjectView({
   const refreshPreviewCommentsRef = useRef<(() => Promise<void>) | null>(null);
   const handleProjectEvent = useCallback((evt: ProjectEvent) => {
     if (evt.type === 'file-changed') {
-      // Size + mtime are sufficient to identify additions and removals. Only
-      // an in-place change needs a second witness for the rare case where both
-      // metadata values collide. Treating an `add` as another revision makes a
-      // newly generated file navigate once when it first appears and again
-      // when its watcher event settles. Collab's atomic directory replacement
-      // deliberately reports `change` with an empty path; FileWorkspace treats
-      // that entry as the project wildcard.
-      if (evt.kind === 'change') {
+      const changedPath = normalizeComparableFilePath(evt.path);
+      const hasOtherHtmlDocument = projectFilesRef.current.some((file) => (
+        isHtmlProjectFile(file)
+        && normalizeComparableFilePath(file.path || file.name) !== changedPath
+      ));
+      // The first HTML document already receives a fresh URL from its file
+      // identity. Giving that same document a content-refresh witness makes it
+      // navigate twice. Every other mutation can affect an existing HTML page
+      // through script, stylesheet, image, nested iframe, or dynamic resource
+      // loads, so advance the project wildcard as well as the exact path.
+      // Collab's atomic directory replacement reports `change` with an empty
+      // path, which naturally remains the project wildcard.
+      if (
+        evt.kind !== 'add'
+        || !isHtmlProjectFilePath(changedPath)
+        || hasOtherHtmlDocument
+      ) {
         const refreshGeneration = ++fileContentRefreshGenerationRef.current;
         pendingFileContentRefreshKeysRef.current.set(
-          normalizeComparableFilePath(evt.path),
+          changedPath,
           refreshGeneration,
         );
-        // HTML can load arbitrary project resources, including dynamic imports
-        // that cannot be derived statically. Conservatively invalidate every
-        // open HTML document for the same settled watcher generation.
         pendingFileContentRefreshKeysRef.current.set('', refreshGeneration);
       }
       iframeKeepAlivePool.evictProject(project.id);
@@ -12965,7 +12971,11 @@ export async function findSameTurnHtmlWriteForRecoveredArtifact({
 
 function isHtmlProjectFile(file: ProjectFile): boolean {
   const name = (file.path || file.name).toLowerCase();
-  return file.kind === 'html' || /\.(?:html?|xhtml)$/u.test(name);
+  return file.kind === 'html' || isHtmlProjectFilePath(name);
+}
+
+function isHtmlProjectFilePath(path: string): boolean {
+  return /\.(?:html?|xhtml)$/iu.test(path);
 }
 
 function normalizeHtmlForRecoveredArtifactComparison(value: string | null | undefined): string {

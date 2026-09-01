@@ -8,6 +8,7 @@ function result(overrides: Partial<HtmlHeadScanResult> = {}): HtmlHeadScanResult
     insertionOffset: 0,
     hasAuthoredBase: false,
     hasLoadTimeLocationNavigation: false,
+    hasViteDevEntry: false,
     needsSandboxShim: false,
     needsFocusGuard: false,
     needsRedirectGuard: false,

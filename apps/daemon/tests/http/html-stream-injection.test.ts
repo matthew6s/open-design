@@ -154,6 +154,23 @@ describe('scanHtmlHeadForStreamingInjection', () => {
     expect(fixture.result.needsPoweredPreview).toBe(true);
   });
 
+  it('recognizes a real Vite dev entry without matching inert script-shaped text', async () => {
+    const inert = await scan([
+      '<!doctype html><html><head>',
+      '<script>const example = `<script type="module" src="/src/fake.tsx"></script>`;</script>',
+      '<template><script type="module" src="/src/inert.tsx"></script></template>',
+      '</head><body></body></html>',
+    ].join(''));
+    expect(inert.result.hasViteDevEntry).toBe(false);
+
+    const authored = await scan([
+      '<!doctype html><html><head>',
+      '<script src="/src/main.tsx" type="MODULE"></script>',
+      '</head><body></body></html>',
+    ].join(''));
+    expect(authored.result.hasViteDevEntry).toBe(true);
+  });
+
   it('detects relative dynamic imports outside the routing prefix', async () => {
     const fixture = await scan([
       '<!doctype html><html><head></head><body>',

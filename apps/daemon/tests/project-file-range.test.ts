@@ -810,6 +810,13 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
       Buffer.from('<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head><body><div id="root"></div></body></html>'),
     );
     await writeFile(
+      path.join(dir, 'large-vite-entry.html'),
+      Buffer.from(
+        '<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head>'
+          + `<body><div id="root"></div><!-- ${'x'.repeat((2 * 1024 * 1024) + 256)} --></body></html>`,
+      ),
+    );
+    await writeFile(
       path.join(dir, 'dist', 'index.html'),
       Buffer.from(
         '<!doctype html><html><head>' +
@@ -1980,6 +1987,27 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
     expect(html).not.toContain('href="/assets/app.css"');
     expect(html).toContain('src="dist/assets/app.js"');
     expect(html).toContain('href="dist/assets/app.css"');
+  });
+
+  it('serves built dist HTML for large Vite entries through scoped preview snapshots', async () => {
+    const minted = await fetch(
+      `${baseUrl}/api/projects/${projectId}/preview-url?file=large-vite-entry.html`,
+    );
+    expect(minted.status).toBe(200);
+    const preview = await minted.json() as { url: string };
+    const scope = preview.url.match(/\/preview\/([^/]+)\//u)?.[1];
+    expect(scope).toBeTruthy();
+
+    const port = new URL(baseUrl).port;
+    const response = await scopedRequest(
+      '/large-vite-entry.html',
+      `n-${scope}.localhost:${port}`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).not.toContain('/src/main.tsx');
+    expect(response.body).toContain('src="dist/assets/app.js"');
+    expect(response.body).toContain('href="dist/assets/app.css"');
+    expect(response.body).toContain('data-od-preview-runtime');
   });
 
   it('does not expose powered preview project files to foreign browser origins through CORS', async () => {

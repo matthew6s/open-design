@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { load } from 'cheerio';
@@ -96,6 +96,7 @@ import {
 } from '../../plugins/index.js';
 import { connectorService } from '../../connectors/service.js';
 import {
+  scanHtmlHeadForStreamingInjection,
   streamFileWithInjection,
   streamFileWithInjectionAndManualEditSourceAnnotations,
 } from '../../http/html-stream-injection.js';
@@ -6082,7 +6083,48 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       ? {}
       : { expectedDocumentVersion };
     if (meta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES) {
-      return previewDocumentSnapshotStore.captureFile(meta.filePath, captureOptions);
+      const sourceSnapshot = await previewDocumentSnapshotStore.captureFile(meta.filePath);
+      try {
+        const useSourceSnapshot = (): PreviewDocumentSnapshot => {
+          if (
+            expectedDocumentVersion !== undefined
+            && sourceSnapshot.documentVersion !== expectedDocumentVersion
+          ) {
+            throw new PreviewDocumentVersionChangedError(
+              'preview document no longer matches the version bound to this scope',
+            );
+          }
+          return sourceSnapshot;
+        };
+        const sourceScan = await scanHtmlHeadForStreamingInjection(sourceSnapshot.filePath);
+        if (!sourceScan.hasViteDevEntry) return useSourceSnapshot();
+
+        const loadDistHtml = () => maybeReadViteDistPreviewHtml({
+          projectId: project.id,
+          relPath,
+          metadata: project.metadata,
+          projectsRoot: PROJECTS_DIR,
+          readProjectFile,
+        });
+        let firstDistHtml = await loadDistHtml();
+        if (firstDistHtml === null) return useSourceSnapshot();
+        const transformedSnapshot = await previewDocumentSnapshotStore.captureBuffer(
+          async () => {
+            const distHtml = firstDistHtml ?? await loadDistHtml();
+            firstDistHtml = null;
+            // A disappearing dist build changes the response representation
+            // back to the authored entry. Let captureBuffer verify that choice
+            // instead of snapshotting one transient dist read.
+            return distHtml ?? readFile(sourceSnapshot.filePath);
+          },
+          captureOptions,
+        );
+        await sourceSnapshot.release();
+        return transformedSnapshot;
+      } catch (error) {
+        await sourceSnapshot.release().catch(() => undefined);
+        throw error;
+      }
     }
     return previewDocumentSnapshotStore.captureBuffer(async () => {
       const file = await readProjectFile(
@@ -6503,13 +6545,35 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     const html = file.buffer.toString('utf8');
     if (!isViteDevHtmlEntry(html)) return file.buffer;
 
+    return (await maybeReadViteDistPreviewHtml({
+      projectId,
+      relPath,
+      metadata,
+      projectsRoot,
+      readProjectFile,
+    })) ?? file.buffer;
+  }
+
+  async function maybeReadViteDistPreviewHtml({
+    projectId,
+    relPath,
+    metadata,
+    projectsRoot,
+    readProjectFile,
+  }: {
+    projectId: string;
+    relPath: string;
+    metadata?: unknown;
+    projectsRoot: string;
+    readProjectFile: (projectsRoot: string, projectId: string, relPath: string, metadata?: unknown) => Promise<{ buffer: Buffer }>;
+  }): Promise<string | null> {
     const ownerDir = path.posix.dirname(relPath);
     const distRelPath = ownerDir === '.' ? 'dist/index.html' : `${ownerDir}/dist/index.html`;
     try {
       const distFile = await readProjectFile(projectsRoot, projectId, distRelPath, metadata);
       return rewriteViteDistAssetUrlsForPreview(distFile.buffer.toString('utf8'));
     } catch {
-      return file.buffer;
+      return null;
     }
   }
 

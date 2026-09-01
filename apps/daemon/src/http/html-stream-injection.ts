@@ -56,6 +56,8 @@ export interface HtmlHeadScanResult {
   hasAuthoredBase: boolean;
   /** Whether an author script contains a load-time location navigation signal. */
   hasLoadTimeLocationNavigation: boolean;
+  /** Whether real authored markup loads a Vite development entry from /src/. */
+  hasViteDevEntry: boolean;
   /** Whether the complete streamed source requires the passive sandbox shim. */
   needsSandboxShim: boolean;
   /** Whether the complete streamed source requires load-time focus protection. */
@@ -167,6 +169,7 @@ export async function scanHtmlHeadForStreamingInjection(
   let scriptSignalTail = '';
   let hasAuthoredBase = false;
   let hasLoadTimeLocationNavigation = false;
+  let hasViteDevEntry = false;
   let needsSandboxShim = false;
   let needsFocusGuard = false;
   let needsRedirectGuard = false;
@@ -207,6 +210,7 @@ export async function scanHtmlHeadForStreamingInjection(
       : (htmlOpenOffset ?? insertionOffset),
     hasAuthoredBase,
     hasLoadTimeLocationNavigation,
+    hasViteDevEntry,
     needsSandboxShim,
     needsFocusGuard,
     needsRedirectGuard,
@@ -367,6 +371,13 @@ export async function scanHtmlHeadForStreamingInjection(
         needsPoweredPreview = previewHtmlNeedsPoweredPreview(token);
       }
       if (templateDepth === 0) {
+        if (tag.name === 'script') {
+          const scriptType = tagAttributeValue(token, 'type')?.toLowerCase();
+          const scriptSource = tagAttributeValue(token, 'src');
+          if (scriptType === 'module' && scriptSource?.toLowerCase().startsWith('/src/')) {
+            hasViteDevEntry = true;
+          }
+        }
         if (tag.name === 'deck-stage') hasDeckStageElement = true;
         if (tagHasExactId(token, 'deck-stage')) hasFrameworkDeckId = true;
         if (tagHasAnyClassToken(token, EXPLICIT_DECK_SLIDE_CLASSES)) {
