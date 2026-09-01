@@ -49,17 +49,31 @@ const plotY = (score: number) => Number(Math.max(6, Math.min(94, ((score - yMin)
 const yTicks = [0, 1, 2, 3].map((step) => Math.round(yMax - ((yMax - yMin) / 3) * step));
 const chartHeight = (value: number) => Math.max(12, Math.min(84, ((value - yMin) / (yMax - yMin)) * 72 + 12));
 
-// 高效区边界按本组真实数据推导，而不是写死象限：
-// 锚点 = PDR 第一梯队（前半）里成本最低的模型，区域刚好把它包进来。
-// 写死 52%/50% 时锚点会卡在边界外，绿区看起来永远没人达标。
-const byScore = [...group.rows].sort((a, b) => b.score - a.score);
-const topTier = byScore.slice(0, Math.ceil(byScore.length / 2));
-const zoneAnchor = topTier.reduce((best, row) => (row.cost < best.cost ? row : best), topTier[0]!);
-// 边界给锚点留固定余量，让它确实落在区域内部而不是压在拐角上。
-// 中点规则会被"成本只高一点点"的模型挤到紧贴锚点；跟着一起进区的模型
-// 本来也是高性价比的那几个，读法不受影响。
-const zoneWidth = Math.min(96, zoneAnchor.x + 8);
-const zoneHeight = Math.min(96, 100 - (plotY(zoneAnchor.score) - 8));
+// 两条中位参考线。有了它们，读者不用心算就知道每个点落在平均线的哪一侧，
+// 四个象限也自然有了含义；绿区就是参考线切出来的左上象限，不必再单独推锚点。
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+};
+const medianCost = median(group.rows.map((row) => row.cost));
+const medianScore = median(group.rows.map((row) => row.score));
+const refX = median(group.rows.map((row) => row.x));
+const refY = plotY(medianScore);
+const zoneWidth = refX;
+const zoneHeight = 100 - refY;
+
+// 图下的读法：按成本把模型分成三档，直接点名，省得读者自己归纳。
+const byCost = [...group.rows].sort((a, b) => a.cost - b.cost);
+const bandSize = Math.ceil(byCost.length / 3);
+const bands = [0, 1, 2].map((i) => byCost.slice(i * bandSize, (i + 1) * bandSize)).filter((band) => band.length > 0);
+const bandSummary = bands.map((band) => {
+  const costs = band.map((row) => row.cost);
+  const scores = band.map((row) => row.score);
+  const range = `$${formatCost(Math.min(...costs))}–$${formatCost(Math.max(...costs))}`;
+  const scoreRange = `${Math.min(...scores).toFixed(1)}–${Math.max(...scores).toFixed(1)}`;
+  return { range, scoreRange, names: band.map((row) => row.name).join(isZh ? '、' : ', ') };
+});
 
 // 每个点都常驻一个纯文字标签，所以 12 个标签必须逐个避让：
 // 标签宽度按名字长度估算（绘图区百分比），依次放置时同时避开其它点和已放好的标签。
@@ -178,6 +192,8 @@ for (let pass = 0; pass < 2; pass += 1) {
       <div class="cost-x-ticks" aria-hidden="true"><span>$0.02</span><span>$0.10</span><span>$0.50</span><span>$2</span><span>$10</span></div>
       <div class="cost-plot">
         <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高总分 / 低成本' : 'High score / low cost'}</span></div>
+        <div class="cost-ref cost-ref-x" style={`--ref:${refX}%`} aria-hidden="true"><span>{isZh ? `成本中位 $${formatCost(medianCost)}` : `Median cost $${formatCost(medianCost)}`}</span></div>
+        <div class="cost-ref cost-ref-y" style={`--ref:${refY}%`} aria-hidden="true"><span>{isZh ? `均分 ${medianScore.toFixed(1)}` : `Median score ${medianScore.toFixed(1)}`}</span></div>
         {group.rows.map((model, index) => (
           <span
             class:list={['cost-point', { 'is-winner': index === 0 }]}
@@ -192,5 +208,14 @@ for (let pass = 0; pass < 2; pass += 1) {
         ))}
       </div>
     </div>
+    <ul class="cost-bands">
+      {bandSummary.map((band) => (
+        <li>
+          <b>{band.range}</b>
+          <span>{band.names}</span>
+          <em>{isZh ? `总分 ${band.scoreRange}` : `score ${band.scoreRange}`}</em>
+        </li>
+      ))}
+    </ul>
   </section>
 </div>

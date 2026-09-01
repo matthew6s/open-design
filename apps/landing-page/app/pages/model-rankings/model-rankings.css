@@ -658,6 +658,24 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .efficiency-point { width: 28px; height: 28px; position: absolute; z-index: 2; padding: 3px; border: 2px solid var(--point-color); border-radius: 50%; background: var(--model-surface); transform: translate(-50%,50%); box-shadow: 0 3px 10px rgba(38,38,38,.1); transition: left .42s cubic-bezier(.22,1,.36,1), bottom .42s cubic-bezier(.22,1,.36,1), opacity .2s; }
 .efficiency-point .model-icon { width: 100%; height: 100%; padding: 2px; border: 0; border-radius: 50%; }
 .efficiency-point.is-highlighted { width: 39px; height: 39px; box-shadow: 0 4px 15px rgba(38,38,38,.14),0 0 0 3px rgba(255,255,255,.85); }
+.efficiency-point-name {
+  position: absolute;
+  z-index: 3;
+  color: var(--model-ink);
+  font-size: 8px;
+  font-weight: 620;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.efficiency-point[data-label-dir='up'] .efficiency-point-name { bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
+.efficiency-point[data-label-dir='down'] .efficiency-point-name { top: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
+.efficiency-point[data-label-dir='left'] .efficiency-point-name { top: 50%; right: calc(100% + 4px); transform: translateY(-50%); }
+.efficiency-point[data-label-dir='right'] .efficiency-point-name { top: 50%; left: calc(100% + 4px); transform: translateY(-50%); }
+.efficiency-point[data-label-dir='up-left'] .efficiency-point-name { bottom: calc(100% + 1px); right: calc(100% - 1px); }
+.efficiency-point[data-label-dir='up-right'] .efficiency-point-name { bottom: calc(100% + 1px); left: calc(100% - 1px); }
+.efficiency-point[data-label-dir='down-left'] .efficiency-point-name { top: calc(100% + 1px); right: calc(100% - 1px); }
+.efficiency-point[data-label-dir='down-right'] .efficiency-point-name { top: calc(100% + 1px); left: calc(100% - 1px); }
 .efficiency-point-label { position: absolute; bottom: calc(100% + 9px); left: 50%; display: none; transform: translateX(-50%); padding: 8px 10px; border: 1px solid var(--model-line); border-radius: 6px; background: rgba(250,250,250,.97); box-shadow: 0 8px 24px rgba(38,38,38,.09); white-space: nowrap; }
 .efficiency-point:hover { z-index: 8; }.efficiency-point:hover .efficiency-point-label { display: block; }.efficiency-point-label strong,.efficiency-point-label small { display: block; }.efficiency-point-label strong { font-size: 9px; }.efficiency-point-label small { margin-top: 2px; color: var(--ink-faint); font-size: 8px; line-height: 1.55; }
 .efficiency-y-title { position: absolute; top: 45%; left: -31px; color: var(--ink-mute); font-size: 9px; font-weight: 620; writing-mode: vertical-rl; }
@@ -955,3 +973,51 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .excluded-metrics dt { font-size: .78rem; color: var(--model-muted, #6b7280); }
 .excluded-metrics dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .excluded-list p { margin: 0; font-size: .9rem; line-height: 1.65; color: var(--model-muted, #6b7280); }
+
+/* 中位参考线：让读者不用心算就知道点落在平均线的哪一侧 */
+.cost-ref { position: absolute; z-index: 1; pointer-events: none; }
+.cost-ref span { position: absolute; padding: 1px 4px; border-radius: 3px; background: rgba(250,250,250,.9); color: var(--ink-faint); font-size: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cost-ref-x { top: 0; bottom: 0; left: var(--ref); border-left: 1px dashed var(--model-line-strong, #c6ced4); }
+.cost-ref-x span { top: 2px; left: 4px; }
+.cost-ref-y { right: 0; bottom: var(--ref); left: 0; border-bottom: 1px dashed var(--model-line-strong, #c6ced4); }
+.cost-ref-y span { right: 2px; bottom: 3px; }
+
+/* 图下读法：按成本分三档直接点名 */
+.cost-bands { margin: 0; padding: 12px 22px 18px; display: grid; gap: 6px; list-style: none; border-top: 1px solid var(--model-line); }
+.cost-bands li { display: flex; align-items: baseline; gap: 8px; font-size: 9px; line-height: 1.5; }
+.cost-bands b { flex: none; min-width: 74px; color: var(--model-ink); font-variant-numeric: tabular-nums; }
+.cost-bands span { flex: 1; min-width: 0; color: var(--ink-soft); }
+.cost-bands em { flex: none; color: var(--ink-faint); font-style: normal; font-variant-numeric: tabular-nums; }
+
+/* Hero 结论条：不使用筛选器的访客也能直接拿到核心发现 */
+.model-findings { margin: 26px 0 0; padding: 0; display: grid; gap: 10px; max-width: 760px; list-style: none; }
+.model-findings li { display: grid; gap: 3px; padding-left: 13px; position: relative; }
+.model-findings li::before { content: ''; position: absolute; top: 6px; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--model-accent); }
+.model-findings b { color: var(--model-ink); font-size: 13px; font-weight: 700; line-height: 1.45; }
+.model-findings span { color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+
+/* 全维度总表：一行看完一个模型的效果、性能与成本 */
+.overview-table-wrap { margin-top: 26px; overflow-x: auto; border: 1px solid var(--model-line); border-radius: 10px; background: var(--model-surface); }
+.overview-table { width: 100%; min-width: 940px; border-collapse: collapse; font-size: 11px; }
+.overview-table th,
+.overview-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--model-line); white-space: nowrap; }
+.overview-table thead th { position: sticky; top: 0; z-index: 1; padding: 0; background: var(--model-soft); font-weight: 620; }
+.overview-table thead th button { width: 100%; padding: 9px 12px; display: flex; align-items: center; gap: 4px; color: var(--ink-mute); font-size: 9px; font-weight: 700; letter-spacing: .03em; text-align: inherit; background: none; cursor: pointer; }
+.overview-table thead th.is-num button { justify-content: flex-end; }
+.overview-table thead th button i { width: 0; height: 0; border-right: 3px solid transparent; border-left: 3px solid transparent; opacity: 0; }
+.overview-table thead th[aria-sort='descending'] button i { border-top: 4px solid currentColor; opacity: 1; }
+.overview-table thead th[aria-sort='ascending'] button i { border-bottom: 4px solid currentColor; opacity: 1; }
+.overview-table thead th[aria-sort]:not([aria-sort='none']) button { color: var(--model-ink); }
+.overview-table tbody th { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.overview-table tbody th span:last-child { display: flex; flex-direction: column; line-height: 1.3; }
+.overview-table tbody th b { font-size: 11.5px; font-weight: 650; }
+.overview-table tbody th small { color: var(--ink-faint); font-size: 9px; }
+.overview-table .model-icon { flex: none; width: 20px; height: 20px; }
+.overview-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.overview-table td.is-strong { font-weight: 680; }
+.overview-table td i { margin-left: 3px; color: var(--ink-faint); font-size: 8.5px; font-style: normal; }
+.overview-table tbody tr:last-child th,
+.overview-table tbody tr:last-child td { border-bottom: 0; }
+.overview-table tbody tr:hover th,
+.overview-table tbody tr:hover td { background: var(--model-soft); }
+.overview-note { margin: 10px 0 0; color: var(--ink-faint); font-size: 9.5px; line-height: 1.65; }
