@@ -609,6 +609,58 @@ describe('FileViewer manual edit regressions', () => {
     });
   });
 
+  it('applies saved selected-element HTML to the retained iframe without navigating', async () => {
+    const source = '<!doctype html><html><body><main data-od-id="hero"><span>Hero</span></main></body></html>';
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url.includes('/api/projects/project-1/files') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ file: htmlPreviewFile() }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(source, { status: 200, headers: { 'Content-Type': 'text/html' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml={source}
+      />,
+    );
+
+    await enterManualEditMode();
+    await selectManualEditTarget({
+      ...heroTarget(),
+      kind: 'container',
+      text: 'Hero',
+      isLayoutContainer: true,
+      outerHtml: '<main data-od-id="hero"><span>Hero</span></main>',
+    });
+    const frame = await previewFrame();
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
+    const textarea = screen.getByLabelText('Selected element HTML');
+
+    fireEvent.change(textarea, {
+      target: {
+        value: '<main data-od-id="hero" data-edit-revision="fresh"><span>Hero</span></main>',
+      },
+    });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/projects/project-1/files',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      expect(postMessage).toHaveBeenCalledWith({
+        type: 'od-edit-preview-outer-html',
+        id: 'hero',
+        html: '<main data-od-id="hero" data-edit-revision="fresh"><span>Hero</span></main>',
+      }, '*');
+    });
+  });
+
   it('holds a dropped drag as a pending style and only persists it on save', async () => {
     const source = '<!doctype html><html><body><main data-od-id="hero">Hero</main></body></html>';
     const savedBodies: string[] = [];

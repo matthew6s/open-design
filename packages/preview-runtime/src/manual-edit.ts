@@ -904,6 +904,29 @@ export function buildManualEditBridge(enabled: boolean): string {
       window.parent.postMessage({ type: 'od-edit-preview-style-applied', id: id, version: Number(version) || 0, ok: false, error: e && e.message ? String(e.message) : 'Could not apply preview styles' }, '*');
     }
   }
+  function applyPreviewOuterHtml(id, html){
+    var el = findById(id);
+    if (!el || el === document.body || !el.parentNode) return;
+    var template = document.createElement('template');
+    template.innerHTML = String(html == null ? '' : html).trim();
+    if (template.content.children.length !== 1) return;
+    var next = template.content.children[0];
+    var retainedAttrs = ['data-od-id', 'data-od-edit', sourcePathAttr, 'data-od-generated-source-path', 'data-od-runtime-id'];
+    for (var i = 0; i < retainedAttrs.length; i++) {
+      var name = retainedAttrs[i];
+      if (!next.hasAttribute(name) && el.hasAttribute(name)) {
+        next.setAttribute(name, el.getAttribute(name) || '');
+      }
+    }
+    var wasSelected = selectedTargetId === id;
+    el.replaceWith(next);
+    if (wasSelected) {
+      selectedTargetId = stableId(next);
+      next.setAttribute('data-od-edit-selected', 'true');
+      renderSelectedChromeForCurrent();
+    }
+    postTargets();
+  }
   window.addEventListener('message', function(ev){
     if (!ev.data) return;
     if (ev.data.type === 'od-edit-mode') {
@@ -1003,6 +1026,10 @@ export function buildManualEditBridge(enabled: boolean): string {
       if (ptEl && ptEl !== document.body && ptEl.children.length === 0) {
         ptEl.textContent = String(ev.data.value == null ? '' : ev.data.value);
       }
+      return;
+    }
+    if (ev.data.type === 'od-edit-preview-outer-html') {
+      applyPreviewOuterHtml(ev.data.id || '', ev.data.html);
       return;
     }
     if (ev.data.type === 'od-edit-text-finish') {

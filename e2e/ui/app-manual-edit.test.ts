@@ -519,7 +519,7 @@ test('[P1] powered WebGL HTML artifacts open through the isolated preview route'
   const preview = artifactPreview(page);
   await expect(preview).toBeVisible();
   await expect(preview).toHaveAttribute('data-od-powered', 'true');
-  await expect(preview).toHaveAttribute('data-od-render-mode', 'url-load');
+  await expect(preview).toHaveAttribute('data-od-render-mode', 'runtime-url');
   await expect(preview).toHaveAttribute('src', new RegExp(`/api/projects/${projectId}/powered/powered-webgl\\.html`));
 
   const frame = artifactPreviewFrame(page);

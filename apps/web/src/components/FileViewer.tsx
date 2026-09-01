@@ -12429,6 +12429,13 @@ function HtmlViewer({
     win.postMessage({ type: 'od-edit-preview-text', id, value }, '*');
     return true;
   }, [workspaceActive]);
+  const previewOuterHtmlToIframe = useCallback((id: string, html: string): boolean => {
+    if (!workspaceActive) return false;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return false;
+    win.postMessage({ type: 'od-edit-preview-outer-html', id, html }, '*');
+    return true;
+  }, [workspaceActive]);
 
   function postSelectedManualEditTargetToIframe(id: string | null, target: HTMLIFrameElement | null = iframeRef.current) {
     if (!workspaceActive) return;
@@ -13415,6 +13422,10 @@ function HtmlViewer({
       const savedText = readManualEditFields(savedSource, patch.id).text;
       liveDocumentMatchesSavedSource = savedText !== undefined
         && previewTextToIframe(patch.id, savedText);
+    } else if (patch.kind === 'set-outer-html') {
+      const savedOuterHtml = readManualEditOuterHtml(savedSource, patch.id);
+      liveDocumentMatchesSavedSource = savedOuterHtml.length > 0
+        && previewOuterHtmlToIframe(patch.id, savedOuterHtml);
     } else if (patch.kind === 'set-style') {
       const targetStillExists = patch.id === '__body__'
         || Boolean(readManualEditOuterHtml(savedSource, patch.id));
