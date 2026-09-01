@@ -2321,6 +2321,12 @@ describe('FileViewer SVG artifacts', () => {
         : input instanceof Request
           ? input.url
           : String(input);
+      if (url.includes('/files/retained-deck.html/versions')) {
+        return new Response(JSON.stringify({ versions: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (url.startsWith('/api/projects/project-1/raw/retained-deck.html')) {
         return new Response(source, { status: 200, headers: { 'Content-Type': 'text/html' } });
       }
@@ -2339,6 +2345,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Versions' }));
     expect(await screen.findByRole('dialog', { name: 'Versions' })).toBeTruthy();
+    expect(await screen.findByText('No versions yet.')).toBeTruthy();
 
     rerender(
       <FileViewer
