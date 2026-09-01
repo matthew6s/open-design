@@ -31,6 +31,7 @@ import {
   createRestartPolicy,
   createWebSidecarSupervisor,
   openLog,
+  packagedChildStamp,
   registerPackagedWebUrl,
   retireExistingSidecar,
   resolveDaemonStatusTimeoutMs,
@@ -86,6 +87,24 @@ describe('packaged sidecar shutdown', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+describe('packaged child stamps', () => {
+  it.each(['runtime', 'headless'] as const)(
+    'propagates the owning %s mode to daemon and web children',
+    (mode) => {
+      const runtime = {
+        app: APP_KEYS.DESKTOP,
+        base: '/runtime',
+        mode,
+        namespace: 'test',
+        source: 'packaged',
+      } as const;
+
+      expect(packagedChildStamp(APP_KEYS.DAEMON, 'stable', runtime).mode).toBe(mode);
+      expect(packagedChildStamp(APP_KEYS.WEB, 'stable', runtime).mode).toBe(mode);
+    },
+  );
 });
 
 describe('resolveDaemonStatusTimeoutMs', () => {

@@ -46,17 +46,15 @@ export function packagedSidecarStopRequests(
         killGraceMs: 750,
         termGraceMs: 750,
       },
-      stamp: toolPackSidecarStamp(config, { app: APP_KEYS.WEB, mode: SIDECAR_MODES.RUNTIME, source }),
+      stamp: toolPackSidecarStamp(config, { app: APP_KEYS.WEB, mode: desktopMode, source }),
     },
-    { stamp: toolPackSidecarStamp(config, { app: APP_KEYS.DAEMON, mode: SIDECAR_MODES.RUNTIME, source }) },
+    { stamp: toolPackSidecarStamp(config, { app: APP_KEYS.DAEMON, mode: desktopMode, source }) },
   ]);
 }
 
 export function allPackagedSidecarStopRequests(config: ToolPackConfig): SidecarStopRequest[] {
   return [
     ...packagedSidecarStopRequests(config, SIDECAR_MODES.RUNTIME),
-    ...[SIDECAR_SOURCES.TOOLS_PACK, SIDECAR_SOURCES.PACKAGED].map((source) => ({
-      stamp: toolPackSidecarStamp(config, { app: APP_KEYS.DESKTOP, mode: "headless", source }),
-    })),
+    ...packagedSidecarStopRequests(config, "headless"),
   ];
 }

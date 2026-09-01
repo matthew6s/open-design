@@ -199,7 +199,7 @@ export async function runPackagedHeadless(
   const runtime: SidecarRuntimeContext<SidecarStamp> = {
     app: APP_KEYS.DESKTOP,
     base: paths.runtimeRoot,
-    mode: SIDECAR_MODES.RUNTIME,
+    mode: "headless",
     namespace: config.namespace,
     source: stamp.source,
   };
