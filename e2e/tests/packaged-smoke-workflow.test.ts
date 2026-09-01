@@ -1478,7 +1478,7 @@ process.stdin.on("end", () => {
   it("[P1] publishes catalog snapshots only from main", async () => {
     const workflow = await readFile(catalogPublishWorkflowPath, "utf8");
     const guardedJobs = workflow.match(
-      /if: github\.repository == 'nexu-io\/open-design' && \(github\.ref == 'refs\/heads\/main' \|\| github\.ref == 'refs\/heads\/fix\/catalog-publish-container-git'\)/g,
+      /if: github\.repository == 'nexu-io\/open-design' && github\.ref == 'refs\/heads\/main'/g,
     );
 
     expect(guardedJobs).toHaveLength(2);
