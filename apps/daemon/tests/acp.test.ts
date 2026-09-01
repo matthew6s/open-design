@@ -497,6 +497,24 @@ test('attachAcpSession records OpenCode compaction lifecycle as diagnostic obser
     status: 'running',
     reason: 'automatic',
   });
+  writeAcpUpdate(child, {
+    sessionUpdate: 'agent_message_chunk',
+    content: { text: 'Answer after compaction' },
+  });
+  writeAcpUpdate(child, {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'post-compaction-tool',
+    kind: 'read',
+    title: 'Read after compaction',
+    status: 'pending',
+  });
+  writeAcpUpdate(child, {
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'post-compaction-tool',
+    status: 'completed',
+    rawOutput: 'continuation output',
+  });
+  assert.equal(child.stdin.writableEnded, false);
   writeAcpResult(child, 3, { usage: { inputTokens: 1, outputTokens: 2 } });
 
   const agentPayloads = events
@@ -517,6 +535,27 @@ test('attachAcpSession records OpenCode compaction lifecycle as diagnostic obser
   assert.equal(diagnostic.status, 'running');
   assert.equal(diagnostic.reason, 'automatic');
   assert.equal(typeof diagnostic.elapsedMs, 'number');
+
+  assert.deepEqual(
+    agentPayloads
+      .filter((payload) => payload.type === 'text_delta')
+      .map((payload) => payload.delta),
+    ['Answer after compaction'],
+  );
+  assert.ok(
+    agentPayloads.some(
+      (payload) =>
+        payload.type === 'tool_use' &&
+        payload.id === acpTelemetryToolCallId('post-compaction-tool'),
+    ),
+  );
+  assert.ok(
+    agentPayloads.some(
+      (payload) =>
+        payload.type === 'tool_result' &&
+        payload.toolUseId === acpTelemetryToolCallId('post-compaction-tool'),
+    ),
+  );
 });
 
 test('attachAcpSession suppresses split duplicate DSML artifact text and preserves trailing prose', () => {
