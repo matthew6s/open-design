@@ -69,7 +69,7 @@ describe("runPackagedMcpActionAgainstExistingDaemon", () => {
     source: "packaged",
   } as const;
 
-  it("installs through a healthy existing runtime daemon without bootstrapping", async () => {
+  it("installs through a healthy existing headless daemon without bootstrapping", async () => {
     const installMcp = vi.fn(async () => undefined);
     const getStatus = vi.fn(async () => ({
       state: "running",
@@ -82,7 +82,7 @@ describe("runPackagedMcpActionAgainstExistingDaemon", () => {
       { getStatus: getStatus as never, installMcp },
     )).resolves.toBe(true);
     expect(getStatus).toHaveBeenCalledWith(
-      { ...launchStamp, app: APP_KEYS.DAEMON, mode: "runtime" },
+      { ...launchStamp, app: APP_KEYS.DAEMON },
       { timeoutMs: 350 },
     );
     expect(installMcp).toHaveBeenCalledWith("http://127.0.0.1:7457");

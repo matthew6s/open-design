@@ -2,7 +2,6 @@ import { mkdir } from "node:fs/promises";
 
 import {
   APP_KEYS,
-  SIDECAR_MODES,
   SIDECAR_SOURCES,
 } from "@open-design/sidecar-proto";
 import {
@@ -55,7 +54,7 @@ export async function runPackagedMcpActionAgainstExistingDaemon(
   let status: { state?: unknown; url?: unknown } | null = null;
   for (const source of [stamp.source, ...PACKAGED_SIDECAR_SOURCES.filter((candidate) => candidate !== stamp.source)]) {
     status = await (dependencies.getStatus ?? getSidecarStatus)<{ state?: unknown; url?: unknown }>(
-      { ...stamp, app: APP_KEYS.DAEMON, mode: SIDECAR_MODES.RUNTIME, source },
+      { ...stamp, app: APP_KEYS.DAEMON, mode: stamp.mode, source },
       { timeoutMs: 350 },
     ).catch(() => null);
     if (status?.state === "running" && typeof status.url === "string" && status.url.length > 0) break;

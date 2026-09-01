@@ -246,7 +246,7 @@ export async function inspectExistingDesktopForLauncher(
   const staleSidecars: AppKey[] = [];
   for (const app of [APP_KEYS.DAEMON, APP_KEYS.WEB]) {
     const sidecarStatus = await getStatus<{ url?: unknown }>(
-      { ...inspectedStamp, app, mode: SIDECAR_MODES.RUNTIME },
+      { ...inspectedStamp, app, mode: inspectedStamp.mode },
       { timeoutMs: 350 },
     ).catch(() => null);
     if (typeof sidecarStatus?.url !== "string" || sidecarStatus.url.length === 0) {

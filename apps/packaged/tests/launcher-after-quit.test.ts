@@ -108,14 +108,14 @@ describe("inspectExistingDesktopForLauncher", () => {
     }
   });
 
-  it("discovers a headless owner while keeping its daemon and web peers on runtime mode", async () => {
+  it("discovers a headless owner and checks its daemon and web peers in headless mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "od-launcher-headless-owner-"));
     const getStatus = vi.fn(async (target: SidecarStamp) => {
       if (target.app === APP_KEYS.DESKTOP && target.mode === "runtime") throw new Error("runtime desktop absent");
       if (target.app === APP_KEYS.DESKTOP && target.mode === "headless") {
         return { pid: 4321, state: "running", updatedAt: new Date().toISOString(), windowVisible: false };
       }
-      if (target.mode !== "runtime") throw new Error("peer used the desktop owner mode");
+      if (target.mode !== "headless") throw new Error("peer did not use the desktop owner mode");
       return { state: "running", url: "http://127.0.0.1:1234" };
     });
     const stop = vi.fn(async () => sidecarStop(4321));
@@ -126,8 +126,8 @@ describe("inspectExistingDesktopForLauncher", () => {
         stopSidecar: stop,
       })).resolves.toEqual({ action: "continue", reason: "headless-owner" });
       expect(getStatus).toHaveBeenCalledWith({ ...stamp(), mode: "headless" }, { timeoutMs: 350 });
-      expect(getStatus).toHaveBeenCalledWith({ ...stamp(), app: APP_KEYS.DAEMON }, { timeoutMs: 350 });
-      expect(getStatus).toHaveBeenCalledWith({ ...stamp(), app: APP_KEYS.WEB }, { timeoutMs: 350 });
+      expect(getStatus).toHaveBeenCalledWith({ ...stamp(), app: APP_KEYS.DAEMON, mode: "headless" }, { timeoutMs: 350 });
+      expect(getStatus).toHaveBeenCalledWith({ ...stamp(), app: APP_KEYS.WEB, mode: "headless" }, { timeoutMs: 350 });
       expect(stop).toHaveBeenCalledWith({ ...stamp(), mode: "headless" });
     } finally {
       await rm(root, { force: true, recursive: true });
@@ -140,9 +140,12 @@ describe("inspectExistingDesktopForLauncher", () => {
     const stop = vi.fn(async () => sidecarStop(4321));
     try {
       await expect(inspectExistingDesktopForLauncher(headlessStamp, {
-        getStatus: vi.fn(async (target: SidecarStamp) => target.app === APP_KEYS.DESKTOP
-          ? { pid: 4321, state: "running", updatedAt: new Date().toISOString(), windowVisible: false }
-          : { state: "running", url: "http://127.0.0.1:1234" }) as never,
+        getStatus: vi.fn(async (target: SidecarStamp) => {
+          if (target.mode !== "headless") throw new Error("generation peer mode mismatch");
+          return target.app === APP_KEYS.DESKTOP
+            ? { pid: 4321, state: "running", updatedAt: new Date().toISOString(), windowVisible: false }
+            : { state: "running", url: "http://127.0.0.1:1234" };
+        }) as never,
         modes: ["headless"],
         paths: fakePaths(root),
         stopSidecar: stop,
@@ -172,8 +175,8 @@ describe("inspectExistingDesktopForLauncher", () => {
         stopSidecar: stop,
       })).resolves.toEqual({ action: "exit", reason: "existing-headless" });
       expect(getStatus).toHaveBeenCalledWith(ownerStamp, { timeoutMs: 350 });
-      expect(getStatus).toHaveBeenCalledWith({ ...ownerStamp, app: APP_KEYS.DAEMON, mode: "runtime" }, { timeoutMs: 350 });
-      expect(getStatus).toHaveBeenCalledWith({ ...ownerStamp, app: APP_KEYS.WEB, mode: "runtime" }, { timeoutMs: 350 });
+      expect(getStatus).toHaveBeenCalledWith({ ...ownerStamp, app: APP_KEYS.DAEMON }, { timeoutMs: 350 });
+      expect(getStatus).toHaveBeenCalledWith({ ...ownerStamp, app: APP_KEYS.WEB }, { timeoutMs: 350 });
       expect(stop).not.toHaveBeenCalled();
     } finally {
       await rm(root, { force: true, recursive: true });
