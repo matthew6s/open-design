@@ -144,6 +144,26 @@ describe('scanHtmlHeadForStreamingInjection', () => {
     expect(fixture.result.needsPoweredPreview).toBe(true);
   });
 
+  it('routes relative ES module graphs through a same-origin powered preview', async () => {
+    const fixture = await scan([
+      '<!doctype html><html><head><title>ES module graph</title></head><body>',
+      'x'.repeat((96 * 1024) + 1),
+      '<script type="module" src="./scripts/main.js"></script>',
+      '</body></html>',
+    ].join(''));
+    expect(fixture.result.needsPoweredPreview).toBe(true);
+  });
+
+  it('detects relative dynamic imports outside the routing prefix', async () => {
+    const fixture = await scan([
+      '<!doctype html><html><head></head><body>',
+      'x'.repeat((96 * 1024) + 1),
+      '<script type="module">import("./scripts/lazy.js")</script>',
+      '</body></html>',
+    ].join(''));
+    expect(fixture.result.needsPoweredPreview).toBe(true);
+  });
+
   it('detects an external Babel module tag split across stream chunks', async () => {
     const prefix = '<!doctype html><html><head></head><body>';
     const splitTagPrefix = '<script src="./app.jsx" type="text/ba';

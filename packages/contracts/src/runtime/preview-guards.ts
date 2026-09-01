@@ -43,6 +43,35 @@ export function previewHtmlNeedsRedirectGuard(source: string | null | undefined)
   return previewHtmlHasLoadTimeLocationNavigation(source);
 }
 
+function htmlAttributeValue(tag: string, name: string): string | null {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(
+    `[\\t\\n\\f\\r ]${escapedName}[\\t\\n\\f\\r ]*=[\\t\\n\\f\\r ]*(?:"([^"]*)"|'([^']*)'|([^\\t\\n\\f\\r />]+))`,
+    'iu',
+  ).exec(tag);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function isRelativeModuleSpecifier(value: string): boolean {
+  const specifier = value.trim();
+  if (!specifier || specifier.startsWith('#') || specifier.startsWith('//')) return false;
+  return !/^[a-z][a-z0-9+.-]*:/iu.test(specifier);
+}
+
+function htmlHasRelativeEsModule(source: string): boolean {
+  for (const match of source.matchAll(/<script\b[^>]*>/giu)) {
+    const tag = match[0];
+    if (htmlAttributeValue(tag, 'type')?.trim().toLowerCase() !== 'module') continue;
+    const src = htmlAttributeValue(tag, 'src');
+    if (src !== null && isRelativeModuleSpecifier(src)) return true;
+  }
+
+  for (const match of source.matchAll(/\bimport\s*\(\s*(["'`])([^"'`]*)\1/gu)) {
+    if (!match[2]?.includes('${') && isRelativeModuleSpecifier(match[2] ?? '')) return true;
+  }
+  return false;
+}
+
 export function previewHtmlNeedsPoweredPreview(source: string | null | undefined): boolean {
   if (!source) return false;
   // Babel standalone resolves external text/babel modules with XHR. A normal
@@ -51,6 +80,10 @@ export function previewHtmlNeedsPoweredPreview(source: string | null | undefined
   // load. The session-scoped powered origin restores same-origin XHR without
   // granting the artifact the host application's origin.
   if (/<script\b(?=[^>]*\bsrc\s*=)(?=[^>]*\btype\s*=\s*["']?text\/babel\b)[^>]*>/i.test(source)) return true;
+  // ES module graphs and dynamic imports fetch their dependencies in CORS
+  // mode. The normal preview sandbox has an opaque origin, so a relative
+  // module can only execute from the project-scoped same-origin profile.
+  if (htmlHasRelativeEsModule(source)) return true;
   if (/\bSharedArrayBuffer\b/.test(source)) return true;
   if (/\bnew\s+(?:Worker|SharedWorker)\s*\(/.test(source)) return true;
   if (/\bimportScripts\s*\(/.test(source)) return true;

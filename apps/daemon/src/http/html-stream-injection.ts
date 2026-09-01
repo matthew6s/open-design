@@ -360,6 +360,12 @@ export async function scanHtmlHeadForStreamingInjection(
       }
 
       const parentId = elementStack.at(-1)?.id ?? 0;
+      if (!needsPoweredPreview && tag.name === 'script') {
+        // The chunk-level detector intentionally keeps only a short tail.
+        // Re-check the complete parser token so a long module tag split across
+        // stream chunks cannot silently remain in the opaque-origin profile.
+        needsPoweredPreview = previewHtmlNeedsPoweredPreview(token);
+      }
       if (templateDepth === 0) {
         if (tag.name === 'deck-stage') hasDeckStageElement = true;
         if (tagHasExactId(token, 'deck-stage')) hasFrameworkDeckId = true;
