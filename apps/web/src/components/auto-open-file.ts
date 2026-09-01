@@ -147,6 +147,11 @@ export interface SelectAutoOpenOptions {
   // (ties to newest mtime); turns that produce no index.html keep the
   // standard rank/mtime behavior.
   readonly preferSiteEntry?: boolean;
+  // Optional turn-start snapshot. When two previewable files have the same
+  // rank, prefer one the turn created over an older file it rewrote later.
+  // Callers recovering legacy turns may not have this snapshot; omitting it
+  // preserves the historical newest-mtime tie-break.
+  readonly preTurnFileNames?: ReadonlySet<string> | null;
 }
 
 export interface SelectAutoOpenTurnOptions extends SelectAutoOpenOptions {
@@ -331,6 +336,11 @@ export function selectAutoOpenProducedArtifact(
         continue;
       }
       if (depth > entryDepth || !entry) continue;
+      const createdThisTurnOrder = compareCreatedThisTurn(file, entry, options.preTurnFileNames);
+      if (createdThisTurnOrder !== 0) {
+        if (createdThisTurnOrder > 0) entry = file;
+        continue;
+      }
       const nextMtime = typeof file.mtime === 'number' && Number.isFinite(file.mtime) ? file.mtime : 0;
       const entryMtime =
         typeof entry.mtime === 'number' && Number.isFinite(entry.mtime) ? entry.mtime : 0;
@@ -349,10 +359,24 @@ export function selectAutoOpenProducedArtifact(
       continue;
     }
     if (rank < selectedRank) continue;
+    const createdThisTurnOrder = compareCreatedThisTurn(file, selected, options.preTurnFileNames);
+    if (createdThisTurnOrder !== 0) {
+      if (createdThisTurnOrder > 0) selected = file;
+      continue;
+    }
     const nextMtime = typeof file.mtime === 'number' && Number.isFinite(file.mtime) ? file.mtime : 0;
     const selectedMtime =
       typeof selected.mtime === 'number' && Number.isFinite(selected.mtime) ? selected.mtime : 0;
     if (nextMtime >= selectedMtime) selected = file;
   }
   return selected?.name ?? null;
+}
+
+function compareCreatedThisTurn(
+  candidate: CandidateFile,
+  current: CandidateFile,
+  preTurnFileNames: ReadonlySet<string> | null | undefined,
+): number {
+  if (!preTurnFileNames) return 0;
+  return Number(!preTurnFileNames.has(candidate.name)) - Number(!preTurnFileNames.has(current.name));
 }

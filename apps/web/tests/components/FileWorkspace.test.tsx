@@ -16,6 +16,7 @@ import {
 import {
   DESIGN_FILES_TAB,
   FileWorkspace,
+  measureWorkspaceTabBarAfterResize,
   settleManualEditFiles,
   scrollWorkspaceTabsWithWheel,
   settleManualEditExit,
@@ -3550,6 +3551,43 @@ describe('scrollWorkspaceTabsWithWheel', () => {
 
     expect(currentTarget.scrollLeft).toBe(200);
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('measureWorkspaceTabBarAfterResize', () => {
+  it('scrolls the complete active file tab back into view after the workspace narrows', () => {
+    const activeTab = {
+      getBoundingClientRect: () => ({ left: 248, right: 358 }),
+    } as HTMLElement;
+    const tabBar = {
+      clientWidth: 260,
+      scrollLeft: 0,
+      scrollWidth: 520,
+      getBoundingClientRect: () => ({ left: 0, right: 260 }),
+      querySelector: (selector: string) => selector === '.ws-tab.active' ? activeTab : null,
+    } as unknown as HTMLDivElement;
+
+    expect(measureWorkspaceTabBarAfterResize(tabBar)).toBe(true);
+    // Only 12px of the active tab was visible after the drag. Preserve the
+    // tab's ellipsis protection, but reveal the whole 110px tab viewport so
+    // its filename can show the longest prefix that actually fits.
+    expect(tabBar.scrollLeft).toBe(98);
+  });
+
+  it('does not move the strip when the active tab already fits after widening', () => {
+    const activeTab = {
+      getBoundingClientRect: () => ({ left: 82, right: 192 }),
+    } as HTMLElement;
+    const tabBar = {
+      clientWidth: 360,
+      scrollLeft: 40,
+      scrollWidth: 520,
+      getBoundingClientRect: () => ({ left: 0, right: 360 }),
+      querySelector: () => activeTab,
+    } as unknown as HTMLDivElement;
+
+    expect(measureWorkspaceTabBarAfterResize(tabBar)).toBe(true);
+    expect(tabBar.scrollLeft).toBe(40);
   });
 });
 

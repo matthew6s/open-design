@@ -8,6 +8,11 @@
  * 那里才知道这一轮是授权失败、余额不够、还是本地环境跑不动。
  */
 .card {
+  /* The ChatPanel resizes independently from the viewport. Base the footer
+     transition on this card's actual content width instead of a window media
+     query so dragging the split produces one deterministic layout change. */
+  container-type: inline-size;
+  container-name: run-error-card;
   width: 380px;
   max-width: 100%;
   padding: 10px 11px;
@@ -45,7 +50,8 @@
 }
 
 /* 稿子 `.errb .ops { display:flex; flex-wrap:wrap; justify-content:flex-end;
-   gap:6px; margin-top:9px }` —— 动作靠右 */
+   gap:6px; margin-top:9px }` —— 宽卡动作靠右；窄卡在下面显式切为单列，
+   不再让内容长度偶然决定出 2 + 1 的孤行。 */
 .ops {
   display: flex;
   flex-wrap: wrap;
@@ -77,6 +83,31 @@
   font-weight: 600;
   line-height: normal;
   white-space: nowrap;
+}
+
+/* 20rem is below the normal 380px card's content width but above the minimum
+   ChatPanel card width. Using rem also makes increased default font sizes
+   enter the roomy stacked layout earlier. DOM order is unchanged, so pointer
+   targets, native button semantics and keyboard focus order stay intact. */
+@container run-error-card (max-width: 20rem) {
+  .ops {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+  }
+
+  .actionGroup {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .action {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .secondaryAction {

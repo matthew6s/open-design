@@ -3748,7 +3748,7 @@ export function FileWorkspace({
     let frame = 0;
     const measure = () => {
       frame = 0;
-      setTabsOverflowing(tabBar.scrollWidth > tabBar.clientWidth + 1);
+      setTabsOverflowing(measureWorkspaceTabBarAfterResize(tabBar));
     };
     const requestMeasure = () => {
       if (frame) window.cancelAnimationFrame(frame);
@@ -8507,6 +8507,19 @@ export function scrollWorkspaceTabIntoView(
   } else if (tabRect.right > barRect.right) {
     tabBar.scrollLeft += tabRect.right - barRect.right;
   }
+}
+
+/**
+ * Re-measure the strip after its workspace track changes width. Resizing the
+ * split does not change `activeTab`, so the active-tab effect above does not
+ * run; without this resize path the viewport can clip all but the filename's
+ * ellipsis even though the tab itself still preserves its icon and close
+ * control at the intended width.
+ */
+export function measureWorkspaceTabBarAfterResize(tabBar: HTMLDivElement): boolean {
+  const activeTab = tabBar.querySelector<HTMLElement>('.ws-tab.active');
+  if (activeTab) scrollWorkspaceTabIntoView(tabBar, activeTab);
+  return tabBar.scrollWidth > tabBar.clientWidth + 1;
 }
 
 export function scrollWorkspaceTabsWithWheel(

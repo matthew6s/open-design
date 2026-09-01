@@ -179,6 +179,21 @@ describe('AssistantMessage feedback gate', () => {
     expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png');
   });
 
+  it('does not turn the whole assistant reply into a persistent focus target', () => {
+    render(
+      <AssistantMessage
+        message={baseMessage({ producedFiles: [producedFile('poster.png')] })}
+        streaming={false}
+        projectId="proj-1"
+        onRequestOpenFile={vi.fn()}
+      />,
+    );
+
+    const reply = document.querySelector('[data-assistant-message-id]');
+    expect(reply?.hasAttribute('tabindex')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Open: poster.png' })).toBeTruthy();
+  });
+
   it('keeps the artifact card openable from the keyboard', () => {
     const onRequestOpenFile = vi.fn();
     render(

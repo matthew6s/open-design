@@ -295,6 +295,35 @@ describe('selectAutoOpenProducedArtifact', () => {
 describe('selectAutoOpenTurnArtifact', () => {
   const TURN_START = 1_000_000;
 
+  it('prefers a newly created HTML over an older HTML rewritten later in the same edit turn', () => {
+    const before = new Set(['english.html']);
+    const english = {
+      name: 'english.html', path: 'english.html', kind: 'html', mtime: TURN_START + 20_000,
+    };
+    const chinese = {
+      name: 'chinese.html', path: 'chinese.html', kind: 'html', mtime: TURN_START + 10_000,
+    };
+
+    // OPEND-2537's real run created chinese.html, then rewrote english.html.
+    // Both appeared in authoritative artifactPaths; mtime-only tie-breaking
+    // reopened the old English file after the new Chinese file briefly focused.
+    const turnPick = selectAutoOpenTurnArtifact(
+      [chinese, english],
+      [english, chinese],
+      { turnStartedAt: TURN_START, preTurnFileNames: before },
+    );
+    expect(turnPick).toBe('chinese.html');
+
+    // ProjectView performs one final rank pass after merging trace-touched
+    // files with the turn pick. That pass must preserve the same new-file
+    // preference, or it steals focus back and makes the right card's Publish /
+    // Export action look unresponsive (OPEND-2538).
+    expect(selectAutoOpenProducedArtifact(
+      [english, chinese],
+      { preTurnFileNames: before },
+    )).toBe('chinese.html');
+  });
+
   it('opens a pre-existing HTML file the turn rewrote in place (plan regeneration)', () => {
     // Plan-mode loop: plan → generate → edit plan → regenerate. The second
     // generation rewrites index.html, so the name diff (produced) is empty.

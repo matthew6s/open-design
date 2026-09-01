@@ -1254,7 +1254,6 @@ function AssistantMessageImpl({
       /* 「接上一条,不再重复报名字」是状态,不是样式的私事 —— 给它自己的出口 */
       data-continuation={showRole ? 'false' : 'true'}
       data-assistant-message-id={message.id}
-      tabIndex={-1}
     >
       {showRole ? (
         <div className="role" data-testid="assistant-role">

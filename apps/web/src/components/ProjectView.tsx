@@ -6025,6 +6025,7 @@ export function ProjectView({
             );
             const producedArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
               ...autoOpenArtifactOptions,
+              preTurnFileNames: beforeFileNames,
               turnStartedAt: status.createdAt || message.startedAt || message.createdAt || null,
               turnEndedAt: message.endedAt || legacyReplayEndedAt || null,
               agentTouchedFileNames: resolveAgentTouchedFileNames(
@@ -6520,6 +6521,7 @@ export function ProjectView({
                 );
                 const producedArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
                   ...autoOpenArtifactOptions,
+                  preTurnFileNames: beforeFileNames,
                   turnStartedAt: status.createdAt || message.startedAt || message.createdAt || null,
                   turnEndedAt: endedAt ?? null,
                   agentTouchedFileNames: resolveAgentTouchedFileNames(
@@ -6657,7 +6659,10 @@ export function ProjectView({
                     if (produced.length > 0) {
                       recoveredArtifactMessagesRef.current.add(message.id);
                     }
-                    const producedArtifactToOpen = selectAutoOpenProducedArtifact(produced, autoOpenArtifactOptions);
+                    const producedArtifactToOpen = selectAutoOpenProducedArtifact(produced, {
+                      ...autoOpenArtifactOptions,
+                      preTurnFileNames: beforeFileNames,
+                    });
                     if (producedArtifactToOpen) requestOpenFile(producedArtifactToOpen);
                     if (latestRunStatus?.status === 'succeeded') setError(null);
                     if (
@@ -7120,7 +7125,10 @@ export function ProjectView({
             continue;
           }
           recoveredArtifactMessagesRef.current.add(message.id);
-          const producedArtifactToOpen = selectAutoOpenProducedArtifact(produced, autoOpenArtifactOptions);
+          const producedArtifactToOpen = selectAutoOpenProducedArtifact(produced, {
+            ...autoOpenArtifactOptions,
+            preTurnFileNames: beforeFileNames,
+          });
           if (producedArtifactToOpen) requestOpenFile(producedArtifactToOpen);
           // This message's persisted runStatus was already terminal (a
           // precondition of hasRecoverableArtifactMessage); when it has no
@@ -8068,7 +8076,7 @@ export function ProjectView({
               const immediateTouchedFiles = provenTraceTouchedFiles();
               const immediateArtifact = selectAutoOpenProducedArtifact(
                 immediateTouchedFiles,
-                autoOpenArtifactOptions,
+                { ...autoOpenArtifactOptions, preTurnFileNames: beforeFileNames },
               );
               if (
                 !completionSelectedAutoOpen
@@ -8100,9 +8108,10 @@ export function ProjectView({
                 // generated deliverable (index.html).
                 const bestTouchedArtifact = selectAutoOpenProducedArtifact(
                   provenTraceTouchedFiles(),
-                  autoOpenArtifactOptions,
+                  { ...autoOpenArtifactOptions, preTurnFileNames: beforeFileNames },
                 ) ?? selectAutoOpenTurnArtifact([], nextFiles, {
                     ...autoOpenArtifactOptions,
+                    preTurnFileNames: beforeFileNames,
                     turnStartedAt: startedAt,
                     agentTouchedFileNames: resolveAgentTouchedFileNames(
                       [...traceTouchedFilePaths],
@@ -8435,6 +8444,7 @@ export function ProjectView({
               ) ?? [];
               const turnArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
                 ...autoOpenArtifactOptions,
+                preTurnFileNames: beforeFileNames,
                 turnStartedAt: startedAt,
                 turnEndedAt: endedAt ?? null,
                 agentTouchedFileNames: resolveAgentTouchedFileNames(
@@ -8457,7 +8467,7 @@ export function ProjectView({
                       ]
                     : []),
                 ],
-                autoOpenArtifactOptions,
+                { ...autoOpenArtifactOptions, preTurnFileNames: beforeFileNames },
               );
               if (producedArtifactToOpen) {
                 completionSelectedAutoOpen = true;

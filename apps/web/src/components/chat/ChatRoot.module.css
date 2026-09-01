@@ -34,6 +34,9 @@
   --chat-bg-fill-tertiary: var(--bg-fill-tertiary);
   /* 「需要你确认」那类卡的卡头底色。产品单独指定,与 --bg-panel 同值但独立成档 */
   --chat-confirm-surface: #fafafa;
+  /* 消息轨道的悬浮预览必须完全遮住后面的会话内容,不能再用玻璃材质。 */
+  --chat-floating-card-bg: #fff;
+  --chat-floating-card-text: #202020;
 
   /* ── 描边 ── */
   --chat-border: var(--border);
@@ -118,6 +121,8 @@
   --chat-shadow-sm: var(--shadow-sm);
   --chat-shadow-md: var(--shadow-md);
   --chat-shadow-lg: var(--shadow-lg);
+  /* 单产物与设计稿的附件 / 音频内容道共用这一档上限。 */
+  --chat-artifact-single-max-width: 406px;
   /* 稿子的玻璃浮层(选区浮条、引用芯片的全文浮层):
      `--overlay-glass: rgba(32,32,32,.88)` / `--overlay-glass-text: #fafafa`
      / `--overlay-glass-edge: color-mix(in srgb,#fff 16%,transparent)` */
@@ -157,6 +162,8 @@
   --chat-bg-fill-secondary: var(--bg-fill-secondary);
   --chat-bg-fill-tertiary: var(--bg-fill-tertiary);
   --chat-confirm-surface: var(--brand-soft);
+  --chat-floating-card-bg: #fff;
+  --chat-floating-card-text: #202020;
 
   --chat-border: var(--border);
   --chat-border-strong: var(--border-strong);
@@ -225,6 +232,7 @@
   --chat-shadow-sm: var(--shadow-sm);
   --chat-shadow-md: var(--shadow-md);
   --chat-shadow-lg: var(--shadow-lg);
+  --chat-artifact-single-max-width: 406px;
   /* 稿子的玻璃浮层(选区浮条、引用芯片的全文浮层):
      `--overlay-glass: rgba(32,32,32,.88)` / `--overlay-glass-text: #fafafa`
      / `--overlay-glass-edge: color-mix(in srgb,#fff 16%,transparent)` */

@@ -365,20 +365,19 @@
 }
 .chat-message-rail__preview {
   position: absolute;
-  /* The rail sits at the pane's right edge; the card opens to its left. */
-  right: 36px;
+  /* The rail's right edge is 4px inside the pane. A 16px inset puts this
+     card's right edge on the transcript's 20px content boundary. */
+  right: 16px;
   top: var(--chat-message-rail-y);
   width: min(280px, calc(100vw - 88px));
   max-width: 280px;
   padding: 12px 14px;
   border: 1px solid var(--material-separator);
   border-radius: 12px;
-  /* Keep the text side calm and opaque, then reveal more of the transcript
-     toward the rail so the card reads as a white-to-glass lens. */
-  background: linear-gradient(to right, var(--bg-elevated), var(--glass-regular));
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
-  color: var(--text);
+  /* This card overlays the transcript, so translucency would merge two
+     different messages into one unreadable layer. */
+  background: var(--chat-floating-card-bg);
+  color: var(--chat-floating-card-text);
   box-shadow: 0 18px 40px color-mix(in srgb, var(--text) 12%, transparent);
   transform: translateY(-50%);
   pointer-events: none;

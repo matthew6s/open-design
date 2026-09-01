@@ -68,6 +68,14 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
+/* One deliverable is the focus of the turn, so let it use the transcript's
+   available width. The shared cap matches the design sheet's 406px content
+   lane; multiple deliverables keep the two-column matrix above. */
+.artifact-cards:has(> .artifact-card:only-child) {
+  width: 100%;
+  max-width: var(--chat-artifact-single-max-width);
+  grid-template-columns: minmax(0, 1fr);
+}
 /* No `overflow: hidden` on the card itself — it would clip tooltips and any
    popover an action opens. The thumbnail rounds its own corners instead. */
 .artifact-card {
