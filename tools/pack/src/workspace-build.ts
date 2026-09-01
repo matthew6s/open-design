@@ -71,6 +71,8 @@ export type WorkspaceBuildRunner = (
   extraEnv?: NodeJS.ProcessEnv,
 ) => Promise<void>;
 
+export type WorkspaceBuildMaterializer = (config: ToolPackConfig) => Promise<void>;
+
 type WorkspaceBuildMetadata = {
   builtAt: string;
   outputFiles: string[];
@@ -149,7 +151,6 @@ export async function runWorkspaceBuild(
       { OD_WEB_OUTPUT_MODE: config.webOutputMode },
     );
     await runPnpm([...WORKSPACE_BUILD_COMMANDS[2].args]);
-    await processWebSourcemaps(config);
     await runPnpm([...WORKSPACE_BUILD_COMMANDS[3].args]);
   } finally {
     if (previousWebNextEnv == null) await rm(webNextEnvPath, { force: true });
@@ -275,6 +276,7 @@ async function stripBrokenSymlinks(rootPath: string): Promise<void> {
 }
 
 const WEB_STANDALONE_ARTIFACT = "apps/web/.next/standalone";
+const WEB_STATIC_ARTIFACT = "apps/web/.next/static";
 const WEB_STANDALONE_APP_NODE_MODULES = "apps/web/node_modules";
 // Peer deps the web-standalone after-pack audit looks up through
 // `createRequire(server.js).resolve(<pkg>/package.json)`. Next 16
@@ -361,6 +363,7 @@ export async function ensureWorkspaceBuildArtifacts(
   config: ToolPackConfig,
   cache: ToolPackCache,
   runPnpm: WorkspaceBuildRunner,
+  materializeWebSourcemaps: WorkspaceBuildMaterializer = processWebSourcemaps,
 ): Promise<string> {
   const key = await createWorkspaceBuildCacheKey(config);
   const nodeId = `${config.platform}.workspace-build`;
@@ -379,7 +382,9 @@ export async function ensureWorkspaceBuildArtifacts(
       });
   const materialize = artifacts.map((artifact) => ({
     from: artifact.cachePath,
-    reuse: true,
+    // Sourcemap processing removes maps from the workspace copy. Restore the
+    // pristine cached static tree before every materialization-time pass.
+    reuse: artifact.workspacePath !== WEB_STATIC_ARTIFACT,
     reuseRequiredPaths: artifact.requiredPathGroups,
     to: join(config.workspaceRoot, artifact.workspacePath),
   }));
@@ -419,5 +424,9 @@ export async function ensureWorkspaceBuildArtifacts(
     },
     seedFrom: versionFamilyAlias == null ? [] : [{ aliasKey: versionFamilyAlias, materialize }],
   });
+  // Sourcemap injection/upload depends on release credentials and appVersion,
+  // and upload is a materialization side effect. Keep pristine JS/map pairs in
+  // the internal cache, then process the materialized copy on every hit/miss.
+  await materializeWebSourcemaps(config);
   return key;
 }

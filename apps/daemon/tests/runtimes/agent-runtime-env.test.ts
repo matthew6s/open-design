@@ -50,6 +50,21 @@ describe('agent runtime tool environment', () => {
     });
   });
 
+  it('merges an opaque environment supplied by the runtime integration seam', () => {
+    const inheritedEnvironment = vi.fn(() => ({ OD_OPAQUE_CLIENT_CAPABILITY: 'capability' }));
+    const baseEnv = { PATH: '/bin' };
+    const env = createAgentRuntimeEnv(
+      baseEnv,
+      'http://127.0.0.1:7456',
+      null,
+      '/opt/open-design/bin/node',
+      inheritedEnvironment,
+    );
+
+    expect(inheritedEnvironment).toHaveBeenCalledWith(baseEnv);
+    expect(env.OD_OPAQUE_CLIENT_CAPABILITY).toBe('capability');
+  });
+
   it('prepends node binary directory to PATH when not already present', () => {
     const env = createAgentRuntimeEnv(
       { PATH: '/bin' },

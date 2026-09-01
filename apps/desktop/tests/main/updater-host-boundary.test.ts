@@ -57,6 +57,15 @@ describe("desktop updater host boundary", () => {
     expect(main).not.toContain("createJsonIpcServer");
   });
 
+  it("registers frame rendering on the normalized sidecar client", () => {
+    const main = source("src/main/index.ts");
+    const handlersStart = main.indexOf("handlers: Object.fromEntries([");
+    const lifecycleStart = main.indexOf("lifecycle:", handlersStart);
+    expect(handlersStart).toBeGreaterThanOrEqual(0);
+    expect(lifecycleStart).toBeGreaterThan(handlersStart);
+    expect(main.slice(handlersStart, lifecycleStart)).toContain("SIDECAR_MESSAGES.RENDER_FRAMES");
+  });
+
   it("keeps direct sidecar discovery and auth registration soft-failing", () => {
     const main = source("src/main/index.ts");
     const wiringStart = main.indexOf("discoverDaemonUrl: async () => {");

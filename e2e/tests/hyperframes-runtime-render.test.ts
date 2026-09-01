@@ -7,20 +7,21 @@ import { fileURLToPath } from 'node:url';
 
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
-import { PNG } from 'pngjs';
 import {
-  getSidecarStatus,
-  spawnSidecar,
+  convergeSidecarLaunch,
+  stopSidecar,
 } from '@open-design/sidecar';
 import {
   APP_KEYS,
+  SIDECAR_MODES,
+  SIDECAR_SOURCES,
 } from '@open-design/sidecar-proto';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import { createSmokeSuite } from '@/vitest/suite';
 
 const odBin = fileURLToPath(new URL('../../apps/daemon/bin/od.mjs', import.meta.url));
-const desktopFixture = fileURLToPath(new URL('../resources/hyperframes-desktop-sidecar.ts', import.meta.url));
+const desktopFixture = fileURLToPath(new URL('../lib/desktop/hyperframes-sidecar.ts', import.meta.url));
 
 describe('HyperFrames bundled runtime end-to-end', () => {
   test('[P0] real od media generate renders MP4 through the daemon-owned HyperFrames runtime', async () => {
@@ -28,36 +29,31 @@ describe('HyperFrames bundled runtime end-to-end', () => {
     const desktopStamp = {
       app: APP_KEYS.DESKTOP,
       channel: 'local',
-      mode: 'dev',
+      mode: SIDECAR_MODES.DEV,
       namespace: suite.namespace,
-      source: 'tools-dev',
-    } as const;
-    const frameDocumentPath = join(suite.scratchDir, 'frame-document.html');
-    const framePngPath = join(suite.scratchDir, 'frame.png');
-    await writeFile(framePngPath, solidPng(320, 180));
-    const desktop = await spawnSidecar({
+      source: SIDECAR_SOURCES.TOOLS_DEV,
+    };
+    const capturedFrameDocument = join(suite.dataDir, 'captured-frame-document.html');
+    await convergeSidecarLaunch({
       args: ['--import', 'tsx', desktopFixture],
       command: process.execPath,
-      cwd: suite.root,
       env: {
         ...process.env,
-        OD_E2E_FRAME_DOCUMENT_PATH: frameDocumentPath,
-        OD_E2E_FRAME_PNG_PATH: framePngPath,
+        OD_TEST_CAPTURED_FRAME_DOCUMENT: capturedFrameDocument,
+        OD_TEST_SIDECAR_DATA_ROOT: suite.dataDir,
+        OD_TEST_SIDECAR_RUNTIME_ROOT: join(suite.dataDir, 'runtime'),
       },
+      logFd: null,
       resources: {
         dataRoot: suite.dataDir,
         ownerPid: null,
         port: 0,
-        runtimeRoot: suite.toolsDevRoot,
+        runtimeRoot: join(suite.dataDir, 'runtime'),
       },
       stamp: desktopStamp,
-    });
+    }, { stabilityMs: 100, timeoutMs: 10_000 });
 
     try {
-      await vi.waitFor(async () => {
-        await expect(getSidecarStatus(desktopStamp, { generationPid: desktop.process.pid }))
-          .resolves.toMatchObject({ state: 'running' });
-      }, { interval: 100, timeout: 15_000 });
       await suite.with.env(
         {
           HYPERFRAMES_FFMPEG_PATH: ffmpegInstaller.path,
@@ -132,26 +128,15 @@ window.__timelines.main={duration:function(){return .1},seek:function(){}};
             ]);
             expect(outputStat.size).toBe(payload.file?.size);
             expect(bytes.subarray(4, 8).toString('ascii')).toBe('ftyp');
-            await expect(readFile(frameDocumentPath, 'utf8')).resolves.toContain('window.__odFrameRenderer');
+            expect(await readFile(capturedFrameDocument, 'utf8')).toContain('window.__odFrameRenderer');
           });
         },
       );
     } finally {
-      await desktop.stop();
+      await stopSidecar(desktopStamp);
     }
   }, 180_000);
 });
-
-function solidPng(width: number, height: number): Buffer {
-  const image = new PNG({ width, height });
-  for (let offset = 0; offset < image.data.length; offset += 4) {
-    image.data[offset] = 16;
-    image.data[offset + 1] = 37;
-    image.data[offset + 2] = 63;
-    image.data[offset + 3] = 255;
-  }
-  return PNG.sync.write(image);
-}
 
 async function runOd(
   daemonUrl: string,

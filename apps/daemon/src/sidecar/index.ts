@@ -33,6 +33,7 @@ async function main(): Promise<void> {
           namespace: client.stamp.namespace,
           source: client.stamp.source,
         }, {
+          inheritedEnvironment: (baseEnv) => SidecarFactory.inheritedEnvironment(baseEnv),
           invokeDesktop: async <TResult>(action: string, input: unknown, timeoutMs: number) =>
             await client.invoke<TResult>(APP_KEYS.DESKTOP, action, input, { timeoutMs }),
           port: resources.port,

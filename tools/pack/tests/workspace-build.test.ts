@@ -182,6 +182,57 @@ describe("ensureWorkspaceBuildArtifacts", () => {
     }
   });
 
+  it("processes sourcemaps after both a credentialless fill and a credentialed hit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-sourcemaps-"));
+    const cache = new ToolPackCache(join(root, ".cache"));
+    const initialConfig = createConfig(root, cache.root);
+    const releaseConfig: ToolPackConfig = {
+      ...initialConfig,
+      appVersion: "1.2.3-beta.4",
+      posthogCliApiKey: "test-api-key",
+      posthogCliProjectId: "test-project",
+    };
+    const processing: Array<{ hadMap: boolean; injected: boolean; uploaded: boolean; version?: string }> = [];
+    let builds = 0;
+    const processMaterialized = async (config: ToolPackConfig) => {
+      const chunks = join(root, "apps/web/.next/static");
+      const mapPath = join(chunks, "chunk.js.map");
+      const hadMap = await readFile(mapPath, "utf8").then(() => true, () => false);
+      const hasCredentials = Boolean(config.posthogCliApiKey && config.posthogCliProjectId);
+      if (hasCredentials) {
+        await writeFile(join(chunks, "chunk.js"), `chunk\n//# chunkId=${config.appVersion}\n`, "utf8");
+      }
+      processing.push({ hadMap, injected: hasCredentials, uploaded: hasCredentials, version: config.appVersion });
+      await rm(mapPath, { force: true });
+    };
+
+    try {
+      await writeWorkspace(root);
+      await ensureWorkspaceBuildArtifacts(initialConfig, cache, buildRunner(async () => {
+        builds += 1;
+        await writeOutputs(root, "build");
+        await writeFile(join(root, "apps/web/.next/static/chunk.js.map"), "map\n", "utf8");
+      }), processMaterialized);
+      await expect(readFile(join(root, "apps/web/.next/static/chunk.js.map"), "utf8")).rejects.toThrow();
+
+      await ensureWorkspaceBuildArtifacts(releaseConfig, cache, buildRunner(async () => {
+        builds += 1;
+      }), processMaterialized);
+
+      expect(builds).toBe(1);
+      expect(cache.report().entries.map((entry) => entry.status)).toEqual(["miss", "hit"]);
+      expect(processing).toEqual([
+        { hadMap: true, injected: false, uploaded: false, version: undefined },
+        { hadMap: true, injected: true, uploaded: true, version: "1.2.3-beta.4" },
+      ]);
+      expect(await readFile(join(root, "apps/web/.next/static/chunk.js"), "utf8"))
+        .toContain("//# chunkId=1.2.3-beta.4");
+      await expect(readFile(join(root, "apps/web/.next/static/chunk.js.map"), "utf8")).rejects.toThrow();
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   it("writes a Windows version-family alias after a successful build", async () => {
     const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-alias-"));
     const cache = new ToolPackCache(join(root, ".cache"));
@@ -468,6 +519,17 @@ describe("createWorkspaceBuildCacheKey", () => {
         createWorkspaceBuildCacheKeyFromInputs({ ...inputs, buildCommands }),
         `build command ${JSON.stringify(command.args)}`,
       ).not.toBe(baseline);
+      for (const envName of "env" in command ? command.env : []) {
+        const envCommands = WORKSPACE_BUILD_COMMANDS.map((entry, entryIndex) =>
+          entryIndex === index
+            ? { ...entry, env: [...("env" in entry ? entry.env : []), `${envName}_WITNESS`] }
+            : entry,
+        );
+        expect(
+          createWorkspaceBuildCacheKeyFromInputs({ ...inputs, buildCommands: envCommands }),
+          `build command env ${envName}`,
+        ).not.toBe(baseline);
+      }
     }
 
     expect(createWorkspaceBuildCacheKeyFromInputs({ ...inputs, node: "mac.workspace-build" })).not.toBe(baseline);
