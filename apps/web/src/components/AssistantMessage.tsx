@@ -130,7 +130,6 @@ export type QuestionFormSubmitHandler = (
   formId?: string,
 ) => boolean | void | Promise<boolean | void>;
 
-const DISCORD_INVITE_URL = "https://discord.gg/mHAjSMV6gz";
 const viewedInlineQuestionForms = new Set<string>();
 const QUESTION_FORM_DRAFT_STORAGE_PREFIX = "open-design:question-form-draft:";
 const QUESTION_FORM_SUBMITTED_STORAGE_PREFIX =
@@ -2562,7 +2561,6 @@ export function AssistantFeedback({
   const reasonOptions = reasonRating
     ? feedbackReasonOptions(reasonRating, t, hasDesignSystemContext)
     : [];
-  const reasonEmoji = reasonRating === "positive" ? "😊" : "😔";
   /*
    * 补充框现在常驻(见 `AssistantFeedbackReasons`),所以「能不能提交」也跟着松开:
    * 只写了一句补充、一个原因都没勾,同样是有效反馈 —— 原来那条 `has('other')` 的门
@@ -2628,7 +2626,6 @@ export function AssistantFeedback({
       {reasonRating ? (
         <AssistantFeedbackReasons
           rating={reasonRating}
-          emoji={reasonEmoji}
           options={reasonOptions}
           selected={draftReasonCodes}
           onToggle={(code) => toggleReasonCode(code as never)}
@@ -2667,10 +2664,8 @@ export function feedbackReasonOptions(
       : [
           "missed_request",
           "weak_visual",
-          "incomplete_output",
-          "hard_to_use",
-          ...(hasDesignSystemContext ? (["missed_design_system"] as const) : []),
-          "other",
+          "could_not_run",
+          "too_slow",
         ];
   return codes.map((code) => ({ code, label: feedbackReasonLabel(code, t) }));
 }
@@ -2694,6 +2689,10 @@ function feedbackReasonLabel(
       return t("assistant.feedbackReasonNegativeMissed");
     case "weak_visual":
       return t("assistant.feedbackReasonNegativeVisual");
+    case "could_not_run":
+      return t("assistant.feedbackReasonNegativeCouldNotRun");
+    case "too_slow":
+      return t("assistant.feedbackReasonNegativeTooSlow");
     case "incomplete_output":
       return t("assistant.feedbackReasonNegativeIncomplete");
     case "hard_to_use":
@@ -4274,7 +4273,6 @@ function splitSystemReminders(input: string): ProseSegment[] {
  */
 export function AssistantFeedbackReasons({
   rating,
-  emoji,
   options,
   selected,
   onToggle,
@@ -4287,7 +4285,6 @@ export function AssistantFeedbackReasons({
   t,
 }: {
   rating: 'positive' | 'negative';
-  emoji: string;
   options: Array<{ code: string; label: string }>;
   selected: Set<string>;
   onToggle: (code: string) => void;
@@ -4303,16 +4300,11 @@ export function AssistantFeedbackReasons({
   return (
     <div className="assistant-feedback-reasons" ref={panelRef}>
       <div className="assistant-feedback-reason-title">
-        <span>
-          {t(
-            (rating === "negative"
-              ? "assistant.feedbackReasonTitleNegative"
-              : "assistant.feedbackReasonTitle") as never,
-          )}
-        </span>
-        <span className="assistant-feedback-reason-emoji" aria-hidden="true">
-          {emoji}
-        </span>
+        {t(
+          (rating === "negative"
+            ? "assistant.feedbackReasonTitleNegative"
+            : "assistant.feedbackReasonTitle") as never,
+        )}
       </div>
       <div className="assistant-feedback-reason-options">
         {options.map((option) => (
@@ -4346,31 +4338,6 @@ export function AssistantFeedbackReasons({
         rows={1}
         onChange={(event) => onCustomReasonChange(event.target.value)}
       />
-      {/*
-        社区入口那一句。原来是**硬编码英文** —— 整个面板 19 种语言都翻了,只有它一句
-        英文戳在那儿(用户 2026-08-26 指认)。现在走语言包,`{discord}` 这个占位
-        在译文里的位置各语言不同,所以按占位切开再把链接塞回去,而不是拼字符串。
-      */}
-      <p className="assistant-feedback-discord-note">
-        {(() => {
-          const key = rating === "positive"
-            ? "assistant.feedbackDiscordPositive"
-            : "assistant.feedbackDiscordNegative";
-          const [head = "", tail = ""] = t(key as never).split("{discord}");
-          return (
-            <>
-              {head}
-              <a
-                href={DISCORD_INVITE_URL}
-                data-testid={`assistant-feedback-discord-${rating}`}
-              >
-                Discord
-              </a>
-              {tail}
-            </>
-          );
-        })()}
-      </p>
       <div className="assistant-feedback-actions">
         {onCancel ? (
           <Button variant="ghost" size="sm" onClick={onCancel}>

@@ -1014,9 +1014,8 @@ const OUTRO: Cell[] = [
     node: () => (
       <AssistantFeedbackReasons
         rating="negative"
-        emoji="🙁"
         options={feedbackReasonOptions('negative', T, false)}
-        selected={new Set(['visual'])}
+        selected={new Set(['weak_visual'])}
         onToggle={() => undefined}
         customReason=""
         onCustomReasonChange={() => undefined}
@@ -1030,9 +1029,9 @@ const OUTRO: Cell[] = [
       '**已抽成组件**:`AssistantFeedbackReasons`。原来它长在 `AssistantFeedback` 里、由 React state `reasonRating` 驱动 —— 静态陈列页永远够不着,那一格只能空着',
       '**已按稿子重做**:复选框列 → 胶囊组(`aria-pressed` 承担多选语义)、补充框从「勾了『其他』才出」改成**常驻**且只留一条底线、右下补上「取消」、标题在点踩这一路换成稿子的问句「哪里不对?」(新键 `assistant.feedbackReasonTitleNegative`,19 个语言包已补齐)',
       '连带放开了提交口径:**只写补充、一个原因都没勾**现在也能提交,而且那句话会真的带走 —— 原来它必须勾中「其他」才算数,人把话打完了却被丢掉',
-      '这里摆的是产品**真实**的原因项(`feedbackReasonOptions`),不是手抄稿子那四个词。所以剩下这一处差异是真的:稿子 4 项(没按我说的改 / 视觉不一致 / 跑不起来 / 太慢),产品 6 项且措辞不同',
-      '⚠️ **只剩一条要别人拍板**:原因项的**取值口径**。改它等于动契约 `ChatMessageFeedbackReasonCode` 并截断 PostHog 的历史样本,属于数据侧的账 —— 样式我不等这个决定,已经按稿子做完了',
-      'Discord 那一句是稿子之后才加的社区入口(带埋点与测试),**有意保留**,只压进稿子的字号节奏。记在 `specs/current/chat-panel-feedback.md` B4 行',
+      '原因项严格按稿子收敛为 4 项:没按我说的改 / 视觉不一致 / 跑不起来 / 太慢；新增 code 只用于后两项,旧 code 继续保留以兼容历史反馈数据',
+      '选中态使用稿子的品牌绿底与深绿文字；夹具使用真实 code `weak_visual`,不再传一个永远选不中的 `visual` 假值',
+      '标题不附加表情,输入框后直接接取消 / 提交；产品实现不再插入稿子没有的社区引流行',
     ],
   },
   {

@@ -1675,8 +1675,8 @@ describe('execution_failed close-reason refinement', () => {
       failure_domain: 'policy_admission',
       evidence_level: 'structured_code',
       repair_owner: 'policy_owner',
-      admission_status: 'rejected_policy',
-      classifier_version: 'run-failure-v2',
+      admission_status: 'unknown',
+      classifier_version: 'run-failure-v3',
       retryable: false,
       user_action: 'none',
     });
@@ -1688,7 +1688,7 @@ describe('execution_failed close-reason refinement', () => {
       failure_detail: 'rate_limit_429',
       failure_domain: 'provider_control_plane',
       failure_mechanism: 'provider_rejection',
-      admission_status: 'admitted',
+      admission_status: 'unknown',
       repair_owner: 'provider_owner',
     });
   });
@@ -1723,8 +1723,8 @@ describe('execution_failed close-reason refinement', () => {
       failure_domain: 'client_product',
       evidence_level: 'protocol_error',
       repair_owner: 'open_design',
-      admission_status: 'admitted',
-      classifier_version: 'run-failure-v2',
+      admission_status: 'unknown',
+      classifier_version: 'run-failure-v3',
     });
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type {
   AnalyticsEventPayload,
   RunFinishedProps,
@@ -41,6 +41,15 @@ function makeBaseRunFinishedProps(): RunFinishedProps {
 }
 
 describe('analytics run_finished contract', () => {
+  it('accepts v3 evidence without retiring v2 or requiring new fields on legacy events', () => {
+    expectTypeOf<RunFinishedProps['classifier_version']>()
+      .toEqualTypeOf<'run-failure-v2' | 'run-failure-v3' | undefined>();
+    expectTypeOf<RunFinishedProps['admission_phase']>()
+      .toEqualTypeOf<'before_execution' | 'during_execution' | 'unknown' | undefined>();
+    expectTypeOf<RunFinishedProps['admission_status']>()
+      .toEqualTypeOf<'admitted' | 'rejected_policy' | 'unknown' | undefined>();
+  });
+
   it('uses schema v4 for the task-level, aggregated run payload', () => {
     expect(EVENT_SCHEMA_VERSION).toBe(4);
   });

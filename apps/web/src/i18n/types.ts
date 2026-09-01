@@ -1127,6 +1127,7 @@ export interface Dict {
   'entry.discordAria': string;
   'entry.discordAriaWithOnline': string;
   'entry.discordOnlineLabel': string;
+  'entry.xAria': string;
   'entry.mailAria': string;
   'entry.accountSettings': string;
   'chat.collapsePane': string;
@@ -4331,6 +4332,8 @@ export interface Dict {
   'assistant.feedbackReasonNegativeVisual': string;
   'assistant.feedbackReasonNegativeIncomplete': string;
   'assistant.feedbackReasonNegativeHard': string;
+  'assistant.feedbackReasonNegativeCouldNotRun': string;
+  'assistant.feedbackReasonNegativeTooSlow': string;
   'assistant.feedbackReasonNegativeDesignSystem': string;
   'assistant.feedbackReasonOther': string;
   'assistant.feedbackReasonPlaceholder': string;

@@ -289,15 +289,12 @@ describe('chat assistant feedback', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Helpful' }));
     expect(screen.getByText('Tell us why')).toBeTruthy();
-    expect(screen.getByText('😊')).toBeTruthy();
-    expect(
-      screen.getByTestId('assistant-feedback-discord-positive').getAttribute('href'),
-    ).toBe('https://discord.gg/mHAjSMV6gz');
-    expect(screen.getByText(/Share what you made with the/i)).toBeTruthy();
+    expect(screen.queryByText('😊')).toBeNull();
+    expect(screen.queryByText(/Discord/i)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Understood my request' }));
     fireEvent.click(screen.getByRole('button', { name: 'Other' }));
-    fireEvent.change(screen.getByPlaceholderText('Add a short note...'), {
+    fireEvent.change(screen.getByPlaceholderText('Add something (optional)'), {
       target: { value: 'The layout is ready to present.' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
@@ -341,7 +338,7 @@ describe('chat assistant feedback', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Not helpful' }));
-    expect(screen.getByRole('button', { name: 'Did not follow the design system' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Did not follow the design system' })).toBeNull();
   });
 
   /*
@@ -355,13 +352,13 @@ describe('chat assistant feedback', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Helpful' }));
-    fireEvent.change(screen.getByPlaceholderText('Add a short note...'), {
+    fireEvent.change(screen.getByPlaceholderText('Add something (optional)'), {
       target: { value: 'This note must survive.' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Other' }));
     fireEvent.click(screen.getByRole('button', { name: 'Other' }));
     expect(
-      (screen.getByPlaceholderText('Add a short note...') as HTMLTextAreaElement).value,
+      (screen.getByPlaceholderText('Add something (optional)') as HTMLTextAreaElement).value,
     ).toBe('This note must survive.');
 
     fireEvent.click(screen.getByRole('button', { name: 'Understood my request' }));
@@ -378,7 +375,7 @@ describe('chat assistant feedback', () => {
     );
   });
 
-  it('uses a sad marker for negative feedback reasons', () => {
+  it('uses the design title without adding a marker or community row', () => {
     renderChatPane({
       messages: [completedArtifactAssistant()],
     });
@@ -388,13 +385,20 @@ describe('chat assistant feedback', () => {
     // 点踩这一路用交付稿第 40 格的问句,点赞仍是中性的「Tell us why」
     expect(screen.getByText('What went wrong?')).toBeTruthy();
     expect(screen.queryByText('Tell us why')).toBeNull();
-    expect(screen.getByText('😔')).toBeTruthy();
+    expect(screen.queryByText('😔')).toBeNull();
+    expect(screen.queryByText(/Discord/i)).toBeNull();
     expect(
-      screen.getByTestId('assistant-feedback-discord-negative').getAttribute('href'),
-    ).toBe('https://discord.gg/mHAjSMV6gz');
-    expect(
-      screen.getByText(/so the team can understand what went wrong/i),
-    ).toBeTruthy();
+      screen.getAllByRole('button').filter((button) =>
+        ['Did not follow my request', 'Visual inconsistency', 'Could not run', 'Too slow']
+          .includes(button.textContent ?? ''),
+      ).map((button) => button.textContent),
+    ).toEqual([
+      'Did not follow my request',
+      'Visual inconsistency',
+      'Could not run',
+      'Too slow',
+    ]);
+    expect(screen.queryByRole('button', { name: 'Other' })).toBeNull();
   });
 
   it('scrolls the feedback reasons panel into view after selecting a rating', () => {

@@ -306,9 +306,6 @@
      下面的原因面板本来靠这条限宽,改成它自己限。 */
   width: 100%;
 }
-.assistant-feedback-reasons {
-  max-width: min(360px, 100%);
-}
 .assistant-feedback {
   display: inline-flex;
   align-items: center;
@@ -511,7 +508,6 @@
    值逐条对着稿子搬:面板 10/11 内距、标题 --t-lead/600、胶囊排 gap 5 上距 7、
    补充框「无框 + 一条底线」、底部动作 gap 7 上距 9 右对齐。 */
 .assistant-feedback-reasons {
-  width: min(340px, 100%);
   margin-top: 8px;
   padding: 10px 11px;
   border: 1px solid var(--border);
@@ -519,16 +515,9 @@
   background: var(--bg);
 }
 .assistant-feedback-reason-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   font-size: var(--font-size-14);
   font-weight: 600;
   color: var(--text-strong);
-}
-.assistant-feedback-reason-emoji {
-  font-size: var(--font-size-14);
-  line-height: 1;
 }
 .assistant-feedback-reason-options {
   display: flex;
@@ -560,8 +549,8 @@
    用 transparent 而不是 border:none,保住那 1px 的位置,切换时这一颗不会跳。 */
 .assistant-feedback-reason-option[data-selected="true"] {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent-tint) 88%, var(--bg-panel));
-  color: var(--accent);
+  background: color-mix(in srgb, var(--brand-soft) 88%, var(--bg-panel));
+  color: var(--brand-text);
   font-weight: 600;
 }
 /* 补充那一栏不套框,只在底下留一条线(稿子 `.ta`)。
@@ -581,13 +570,13 @@
   color: var(--text-strong);
   font-family: inherit;
   font-size: var(--font-size-12);
-  line-height: var(--chat-lh-row, 1.45);
+  line-height: var(--chat-lh-row, 1.5);
   field-sizing: content;
   resize: none;
   outline: none;
 }
 .assistant-feedback-custom::placeholder {
-  color: var(--text-faint);
+  color: var(--text-soft);
 }
 .assistant-feedback-custom:focus {
   border-bottom-color: var(--border-strong);
@@ -598,27 +587,13 @@
   justify-content: flex-end;
   margin-top: 9px;
 }
-/* Discord 那一句是稿子之后才加的产品入口(社区引流,带埋点与测试),
-   所以保留 —— 但压到稿子的字号节奏里,不让它抢走「取消 / 提交」的位置。
-   这条是本格唯一一处与稿子的有意分歧,记在
-   `specs/current/chat-panel-feedback.md` 的 B4 行里。 */
-.assistant-feedback-discord-note {
-  margin: 7px 0 0;
+.assistant-feedback-actions > button:first-child {
   color: var(--text-muted);
-  font-size: var(--font-size-12);
-  line-height: var(--chat-lh-row, 1.45);
 }
-.assistant-feedback-discord-note a {
-  color: #5865f2;
-  font-weight: 600;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+.assistant-feedback-actions > button:first-child:hover:not(:disabled) {
+  background: var(--bg-fill-secondary);
+  color: var(--text-strong);
 }
-.assistant-feedback-discord-note a:hover {
-  color: color-mix(in srgb, #5865f2 78%, var(--text-strong));
-}
-
 .unfinished-todos {
   margin-top: 10px;
   width: min(520px, 100%);
