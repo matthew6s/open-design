@@ -4067,13 +4067,19 @@ export function ProjectView({
   const refreshPreviewCommentsRef = useRef<(() => Promise<void>) | null>(null);
   const handleProjectEvent = useCallback((evt: ProjectEvent) => {
     if (evt.type === 'file-changed') {
-      // A normal watcher event names the exact file. Collab's atomic directory
-      // replacement deliberately emits an empty path because every file may
-      // have changed; FileWorkspace treats that entry as the project wildcard.
-      pendingFileContentRefreshKeysRef.current.set(
-        normalizeComparableFilePath(evt.path),
-        ++fileContentRefreshGenerationRef.current,
-      );
+      // Size + mtime are sufficient to identify additions and removals. Only
+      // an in-place change needs a second witness for the rare case where both
+      // metadata values collide. Treating an `add` as another revision makes a
+      // newly generated file navigate once when it first appears and again
+      // when its watcher event settles. Collab's atomic directory replacement
+      // deliberately reports `change` with an empty path; FileWorkspace treats
+      // that entry as the project wildcard.
+      if (evt.kind === 'change') {
+        pendingFileContentRefreshKeysRef.current.set(
+          normalizeComparableFilePath(evt.path),
+          ++fileContentRefreshGenerationRef.current,
+        );
+      }
       iframeKeepAlivePool.evictProject(project.id);
       invalidateHtmlSourceSnapshotProject(project.id);
       coalescedFileChangedRefresh();

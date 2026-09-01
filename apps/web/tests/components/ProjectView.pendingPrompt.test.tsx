@@ -203,6 +203,7 @@ vi.mock('../../src/components/FileWorkspace', () => ({
     onBrandExtractionStopRequest?: () => void;
     designSystemEditable?: boolean;
     filesRefreshKey?: number;
+    fileContentRefreshKeys?: ReadonlyMap<string, number>;
     filesGeneration?: number;
     files?: ProjectFile[];
     onRefreshFiles?: (options?: { fresh?: boolean }) => Promise<{
@@ -395,6 +396,41 @@ describe('ProjectView pending prompt seeding', () => {
       const props = fileWorkspaceSpy.mock.calls.at(-1)?.[0];
       expect(props?.filesRefreshKey).toBe(1);
       expect(props?.files).toEqual([newFile]);
+      expect(props?.fileContentRefreshKeys?.get('index.html')).toBe(1);
+    });
+  });
+
+  it('does not treat a newly added file as a second content revision', async () => {
+    const newFile: ProjectFile = {
+      name: 'index.html',
+      path: 'index.html',
+      size: 100,
+      mtime: 1_000,
+      kind: 'html',
+      mime: 'text/html',
+    };
+    mockedFetchProjectFiles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([newFile]);
+
+    renderProjectView(project('new-file-generation'));
+    await waitFor(() => {
+      const props = fileWorkspaceSpy.mock.calls.at(-1)?.[0];
+      expect(props?.files).toEqual([]);
+      expect(props?.filesGeneration).toBe(1);
+    });
+
+    const handleProjectEvent = mockedUseProjectFileEvents.mock.calls.at(-1)?.[2] as
+      | ((event: { type: 'file-changed'; path: string; kind: 'add' }) => void)
+      | undefined;
+    act(() => {
+      handleProjectEvent?.({ type: 'file-changed', path: 'index.html', kind: 'add' });
+    });
+
+    await waitFor(() => {
+      const props = fileWorkspaceSpy.mock.calls.at(-1)?.[0];
+      expect(props?.files).toEqual([newFile]);
+      expect(props?.fileContentRefreshKeys?.get('index.html')).toBeUndefined();
     });
   });
 
