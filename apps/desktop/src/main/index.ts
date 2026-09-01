@@ -16,6 +16,7 @@ import {
   type DesktopEvalInput,
   type DesktopExportArtifactInput,
   type DesktopExportPdfInput,
+  type DesktopRenderFramesInput,
   type DesktopRenderSlidesInput,
   type DesktopScreenshotInput,
   type DesktopStatusSnapshot,
@@ -780,6 +781,7 @@ export async function runDesktopMain(
     if (activeDesktop == null) {
       return {
         executablePath: process.execPath,
+        capabilities: { frameRenderer: true },
         pid: process.pid,
         state: "idle",
         updatedAt: new Date().toISOString(),
@@ -788,7 +790,12 @@ export async function runDesktopMain(
         ...update,
       };
     }
-    return { executablePath: process.execPath, ...activeDesktop.status(), ...update };
+    return {
+      executablePath: process.execPath,
+      ...activeDesktop.status(),
+      capabilities: { frameRenderer: true },
+      ...update,
+    };
   }
 
   async function shutdown(): Promise<void> {
@@ -848,6 +855,8 @@ export async function runDesktopMain(
             return await activeDesktop.click(request.input as DesktopClickInput);
           case SIDECAR_MESSAGES.EXPORT_PDF:
             return await activeDesktop.exportPdf(request.input as DesktopExportPdfInput);
+          case SIDECAR_MESSAGES.RENDER_FRAMES:
+            return await activeDesktop.renderFrames(request.input as DesktopRenderFramesInput);
           case SIDECAR_MESSAGES.RENDER_SLIDES:
             return await activeDesktop.renderSlides(request.input as DesktopRenderSlidesInput);
           case SIDECAR_MESSAGES.EXPORT_ARTIFACT:

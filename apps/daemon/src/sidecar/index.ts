@@ -36,6 +36,8 @@ async function main(): Promise<void> {
           invokeDesktop: async <TResult>(action: string, input: unknown, timeoutMs: number) =>
             await client.invoke<TResult>(APP_KEYS.DESKTOP, action, input, { timeoutMs }),
           port: resources.port,
+          statusDesktop: async (timeoutMs: number) =>
+            await client.status(APP_KEYS.DESKTOP, { timeoutMs }),
         });
         runtimeHandle = started;
         return started;

@@ -9,8 +9,11 @@ import {
   type DesktopExportArtifactResult,
   type DesktopExportPdfInput,
   type DesktopExportPdfResult,
+  type DesktopRenderFramesInput,
+  type DesktopRenderFramesResult,
   type DesktopRenderSlidesInput,
   type DesktopRenderSlidesResult,
+  type DesktopStatusSnapshot,
   type MintImportTokenResult,
 } from "@open-design/sidecar-proto";
 
@@ -101,14 +104,38 @@ export async function startDaemonSidecar(
   options: {
     invokeDesktop?: <TResult>(action: string, input: unknown, timeoutMs: number) => Promise<TResult>;
     port?: number;
+    statusDesktop?: (timeoutMs: number) => Promise<DesktopStatusSnapshot>;
   } = {},
 ): Promise<DaemonSidecarHandle> {
   const invokeDesktop = options.invokeDesktop ?? (async () => {
     throw new Error("desktop sidecar is unavailable");
   });
+  const statusDesktop = options.statusDesktop ?? (async () => {
+    throw new Error("desktop sidecar is unavailable");
+  });
   const serverHandle: StartedDaemonRuntime = await startDaemonRuntime({
     desktopPdfExporter: async (input: DesktopExportPdfInput): Promise<DesktopExportPdfResult> => {
       return await invokeDesktop<DesktopExportPdfResult>(SIDECAR_MESSAGES.EXPORT_PDF, input, 600_000);
+    },
+    desktopFrameRenderer: async (input: DesktopRenderFramesInput): Promise<DesktopRenderFramesResult> => {
+      let status: DesktopStatusSnapshot;
+      try {
+        status = await statusDesktop(5_000);
+      } catch {
+        return {
+          ok: false,
+          error: "Open Design desktop is not running. Open or upgrade the desktop client before rendering HyperFrames video.",
+          errorCode: "FRAME_RENDERER_NOT_READY",
+        };
+      }
+      if (status.state !== "running" || status.capabilities?.frameRenderer !== true) {
+        return {
+          ok: false,
+          error: "This Open Design desktop version does not support HyperFrames rendering. Upgrade the desktop client and try again.",
+          errorCode: "FRAME_RENDERER_NOT_READY",
+        };
+      }
+      return await invokeDesktop<DesktopRenderFramesResult>(SIDECAR_MESSAGES.RENDER_FRAMES, input, 600_000);
     },
     desktopSlideRenderer: async (input: DesktopRenderSlidesInput): Promise<DesktopRenderSlidesResult> => {
       return await invokeDesktop<DesktopRenderSlidesResult>(SIDECAR_MESSAGES.RENDER_SLIDES, input, 600_000);
