@@ -2142,10 +2142,13 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   const { listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects, listUnboundProjects } = ctx.status;
   const { subscribeFileEvents, activeProjectEventSinks } = ctx.events;
   const htmlPreviewPolicyIndex = ctx.htmlPreviewPolicyIndex ?? new HtmlPreviewPolicyIndex();
-  const previewDocumentSnapshotStore = ctx.previewDocumentSnapshotStore
-    ?? new PreviewDocumentSnapshotStore({
+  let previewDocumentSnapshotStore = ctx.previewDocumentSnapshotStore;
+  const getPreviewDocumentSnapshotStore = (): PreviewDocumentSnapshotStore => {
+    previewDocumentSnapshotStore ??= new PreviewDocumentSnapshotStore({
       rootDir: path.join(ctx.paths.RUNTIME_DATA_DIR, 'preview-document-snapshots'),
     });
+    return previewDocumentSnapshotStore;
+  };
   const { randomId } = ctx.ids;
   const { validateProjectDesignSystemId, validateProjectSkillId } = ctx.validation;
   const { collabSync, teamProjectCatalog, workspaceTypes } = ctx;
@@ -5423,7 +5426,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
               htmlPreviewPolicyIndex,
               evt.path,
               file,
-              previewDocumentSnapshotStore,
+              getPreviewDocumentSnapshotStore(),
             ).catch(() => undefined);
           } else {
             // Custom watcher adapters may not provide an exact identity. Keep
@@ -5439,7 +5442,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
                 htmlPreviewPolicyIndex,
                 evt.path,
                 resolved,
-                previewDocumentSnapshotStore,
+                getPreviewDocumentSnapshotStore(),
               );
             }).catch(() => undefined);
           }
