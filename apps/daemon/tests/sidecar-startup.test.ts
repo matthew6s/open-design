@@ -71,6 +71,25 @@ describe('daemon sidecar startup', () => {
     expect(stopRuntime).toHaveBeenCalled();
   });
 
+  it('passes the supervised child environment through the sidecar integration seam', async () => {
+    const { startDaemonSidecar } = await import('../src/sidecar/server.js');
+    const inheritedEnvironment = vi.fn(() => ({ OD_OPAQUE_CLIENT_CAPABILITY: 'capability' }));
+    const handle = await startDaemonSidecar({
+      app: APP_KEYS.DAEMON,
+      base: tmpdir(),
+      ipc: join(tmpdir(), 'daemon-environment.sock'),
+      mode: SIDECAR_MODES.DEV,
+      namespace: 'environment',
+      source: SIDECAR_SOURCES.TOOLS_DEV,
+    }, { inheritedEnvironment });
+
+    try {
+      expect(startDaemonRuntime).toHaveBeenCalledWith(expect.objectContaining({ inheritedEnvironment }));
+    } finally {
+      await handle.stop();
+    }
+  });
+
   it('registers the live packaged web URL after daemon startup and replaces it on restart', async () => {
     const { startDaemonSidecar } = await import('../src/sidecar/server.js');
     const root = await mkdtemp(join(tmpdir(), 'od-daemon-sidecar-web-url-'));

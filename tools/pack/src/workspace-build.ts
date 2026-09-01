@@ -71,6 +71,8 @@ export type WorkspaceBuildRunner = (
   extraEnv?: NodeJS.ProcessEnv,
 ) => Promise<void>;
 
+export type WorkspaceBuildMaterializer = (config: ToolPackConfig) => Promise<void>;
+
 type WorkspaceBuildMetadata = {
   builtAt: string;
   outputFiles: string[];
@@ -149,7 +151,6 @@ export async function runWorkspaceBuild(
       { OD_WEB_OUTPUT_MODE: config.webOutputMode },
     );
     await runPnpm([...WORKSPACE_BUILD_COMMANDS[2].args]);
-    await processWebSourcemaps(config);
     await runPnpm([...WORKSPACE_BUILD_COMMANDS[3].args]);
   } finally {
     if (previousWebNextEnv == null) await rm(webNextEnvPath, { force: true });
@@ -361,6 +362,7 @@ export async function ensureWorkspaceBuildArtifacts(
   config: ToolPackConfig,
   cache: ToolPackCache,
   runPnpm: WorkspaceBuildRunner,
+  materializeWebSourcemaps: WorkspaceBuildMaterializer = processWebSourcemaps,
 ): Promise<string> {
   const key = await createWorkspaceBuildCacheKey(config);
   const nodeId = `${config.platform}.workspace-build`;
@@ -419,5 +421,9 @@ export async function ensureWorkspaceBuildArtifacts(
     },
     seedFrom: versionFamilyAlias == null ? [] : [{ aliasKey: versionFamilyAlias, materialize }],
   });
+  // Sourcemap injection/upload depends on release credentials and appVersion,
+  // and upload is a materialization side effect. Keep pristine JS/map pairs in
+  // the internal cache, then process the materialized copy on every hit/miss.
+  await materializeWebSourcemaps(config);
   return key;
 }

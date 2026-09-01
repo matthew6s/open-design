@@ -102,6 +102,7 @@ export function mintImportTokenForCli(baseDir: string): MintImportTokenResult {
 export async function startDaemonSidecar(
   runtime: DaemonSidecarRuntime,
   options: {
+    inheritedEnvironment?: (baseEnv?: NodeJS.ProcessEnv) => Record<string, string>;
     invokeDesktop?: <TResult>(action: string, input: unknown, timeoutMs: number) => Promise<TResult>;
     port?: number;
     statusDesktop?: (timeoutMs: number) => Promise<DesktopStatusSnapshot>;
@@ -143,6 +144,7 @@ export async function startDaemonSidecar(
     desktopArtifactExporter: async (input: DesktopExportArtifactInput): Promise<DesktopExportArtifactResult> => {
       return await invokeDesktop<DesktopExportArtifactResult>(SIDECAR_MESSAGES.EXPORT_ARTIFACT, input, 600_000);
     },
+    ...(options.inheritedEnvironment == null ? {} : { inheritedEnvironment: options.inheritedEnvironment }),
     port: options.port ?? parsePort(process.env[DAEMON_PORT_ENV]),
     runtime,
   });
