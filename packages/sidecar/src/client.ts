@@ -15,6 +15,8 @@ const CONTROL_STOP = "sidecar:stop";
 const CONTROL_DESCRIBE = "sidecar:describe";
 const BUSINESS_INVOKE = "sidecar:invoke";
 const INHERITED_ENDPOINT_ENV = "OD_SIDECAR_CLIENT_ENDPOINT";
+const SUPERVISOR_HANDOFF = "sidecar:supervisor-handoff";
+const SUPERVISOR_HANDOFF_ACCEPTED = "sidecar:supervisor-handoff-accepted";
 export const SIDECAR_SUPERVISOR_TARGET_ENV = "OD_SIDECAR_SUPERVISOR_TARGET";
 
 export type SidecarResources = Readonly<{
@@ -44,6 +46,15 @@ export function prepareSidecarLaunchEnvironment(
   return launchEnv;
 }
 
+function newSidecarGenerationEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const launchEnv = { ...env };
+  delete launchEnv[INHERITED_ENDPOINT_ENV];
+  delete launchEnv[RESOURCES_ENV];
+  delete launchEnv[SIDECAR_SUPERVISED_CONTEXT_ENV];
+  delete launchEnv[SIDECAR_SUPERVISOR_TARGET_ENV];
+  return launchEnv;
+}
+
 export type SidecarHandler = (input: unknown) => unknown | Promise<unknown>;
 export type SidecarHandlers = Readonly<Record<string, SidecarHandler>>;
 
@@ -57,6 +68,70 @@ export type SidecarClientOptions<TRuntime> = {
   handlers?: SidecarHandlers;
   lifecycle: SidecarLifecycle<TRuntime>;
 };
+
+export type SidecarGenerationHandoffRequest = {
+  args?: readonly string[];
+  command: string;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+};
+
+type SupervisorHandoffEnvelope = {
+  request: SidecarGenerationHandoffRequest;
+  requestId: string;
+  type: typeof SUPERVISOR_HANDOFF;
+};
+
+type SupervisorHandoffAcceptedEnvelope = {
+  requestId: string;
+  type: typeof SUPERVISOR_HANDOFF_ACCEPTED;
+};
+
+/** Queue the next child under the current supervisor without changing generation identity. */
+export async function handoffCurrentSidecarGeneration(
+  request: SidecarGenerationHandoffRequest,
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  if (typeof process.send !== "function") {
+    throw new Error("current sidecar generation has no supervisor control channel");
+  }
+  if (typeof request.command !== "string" || request.command.length === 0) {
+    throw new Error("sidecar generation handoff command must be a non-empty string");
+  }
+  const requestId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.off("message", onMessage);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error == null) resolve();
+      else reject(error);
+    };
+    const onMessage = (message: unknown) => {
+      const response = message as Partial<SupervisorHandoffAcceptedEnvelope> | null;
+      if (response?.type === SUPERVISOR_HANDOFF_ACCEPTED && response.requestId === requestId) finish();
+    };
+    const timer = setTimeout(
+      () => finish(new Error(`sidecar supervisor did not accept generation handoff within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    process.on("message", onMessage);
+    process.send?.({ request, requestId, type: SUPERVISOR_HANDOFF } satisfies SupervisorHandoffEnvelope, (error) => {
+      if (error != null) finish(error);
+    });
+  });
+}
+
+export const sidecarSupervisorProtocol = Object.freeze({
+  handoff: SUPERVISOR_HANDOFF,
+  handoffAccepted: SUPERVISOR_HANDOFF_ACCEPTED,
+});
 
 export type SidecarConnection = {
   invoke<TResult = unknown>(app: string, action: string, input: unknown, options?: { timeoutMs?: number }): Promise<TResult>;
@@ -321,6 +396,13 @@ export const SidecarFactory = Object.freeze({
   inheritedEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
     const endpoint = env[INHERITED_ENDPOINT_ENV];
     return endpoint == null || endpoint.length === 0 ? {} : { [INHERITED_ENDPOINT_ENV]: endpoint };
+  },
+  /**
+   * Creates the environment for an entrypoint that must bootstrap a new
+   * generation instead of remaining attached to the caller's supervisor.
+   */
+  newGenerationEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+    return newSidecarGenerationEnvironment(env);
   },
 });
 

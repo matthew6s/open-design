@@ -195,7 +195,7 @@ async function main(): Promise<void> {
     delegated,
     resume: handoffResume,
   });
-  if (await launchPackagedPayloadDesktop(launcherRuntime, launchStamp)) {
+  if (await launchPackagedPayloadDesktop(launcherRuntime)) {
     app.exit(0);
     return;
   }
@@ -350,6 +350,7 @@ async function main(): Promise<void> {
       "eval",
       "export-artifact",
       "export-pdf",
+      "render-frames",
       "render-slides",
       "screenshot",
       "show",

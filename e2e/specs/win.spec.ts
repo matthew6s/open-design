@@ -2752,7 +2752,15 @@ async function seedPackagedOnboardingComplete(): Promise<void> {
   // the macOS smoke's seed, which already writes under runtimeNamespaceRoot.
   const configPath = join(runtimeNamespaceRoot, 'data', 'app-config.json');
   await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, `${JSON.stringify({ onboardingCompleted: true }, null, 2)}\n`, 'utf8');
+  // Completion alone is insufficient when the daemon default selects the AMR
+  // cloud agent: a signed-out cloud identity correctly returns to Connect.
+  // Updater acceptance needs the ordinary signed-out Home shell, so pin the
+  // local agent that makes this fixture's postcondition complete.
+  await writeFile(
+    configPath,
+    `${JSON.stringify({ agentId: 'codex', onboardingCompleted: true }, null, 2)}\n`,
+    'utf8',
+  );
 }
 
 function isPathInside(filePath: string, expectedRoot: string): boolean {

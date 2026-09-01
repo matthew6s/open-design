@@ -262,6 +262,36 @@ describe("normalized sidecar client", () => {
     expect(events).toEqual(["start", "handler", "handler", "stop"]);
   });
 
+  it("hands off the supervised child without creating a second generation root", async () => {
+    const fixture = fileURLToPath(new URL("./fixtures/handoff-entry.ts", import.meta.url));
+    const root = await mkdtemp(join(tmpdir(), "open-design-sidecar-handoff-"));
+    const handoffStamp = { ...stamp, app: "desktop", namespace: `handoff-${process.pid}` };
+    const spawned = await spawnSidecar({
+      args: ["--import", "tsx", fixture],
+      command: process.execPath,
+      resources: {
+        dataRoot: join(root, "data"),
+        ownerPid: null,
+        port: 0,
+        runtimeRoot: join(root, "runtime"),
+      },
+      stamp: handoffStamp,
+    });
+
+    try {
+      await vi.waitFor(async () => {
+        await expect(getSidecarStatus(handoffStamp, { generationPid: spawned.process.pid }))
+          .resolves.toEqual({ generationPid: spawned.process.pid, phase: "successor" });
+        await expect(findSidecarProcesses(handoffStamp)).resolves.toEqual([
+          expect.objectContaining({ pid: spawned.process.pid }),
+        ]);
+      }, { interval: 100, timeout: FIXTURE_READY_TIMEOUT_MS });
+    } finally {
+      await spawned.stop({ killGraceMs: 2_000, termGraceMs: 0 }).catch(() => undefined);
+      await rm(root, { force: true, recursive: true });
+    }
+  }, 15_000);
+
   it("does not accept argv, socket paths, or capability declarations", () => {
     installCurrentProcess(stamp);
     const options = {
@@ -274,6 +304,16 @@ describe("normalized sidecar client", () => {
     };
     SidecarFactory.create(options);
     expect(Object.keys(options).sort()).toEqual(["handlers", "lifecycle"]);
+  });
+
+  it("removes inherited generation state from a new generation environment", () => {
+    expect(SidecarFactory.newGenerationEnvironment({
+      KEEP_ME: "yes",
+      OD_SIDECAR_CLIENT_ENDPOINT: "/private/old.sock",
+      OD_SIDECAR_RESOURCES: '{"runtimeRoot":"/old"}',
+      OD_SIDECAR_SUPERVISED_CONTEXT: '{"generationPid":42}',
+      OD_SIDECAR_SUPERVISOR_TARGET: '{"command":"old"}',
+    })).toEqual({ KEEP_ME: "yes" });
   });
 
   it("retries startup after a transient IPC bind failure", async () => {

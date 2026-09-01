@@ -7,9 +7,11 @@ import {
 
 import {
   readSidecarLaunchResources,
+  sidecarSupervisorProtocol,
   sidecarProtocol,
   SIDECAR_SUPERVISOR_TARGET_ENV,
 } from "./client.js";
+import type { SidecarGenerationHandoffRequest } from "./client.js";
 import { requestJsonIpc } from "./json-ipc.js";
 import { retireSupervisedSidecarTargetTree } from "./process-retirement.js";
 import {
@@ -42,25 +44,48 @@ function readTarget(): SupervisorTarget {
 const target = readTarget();
 const stamp = readCurrentSidecarArgvStamp();
 const resources = readSidecarLaunchResources();
-const childEnv: NodeJS.ProcessEnv = {
-  ...process.env,
-  [SIDECAR_SUPERVISED_CONTEXT_ENV]: serializeSupervisedSidecarContext(stamp, process.pid, resources),
-};
-delete childEnv[SIDECAR_SUPERVISOR_TARGET_ENV];
-delete childEnv[sidecarProtocol.resourcesEnv];
-if (target.electronRunAsNode == null) delete childEnv.ELECTRON_RUN_AS_NODE;
-else childEnv.ELECTRON_RUN_AS_NODE = target.electronRunAsNode;
+function supervisedEnvironment(env: NodeJS.ProcessEnv, electronRunAsNode: string | null): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = {
+    ...env,
+    [SIDECAR_SUPERVISED_CONTEXT_ENV]: serializeSupervisedSidecarContext(stamp, process.pid, resources),
+  };
+  delete childEnv[SIDECAR_SUPERVISOR_TARGET_ENV];
+  delete childEnv[sidecarProtocol.resourcesEnv];
+  if (electronRunAsNode == null) delete childEnv.ELECTRON_RUN_AS_NODE;
+  else childEnv.ELECTRON_RUN_AS_NODE = electronRunAsNode;
+  return childEnv;
+}
 
-const child = spawn(target.command, target.args, {
-  cwd: process.cwd(),
-  env: childEnv,
-  stdio: "inherit",
-  windowsHide: true,
-});
+function spawnTarget(next: SupervisorTarget & { cwd?: string; env?: NodeJS.ProcessEnv }) {
+  return spawn(next.command, next.args, {
+    cwd: next.cwd ?? process.cwd(),
+    env: supervisedEnvironment(next.env ?? process.env, next.electronRunAsNode),
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    windowsHide: true,
+  });
+}
+
+let child = spawnTarget(target);
+let pendingHandoff: SidecarGenerationHandoffRequest | null = null;
+
+function acceptChildMessage(message: unknown): void {
+  const envelope = message as {
+    request?: SidecarGenerationHandoffRequest;
+    requestId?: unknown;
+    type?: unknown;
+  } | null;
+  if (envelope?.type !== sidecarSupervisorProtocol.handoff || typeof envelope.requestId !== "string") return;
+  const request = envelope.request;
+  if (request == null || typeof request.command !== "string" || request.command.length === 0 || pendingHandoff != null) return;
+  pendingHandoff = request;
+  child.send?.({ requestId: envelope.requestId, type: sidecarSupervisorProtocol.handoffAccepted });
+}
 
 const ownerPid = resources.ownerPid;
 let ownerShutdownTask: Promise<void> | null = null;
+let ownerExpired = false;
 async function stopTargetAfterOwnerDeath(): Promise<void> {
+  ownerExpired = true;
   if (child.pid == null) return;
   const rootPid = child.pid;
   let snapshots;
@@ -134,12 +159,30 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-child.once("error", (error) => {
-  console.error("sidecar supervisor failed to spawn target", error);
-  process.exitCode = 1;
-});
-child.once("exit", (code, signal) => {
-  if (ownerTimer != null) clearInterval(ownerTimer);
-  if (signal != null || forwardedSignal != null) process.exitCode = 0;
-  else process.exitCode = code ?? 1;
-});
+function observeTarget(): void {
+  child.on("message", acceptChildMessage);
+  child.once("error", (error) => {
+    console.error("sidecar supervisor failed to spawn target", error);
+    process.exitCode = 1;
+  });
+  child.once("exit", (code, signal) => {
+    const handoff = pendingHandoff;
+    pendingHandoff = null;
+    if (handoff != null && forwardedSignal == null && !ownerExpired) {
+      child = spawnTarget({
+        args: [...(handoff.args ?? [])],
+        command: handoff.command,
+        cwd: handoff.cwd,
+        electronRunAsNode: handoff.env?.ELECTRON_RUN_AS_NODE ?? null,
+        env: handoff.env,
+      });
+      observeTarget();
+      return;
+    }
+    if (ownerTimer != null) clearInterval(ownerTimer);
+    if (signal != null || forwardedSignal != null) process.exitCode = 0;
+    else process.exitCode = code ?? 1;
+  });
+}
+
+observeTarget();

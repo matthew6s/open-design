@@ -1,7 +1,7 @@
 import { dirname } from "node:path";
 
 import { buildLauncherAfterQuitArgs, buildLauncherDelegatedArgs } from "@open-design/launcher-proto";
-import { launchSidecar, type SidecarStamp } from "@open-design/sidecar";
+import { handoffCurrentSidecarGeneration } from "@open-design/sidecar";
 
 import {
   armPackagedLauncherRuntimeAttempt,
@@ -23,7 +23,6 @@ export type PackagedPayloadDesktopLaunchPlan = {
 
 export function planPackagedPayloadDesktopDelegation(
   runtime: PackagedLauncherRuntime,
-  stamp: SidecarStamp,
   options: {
     currentPid?: number;
     forwardedArgs?: readonly string[];
@@ -62,16 +61,15 @@ export function planPackagedPayloadDesktopDelegation(
 
 export async function launchPackagedPayloadDesktop(
   runtime: PackagedLauncherRuntime,
-  stamp: SidecarStamp,
   options: {
     currentPid?: number;
     forwardedArgs?: readonly string[];
     recordFailedAttempt?: (runtime: PackagedLauncherRuntime) => Promise<void>;
-    launch?: typeof launchSidecar;
+    handoff?: typeof handoffCurrentSidecarGeneration;
     timeoutMs?: number;
   } = {},
 ): Promise<boolean> {
-  const plan = planPackagedPayloadDesktopDelegation(runtime, stamp, options);
+  const plan = planPackagedPayloadDesktopDelegation(runtime, options);
   if (plan == null) return false;
 
   // Pre-arm BEFORE spawn: a payload that spawns successfully but dies before
@@ -79,20 +77,12 @@ export async function launchPackagedPayloadDesktop(
   // evidence, and every later cold start would retry the same broken payload.
   await armPackagedLauncherRuntimeAttempt(runtime);
   try {
-    await (options.launch ?? launchSidecar)({
+    await (options.handoff ?? handoffCurrentSidecarGeneration)({
       args: plan.args,
       command: plan.command,
       cwd: plan.cwd,
       env: process.env,
-      logFd: null,
-      resources: {
-        dataRoot: runtime.paths.dataRoot,
-        ownerPid: null,
-        port: 0,
-        runtimeRoot: runtime.paths.runtimeRoot,
-      },
-      stamp,
-    });
+    }, { timeoutMs: options.timeoutMs ?? DEFAULT_DELEGATION_TIMEOUT_MS });
   } catch (error) {
     await (options.recordFailedAttempt ?? recordPackagedLauncherRuntimeFailedAttempt)(runtime);
     throw error;
