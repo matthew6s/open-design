@@ -347,7 +347,7 @@ const initialRadarRaw = [
   `${initialRecommendations[0].d1.toFixed(1)}/30`,
   `${initialRecommendations[0].d2.toFixed(1)}/70`,
   initialRecommendations[0].cost > 0 ? `$${formatCost(initialRecommendations[0].cost)}` : decisionCopy.radar.unavailable,
-  `${initialRecommendations[0].time.toFixed(0)}s`,
+  `${Math.round(initialRecommendations[0].time / 60)}min`,
   `${formatSeconds(initialRecommendations[0].ttft)}s`,
 ];
 const radarGridLevels = [25, 50, 75, 100];
@@ -512,7 +512,7 @@ const clientCopyJson = JSON.stringify({
                 <dl>
                   <div><dt>{isZh ? '总分' : 'Score'}</dt><dd data-rec-score>{row.score.toFixed(1)}</dd></div>
                   <div><dt>{isZh ? '可交付率' : 'Delivery'}</dt><dd data-rec-pdr>{row.pdr.toFixed(1)}%</dd></div>
-                  <div><dt>{isZh ? '单次成本' : 'Cost / run'}</dt><dd data-rec-cost>${row.cost.toFixed(2)}</dd></div>
+                  <div><dt>{isZh ? '单份成本' : 'Cost / run'}</dt><dd data-rec-cost>${formatCost(row.cost)}</dd></div>
                 </dl>
                 <div class="model-recommendation-actions">
                   <a
@@ -790,11 +790,15 @@ const clientCopyJson = JSON.stringify({
 
       let activeGuideScenario = 'overall';
       let activeGuidePriority: GuidePriority = 'overall';
+      /** 与构建期 formatCost / formatSeconds 保持一致，否则 hydration 后数字会变。 */
+      const fmtCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
+      const fmtSeconds = (seconds: number) => `${Math.round(seconds)}`;
+
       const guideRowsFor = (scenarioId: string) => modelData.map((model) => {
         const result = scenarioId === 'overall' ? null : model.scenarios.find((item) => item.id === scenarioId);
         return {
           ...model,
-          score: result?.score ?? model.d1 + model.d2,
+          score: result?.score ?? model.score,
           pdr: result?.pdr ?? model.pdr,
           d1: result?.d1 ?? model.d1,
           d2: result?.d2 ?? model.d2,
@@ -831,8 +835,8 @@ const clientCopyJson = JSON.stringify({
       const guideRadarRaw = (row: ReturnType<typeof guideRowsFor>[number]) => [
         `${row.d1.toFixed(1)}/30`,
         `${row.d2.toFixed(1)}/70`,
-        row.cost > 0 ? `$${row.cost.toFixed(2)}` : clientCopy.guide.radar.unavailable,
-        `${row.time.toFixed(0)}s`,
+        row.cost > 0 ? `$${fmtCost(row.cost)}` : clientCopy.guide.radar.unavailable,
+        `${Math.round(row.time / 60)}min`,
         `${Math.round(row.ttft)}s`,
       ];
       const updateGuideRadar = (row: ReturnType<typeof guideRowsFor>[number], cohort: ReturnType<typeof guideRowsFor>) => {
@@ -891,8 +895,8 @@ const clientCopyJson = JSON.stringify({
         return clientCopy.guide.reasons[key]
           .replace('{pdr}', row.pdr.toFixed(1))
           .replace('{score}', row.score.toFixed(1))
-          .replace('{cost}', row.cost.toFixed(2))
-          .replace('{ttft}', row.ttft.toFixed(2))
+          .replace('{cost}', fmtCost(row.cost))
+          .replace('{ttft}', fmtSeconds(row.ttft))
           .replace('{metric}', metric.toFixed(1));
       };
       const renderGuide = () => {
@@ -919,7 +923,7 @@ const clientCopyJson = JSON.stringify({
           if (reason) reason.textContent = guideReason(row, roles[index]!);
           if (score) score.textContent = row.score.toFixed(1);
           if (pdr) pdr.textContent = `${row.pdr.toFixed(1)}%`;
-          if (cost) cost.textContent = `$${row.cost.toFixed(2)}`;
+          if (cost) cost.textContent = `$${fmtCost(row.cost)}`;
           if (use) {
             const query = new URLSearchParams({ source: 'model_rankings', provider: row.maker, model: row.name });
             use.href = `opendesign://workspace/open?${query.toString()}`;
@@ -1010,9 +1014,11 @@ const clientCopyJson = JSON.stringify({
         });
       });
 
-      const formatTokens = (value: number) => value >= 1000000
-        ? `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}M`
-        : `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
+      const formatTokens = (value: number) => {
+        if (value <= 0) return '0';
+        if (value >= 1000000) return `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}M`;
+        return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
+      };
       const moduleConfig = {
         ttft: { label: clientCopy.module.ttft.title, xLabel: clientCopy.module.ttft.xLabel, maximum: 400, ticks: [0, 100, 200, 300, 400], higherBetter: false, format: (value: number) => `${Math.round(value)}s` },
         duration: { label: clientCopy.module.duration.title, xLabel: clientCopy.module.duration.xLabel, maximum: 2100, ticks: [0, 525, 1050, 1575, 2100], higherBetter: false, format: (value: number) => `${Math.round(value / 60)}min` },
@@ -1158,7 +1164,7 @@ const clientCopyJson = JSON.stringify({
           return `<article class="compare-card" style="--compare-color:${model.color}">
             <header><span class="model-icon"><img src="${model.icon}" alt="" width="28" height="28"></span><span><strong>${model.name}${model.badge ? `<em class="model-badge">${model.badge}</em>` : ''}</strong><small>${model.maker}</small></span></header>
             <div class="compare-headline"><span>${clientCopy.pdr} <strong>${model.pdr.toFixed(1)}%</strong></span><span>${clientCopy.quality} <strong>${model.score.toFixed(1)}</strong></span></div>
-            <div class="compare-metrics"><div><small>D1</small><strong>${model.d1.toFixed(1)}<i>/30</i></strong></div><div><small>D2</small><strong>${model.d2.toFixed(1)}<i>/70</i></strong></div><div><small>Speed</small><strong>${model.time}s</strong></div><div><small>Cost</small><strong>$${model.cost.toFixed(2)}</strong></div><div><small>Calls</small><strong>${model.calls.toFixed(1)}</strong></div></div>
+            <div class="compare-metrics"><div><small>D1</small><strong>${model.d1.toFixed(1)}<i>/30</i></strong></div><div><small>D2</small><strong>${model.d2.toFixed(1)}<i>/70</i></strong></div><div><small>Speed</small><strong>${Math.round(model.time / 60)}min</strong></div><div><small>Cost</small><strong>$${fmtCost(model.cost)}</strong></div><div><small>Calls</small><strong>${model.calls.toFixed(1)}</strong></div></div>
             <div class="compare-scenes">${sceneRows}</div>
           </article>`;
         }).join('');
