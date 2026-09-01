@@ -6070,10 +6070,14 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     project: any,
     relPath: string,
     meta: ProjectFileSendMeta,
+    expectedDocumentVersion?: string,
   ): Promise<PreviewDocumentSnapshot | null> {
     if (!/^text\/html(?:;|$)/iu.test(meta.mime)) return null;
+    const captureOptions = expectedDocumentVersion === undefined
+      ? {}
+      : { expectedDocumentVersion };
     if (meta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES) {
-      return previewDocumentSnapshotStore.captureFile(meta.filePath);
+      return previewDocumentSnapshotStore.captureFile(meta.filePath, captureOptions);
     }
     return previewDocumentSnapshotStore.captureBuffer(async () => {
       const file = await readProjectFile(
@@ -6091,7 +6095,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         readProjectFile,
       });
       return Buffer.isBuffer(transformed) ? transformed : Buffer.from(String(transformed));
-    });
+    }, captureOptions);
   }
 
   function previewSnapshotPolicyCacheKey(filePath: string): string {
@@ -7317,12 +7321,17 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         relPath,
         project.metadata,
       );
-      previewSnapshot = await capturePreviewDocumentSnapshot(project, previewMeta.name, previewMeta);
-      const documentVersion = previewSnapshot?.documentVersion
-        ?? await htmlPreviewDocumentVersion(previewMeta);
       const expectedDocument = previewScope.document?.relPath === previewMeta.name
         ? previewScope.document
         : null;
+      previewSnapshot = await capturePreviewDocumentSnapshot(
+        project,
+        previewMeta.name,
+        previewMeta,
+        expectedDocument?.documentVersion,
+      );
+      const documentVersion = previewSnapshot?.documentVersion
+        ?? await htmlPreviewDocumentVersion(previewMeta);
       if (expectedDocument && expectedDocument.documentVersion !== documentVersion) {
         throw new PreviewDocumentVersionChangedError(
           'preview document no longer matches the version bound to this scope',

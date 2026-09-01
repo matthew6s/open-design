@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -851,6 +851,46 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
         }));
       });
       request.on('error', reject);
+      request.end();
+    });
+  };
+
+  const abortScopedRequestAfterFirstChunk = (
+    requestPath: string,
+    hostHeader: string,
+  ): Promise<void> => {
+    const target = new URL(baseUrl);
+    return new Promise((resolve, reject) => {
+      const request = http.request({
+        hostname: target.hostname,
+        port: target.port,
+        path: requestPath,
+        method: 'GET',
+        headers: { Host: hostHeader },
+      }, (response) => {
+        let aborted = false;
+        response.once('data', () => {
+          aborted = true;
+          response.destroy();
+        });
+        response.once('close', () => {
+          if (aborted) {
+            resolve();
+            return;
+          }
+          reject(new Error('scoped response closed before its first body chunk'));
+        });
+        response.once('error', (error) => {
+          if (aborted && (error as NodeJS.ErrnoException).code === 'ECONNRESET') {
+            resolve();
+            return;
+          }
+          reject(error);
+        });
+      });
+      request.once('error', (error) => {
+        reject(error);
+      });
       request.end();
     });
   };
@@ -1750,6 +1790,28 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
     expect(current.body).toContain('Version Two');
     expect(current.body).not.toContain('Version One');
     expect(current.body).toContain(JSON.stringify(secondPreview.scopedOrigin.documentVersion));
+  });
+
+  it('releases the immutable response snapshot when a scoped navigation closes early', async () => {
+    const minted = await fetch(
+      `${baseUrl}/api/projects/${projectId}/preview-url?file=large.html`,
+    );
+    expect(minted.status).toBe(200);
+    const preview = await minted.json() as { url: string };
+    const scope = preview.url.match(/\/preview\/([^/]+)\//u)?.[1];
+    expect(scope).toBeTruthy();
+    const port = new URL(baseUrl).port;
+    const snapshotsDir = path.join(process.env.OD_DATA_DIR!, 'preview-document-snapshots');
+
+    await abortScopedRequestAfterFirstChunk(
+      '/large.html',
+      `n-${scope}.localhost:${port}`,
+    );
+
+    await expect.poll(
+      async () => (await readdir(snapshotsDir)).length,
+      { timeout: 1_000, interval: 10 },
+    ).toBe(0);
   });
 
   it('binds a scoped preview origin to one project root and blocks daemon APIs', async () => {

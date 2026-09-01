@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -114,6 +114,65 @@ describe('PreviewDocumentSnapshotStore', () => {
     }
   });
 
+  it('serves an expected file version from its captured bytes without rereading the source', async () => {
+    const html = '<main>expected version</main>';
+    await writeFile(sourcePath, html);
+    let candidates = 0;
+    const store = new PreviewDocumentSnapshotStore({
+      rootDir: path.join(root, 'snapshots'),
+      afterCandidateCaptured: async () => {
+        candidates += 1;
+        await rm(sourcePath);
+      },
+    });
+
+    const snapshot = await store.captureFile(sourcePath, {
+      expectedDocumentVersion: versionOf(html),
+    });
+    try {
+      expect(candidates).toBe(1);
+      expect(await readFile(snapshot.filePath, 'utf8')).toBe(html);
+      expect(snapshot.documentVersion).toBe(versionOf(html));
+    } finally {
+      await snapshot.release();
+    }
+  });
+
+  it('loads an expected transformed version once and keeps that exact response body', async () => {
+    const html = '<main>expected transformed version</main>';
+    let reads = 0;
+    const store = new PreviewDocumentSnapshotStore({
+      rootDir: path.join(root, 'snapshots'),
+    });
+
+    const snapshot = await store.captureBuffer(async () => {
+      reads += 1;
+      return html;
+    }, {
+      expectedDocumentVersion: versionOf(html),
+    });
+    try {
+      expect(reads).toBe(1);
+      expect(await readFile(snapshot.filePath, 'utf8')).toBe(html);
+      expect(snapshot.documentVersion).toBe(versionOf(html));
+    } finally {
+      await snapshot.release();
+    }
+  });
+
+  it('removes a mismatched expected-version candidate before rejecting the request', async () => {
+    const snapshotsDir = path.join(root, 'snapshots');
+    await writeFile(sourcePath, '<main>current</main>');
+    const store = new PreviewDocumentSnapshotStore({ rootDir: snapshotsDir });
+
+    const error = await store.captureFile(sourcePath, {
+      expectedDocumentVersion: versionOf('<main>stale</main>'),
+    }).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(PreviewDocumentVersionChangedError);
+    expect(await readdir(snapshotsDir)).toEqual([]);
+  });
+
   it('removes request snapshots after release', async () => {
     await writeFile(sourcePath, '<main>stable</main>');
     const store = new PreviewDocumentSnapshotStore({
@@ -122,6 +181,18 @@ describe('PreviewDocumentSnapshotStore', () => {
 
     const snapshot = await store.captureFile(sourcePath);
     await snapshot.release();
+
+    await expect(stat(snapshot.filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('makes concurrent release calls idempotent', async () => {
+    await writeFile(sourcePath, '<main>stable</main>');
+    const store = new PreviewDocumentSnapshotStore({
+      rootDir: path.join(root, 'snapshots'),
+    });
+
+    const snapshot = await store.captureFile(sourcePath);
+    await Promise.all([snapshot.release(), snapshot.release(), snapshot.release()]);
 
     await expect(stat(snapshot.filePath)).rejects.toMatchObject({ code: 'ENOENT' });
   });

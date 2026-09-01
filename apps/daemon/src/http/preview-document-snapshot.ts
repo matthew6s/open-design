@@ -31,6 +31,16 @@ export interface PreviewDocumentSnapshotStoreOptions {
   afterCandidateCaptured?: (attempt: number) => Promise<void> | void;
 }
 
+export interface PreviewDocumentSnapshotCaptureOptions {
+  /**
+   * When a scope already names the exact response version it is allowed to
+   * serve, the captured candidate itself is the proof. Comparing its digest to
+   * this value avoids rereading a mutable source merely to rediscover the same
+   * identity.
+   */
+  expectedDocumentVersion?: string;
+}
+
 function versionFromDigest(digest: ReturnType<typeof createHash>): string {
   return `sha256:${digest.digest('hex')}`;
 }
@@ -56,7 +66,10 @@ export class PreviewDocumentSnapshotStore {
     this.#afterCandidateCaptured = options.afterCandidateCaptured;
   }
 
-  async captureFile(sourcePath: string): Promise<PreviewDocumentSnapshot> {
+  async captureFile(
+    sourcePath: string,
+    options: PreviewDocumentSnapshotCaptureOptions = {},
+  ): Promise<PreviewDocumentSnapshot> {
     await mkdir(this.#rootDir, { recursive: true });
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       const candidatePath = this.#candidatePath();
@@ -74,11 +87,20 @@ export class PreviewDocumentSnapshotStore {
         );
         const documentVersion = versionFromDigest(digest);
         await this.#afterCandidateCaptured?.(attempt);
+        if (options.expectedDocumentVersion !== undefined) {
+          if (documentVersion !== options.expectedDocumentVersion) {
+            throw new PreviewDocumentVersionChangedError(
+              'preview document no longer matches the version bound to this scope',
+            );
+          }
+          return await this.#snapshot(candidatePath, documentVersion);
+        }
         if (await versionOfFile(sourcePath) === documentVersion) {
-          return this.#snapshot(candidatePath, documentVersion);
+          return await this.#snapshot(candidatePath, documentVersion);
         }
       } catch (error) {
         await rm(candidatePath, { force: true }).catch(() => undefined);
+        if (error instanceof PreviewDocumentVersionChangedError) throw error;
         if (attempt === this.#maxAttempts) throw error;
         continue;
       }
@@ -87,14 +109,25 @@ export class PreviewDocumentSnapshotStore {
     throw new PreviewDocumentVersionChangedError();
   }
 
-  async captureBuffer(load: () => Promise<Buffer | string>): Promise<PreviewDocumentSnapshot> {
+  async captureBuffer(
+    load: () => Promise<Buffer | string>,
+    options: PreviewDocumentSnapshotCaptureOptions = {},
+  ): Promise<PreviewDocumentSnapshot> {
     await mkdir(this.#rootDir, { recursive: true });
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       const candidate = Buffer.from(await load());
       const documentVersion = versionOfBuffer(candidate);
       await this.#afterCandidateCaptured?.(attempt);
-      const verification = Buffer.from(await load());
-      if (versionOfBuffer(verification) !== documentVersion) continue;
+      if (options.expectedDocumentVersion !== undefined) {
+        if (documentVersion !== options.expectedDocumentVersion) {
+          throw new PreviewDocumentVersionChangedError(
+            'preview document no longer matches the version bound to this scope',
+          );
+        }
+      } else {
+        const verification = Buffer.from(await load());
+        if (versionOfBuffer(verification) !== documentVersion) continue;
+      }
 
       const candidatePath = this.#candidatePath();
       try {
