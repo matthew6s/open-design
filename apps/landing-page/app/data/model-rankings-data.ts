@@ -57,9 +57,8 @@ export type RankedModel = {
   calls: number;
   scenarios: Record<ScenarioId, RankingSlice>;
   difficulty: Record<DifficultyId, RankingSlice>;
-  /** 本轮数据不可用于排名时置为 true，并给出原因 */
-  excluded?: boolean;
-  excludedReason?: Record<ModelRankingLocale, string>;
+  /** 结果存在需要读者知道的执行问题时给出说明，作为表格脚注展示 */
+  note?: Record<ModelRankingLocale, string>;
 };
 
 export type ScenarioSummary = {
@@ -84,12 +83,13 @@ export type DifficultySummary = {
 };
 
 
+
 export const MODEL_RANKING_SNAPSHOT = {
   id: '2026-08',
   evaluatedAt: '2026-08-28',
   publishedAt: '2026-09-01',
   runs: 458,
-  models: 12,
+  models: 13,
   cases: 15,
   scenarios: 5,
   difficulties: 3,
@@ -118,11 +118,11 @@ export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
       en: 'Desktop workflows and complex interactions',
     },
     cases: 3,
-    n: 84,
-    score: 81.1,
-    pdr: 70.2,
-    d1: 25.2,
-    d2: 55.8,
+    n: 90,
+    score: 81.6,
+    pdr: 72.2,
+    d1: 25.5,
+    d2: 56.2,
     emptyArtifacts: 2,
   },
   {
@@ -136,11 +136,11 @@ export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
       en: 'Information density and hierarchy',
     },
     cases: 3,
-    n: 84,
-    score: 75.7,
-    pdr: 52.4,
-    d1: 26.1,
-    d2: 49.6,
+    n: 90,
+    score: 75.2,
+    pdr: 51.1,
+    d1: 26.0,
+    d2: 49.2,
     emptyArtifacts: 2,
   },
   {
@@ -154,11 +154,11 @@ export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
       en: 'Brand expression and conversion',
     },
     cases: 3,
-    n: 84,
-    score: 70.9,
-    pdr: 41.7,
-    d1: 26.8,
-    d2: 44.1,
+    n: 90,
+    score: 71.1,
+    pdr: 42.2,
+    d1: 26.9,
+    d2: 44.3,
     emptyArtifacts: 1,
   },
   {
@@ -172,12 +172,12 @@ export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
       en: 'Touch experience and responsive layout',
     },
     cases: 3,
-    n: 84,
-    score: 70.9,
-    pdr: 47.6,
-    d1: 25.5,
-    d2: 45.3,
-    emptyArtifacts: 6,
+    n: 92,
+    score: 69.1,
+    pdr: 46.7,
+    d1: 24.9,
+    d2: 44.1,
+    emptyArtifacts: 9,
   },
   {
     id: 'webapp',
@@ -190,36 +190,36 @@ export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
       en: 'Multi-page structure and flows',
     },
     cases: 3,
-    n: 85,
-    score: 65.6,
-    pdr: 35.3,
-    d1: 21.8,
-    d2: 43.7,
-    emptyArtifacts: 13,
+    n: 96,
+    score: 62.2,
+    pdr: 33.3,
+    d1: 20.8,
+    d2: 41.3,
+    emptyArtifacts: 18,
   },
 ];
 
 export const MODEL_RANKING_DIFFICULTY: DifficultySummary[] = [
   {
     id: 'simple',
-    n: 140,
-    score: 72.1,
-    pdr: 47.9,
-    emptyArtifacts: 3,
-  },
-  {
-    id: 'hard',
-    n: 141,
-    score: 68.4,
-    pdr: 43.3,
-    emptyArtifacts: 17,
+    n: 151,
+    score: 71.7,
+    pdr: 47.0,
+    emptyArtifacts: 4,
   },
   {
     id: 'general',
-    n: 140,
-    score: 77.9,
-    pdr: 57.1,
-    emptyArtifacts: 4,
+    n: 152,
+    score: 77.0,
+    pdr: 57.2,
+    emptyArtifacts: 5,
+  },
+  {
+    id: 'hard',
+    n: 155,
+    score: 66.5,
+    pdr: 42.6,
+    emptyArtifacts: 23,
   },
 ];
 
@@ -2147,16 +2147,12 @@ export const MODEL_RANKINGS: RankedModel[] = [
         calls: 52.5,
       },
     },
-    excluded: true,
-    excludedReason: {
+    note: {
       zh: '本轮执行链路异常：37 次运行中 8 次产物为空，并出现多轮自动重跑，结果不代表模型能力，待重测后再纳入排名。',
       en: 'Execution issues this round: 8 of 37 runs produced an empty artifact, with several automatic retries. The result does not reflect model capability and is excluded pending a re-run.',
     },
   },
 ];
 
-/** 进入排名的模型，按总分从高到低。 */
-export const RANKED_MODELS: RankedModel[] = MODEL_RANKINGS.filter((model) => !model.excluded);
-
-/** 本轮数据不可用于排名的模型，单独披露。 */
-export const EXCLUDED_MODELS: RankedModel[] = MODEL_RANKINGS.filter((model) => model.excluded);
+/** 全部参评模型，按总分从高到低。 */
+export const RANKED_MODELS: RankedModel[] = MODEL_RANKINGS;

@@ -488,18 +488,20 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 }
 .ranking-model > span:last-child { min-width: 0; width: 100%; }
 .ranking-model strong,
-.ranking-model small { display: block; overflow: hidden; }
+.ranking-model small { display: block; }
+/* 12 根柱子平铺时每列只有 ~90px 宽，字号抬高后两行放不下长模型名 */
 .ranking-model strong {
   margin-top: 6px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
-  font-size: 13px;
+  overflow: hidden;
+  font-size: 12.5px;
   font-weight: 650;
   line-height: 1.22;
   overflow-wrap: anywhere;
 }
-.ranking-model small { margin-top: 3px; color: var(--ink-faint); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-model small { margin-top: 3px; color: var(--ink-faint); font-size: 11.5px; overflow-wrap: anywhere; }
 
 .cost-card { display: flex; flex-direction: column; }
 .cost-card-head { align-items: flex-start; }
@@ -1019,12 +1021,6 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .cost-ref-y { right: 0; bottom: var(--ref); left: 0; border-bottom: 1px dashed var(--model-line-strong, #c6ced4); }
 .cost-ref-y span { right: 2px; bottom: 3px; }
 
-/* 图下读法：按成本分三档直接点名 */
-.cost-bands { margin: 0; padding: 12px 22px 18px; display: grid; gap: 6px; list-style: none; border-top: 1px solid var(--model-line); }
-.cost-bands li { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; line-height: 1.5; }
-.cost-bands b { flex: none; min-width: 74px; color: var(--model-ink); font-variant-numeric: tabular-nums; }
-.cost-bands span { flex: 1; min-width: 0; color: var(--ink-soft); }
-.cost-bands em { flex: none; color: var(--ink-faint); font-style: normal; font-variant-numeric: tabular-nums; }
 
 /* Hero 结论条：不使用筛选器的访客也能直接拿到核心发现 */
 .model-findings { margin: 26px 0 0; padding: 0; display: grid; gap: 10px; max-width: 760px; list-style: none; }
@@ -1067,3 +1063,20 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .model-index-page .ranking-value strong {
   font-family: var(--body);
 }
+
+/* 表格头部与展开控制 */
+.overview-head { margin-top: 26px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.overview-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.overview-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--model-line); border-radius: 999px; background: var(--model-surface); color: var(--ink-mute); font-size: 12px; font-weight: 620; cursor: pointer; transition: border-color .18s ease, color .18s ease; }
+.overview-toggle:hover { border-color: var(--model-ink); color: var(--model-ink); }
+.overview-toggle i { width: 0; height: 0; border-top: 4px solid currentColor; border-right: 3.5px solid transparent; border-left: 3.5px solid transparent; transition: transform .18s ease; }
+.overview-toggle[aria-expanded='true'] i { transform: rotate(180deg); }
+.overview-table-wrap { margin-top: 12px; }
+/* 默认只留五列：模型 / 总分 / 可交付率 / 单份成本 / 分每美元 */
+.overview-table-wrap.is-compact [data-extra] { display: none; }
+.overview-table-wrap.is-compact .overview-table { min-width: 620px; }
+.overview-table sup { margin-left: 2px; color: var(--model-accent-ink); font-size: 10px; cursor: help; }
+.overview-footnotes { margin: 10px 0 0; padding: 0; display: grid; gap: 4px; list-style: none; }
+.overview-footnotes li { color: var(--ink-faint); font-size: 11.5px; line-height: 1.6; }
+.overview-footnotes sup { margin-right: 4px; color: var(--model-accent-ink); }
+.overview-footnotes b { margin-right: 5px; color: var(--model-muted); font-weight: 650; }

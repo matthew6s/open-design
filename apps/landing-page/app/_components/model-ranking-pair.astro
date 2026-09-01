@@ -72,17 +72,6 @@ const refY = plotY(medianScore);
 const zoneWidth = refX;
 const zoneHeight = 100 - refY;
 
-// 图下的读法：按成本把模型分成三档，直接点名，省得读者自己归纳。
-const byCost = [...group.rows].sort((a, b) => a.cost - b.cost);
-const bandSize = Math.ceil(byCost.length / 3);
-const bands = [0, 1, 2].map((i) => byCost.slice(i * bandSize, (i + 1) * bandSize)).filter((band) => band.length > 0);
-const bandSummary = bands.map((band) => {
-  const costs = band.map((row) => row.cost);
-  const scores = band.map((row) => row.score);
-  const range = `$${formatCost(Math.min(...costs))}–$${formatCost(Math.max(...costs))}`;
-  const scoreRange = `${Math.min(...scores).toFixed(1)}–${Math.max(...scores).toFixed(1)}`;
-  return { range, scoreRange, names: band.map((row) => row.name).join(isZh ? '、' : ', ') };
-});
 
 // 每个点都常驻一个纯文字标签，所以 12 个标签必须逐个避让：
 // 标签宽度按名字长度估算（绘图区百分比），依次放置时同时避开其它点和已放好的标签。
@@ -220,14 +209,5 @@ for (let pass = 0; pass < 2; pass += 1) {
         ))}
       </div>
     </div>
-    <ul class="cost-bands">
-      {bandSummary.map((band) => (
-        <li>
-          <b>{band.range}</b>
-          <span>{band.names}</span>
-          <em>{isZh ? `总分 ${band.scoreRange}` : `score ${band.scoreRange}`}</em>
-        </li>
-      ))}
-    </ul>
   </section>
 </div>
