@@ -955,3 +955,21 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   .ranking-strip { flex-direction: column; align-items: flex-start; gap: 10px; }
   .model-cta-btn { padding: 12px 20px; }
 }
+
+/* 快照条：样本量、评测日期，让读者一眼知道这份榜单基于什么 */
+.model-snapshot { display: flex; flex-wrap: wrap; gap: 0 2rem; margin: 1.5rem 0 0; padding: 0; }
+.model-snapshot > div { display: flex; align-items: baseline; gap: .4rem; padding: .35rem 0; }
+.model-snapshot dt { font-size: .78rem; letter-spacing: .04em; color: var(--model-muted, #6b7280); }
+.model-snapshot dd { margin: 0; font-size: .95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 未纳入排名的模型 */
+.excluded-list { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+.excluded-list > li { display: grid; gap: .75rem; padding: 1.25rem; border: 1px solid var(--model-border, #e5e7eb); border-radius: 14px; background: var(--model-surface, #fff); }
+.excluded-model { display: flex; align-items: center; gap: .6rem; }
+.excluded-model span:last-child { display: flex; flex-direction: column; line-height: 1.3; }
+.excluded-model small { font-size: .78rem; color: var(--model-muted, #6b7280); }
+.excluded-metrics { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin: 0; }
+.excluded-metrics > div { display: flex; align-items: baseline; gap: .4rem; }
+.excluded-metrics dt { font-size: .78rem; color: var(--model-muted, #6b7280); }
+.excluded-metrics dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.excluded-list p { margin: 0; font-size: .9rem; line-height: 1.65; color: var(--model-muted, #6b7280); }

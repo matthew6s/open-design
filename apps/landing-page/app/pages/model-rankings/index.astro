@@ -3,6 +3,15 @@ import Layout from '../../_components/sub-page-layout.astro';
 import ModelRankingPair from '../../_components/model-ranking-pair.astro';
 import { localeFromPath, localizedHref } from '../../i18n';
 import { DOWNLOAD_HREF, OPEN_DESIGN_DISCORD } from '../../cta-actions';
+import {
+  MODEL_RANKING_DIFFICULTY,
+  MODEL_RANKING_SCENARIOS,
+  MODEL_RANKING_SNAPSHOT,
+  RANKED_MODELS,
+  EXCLUDED_MODELS,
+  type RankedModel,
+  type ScenarioId,
+} from '../../data/model-rankings-data';
 import './model-rankings.css';
 
 const locale = localeFromPath(Astro.url.pathname);
@@ -15,42 +24,42 @@ const copy = isZh ? {
   kicker: 'OpenDesign 模型指数',
   heading: 'OpenDesign Arena',
   intro: '基于同一套真实设计任务，对比主流模型在需求完成度、设计质量与模型效率上的表现，为不同前端设计场景提供选型参考。',
-  preview: '预览数据',
-  previewNote: '正式发布时将替换为完整评测数据，页面结构与指标口径保持不变。',
+  preview: '2026-08 快照',
+  previewNote: '458 个产物 · 15 道题 · 5 类场景 × 3 档难度 · 每题跑两轮 · 11 位设计师人工评分。评测于 2026-08-28 完成，成本按 2026-09-01 各家官网标价计算。',
   overallIndex: '01 / 综合排名',
   leaderboard: '模型综合表现',
-  leaderboardDesc: '汇总五类设计场景的评测结果，对比各模型的 PDR、原始分与单次成本。',
+  leaderboardDesc: '汇总五类设计场景的评测结果，对比各模型的总分、可交付率与单次成本。每个模型 30 个产物，标注的 ± 是均分的 95% 置信区间。',
   metricAria: '排行榜指标',
-  metrics: [['pdr', 'PDR', '综合表现'], ['d0', 'D0', '可渲染性'], ['d1', 'D1', '需求实现'], ['d2', 'D2', '设计质量']],
+  metrics: [['pdr', '可交付率', '总分 ≥ 80 占比'], ['d0', 'D0', '可渲染性'], ['d1', 'D1', '需求实现'], ['d2', 'D2', '设计质量']],
   scoreAria: '评测分数说明',
-  primer: [['PDR', '综合结果'], ['D0', '可渲染门槛'], ['D1 · 30', '需求实现度'], ['D2 · 70', '设计质量'], ['EFF', '单独报告']],
-  valueFormatAria: '排行榜数值格式', percentage: '百分比', score: '原始分', model: '模型',
-  taskIndex: '02 / 分任务表现', taskHeading: '分任务表现', taskDesc: '查看各类设计任务中的模型排名与表现差异。', taskLegendAria: '任务类型占比',
+  primer: [['总分 · 100', 'D1 + D2'], ['可交付率', '总分 ≥ 80 占比'], ['D0', '可渲染门槛'], ['D1 · 30', '需求实现度'], ['D2 · 70', '设计质量']],
+  valueFormatAria: '排行榜数值格式', percentage: '可交付率', score: '总分', model: '模型',
+  taskIndex: '02 / 分任务表现', taskHeading: '分任务表现', taskDesc: '五类设计场景各 3 道题、每题两轮，看各场景整体难到什么程度。单个模型在单场景只有 6 个产物，分场景成绩仅供参考。', taskLegendAria: '任务类型占比',
   taskGroups: { Visual: '视觉设计', Product: '产品设计', Interface: '界面设计', Data: '数据设计' },
-  analysisIndex: '03 / 模型效率', analysisHeading: '模型效率', analysisDesc: '对比模型的首次响应、完成耗时、缓存利用率和 Token 消耗。',
+  analysisIndex: '03 / 模型效率', analysisHeading: '模型效率', analysisDesc: '对比模型的首次响应、完成耗时、缓存命中率和 Token 消耗，全部取实测中位数。',
   analysisAria: '模型效率指标', profile: '分数构成', ttft: '首次响应', duration: '完成耗时', cacheHit: '缓存命中率', inputTokens: '输入 Token', outputTokens: '输出 Token', balance: 'D1 × D2',
   difficulty: '任务难度', simple: '简单', general: '一般', difficult: '困难',
   profileEyebrow: '分数构成', profileHeading: '评测结果概览', profileDesc: '对比所有参评模型的 D0 可渲染性、D1 需求实现度与 D2 设计质量。', profileAria: '各模型评测结果',
-  lowerBetter: '数值越低越好', pdrVsSpeed: 'PDR × 速度', chartDesc: '左上象限代表设计表现更强、效率更高的模型。', pdrHigher: 'PDR（越高越好 ↑）', runtimeSlower: '运行时间（越右越慢 →）', idealZone: '高 PDR · 高效率', models: '模型',
+  lowerBetter: '数值越低越好', pdrVsSpeed: '总分 × 速度', chartDesc: '左上象限代表设计表现更强、效率更高的模型。', pdrHigher: '总分（越高越好 ↑）', runtimeSlower: '运行时间（越右越慢 →）', idealZone: '高总分 · 高效率', models: '模型',
   requirement: '需求实现度', design: '设计质量', showPareto: '显示帕累托前沿', topModels: '综合表现前 10 的模型', higherBetter: '越高越好 ↗', balancedLeaders: '均衡领先区',
   methodIndex: '04 / 评测方法', methodHeading: '评测框架', methodDesc: '用一个端到端综合分数表达模型表现，并通过三个评测维度解释分数来源。模型效率单独报告。',
-  primaryMetric: '主指标', pdrName: '主要设计结果', pdrDesc: '模型在 OpenDesign 评测基准上完成端到端设计任务的归一化综合指数。D0、D1 和 D2 用于解释这一结果的构成。',
+  primaryMetric: '主指标', pdrName: '总分与可交付率', pdrDesc: '总分 = D1 + D2，满分 100，是模型在 OpenDesign 基准上完成端到端设计任务的直接得分。可交付率是总分达到 80 的产物占比，回答的是「这个模型多大概率一次就给出一个能用的稿」。',
   flowAria: '评测流程',
-  flow: [['运行', '使用同一套私有任务集和 OpenDesign harness'], ['门槛', 'D0 检查结果是否能正常渲染'], ['评分', 'D1 需求实现 30 分 · D2 设计质量 70 分'], ['通过', 'D1 ≥ 24 且 D2 ≥ 56，总分不低于 80'], ['报告', 'PDR 排名与单独的效率指标']],
+  flow: [['运行', '同一套私有任务集、同一条 OpenDesign 执行链路，每题跑两轮'], ['门槛', 'D0 检查产物能否正常打开'], ['评分', '11 位设计师逐条打分：D1 需求实现 30 分 · D2 设计质量 70 分'], ['通过', '总分不低于 80 即视为可直接交付'], ['报告', '总分排名，效率与成本单独列出']],
   methods: [
-    ['D0', '硬性门槛', 'HTML 可渲染性', '在评估质量前，先确认生成结果能够作为可用网页正常打开。', ['HTML 加载成功', '无空白或被阻断的结果', '无致命运行错误']],
-    ['D1', '30 分 · 24 分通过', '需求实现度', '评估用户要求的产品功能和交互需求是否被真正实现。', ['页面与模块覆盖', '必要内容与界面状态', '交互行为与约束']],
-    ['D2', '70 分 · 56 分通过', '设计质量', '五个维度分别评为 Pass、Partial 或 Fail（1、0.5、0），D2 = 70 ×（五个维度得分之和 ÷ 5）。', ['布局与可读性', '信息层级', '风格与任务一致性', '颜色、对比与主题', '图片适配与内容相关性']],
-    ['EFF', '单独报告', '模型效率', '展示模型获得当前结果所需的资源，不会增加或降低 PDR。', ['TTFT 与完成耗时', '缓存命中率', '输入与输出 Token 数']],
+    ['D0', '硬性门槛', '产物可渲染性', '评分前先确认产物能作为可用网页打开。打不开的产物按 0 分计入统计，不做补测。', ['页面可正常打开', '无空白或被阻断的结果', '无致命运行错误']],
+    ['D1', '30 分', '需求实现度', '按每道题 6 到 9 条功能核对项逐条判定，每条评为达成、部分达成或未达成（1、0.5、0）。', ['页面与模块覆盖', '必要内容与界面状态', '交互行为与约束']],
+    ['D2', '70 分', '设计质量', '五个维度分别评为 Pass、Partial 或 Fail（1、0.5、0），D2 = 70 ×（五个维度得分之和 ÷ 5）。', ['布局与可读性', '信息层级', '风格与任务一致性', '颜色、对比与主题', '图片适配与内容相关性']],
+    ['EFF', '单独报告', '模型效率与成本', '展示模型拿到这个结果花了多少资源，不影响总分。成本按各家官网标价乘实测 token 用量计算。', ['TTFT 与完成耗时', '缓存命中率与工具调用次数', '输入输出 Token 与单次成本']],
   ],
-  disclosures: [['公平对比', '所有模型均通过同一套 OpenDesign harness、私有基准和评分框架运行。'], ['基准边界', '任务集保持私有，以降低数据污染。排行榜仅公布模型级结果，不公开基准提示词。'], ['如何解读', '分数描述指定版本模型在 OpenDesign 中的表现，不代表通用智能水平排名。']],
+  disclosures: [['公平对比', '所有模型跑同一套私有任务集和同一条 OpenDesign 执行链路，由同一批设计师按同一套标准打分。同一道题的所有模型由同一位评审评判，横向对比不受个人宽严影响。'], ['样本量与误差', '每个模型 30 个产物，均分的 95% 置信区间在 ±5 到 ±11 分之间。相差 10 分以内的名次，这批数据分不出高下。本轮每个产物只有一位评审，评审间一致性尚未校准。'], ['基准边界', '任务集保持私有以降低数据污染，只公布模型级结果，不公开题目提示词。'], ['如何解读', '分数描述指定版本模型在 OpenDesign 原型生成任务上的表现，不代表通用智能水平排名。']],
   stripLead: '在 OpenDesign 中使用自己的 API Key 调用榜单模型。',
   stripCta: '下载客户端',
   ctaDownload: '下载 OpenDesign',
   ctaDownloadNote: '免费开源 · macOS / Windows',
   ctaDiscord: '加入 Discord',
 } : {
-  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', kicker: 'OpenDesign Model Index', heading: 'OpenDesign Arena', intro: 'Compare leading models on the same real design tasks across requirement fulfillment, design quality, and model efficiency, with results organized by frontend design use case.', preview: 'Preview data', previewNote: 'Final launch scores will replace the demonstration dataset without changing this page structure.', overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing PDR, raw score, and cost per run.', metricAria: 'Ranking metric', metrics: [['pdr', 'PDR', 'Overall'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['PDR', 'Headline result'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality'], ['EFF', 'Reported separately']], valueFormatAria: 'Leaderboard value format', percentage: 'Percentage', score: 'Score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Compare rankings and performance differences across design task categories.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare first response, completion time, cache utilization, and token consumption.', analysisAria: 'Model efficiency metric', profile: 'Score profile', ttft: 'First response', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'PDR vs Speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'PDR (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Primary Design Result', pdrDesc: "The normalized headline index for a model's end-to-end design performance on the OpenDesign benchmark. D0, D1, and D2 explain where that result comes from.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set and OpenDesign harness'], ['Gate', 'D0 checks whether the result can render'], ['Score', 'D1 requirement, 30 points · D2 design, 70 points'], ['Pass', 'D1 ≥ 24 and D2 ≥ 56, with a combined score of at least 80'], ['Report', 'PDR ranking plus separate efficiency metrics']], methods: [['D0', 'Hard gate', 'HTML renderability', 'Confirms that the generated result opens as a usable webpage before quality is judged.', ['HTML loads successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points · 24 to pass', 'Requirement fulfillment', 'Measures whether the requested product and interaction requirements are actually implemented.', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points · 56 to pass', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Model efficiency', 'Shows the resources required to reach the result and does not increase or reduce PDR.', ['TTFT and completion time', 'Cache hit rate', 'Input and output token counts']]], disclosures: [['Fair comparison', 'Models run through the same OpenDesign harness, private benchmark, and scoring framework.'], ['Benchmark boundary', 'Tasks remain private to reduce contamination. The leaderboard publishes model-level results, not benchmark prompts.'], ['How to interpret it', 'Scores describe the evaluated model version in OpenDesign. This is not a general intelligence ranking.']], stripLead: 'Use your own API key to run ranked models in OpenDesign.', stripCta: 'Download the app', ctaDownload: 'Download OpenDesign', ctaDownloadNote: 'Free & open source · macOS / Windows', ctaDiscord: 'Join the Discord',
+  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', kicker: 'OpenDesign Model Index', heading: 'OpenDesign Arena', intro: 'Compare leading models on the same real design tasks across requirement fulfillment, design quality, and model efficiency, with results organized by frontend design use case.', preview: 'August 2026 snapshot', previewNote: '458 artifacts across 15 tasks, 5 scenarios x 3 difficulty levels, two runs per task, scored by 11 designers. Evaluated 2026-08-28; costs use list prices as of 2026-09-01.', overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing total score, delivery rate, and cost per run. 30 artifacts per model; the plus-minus figure is the 95% confidence interval of the mean.', metricAria: 'Ranking metric', metrics: [['pdr', 'Delivery rate', 'Share scoring 80+'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['Score · 100', 'D1 + D2'], ['Delivery rate', 'Share scoring 80+'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality']], valueFormatAria: 'Leaderboard value format', percentage: 'Delivery rate', score: 'Score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Five scenarios, three tasks each, two runs per task. A single model has only 6 artifacts per scenario, so per-scenario figures are indicative rather than a ranking.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare first response, completion time, cache hit rate, and token consumption. All figures are measured medians.', analysisAria: 'Model efficiency metric', profile: 'Score profile', ttft: 'First response', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'Score vs speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'Score (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Total score and delivery rate', pdrDesc: "Total score is D1 plus D2 out of 100, a model's direct result on the OpenDesign benchmark. Delivery rate is the share of artifacts reaching 80, answering how often a model hands you something usable on the first try.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set, same OpenDesign execution path, two runs per task'], ['Gate', 'D0 checks whether the artifact opens at all'], ['Score', '11 designers score every artifact: D1 requirement 30 points, D2 design 70 points'], ['Pass', 'A total of 80 or above counts as ready to hand off'], ['Report', 'Ranked by total score, with efficiency and cost reported separately']], methods: [['D0', 'Hard gate', 'Artifact renderability', 'Confirms the artifact opens as a usable webpage before quality is judged. Artifacts that fail score zero and stay in the statistics rather than being re-run.', ['Page opens successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points', 'Requirement fulfillment', 'Six to nine checklist items per task, each rated met, partly met, or not met (1, 0.5, 0).', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Efficiency and cost', 'Shows the resources a model spent reaching this result. It does not affect the total score. Cost is list price multiplied by measured token usage.', ['TTFT and completion time', 'Cache hit rate and tool calls', 'Input/output tokens and cost per run']]], disclosures: [['Fair comparison', 'Every model runs the same private task set through the same OpenDesign execution path, scored by the same designers against the same rubric. All models on a given task are judged by the same reviewer, so head-to-head comparison is not skewed by individual strictness.'], ['Sample size and error', '30 artifacts per model; the 95% confidence interval of the mean runs from plus-minus 5 to plus-minus 11 points. Gaps under 10 points are not separable in this dataset. Each artifact was scored by a single reviewer this round, so inter-rater agreement is not yet calibrated.'], ['Benchmark boundary', 'Tasks stay private to reduce contamination. Only model-level results are published, not the prompts.'], ['How to interpret it', 'Scores describe the evaluated model version on OpenDesign prototype generation. This is not a general intelligence ranking.']], stripLead: 'Use your own API key to run ranked models in OpenDesign.', stripCta: 'Download the app', ctaDownload: 'Download OpenDesign', ctaDownloadNote: 'Free & open source · macOS / Windows', ctaDiscord: 'Join the Discord',
 };
 
 const decisionCopy = isZh ? {
@@ -71,7 +80,7 @@ const decisionCopy = isZh ? {
   },
   overallSignals: ['综合表现', '成本效率', '响应速度'],
   scenarioHeading: '分场景排名',
-  scenarioDescription: '查看五类设计场景中的模型原始分、PDR 与单次成本。',
+  scenarioDescription: '查看五类设计场景中的模型总分、可交付率与单份成本。每个模型在单场景只有 6 个产物，误差较大，仅供参考。',
   sceneChoice: '场景领先模型',
 } : {
   heroLink: 'View model recommendations',
@@ -91,7 +100,7 @@ const decisionCopy = isZh ? {
   },
   overallSignals: ['Overall performance', 'Cost efficiency', 'Response speed'],
   scenarioHeading: 'Rankings by scenario',
-  scenarioDescription: 'Compare raw score, PDR, and cost per run across five design scenarios.',
+  scenarioDescription: 'Compare total score, delivery rate, and cost per artifact across five design scenarios. Only 6 artifacts per model per scenario, so treat these as indicative.',
   sceneChoice: 'Scenario leader',
 };
 const methodCards = copy.methods as Array<[string, string, string, string, string[]]>;
@@ -102,6 +111,8 @@ type Model = {
   icon: string;
   color: string;
   badge?: string;
+  /** 实测总分，等于 D1 + D2，但取自原始明细的平均而非四舍五入后相加 */
+  score: number;
   pdr: number;
   d0: number;
   d1: number;
@@ -115,62 +126,72 @@ type Model = {
   calls: number;
 };
 
-const stealthBadge = isZh ? '隐身' : 'Stealth';
-const models: Model[] = [
-  { name: 'Claude Opus 5', maker: 'Anthropic', icon: '/agents/anthropic.svg', color: '#ff7c3f', pdr: 89.8, d0: 98.9, d1: 28.2, d2: 65.8, ttft: 1.8, time: 178, cacheHit: 44, inputTokens: 42800, outputTokens: 7400, cost: 2.31, calls: 17.8 },
-  { name: 'Claude Fable 5', maker: 'Anthropic', icon: '/agents/anthropic.svg', color: '#b85c33', pdr: 89.1, d0: 99.1, d1: 27.8, d2: 64.9, ttft: 1.4, time: 151, cacheHit: 48, inputTokens: 39700, outputTokens: 6900, cost: 1.98, calls: 16.1 },
-  { name: 'GPT-5.6 Sol', maker: 'OpenAI', icon: '/agents/openai.svg', color: '#151714', pdr: 88.3, d0: 99.3, d1: 28.0, d2: 63.6, ttft: 1.2, time: 142, cacheHit: 52, inputTokens: 38600, outputTokens: 6800, cost: 1.84, calls: 15.1 },
-  { name: 'Claude Sonnet 5', maker: 'Anthropic', icon: '/agents/anthropic.svg', color: '#df9b70', pdr: 86.5, d0: 98.4, d1: 27.3, d2: 62.8, ttft: 1.1, time: 108, cacheHit: 61, inputTokens: 31400, outputTokens: 5900, cost: 1.12, calls: 12.8 },
-  { name: 'GPT-5.6 Luna', maker: 'OpenAI', icon: '/agents/openai.svg', color: '#66706a', pdr: 84.2, d0: 98.6, d1: 26.7, d2: 61.4, ttft: .8, time: 94, cacheHit: 58, inputTokens: 28200, outputTokens: 5100, cost: .88, calls: 11.4 },
-  { name: 'Ox Alpha', maker: isZh ? '匿名实验室' : 'Undisclosed lab', icon: '/agents/ox.svg', color: '#3f463f', badge: stealthBadge, pdr: 83.6, d0: 97.2, d1: 25.7, d2: 59.6, ttft: 1.0, time: 137, cacheHit: 50, inputTokens: 36000, outputTokens: 6400, cost: 0, calls: 14.2 },
-  { name: 'Gemini 3.1 Pro', maker: 'Google', icon: '/agents/gemini.svg', color: '#168cf3', pdr: 81.9, d0: 98.7, d1: 25.9, d2: 58.4, ttft: 1.5, time: 164, cacheHit: 39, inputTokens: 40100, outputTokens: 7000, cost: 1.92, calls: 16.4 },
-  { name: 'Grok 4.6', maker: 'xAI', icon: '/agents/xai.svg', color: '#7a63e8', pdr: 79.8, d0: 96.4, d1: 25.4, d2: 57.4, ttft: 1.3, time: 126, cacheHit: 46, inputTokens: 34700, outputTokens: 6200, cost: 1.44, calls: 13.1 },
-  { name: 'Kimi K3', maker: 'Moonshot AI', icon: '/agents/moonshot.svg', color: '#6350cf', pdr: 78.1, d0: 96.8, d1: 25.1, d2: 56.2, ttft: .9, time: 118, cacheHit: 64, inputTokens: 29500, outputTokens: 5600, cost: .94, calls: 12.9 },
-  { name: 'Gemini 3.7 Flash', maker: 'Google', icon: '/agents/gemini.svg', color: '#54bff2', pdr: 76.2, d0: 98.1, d1: 24.6, d2: 55.0, ttft: .5, time: 68, cacheHit: 71, inputTokens: 22800, outputTokens: 4100, cost: .58, calls: 9.4 },
-  { name: 'GLM-5.3', maker: 'Z.ai', icon: '/agents/zhipu.svg', color: '#2743d6', pdr: 75.4, d0: 96.1, d1: 24.5, d2: 54.2, ttft: .7, time: 97, cacheHit: 57, inputTokens: 27100, outputTokens: 4800, cost: .57, calls: 11.3 },
-  { name: 'Qwen 3.8-Max', maker: 'Alibaba', icon: '/agents/qwen.svg', color: '#564bd0', pdr: 74.3, d0: 95.9, d1: 24.3, d2: 53.8, ttft: .7, time: 89, cacheHit: 55, inputTokens: 25900, outputTokens: 4700, cost: .62, calls: 10.6 },
-];
-
-const scenarios = [
-  { id: 'landing', label: isZh ? '落地页' : 'Landing page', detail: isZh ? '品牌表达与转化路径' : 'Brand expression and conversion', fit: isZh ? '适合品牌表达与转化要求高的页面。' : 'For pages where brand expression and conversion matter most.', color: '#ef7442', area: '1 / 1 / 3 / 4' },
-  { id: 'dashboard', label: 'Dashboard', detail: isZh ? '信息密度与数据层级' : 'Information density and hierarchy', fit: isZh ? '适合高信息密度的分析与运营工作台。' : 'For analytics and operations surfaces with dense information.', color: '#6756d8', area: '1 / 4 / 2 / 7' },
-  { id: 'desktop', label: isZh ? '桌面客户端' : 'Desktop app', detail: isZh ? '桌面工作流与复杂交互' : 'Desktop workflows and complex interactions', fit: isZh ? '适合多面板、复杂状态和桌面工作流。' : 'For multi-panel interfaces, complex states, and desktop workflows.', color: '#4f43bb', area: '2 / 4 / 3 / 7' },
-  { id: 'mobile', label: isZh ? '移动端界面' : 'Mobile UI', detail: isZh ? '触控体验与响应式布局' : 'Touch and responsive layout', fit: isZh ? '适合强调触控路径与小屏适配的产品。' : 'For products centered on touch flows and small-screen adaptation.', color: '#319d6a', area: '1 / 7 / 3 / 9' },
-  { id: 'webapp', label: isZh ? 'Web 端 App' : 'Web app', detail: isZh ? '多页面结构与操作流' : 'Multi-page structure and flows', fit: isZh ? '适合多页面、复杂操作流和产品状态。' : 'For multi-page products with complex flows and application states.', color: '#1589e8', area: '1 / 9 / 3 / 11' },
-];
-
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const scenarioOffset = (scenarioIndex: number, modelIndex: number) => ((scenarioIndex * 11 + modelIndex * 7) % 15) - 7;
-const scenarioResults = models.map((model, modelIndex) => ({
-  ...model,
-  scenarios: scenarios.map((scenario, scenarioIndex) => {
-    const offset = scenarioOffset(scenarioIndex, modelIndex);
-    const d1 = Number(clamp(model.d1 + offset * .16, 19.5, 30).toFixed(1));
-    const d2 = Number(clamp(model.d2 + offset * .38, 40, 70).toFixed(1));
-    const score = Number((d1 + d2).toFixed(1));
-    return {
-      id: scenario.id,
-      d1,
-      d2,
-      score,
-      pdr: Number(clamp(model.pdr + offset * .48, 55, 96).toFixed(1)),
-      ttft: Number((model.ttft * (1 + scenarioIndex * .035 + Math.max(0, offset) * .01)).toFixed(2)),
-      time: Number((model.time * (1 + scenarioIndex * .08 + Math.max(0, offset) * .008)).toFixed(0)),
-      cacheHit: Number(clamp(model.cacheHit - scenarioIndex * 1.5 - Math.max(0, offset) * .45, 20, 82).toFixed(1)),
-      inputTokens: Number((model.inputTokens * (1 + scenarioIndex * .07 + Math.max(0, offset) * .009)).toFixed(0)),
-      outputTokens: Number((model.outputTokens * (1 + scenarioIndex * .06 + Math.max(0, offset) * .008)).toFixed(0)),
-      cost: Number((model.cost * (1 + scenarioIndex * .07 + Math.max(0, offset) * .006)).toFixed(2)),
-      calls: Number((model.calls * (1 + scenarioIndex * .06 + Math.max(0, offset) * .007)).toFixed(1)),
-    };
+
+/**
+ * 榜单只展示进入排名的模型；本轮执行异常的模型通过 EXCLUDED_MODELS 单独披露，
+ * 不参与任何排序、推荐或图表。
+ */
+const rankedModels = RANKED_MODELS;
+const excludedModels = EXCLUDED_MODELS;
+const snapshot = MODEL_RANKING_SNAPSHOT;
+
+const toModel = (model: RankedModel): Model => ({
+  name: model.name,
+  maker: model.maker,
+  icon: model.icon,
+  color: model.color,
+  score: model.score,
+  pdr: model.pdr,
+  d0: model.d0,
+  d1: model.d1,
+  d2: model.d2,
+  ttft: model.ttft,
+  time: model.time,
+  cacheHit: model.cacheHit,
+  inputTokens: model.inputTokens,
+  outputTokens: model.outputTokens,
+  cost: model.cost,
+  calls: model.calls,
+});
+
+const models: Model[] = rankedModels.map(toModel);
+
+const scenarios = MODEL_RANKING_SCENARIOS.map((scenario, index) => ({
+  id: scenario.id,
+  label: scenario.label[isZh ? 'zh' : 'en'],
+  detail: scenario.detail[isZh ? 'zh' : 'en'],
+  fit: isZh
+    ? `${scenario.cases} 道题 · ${scenario.n} 个产物 · 可交付率 ${scenario.pdr}%`
+    : `${scenario.cases} tasks · ${scenario.n} artifacts · ${scenario.pdr}% delivery rate`,
+  color: ['#ef7442', '#6756d8', '#4f43bb', '#319d6a', '#1589e8'][index] ?? '#6756d8',
+  area: ['1 / 1 / 3 / 4', '1 / 4 / 2 / 7', '2 / 4 / 3 / 7', '1 / 7 / 3 / 9', '1 / 9 / 3 / 11'][index] ?? 'auto',
+  score: scenario.score,
+  pdr: scenario.pdr,
+  cases: scenario.cases,
+  sampleSize: scenario.n,
+}));
+
+/** 每个模型在每个场景 / 每档难度下的实测成绩，直接来自评测数据，不做任何推导。 */
+const scenarioResults = rankedModels.map((model) => ({
+  ...toModel(model),
+  difficulty: model.difficulty,
+  scenarios: MODEL_RANKING_SCENARIOS.map((scenario) => {
+    const slice = model.scenarios[scenario.id as ScenarioId];
+    return { id: scenario.id, ...slice };
   }),
 }));
 
+// 实测单份成本跨度超过 200 倍（$0.035 – $7.66），横轴必须取对数才排得开。
+const COST_AXIS_MIN = .02;
+const COST_AXIS_MAX = 10;
 const costPlotX = (cost: number) => {
-  const minimum = Math.log(.35);
-  const maximum = Math.log(3);
-  return Number(clamp(8 + ((Math.log(cost) - minimum) / (maximum - minimum)) * 84, 8, 92).toFixed(2));
+  const minimum = Math.log(COST_AXIS_MIN);
+  const maximum = Math.log(COST_AXIS_MAX);
+  return Number(clamp(8 + ((Math.log(Math.max(cost, COST_AXIS_MIN)) - minimum) / (maximum - minimum)) * 84, 8, 92).toFixed(2));
 };
-const costPlotY = (pdr: number) => Number(clamp(8 + ((pdr - 60) / 36) * 84, 8, 92).toFixed(2));
+// 纵轴用总分（实测 65.7 – 79.8），留出 60 – 85 的余量。
+const costPlotY = (score: number) => Number(clamp(8 + ((score - 60) / 25) * 84, 8, 92).toFixed(2));
 
 const leaderboardGroups = [
   {
@@ -179,8 +200,8 @@ const leaderboardGroups = [
     detail: isZh ? '所有五个设计场景的综合表现' : 'Combined performance across all five design scenarios',
     rows: scenarioResults.map((model) => ({
       name: model.name, maker: model.maker, icon: model.icon, color: model.color, badge: model.badge,
-      score: Number((model.d1 + model.d2).toFixed(1)), pdr: model.pdr, cost: model.cost,
-      x: costPlotX(model.cost), y: costPlotY(model.pdr),
+      score: model.score, pdr: model.pdr, cost: model.cost,
+      x: costPlotX(model.cost), y: costPlotY(model.score),
     })).sort((a, b) => b.score - a.score),
   },
   ...scenarios.map((scenario, scenarioIndex) => ({
@@ -192,7 +213,7 @@ const leaderboardGroups = [
       return {
         name: model.name, maker: model.maker, icon: model.icon, color: model.color, badge: model.badge,
         score: result.score, pdr: result.pdr, cost: result.cost,
-        x: costPlotX(result.cost), y: costPlotY(result.pdr),
+        x: costPlotX(result.cost), y: costPlotY(result.score),
       };
     }).sort((a, b) => b.score - a.score),
   })),
@@ -223,7 +244,7 @@ const decisionRowsFor = (scenarioId: string): DecisionRow[] => scenarioResults.m
     icon: model.icon,
     color: model.color,
     badge: model.badge,
-    score: result?.score ?? Number((model.d1 + model.d2).toFixed(1)),
+    score: result?.score ?? model.score,
     pdr: result?.pdr ?? model.pdr,
     d1: result?.d1 ?? model.d1,
     d2: result?.d2 ?? model.d2,
@@ -238,50 +259,67 @@ const modelUseHref = (row: Pick<DecisionRow, 'name' | 'maker'>) => {
   return `opendesign://workspace/open?${query.toString()}`;
 };
 
-const recommendationsFor = (scenarioId: string, priority: DecisionPriority) => {
-  const rows = decisionRowsFor(scenarioId);
-  const reliable = rows.filter((row) => row.pdr >= 75);
-  const rankedPrimary = [...(priority === 'cost' ? reliable.filter((row) => row.cost > 0) : rows)].sort((a, b) => {
-    if (priority === 'design') return b.d2 - a.d2 || b.pdr - a.pdr;
-    if (priority === 'requirement') return b.d1 - a.d1 || b.pdr - a.pdr;
-    if (priority === 'speed') return a.ttft - b.ttft || b.pdr - a.pdr;
-    if (priority === 'cost') return a.cost - b.cost || b.pdr - a.pdr;
-    return b.pdr - a.pdr || b.score - a.score;
-  });
-  const primary = rankedPrimary[0] ?? rows[0]!;
-  const valuePool = rows.filter((row) => row.cost > 0 && row.pdr >= 80 && row.name !== primary.name);
-  const valueFallback = reliable.filter((row) => row.cost > 0 && row.name !== primary.name);
-  const value = [...(valuePool.length ? valuePool : valueFallback)].sort((a, b) => (b.pdr / Math.sqrt(b.cost)) - (a.pdr / Math.sqrt(a.cost)))[0]
-    ?? rows.find((row) => row.name !== primary.name)!;
-  const faster = [...reliable].filter((row) => row.name !== primary.name && row.name !== value.name).sort((a, b) => a.ttft - b.ttft || b.pdr - a.pdr)[0]
-    ?? rows.find((row) => row.name !== primary.name && row.name !== value.name)!;
-  return [primary, value, faster] as const;
-};
-
-const decisionReason = (row: DecisionRow, role: DecisionRole, priority: DecisionPriority) => {
-  if (role === 'value') return isZh
-    ? `${row.pdr.toFixed(1)}% PDR · 单次成本约 $${row.cost.toFixed(2)}。`
-    : `${row.pdr.toFixed(1)}% PDR · about $${row.cost.toFixed(2)} per run.`;
-  if (role === 'faster') return isZh
-    ? `TTFT 约 ${row.ttft.toFixed(2)} 秒。`
-    : `About ${row.ttft.toFixed(2)}s TTFT.`;
-  if (priority === 'design') return isZh ? `D2 设计质量 ${row.d2.toFixed(1)}/70。` : `D2 design quality: ${row.d2.toFixed(1)}/70.`;
-  if (priority === 'requirement') return isZh ? `D1 需求完成度 ${row.d1.toFixed(1)}/30。` : `D1 requirement fulfillment: ${row.d1.toFixed(1)}/30.`;
-  if (priority === 'speed') return isZh ? `TTFT 约 ${row.ttft.toFixed(2)} 秒。` : `About ${row.ttft.toFixed(2)}s TTFT.`;
-  if (priority === 'cost') return isZh ? `单次成本约 $${row.cost.toFixed(2)}。` : `About $${row.cost.toFixed(2)} per run.`;
-  return isZh
-    ? `${row.pdr.toFixed(1)}% PDR · 原始分 ${row.score.toFixed(1)}。`
-    : `${row.pdr.toFixed(1)}% PDR · ${row.score.toFixed(1)} raw score.`;
-};
-
-const initialRecommendations = recommendationsFor('overall', 'overall');
-const initialRecommendationRoles: DecisionRole[] = ['primary', 'value', 'faster'];
+/** 成本从 $0.035 到 $7.66，低于 $1 时保留三位小数才看得出差别。 */
+const formatCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
+/** 首次响应实测 20 – 365 秒，按整秒显示。 */
+const formatSeconds = (seconds: number) => `${Math.round(seconds)}`;
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 };
+
+/**
+ * "可靠区" = 总分不低于本组中位数的模型。用相对门槛而不是写死的分数线，
+ * 这样换一批模型或换一轮数据都不会把候选集清空。
+ */
+const reliableRows = (rows: DecisionRow[]) => {
+  if (rows.length === 0) return rows;
+  const cutoff = median(rows.map((row) => row.score));
+  const above = rows.filter((row) => row.score >= cutoff);
+  return above.length > 0 ? above : rows;
+};
+
+const recommendationsFor = (scenarioId: string, priority: DecisionPriority) => {
+  const rows = decisionRowsFor(scenarioId);
+  const reliable = reliableRows(rows);
+  const rankedPrimary = [...(priority === 'cost' ? reliable.filter((row) => row.cost > 0) : rows)].sort((a, b) => {
+    if (priority === 'design') return b.d2 - a.d2 || b.score - a.score;
+    if (priority === 'requirement') return b.d1 - a.d1 || b.score - a.score;
+    if (priority === 'speed') return a.ttft - b.ttft || b.score - a.score;
+    if (priority === 'cost') return a.cost - b.cost || b.score - a.score;
+    return b.score - a.score || b.pdr - a.pdr;
+  });
+  const primary = rankedPrimary[0] ?? rows[0]!;
+  const valuePool = reliable.filter((row) => row.cost > 0 && row.name !== primary.name);
+  const valueFallback = rows.filter((row) => row.cost > 0 && row.name !== primary.name);
+  const value = [...(valuePool.length ? valuePool : valueFallback)].sort((a, b) => (b.score / Math.sqrt(b.cost)) - (a.score / Math.sqrt(a.cost)))[0]
+    ?? rows.find((row) => row.name !== primary.name)!;
+  const faster = [...reliable].filter((row) => row.name !== primary.name && row.name !== value.name).sort((a, b) => a.ttft - b.ttft || b.score - a.score)[0]
+    ?? rows.find((row) => row.name !== primary.name && row.name !== value.name)!;
+  return [primary, value, faster] as const;
+};
+
+const decisionReason = (row: DecisionRow, role: DecisionRole, priority: DecisionPriority) => {
+  if (role === 'value') return isZh
+    ? `总分 ${row.score.toFixed(1)} · 单份成本约 $${formatCost(row.cost)}。`
+    : `Score ${row.score.toFixed(1)} · about $${formatCost(row.cost)} per run.`;
+  if (role === 'faster') return isZh
+    ? `首次响应约 ${formatSeconds(row.ttft)} 秒。`
+    : `About ${formatSeconds(row.ttft)}s to first output.`;
+  if (priority === 'design') return isZh ? `D2 设计质量 ${row.d2.toFixed(1)}/70。` : `D2 design quality: ${row.d2.toFixed(1)}/70.`;
+  if (priority === 'requirement') return isZh ? `D1 需求完成度 ${row.d1.toFixed(1)}/30。` : `D1 requirement fulfillment: ${row.d1.toFixed(1)}/30.`;
+  if (priority === 'speed') return isZh ? `首次响应约 ${formatSeconds(row.ttft)} 秒。` : `About ${formatSeconds(row.ttft)}s to first output.`;
+  if (priority === 'cost') return isZh ? `单份成本约 $${formatCost(row.cost)}。` : `About $${formatCost(row.cost)} per run.`;
+  return isZh
+    ? `总分 ${row.score.toFixed(1)} · 可交付率 ${row.pdr.toFixed(1)}%。`
+    : `Score ${row.score.toFixed(1)} · ${row.pdr.toFixed(1)}% delivery rate.`;
+};
+
+const initialRecommendations = recommendationsFor('overall', 'overall');
+const initialRecommendationRoles: DecisionRole[] = ['primary', 'value', 'faster'];
+
 const lowerIsBetterPercentile = (value: number, values: number[]) => {
   const valid = values.filter((item) => item > 0).sort((a, b) => a - b);
   if (value <= 0 || valid.length < 2) return 50;
@@ -308,9 +346,9 @@ const initialRadarMedian = initialRadarProfile.map((_, index) => median(overallD
 const initialRadarRaw = [
   `${initialRecommendations[0].d1.toFixed(1)}/30`,
   `${initialRecommendations[0].d2.toFixed(1)}/70`,
-  initialRecommendations[0].cost > 0 ? `$${initialRecommendations[0].cost.toFixed(2)}` : decisionCopy.radar.unavailable,
+  initialRecommendations[0].cost > 0 ? `$${formatCost(initialRecommendations[0].cost)}` : decisionCopy.radar.unavailable,
   `${initialRecommendations[0].time.toFixed(0)}s`,
-  `${initialRecommendations[0].ttft.toFixed(2)}s`,
+  `${formatSeconds(initialRecommendations[0].ttft)}s`,
 ];
 const radarGridLevels = [25, 50, 75, 100];
 const radarOuterPoints = radarPointsFor([100, 100, 100, 100, 100]).split(' ').map((point) => point.split(','));
@@ -322,8 +360,10 @@ const radarLabelPositions = [
   { x: 34, y: 86, anchor: 'start' },
 ];
 
-const efficiencyX = (model: Model) => Math.max(5, Math.min(95, 5 + (model.ttft / 2.4) * 90));
-const efficiencyY = (model: Model) => Math.max(6, Math.min(94, 6 + ((model.pdr - 65) / 25) * 88));
+// TTFT 实测 20 – 365 秒；总分实测 65.7 – 79.8。
+const EFFICIENCY_TTFT_MAX = 400;
+const efficiencyX = (model: Model) => Math.max(5, Math.min(95, 5 + (model.ttft / EFFICIENCY_TTFT_MAX) * 90));
+const efficiencyY = (model: Model) => Math.max(6, Math.min(94, 6 + ((model.score - 60) / 25) * 88));
 
 const title = copy.title;
 const description = copy.description;
@@ -342,8 +382,8 @@ const clientCopyJson = JSON.stringify({
   },
   scenario: isZh ? '场景' : 'scenario',
   allScenarios: isZh ? '综合' : 'Overall',
-  quality: isZh ? '原始分' : 'Score',
-  pdr: 'PDR',
+  quality: isZh ? '总分' : 'Score',
+  pdr: isZh ? '可交付率' : 'Delivery rate',
   lowerBetter: copy.lowerBetter,
   higherBetter: isZh ? '越高越好' : 'higher is better',
   metricSummary: isZh ? { ttft: 'TTFT', duration: '耗时', cacheHit: '缓存', inputTokens: '输入', outputTokens: '输出' } : { ttft: 'TTFT', duration: 'Time', cacheHit: 'Cache', inputTokens: 'Input', outputTokens: 'Output' },
@@ -353,20 +393,20 @@ const clientCopyJson = JSON.stringify({
     details: decisionCopy.details,
     radar: decisionCopy.radar,
     reasons: isZh ? {
-      value: '{pdr}% PDR · 单次成本约 ${cost}。',
-      faster: 'TTFT 约 {ttft} 秒。',
-      overall: '{pdr}% PDR · 原始分 {score}。',
+      value: '总分 {score} · 单份成本约 ${cost}。',
+      faster: '首次响应约 {ttft} 秒。',
+      overall: '总分 {score} · 可交付率 {pdr}%。',
       design: 'D2 设计质量 {metric}/70。',
       requirement: 'D1 需求完成度 {metric}/30。',
-      speed: 'TTFT 约 {ttft} 秒。',
-      cost: '单次成本约 ${cost}。',
+      speed: '首次响应约 {ttft} 秒。',
+      cost: '单份成本约 ${cost}。',
     } : {
-      value: '{pdr}% PDR · about ${cost} per run.',
-      faster: 'About {ttft}s TTFT.',
-      overall: '{pdr}% PDR · {score} raw score.',
+      value: 'Score {score} · about ${cost} per run.',
+      faster: 'About {ttft}s to first output.',
+      overall: 'Score {score} · {pdr}% delivery rate.',
       design: 'D2 design quality: {metric}/70.',
       requirement: 'D1 requirement fulfillment: {metric}/30.',
-      speed: 'About {ttft}s TTFT.',
+      speed: 'About {ttft}s to first output.',
       cost: 'About ${cost} per run.',
     },
   },
@@ -392,6 +432,14 @@ const clientCopyJson = JSON.stringify({
         <span class="model-hero-note">{copy.ctaDownloadNote}</span>
       </div>
       <a class="model-guide-link" href="#quick-pick-title">{decisionCopy.heroLink}<span aria-hidden="true">↓</span></a>
+      <dl class="model-snapshot" aria-label={isZh ? '本轮评测快照' : 'Evaluation snapshot'}>
+        <div><dt>{isZh ? '产物' : 'Artifacts'}</dt><dd>{snapshot.runs}</dd></div>
+        <div><dt>{isZh ? '模型' : 'Models'}</dt><dd>{snapshot.models}</dd></div>
+        <div><dt>{isZh ? '任务' : 'Tasks'}</dt><dd>{snapshot.cases}</dd></div>
+        <div><dt>{isZh ? '人工评分' : 'Human scores'}</dt><dd>{snapshot.humanJudgments}</dd></div>
+        <div><dt>{isZh ? '评审' : 'Reviewers'}</dt><dd>{snapshot.reviewers}</dd></div>
+        <div><dt>{isZh ? '评测于' : 'Evaluated'}</dt><dd><time datetime={snapshot.evaluatedAt}>{snapshot.evaluatedAt}</time></dd></div>
+      </dl>
       <div class="model-index-note"><span>{copy.preview}</span><p>{copy.previewNote}</p></div>
     </header>
 
@@ -462,8 +510,8 @@ const clientCopyJson = JSON.stringify({
                   </div>
                 ) : null}
                 <dl>
-                  <div><dt>{isZh ? '原始分' : 'Score'}</dt><dd data-rec-score>{row.score.toFixed(1)}</dd></div>
-                  <div><dt>PDR</dt><dd data-rec-pdr>{row.pdr.toFixed(1)}%</dd></div>
+                  <div><dt>{isZh ? '总分' : 'Score'}</dt><dd data-rec-score>{row.score.toFixed(1)}</dd></div>
+                  <div><dt>{isZh ? '可交付率' : 'Delivery'}</dt><dd data-rec-pdr>{row.pdr.toFixed(1)}%</dd></div>
                   <div><dt>{isZh ? '单次成本' : 'Cost / run'}</dt><dd data-rec-cost>${row.cost.toFixed(2)}</dd></div>
                 </dl>
                 <div class="model-recommendation-actions">
@@ -497,7 +545,7 @@ const clientCopyJson = JSON.stringify({
           <div style={`--insight-color:${row.color}`}>
             <span>{decisionCopy.overallSignals[index]}</span>
             <strong><span class="model-icon"><img src={row.icon} alt="" width="24" height="24" /></span>{row.name}</strong>
-            <small>{index === 0 ? `${row.pdr.toFixed(1)}% PDR` : index === 1 ? `$${row.cost.toFixed(2)} / ${isZh ? '次' : 'run'}` : `TTFT ${row.ttft.toFixed(2)}s`}</small>
+            <small>{index === 0 ? `${row.pdr.toFixed(1)}% ${isZh ? '可交付' : 'delivered'}` : index === 1 ? `$${formatCost(row.cost)} / ${isZh ? '份' : 'run'}` : `${formatSeconds(row.ttft)}s ${isZh ? '首次响应' : 'to first output'}`}</small>
           </div>
         ))}
       </div>
@@ -545,7 +593,7 @@ const clientCopyJson = JSON.stringify({
                   <small>{decisionCopy.sceneChoice}</small>
                   <strong><span class="model-icon"><img src={winner.icon} alt="" width="24" height="24" /></span>{winner.name}</strong>
                   <p>{scene.fit}</p>
-                  <dl><span>{winner.score.toFixed(1)} {isZh ? '分' : 'score'}</span><span>{winner.pdr.toFixed(1)}% PDR</span><span>${winner.cost.toFixed(2)} / {isZh ? '次' : 'run'}</span></dl>
+                  <dl><span>{winner.score.toFixed(1)} {isZh ? '分' : 'score'}</span><span>{winner.pdr.toFixed(1)}% {isZh ? '可交付' : 'delivered'}</span><span>${formatCost(winner.cost)} / {isZh ? '份' : 'run'}</span></dl>
                 </div>
               </header>
               <ModelRankingPair group={group} isZh={isZh} />
@@ -557,7 +605,7 @@ const clientCopyJson = JSON.stringify({
 
     <section class="model-section analysis-section" aria-labelledby="analysis-title">
       <div class="section-heading">
-        <div><h2 id="analysis-title">{copy.analysisHeading}</h2><p>{copy.analysisDesc}{isZh ? '效率数据单独报告，不计入 PDR。' : ' Efficiency is reported separately and does not affect PDR.'}</p></div>
+        <div><h2 id="analysis-title">{copy.analysisHeading}</h2><p>{copy.analysisDesc}{isZh ? '效率与成本单独报告，不计入总分。' : ' Efficiency and cost are reported separately and do not affect the total score.'}</p></div>
       </div>
       <div class="analysis-explorer" data-analysis>
         <div class="analysis-toolbar">
@@ -569,8 +617,8 @@ const clientCopyJson = JSON.stringify({
             <button type="button" role="tab" aria-selected="false" aria-controls="analysis-efficiency" data-analysis-view="outputTokens"><strong>{copy.outputTokens}</strong></button>
           </div>
           <div class="efficiency-quality-tabs" role="group" aria-label={isZh ? '纵轴分数' : 'Quality axis'}>
-            <button type="button" class="active" aria-pressed="true" data-efficiency-quality="score">{isZh ? '原始分' : 'Score'}</button>
-            <button type="button" aria-pressed="false" data-efficiency-quality="pdr">PDR</button>
+            <button type="button" class="active" aria-pressed="true" data-efficiency-quality="score">{isZh ? '总分' : 'Score'}</button>
+            <button type="button" aria-pressed="false" data-efficiency-quality="pdr">{isZh ? '可交付率' : 'Delivery rate'}</button>
           </div>
         </div>
         <div class="efficiency-filter-bar">
@@ -584,11 +632,11 @@ const clientCopyJson = JSON.stringify({
         <div id="analysis-efficiency" class="analysis-panel" role="tabpanel" data-analysis-panel="efficiency">
           <div class="efficiency-chart-shell">
             <div class="efficiency-chart-main">
-              <div class="efficiency-chart-copy"><span data-efficiency-eyebrow>{isZh ? '综合 · 一般任务 · 数值越低越好' : 'Overall · General tasks · lower is better'}</span><h3 data-efficiency-title>{isZh ? '原始分 × 首次响应' : 'Score vs First response'}</h3><p>{copy.chartDesc}</p></div>
+              <div class="efficiency-chart-copy"><span data-efficiency-eyebrow>{isZh ? '综合 · 一般任务 · 数值越低越好' : 'Overall · General tasks · lower is better'}</span><h3 data-efficiency-title>{isZh ? '总分 × 首次响应' : 'Score vs First response'}</h3><p>{copy.chartDesc}</p></div>
               <div class="efficiency-chart-stage">
-                <span class="efficiency-y-title" data-efficiency-y-label>{isZh ? '原始分（越高越好 ↑）' : 'Score (higher ↑)'}</span><span class="efficiency-x-title" data-efficiency-x-label>{isZh ? 'TTFT（越左越快 →）' : 'TTFT (faster on the left →)'}</span>
-                <div class="efficiency-y-ticks" aria-hidden="true" data-efficiency-y-ticks><span>95</span><span>85</span><span>75</span><span>65</span></div>
-                <div class="efficiency-x-ticks" aria-hidden="true"><span>0s</span><span>0.6s</span><span>1.2s</span><span>1.8s</span><span>2.4s</span></div>
+                <span class="efficiency-y-title" data-efficiency-y-label>{isZh ? '总分（越高越好 ↑）' : 'Score (higher ↑)'}</span><span class="efficiency-x-title" data-efficiency-x-label>{isZh ? 'TTFT（越左越快 →）' : 'TTFT (faster on the left →)'}</span>
+                <div class="efficiency-y-ticks" aria-hidden="true" data-efficiency-y-ticks><span>85</span><span>78</span><span>72</span><span>65</span></div>
+                <div class="efficiency-x-ticks" aria-hidden="true"><span>0s</span><span>100s</span><span>200s</span><span>300s</span><span>400s</span></div>
                 <div class="efficiency-plot">
                   <div class="efficiency-ideal-zone"><span>{isZh ? '高分 · 高效率' : 'High score · High efficiency'}</span></div>
                   <svg class="efficiency-frontier" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points=""></polyline></svg>
@@ -625,10 +673,39 @@ const clientCopyJson = JSON.stringify({
       <div class="compare-grid" data-compare-grid></div>
     </section>
 
+    {excludedModels.length > 0 && (
+      <section class="model-section excluded-section" aria-labelledby="excluded-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="excluded-title">{isZh ? '本轮未纳入排名' : 'Not ranked this round'}</h2>
+            <p>{isZh
+              ? '这些模型跑完了全部任务，但执行过程本身出了问题，成绩不能代表模型能力，因此不参与排序。数据一并公开。'
+              : 'These models completed every task, but the run itself hit problems, so the result does not reflect model capability and is left out of the ranking. The data is published anyway.'}</p>
+          </div>
+        </div>
+        <ul class="excluded-list">
+          {excludedModels.map((model) => (
+            <li>
+              <div class="excluded-model">
+                <span class="model-icon"><img src={model.icon} alt="" width="24" height="24" /></span>
+                <span><strong>{model.name}</strong><small>{model.maker}</small></span>
+              </div>
+              <dl class="excluded-metrics">
+                <div><dt>{isZh ? '总分' : 'Score'}</dt><dd>{model.score.toFixed(1)}</dd></div>
+                <div><dt>{isZh ? '可渲染率' : 'Renderability'}</dt><dd>{model.d0.toFixed(1)}%</dd></div>
+                <div><dt>{isZh ? '产物' : 'Artifacts'}</dt><dd>{model.n}</dd></div>
+              </dl>
+              <p>{model.excludedReason?.[isZh ? 'zh' : 'en']}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
     <section class="model-section method-section" aria-labelledby="method-title">
       <div class="section-heading"><div><h2 id="method-title">{copy.methodHeading}</h2><p>{copy.methodDesc}</p></div></div>
       <div class="method-overview">
-        <div class="method-primary"><span>{copy.primaryMetric}</span><div><strong>PDR</strong><h3>{copy.pdrName}</h3></div><p>{copy.pdrDesc}</p></div>
+        <div class="method-primary"><span>{copy.primaryMetric}</span><div><strong>{isZh ? '总分' : 'Score'}</strong><h3>{copy.pdrName}</h3></div><p>{copy.pdrDesc}</p></div>
         <ol class="method-flow" aria-label={copy.flowAria}>
           {copy.flow.map(([title, detail]) => <li><span><strong>{title}</strong><small>{detail}</small></span></li>)}
         </ol>
@@ -657,13 +734,15 @@ const clientCopyJson = JSON.stringify({
     type QualityMetric = 'score' | 'pdr';
     type ScenarioId = 'overall' | string;
     type GuidePriority = 'overall' | 'design' | 'requirement' | 'speed' | 'cost';
-    type ScenarioResult = { id: string; d1: number; d2: number; score: number; pdr: number; ttft: number; time: number; cacheHit: number; inputTokens: number; outputTokens: number; cost: number; calls: number };
+    type ScenarioResult = { id: string; n: number; ci95: number | null; d1: number; d2: number; score: number; pdr: number; ttft: number; time: number; cacheHit: number; inputTokens: number; outputTokens: number; cost: number; calls: number };
+    type DifficultySlice = Omit<ScenarioResult, 'id'>;
     type ClientModel = {
       name: string;
       maker: string;
       icon: string;
       color: string;
       badge?: string;
+      score: number;
       pdr: number;
       d0: number;
       d1: number;
@@ -676,6 +755,7 @@ const clientCopyJson = JSON.stringify({
       cost: number;
       calls: number;
       scenarios: ScenarioResult[];
+      difficulty: Record<'simple' | 'general' | 'hard', DifficultySlice>;
     };
     type ClientScenario = { id: string; label: string; fit: string; color: string };
     type ClientCopy = {
@@ -753,7 +833,7 @@ const clientCopyJson = JSON.stringify({
         `${row.d2.toFixed(1)}/70`,
         row.cost > 0 ? `$${row.cost.toFixed(2)}` : clientCopy.guide.radar.unavailable,
         `${row.time.toFixed(0)}s`,
-        `${row.ttft.toFixed(2)}s`,
+        `${Math.round(row.ttft)}s`,
       ];
       const updateGuideRadar = (row: ReturnType<typeof guideRowsFor>[number], cohort: ReturnType<typeof guideRowsFor>) => {
         const radar = root.querySelector<HTMLElement>('[data-model-radar]');
@@ -785,20 +865,23 @@ const clientCopyJson = JSON.stringify({
       };
       const guideRecommendations = (scenarioId: string, priority: GuidePriority) => {
         const rows = guideRowsFor(scenarioId);
-        const reliable = rows.filter((row) => row.pdr >= 75);
+        // 与构建期的 reliableRows 保持同一口径：总分不低于本组中位数。
+        const scoreCutoff = guideMedian(rows.map((row) => row.score));
+        const aboveCutoff = rows.filter((row) => row.score >= scoreCutoff);
+        const reliable = aboveCutoff.length > 0 ? aboveCutoff : rows;
         const primaryPool = priority === 'cost' ? reliable.filter((row) => row.cost > 0) : rows;
         const primary = [...primaryPool].sort((a, b) => {
-          if (priority === 'design') return b.d2 - a.d2 || b.pdr - a.pdr;
-          if (priority === 'requirement') return b.d1 - a.d1 || b.pdr - a.pdr;
-          if (priority === 'speed') return a.ttft - b.ttft || b.pdr - a.pdr;
-          if (priority === 'cost') return a.cost - b.cost || b.pdr - a.pdr;
-          return b.pdr - a.pdr || b.score - a.score;
+          if (priority === 'design') return b.d2 - a.d2 || b.score - a.score;
+          if (priority === 'requirement') return b.d1 - a.d1 || b.score - a.score;
+          if (priority === 'speed') return a.ttft - b.ttft || b.score - a.score;
+          if (priority === 'cost') return a.cost - b.cost || b.score - a.score;
+          return b.score - a.score || b.pdr - a.pdr;
         })[0] || rows[0]!;
-        const highConfidenceValue = rows.filter((row) => row.cost > 0 && row.pdr >= 80 && row.name !== primary.name);
-        const valueFallback = reliable.filter((row) => row.cost > 0 && row.name !== primary.name);
-        const value = [...(highConfidenceValue.length ? highConfidenceValue : valueFallback)].sort((a, b) => (b.pdr / Math.sqrt(b.cost)) - (a.pdr / Math.sqrt(a.cost)))[0]
+        const highConfidenceValue = reliable.filter((row) => row.cost > 0 && row.name !== primary.name);
+        const valueFallback = rows.filter((row) => row.cost > 0 && row.name !== primary.name);
+        const value = [...(highConfidenceValue.length ? highConfidenceValue : valueFallback)].sort((a, b) => (b.score / Math.sqrt(b.cost)) - (a.score / Math.sqrt(a.cost)))[0]
           || rows.find((row) => row.name !== primary.name)!;
-        const faster = [...reliable].filter((row) => row.name !== primary.name && row.name !== value.name).sort((a, b) => a.ttft - b.ttft || b.pdr - a.pdr)[0]
+        const faster = [...reliable].filter((row) => row.name !== primary.name && row.name !== value.name).sort((a, b) => a.ttft - b.ttft || b.score - a.score)[0]
           || rows.find((row) => row.name !== primary.name && row.name !== value.name)!;
         return [primary, value, faster];
       };
@@ -927,37 +1010,48 @@ const clientCopyJson = JSON.stringify({
         });
       });
 
-      const formatTokens = (value: number) => `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
+      const formatTokens = (value: number) => value >= 1000000
+        ? `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}M`
+        : `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
       const moduleConfig = {
-        ttft: { label: clientCopy.module.ttft.title, xLabel: clientCopy.module.ttft.xLabel, maximum: 2.4, ticks: [0, .6, 1.2, 1.8, 2.4], higherBetter: false, format: (value: number) => `${value.toFixed(2)}s` },
-        duration: { label: clientCopy.module.duration.title, xLabel: clientCopy.module.duration.xLabel, maximum: 340, ticks: [0, 85, 170, 255, 340], higherBetter: false, format: (value: number) => `${Math.round(value)}s` },
+        ttft: { label: clientCopy.module.ttft.title, xLabel: clientCopy.module.ttft.xLabel, maximum: 400, ticks: [0, 100, 200, 300, 400], higherBetter: false, format: (value: number) => `${Math.round(value)}s` },
+        duration: { label: clientCopy.module.duration.title, xLabel: clientCopy.module.duration.xLabel, maximum: 2100, ticks: [0, 525, 1050, 1575, 2100], higherBetter: false, format: (value: number) => `${Math.round(value / 60)}min` },
         cacheHit: { label: clientCopy.module.cacheHit.title, xLabel: clientCopy.module.cacheHit.xLabel, maximum: 100, ticks: [0, 25, 50, 75, 100], higherBetter: true, format: (value: number) => `${value.toFixed(1)}%` },
-        inputTokens: { label: clientCopy.module.inputTokens.title, xLabel: clientCopy.module.inputTokens.xLabel, maximum: 70000, ticks: [0, 17500, 35000, 52500, 70000], higherBetter: false, format: formatTokens },
-        outputTokens: { label: clientCopy.module.outputTokens.title, xLabel: clientCopy.module.outputTokens.xLabel, maximum: 12000, ticks: [0, 3000, 6000, 9000, 12000], higherBetter: false, format: formatTokens },
+        inputTokens: { label: clientCopy.module.inputTokens.title, xLabel: clientCopy.module.inputTokens.xLabel, maximum: 2000000, ticks: [0, 500000, 1000000, 1500000, 2000000], higherBetter: false, format: formatTokens },
+        outputTokens: { label: clientCopy.module.outputTokens.title, xLabel: clientCopy.module.outputTokens.xLabel, maximum: 140000, ticks: [0, 35000, 70000, 105000, 140000], higherBetter: false, format: formatTokens },
       } satisfies Record<EfficiencyModule, { label: string; xLabel: string; maximum: number; ticks: number[]; higherBetter: boolean; format: (value: number) => string }>;
-      const difficultyConfig: Record<Difficulty, { factor: number; cacheDelta: number; label: string }> = {
-        simple: { factor: .78, cacheDelta: 6, label: document.documentElement.lang.startsWith('zh') ? '简单任务' : 'Simple tasks' },
-        general: { factor: 1, cacheDelta: 0, label: document.documentElement.lang.startsWith('zh') ? '一般任务' : 'General tasks' },
-        difficult: { factor: 1.3, cacheDelta: -7, label: document.documentElement.lang.startsWith('zh') ? '困难任务' : 'Difficult tasks' },
+      const isZhClient = document.documentElement.lang.startsWith('zh');
+      const difficultyConfig: Record<Difficulty, { key: 'simple' | 'general' | 'hard'; label: string }> = {
+        simple: { key: 'simple', label: isZhClient ? '简单任务' : 'Simple tasks' },
+        general: { key: 'general', label: isZhClient ? '一般任务' : 'General tasks' },
+        difficult: { key: 'hard', label: isZhClient ? '困难任务' : 'Difficult tasks' },
       };
       let activeModule: EfficiencyModule = 'ttft';
       let activeScenario: ScenarioId = 'overall';
       let activeQuality: QualityMetric = 'score';
       let activeDifficulty: Difficulty = 'general';
 
-      const resultFor = (model: ClientModel) => activeScenario === 'overall' ? model : model.scenarios.find((result) => result.id === activeScenario) || model;
+      /**
+       * 场景和难度是数据集的两个正交切分（5 场景 × 3 难度 = 15 道题），
+       * 每个切片都有实测值，不做任何推导。两者同时选中时以场景为准，
+       * 因为交叉后每格只剩 2 个产物。
+       */
+      const resultFor = (model: ClientModel) => {
+        if (activeScenario !== 'overall') return model.scenarios.find((result) => result.id === activeScenario) || model;
+        if (activeDifficulty !== 'general') return model.difficulty[difficultyConfig[activeDifficulty].key] || model;
+        return model;
+      };
       const qualityFor = (model: ClientModel) => {
         const result = resultFor(model) as ClientModel | ScenarioResult;
-        return activeQuality === 'pdr' ? result.pdr : ('score' in result ? result.score : result.d1 + result.d2);
+        return activeQuality === 'pdr' ? result.pdr : result.score;
       };
       const valueFor = (model: ClientModel, module: EfficiencyModule = activeModule) => {
         const result = resultFor(model) as ClientModel | ScenarioResult;
-        const difficulty = difficultyConfig[activeDifficulty];
-        if (module === 'ttft') return result.ttft * difficulty.factor;
-        if (module === 'duration') return result.time * difficulty.factor;
-        if (module === 'cacheHit') return Math.max(0, Math.min(100, result.cacheHit + difficulty.cacheDelta));
-        if (module === 'inputTokens') return result.inputTokens * difficulty.factor;
-        return result.outputTokens * difficulty.factor;
+        if (module === 'ttft') return result.ttft;
+        if (module === 'duration') return result.time;
+        if (module === 'cacheHit') return result.cacheHit;
+        if (module === 'inputTokens') return result.inputTokens;
+        return result.outputTokens;
       };
       const renderEfficiency = () => {
         const config = moduleConfig[activeModule];
@@ -971,16 +1065,16 @@ const clientCopyJson = JSON.stringify({
         const yTicks = root.querySelector<HTMLElement>('[data-efficiency-y-ticks]');
         if (eyebrow) eyebrow.textContent = `${scene} · ${difficultyConfig[activeDifficulty].label} · ${config.higherBetter ? clientCopy.higherBetter : clientCopy.lowerBetter}`;
         if (titleNode) titleNode.textContent = `${qualityLabel} ${config.label}`;
-        if (yLabel) yLabel.textContent = `${qualityLabel} (${activeQuality === 'pdr' ? '%' : '/100'})`;
+        if (yLabel) yLabel.textContent = `${qualityLabel}（${activeQuality === 'pdr' ? '%' : '/100'}）`;
         if (xLabel) xLabel.textContent = config.xLabel;
         if (xTicks) xTicks.innerHTML = config.ticks.map((tick) => `<span>${config.format(tick)}</span>`).join('');
-        if (yTicks) yTicks.innerHTML = (activeQuality === 'pdr' ? [95, 85, 75, 65] : [96, 86, 76, 66]).map((tick) => `<span>${tick}</span>`).join('');
+        if (yTicks) yTicks.innerHTML = (activeQuality === 'pdr' ? [75, 60, 45, 30] : [85, 78, 72, 65]).map((tick) => `<span>${tick}</span>`).join('');
         const plot = root.querySelector<HTMLElement>('.efficiency-plot');
         plot?.classList.toggle('is-higher-better', config.higherBetter);
         const points = modelData.map((model) => {
           const value = valueFor(model);
           const quality = qualityFor(model);
-          return { model, value, quality, x: Math.max(5, Math.min(95, 5 + value / config.maximum * 90)), y: Math.max(6, Math.min(94, 6 + (quality - 62) / 35 * 88)) };
+          return { model, value, quality, x: Math.max(5, Math.min(95, 5 + value / config.maximum * 90)), y: Math.max(6, Math.min(94, 6 + (quality - (activeQuality === 'pdr' ? 25 : 60)) / (activeQuality === 'pdr' ? 55 : 25) * 88)) };
         });
         points.forEach(({ model, value, x, y }) => {
           const point = root.querySelector<HTMLElement>(`[data-efficiency-point="${CSS.escape(model.name)}"]`);
@@ -1063,7 +1157,7 @@ const clientCopyJson = JSON.stringify({
           }).join('');
           return `<article class="compare-card" style="--compare-color:${model.color}">
             <header><span class="model-icon"><img src="${model.icon}" alt="" width="28" height="28"></span><span><strong>${model.name}${model.badge ? `<em class="model-badge">${model.badge}</em>` : ''}</strong><small>${model.maker}</small></span></header>
-            <div class="compare-headline"><span>PDR <strong>${model.pdr.toFixed(1)}%</strong></span><span>${clientCopy.quality} <strong>${(model.d1 + model.d2).toFixed(1)}</strong></span></div>
+            <div class="compare-headline"><span>${clientCopy.pdr} <strong>${model.pdr.toFixed(1)}%</strong></span><span>${clientCopy.quality} <strong>${model.score.toFixed(1)}</strong></span></div>
             <div class="compare-metrics"><div><small>D1</small><strong>${model.d1.toFixed(1)}<i>/30</i></strong></div><div><small>D2</small><strong>${model.d2.toFixed(1)}<i>/70</i></strong></div><div><small>Speed</small><strong>${model.time}s</strong></div><div><small>Cost</small><strong>$${model.cost.toFixed(2)}</strong></div><div><small>Calls</small><strong>${model.calls.toFixed(1)}</strong></div></div>
             <div class="compare-scenes">${sceneRows}</div>
           </article>`;

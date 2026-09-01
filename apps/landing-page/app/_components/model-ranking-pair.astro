@@ -26,21 +26,25 @@ interface Props {
 }
 
 const { group, isZh, prominent = false } = Astro.props;
-const scoreLabel = isZh ? '原始分' : 'Score';
-const percentageLabel = isZh ? 'PDR 通过率' : 'PDR rate';
+/** 成本从 $0.035 到 $7.66，低于 $1 时保留三位小数才看得出差别。 */
+const formatCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
+const scoreLabel = isZh ? '总分' : 'Score';
+const deliveryLabel = isZh ? '可交付率' : 'Delivery rate';
+const scoreAxisLabel = isZh ? '总分' : 'Total score';
 const modelLabel = isZh ? '模型' : 'Model';
 // 场景名可能以拉丁字母结尾（Dashboard、Web 端 App），中西文之间要留空格
 const zhGap = /[A-Za-z0-9)\]]$/.test(group.label) ? ' ' : '';
 const rankingTitle = isZh ? `${group.label}${zhGap}排名` : `${group.label} ranking`;
-const costTitle = isZh ? `${group.label} PDR × 成本` : `${group.label} PDR vs cost`;
-const costDescription = isZh ? '左上象限代表用更低成本获得更高的通过率。' : 'The upper-left quadrant combines a higher PDR rate with a lower session cost.';
-const chartHeight = (value: number) => Math.max(12, Math.min(84, (value - 50) * 1.7));
+const costTitle = isZh ? `${group.label}${zhGap}· 总分 × 成本` : `${group.label} · score vs cost`;
+const costDescription = isZh ? '左上象限代表用更低成本拿到更高的总分。横轴是对数刻度，实测成本跨度超过 200 倍。' : 'The upper-left quadrant reaches a higher score at a lower cost. The x-axis is logarithmic — measured cost spans more than 200x.';
+// 实测总分区间 65.7 – 79.8，用 58 – 85 作画布。
+const chartHeight = (value: number) => Math.max(12, Math.min(84, (value - 58) * 3.4));
 
 // 高效区边界按本组真实数据推导，而不是写死象限：
 // 锚点 = PDR 第一梯队（前半）里成本最低的模型，区域刚好把它包进来。
 // 写死 52%/50% 时锚点会卡在边界外，绿区看起来永远没人达标。
-const byPdr = [...group.rows].sort((a, b) => b.pdr - a.pdr);
-const topTier = byPdr.slice(0, Math.ceil(byPdr.length / 2));
+const byScore = [...group.rows].sort((a, b) => b.score - a.score);
+const topTier = byScore.slice(0, Math.ceil(byScore.length / 2));
 const zoneAnchor = topTier.reduce((best, row) => (row.cost < best.cost ? row : best), topTier[0]!);
 // 边界给锚点留固定余量，让它确实落在区域内部而不是压在拐角上。
 // 中点规则会被"成本只高一点点"的模型挤到紧贴锚点；跟着一起进区的模型
@@ -95,7 +99,7 @@ group.rows.slice(0, 3).forEach((row) => {
         <span class="model-count">{group.rows.length} {isZh ? '个模型' : 'models'}</span>
         <div class="ranking-view-tabs" role="tablist" aria-label={isZh ? `${group.label}排名数值` : `${group.label} ranking value`}>
           <button type="button" class="active" role="tab" aria-selected="true" data-ranking-view="score">{scoreLabel}</button>
-          <button type="button" role="tab" aria-selected="false" data-ranking-view="percentage">{percentageLabel}</button>
+          <button type="button" role="tab" aria-selected="false" data-ranking-view="percentage">{deliveryLabel}</button>
         </div>
       </div>
     </header>
@@ -132,22 +136,22 @@ group.rows.slice(0, 3).forEach((row) => {
       <div><h3>{costTitle}</h3><p>{costDescription}</p></div>
     </header>
     <div class="cost-stage">
-      <span class="cost-y-label">{percentageLabel} ({isZh ? '越高越好' : 'higher is better'})</span>
-      <span class="cost-x-label">{isZh ? '单次任务成本（越低越好）' : 'Cost per session (lower is better)'}</span>
-      <div class="cost-y-ticks" aria-hidden="true"><span>95%</span><span>85%</span><span>75%</span><span>65%</span></div>
-      <div class="cost-x-ticks" aria-hidden="true"><span>$0.35</span><span>$0.60</span><span>$1.00</span><span>$2.00</span><span>$3.00</span></div>
+      <span class="cost-y-label">{scoreAxisLabel} ({isZh ? '越高越好' : 'higher is better'})</span>
+      <span class="cost-x-label">{isZh ? '单份产物成本（越低越好，对数刻度）' : 'Cost per artifact (lower is better, log scale)'}</span>
+      <div class="cost-y-ticks" aria-hidden="true"><span>85</span><span>78</span><span>72</span><span>65</span></div>
+      <div class="cost-x-ticks" aria-hidden="true"><span>$0.02</span><span>$0.10</span><span>$0.50</span><span>$2</span><span>$10</span></div>
       <div class="cost-plot">
-        <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高通过率 / 低成本' : 'High PDR / low cost'}</span></div>
+        <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高总分 / 低成本' : 'High score / low cost'}</span></div>
         {group.rows.map((model, index) => (
           <span
             class:list={['cost-point', { 'is-leading': index < 4, 'is-labeled': index < 3, 'is-winner': index === 0 }]}
             data-label-dir={labelDirs.get(model.name)}
             style={`--x:${model.x}%;--y:${model.y}%;--point-color:${model.color}`}
-            aria-label={`${model.name}: ${model.pdr.toFixed(1)}%, $${model.cost.toFixed(2)}`}
+            aria-label={`${model.name}: ${isZh ? '总分' : 'score'} ${model.score.toFixed(1)}, $${formatCost(model.cost)}`}
             tabindex="0"
           >
             {index < 4 ? <span class="model-icon"><img src={model.icon} alt="" width="26" height="26" /></span> : null}
-            <span class="cost-point-label"><strong>{model.name}</strong><small>{model.pdr.toFixed(1)}% / ${model.cost.toFixed(2)}</small></span>
+            <span class="cost-point-label"><strong>{model.name}</strong><small>{model.score.toFixed(1)} / ${formatCost(model.cost)}</small></span>
           </span>
         ))}
       </div>
