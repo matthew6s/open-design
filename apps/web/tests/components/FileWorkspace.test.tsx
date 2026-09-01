@@ -288,9 +288,11 @@ beforeEach(() => {
   // runtime. Settle ordinary universal frames through their protocol and the
   // old-daemon compatibility adapter through its browser-load contract.
   previewRuntimeObserver = new MutationObserver(() => {
-    for (const frame of document.querySelectorAll<HTMLIFrameElement>(
-      'iframe[data-od-standby="true"]',
-    )) {
+    for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe')) {
+      if (frame.dataset.odStandby !== 'true') {
+        delete frame.dataset.odTestLoadDispatched;
+        continue;
+      }
       if (frame.dataset.odTestLoadDispatched === 'true') continue;
       frame.dataset.odTestLoadDispatched = 'true';
       if (
@@ -2753,7 +2755,7 @@ describe('FileWorkspace launcher tab creation', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('evicts the previous project preview pool when the workspace changes', async () => {
+  it('parks a previous project preview and reattaches the same runtime on return', async () => {
     const workspaceContext = teamContext('workspace-a', 'member-a');
     function Harness({ projectId, fileName }: { projectId: string; fileName: string }) {
       const file = workspaceFile(fileName);
@@ -2782,8 +2784,15 @@ describe('FileWorkspace launcher tab creation', () => {
     rerender(<Harness projectId="project-2" fileName="new.html" />);
 
     await waitFor(() => expect(document.querySelector('iframe[title="new.html"]')).not.toBeNull());
-    expect(document.body.contains(oldFrame)).toBe(false);
-    expect(document.querySelector('.iframe-keep-alive-pool iframe[title="old.html"]')).toBeNull();
+    expect(document.body.contains(oldFrame)).toBe(true);
+    expect(document.querySelector('.iframe-keep-alive-pool iframe[title="old.html"]')).toBe(oldFrame);
+
+    rerender(<Harness projectId="project-1" fileName="old.html" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('iframe[title="old.html"]')).toBe(oldFrame);
+      expect(oldFrame?.getAttribute('data-od-active')).toBe('true');
+    });
   });
 
   it('evicts the least-recently-used HTML viewer after the fourth warm tab', async () => {

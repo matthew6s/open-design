@@ -3296,9 +3296,7 @@ export function FileWorkspace({
   useEffect(() => {
     const next = new Set(mountedHtmlViewerNames);
     const previous = previousMountedHtmlViewersRef.current;
-    if (previous.projectId !== projectId) {
-      iframeKeepAlivePool.evictProject(previous.projectId);
-    } else {
+    if (previous.projectId === projectId) {
       for (const name of previous.names) {
         if (next.has(name)) continue;
         iframeKeepAlivePool.evictMatching(
@@ -3308,6 +3306,11 @@ export function FileWorkspace({
         );
       }
     }
+    // Project switches are suspension, not deletion. Keep the previous
+    // project's browsing contexts parked under the global bounded LRU so a
+    // roundtrip can reattach the exact DOM/JS state without another
+    // navigation. Explicit project invalidation, deletion, authorization
+    // changes, and the LRU budget remain the owners of cross-project eviction.
     previousMountedHtmlViewersRef.current = { projectId, names: next };
   }, [iframeKeepAlivePool, mountedHtmlViewerNames.join('\0'), projectId]);
   const retainedNonHtmlViewerFileRef = useRef<{ projectId: string; fileName: string } | null>(null);
