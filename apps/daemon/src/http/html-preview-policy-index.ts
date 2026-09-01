@@ -6,6 +6,8 @@ import {
 export interface HtmlPreviewPolicyRequest {
   filePath: string;
   documentVersion: string;
+  /** Stable logical source identity when filePath is a request-local snapshot. */
+  cacheKey?: string;
 }
 
 export interface HtmlPreviewPolicy {
@@ -65,9 +67,10 @@ export class HtmlPreviewPolicyIndex {
   }
 
   get(request: HtmlPreviewPolicyRequest): Promise<HtmlPreviewPolicy> {
-    const current = this.#entries.get(request.filePath);
+    const cacheKey = request.cacheKey ?? request.filePath;
+    const current = this.#entries.get(cacheKey);
     if (current?.documentVersion === request.documentVersion) {
-      this.#touch(request.filePath, current);
+      this.#touch(cacheKey, current);
       return current.promise;
     }
 
@@ -75,7 +78,7 @@ export class HtmlPreviewPolicyIndex {
     const promise = this.#scan(request.filePath)
       .then((scan) => policyFromScan(request.documentVersion, scan))
       .then((policy) => {
-        const active = this.#entries.get(request.filePath);
+        const active = this.#entries.get(cacheKey);
         if (active?.token === token) {
           active.settled = true;
           this.#prune();
@@ -83,8 +86,8 @@ export class HtmlPreviewPolicyIndex {
         return policy;
       })
       .catch((error: unknown) => {
-        if (this.#entries.get(request.filePath)?.token === token) {
-          this.#entries.delete(request.filePath);
+        if (this.#entries.get(cacheKey)?.token === token) {
+          this.#entries.delete(cacheKey);
         }
         throw error;
       });
@@ -94,7 +97,7 @@ export class HtmlPreviewPolicyIndex {
       settled: false,
       token,
     };
-    this.#entries.set(request.filePath, entry);
+    this.#entries.set(cacheKey, entry);
     this.#prune();
     return promise;
   }

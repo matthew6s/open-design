@@ -97,7 +97,13 @@ export interface ProjectPreviewScopeDeps {
   mint: (
     projectId: string,
     workspace?: { workspaceId: string; workspaceMemberId: string } | null,
-    options?: { readonly ttlMs?: number },
+    options?: {
+      readonly ttlMs?: number;
+      readonly document?: {
+        readonly relPath: string;
+        readonly documentVersion: string;
+      };
+    },
   ) => string;
   revoke: (scope: string) => void;
   expiresAt: (projectId: string, scope: string) => number | undefined;
@@ -116,6 +122,10 @@ export interface ProjectPreviewScopeDeps {
   ) => {
     projectId: string;
     workspace: { workspaceId: string; workspaceMemberId: string } | null;
+    document?: {
+      relPath: string;
+      documentVersion: string;
+    };
   } | undefined;
 }
 

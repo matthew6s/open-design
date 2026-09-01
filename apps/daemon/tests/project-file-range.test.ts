@@ -195,6 +195,10 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
       Buffer.from(`<!doctype html><html><body><main>Large Preview</main>${'x'.repeat((2 * 1024 * 1024) + 256)}</body></html>`),
     );
     await writeFile(
+      path.join(dir, 'large-version-race.html'),
+      Buffer.from(`<!doctype html><html><body><main>Version One</main>${'x'.repeat((2 * 1024 * 1024) + 256)}</body></html>`),
+    );
+    await writeFile(
       path.join(dir, 'large-powered.html'),
       Buffer.from(`<!doctype html><html><body>${'x'.repeat((2 * 1024 * 1024) + 256)}<script>new Worker("worker.js")</script></body></html>`),
     );
@@ -1697,6 +1701,57 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
     expect(secondVersion).not.toBe(firstVersion);
   });
 
+  it('rejects a scoped document request when its minted exact version changed before streaming', async () => {
+    const filePath = path.join(projectsRoot, projectId, 'large-version-race.html');
+    const minted = await fetch(
+      `${baseUrl}/api/projects/${projectId}/preview-url?file=large-version-race.html`,
+    );
+    expect(minted.status).toBe(200);
+    const firstPreview = await minted.json() as {
+      url: string;
+      scopedOrigin: { documentVersion: string };
+    };
+    const scope = firstPreview.url.match(/\/preview\/([^/]+)\//u)?.[1];
+    expect(scope).toBeTruthy();
+
+    await writeFile(
+      filePath,
+      Buffer.from(`<!doctype html><html><body><main>Version Two</main><script>new Worker("worker.js")</script>${'y'.repeat((2 * 1024 * 1024) + 256)}</body></html>`),
+    );
+    const port = new URL(baseUrl).port;
+    const stale = await scopedRequest(
+      '/large-version-race.html',
+      `n-${scope}.localhost:${port}`,
+    );
+    expect(stale.status).toBe(409);
+    expect(JSON.parse(stale.body).error.code).toBe('VERSION_CHANGED');
+
+    const reminted = await fetch(
+      `${baseUrl}/api/projects/${projectId}/preview-url?file=large-version-race.html`,
+    );
+    expect(reminted.status).toBe(200);
+    const secondPreview = await reminted.json() as {
+      url: string;
+      scopedOrigin: {
+        documentVersion: string;
+        previewPolicy: { sandboxProfile: 'normal' | 'powered' };
+      };
+    };
+    expect(secondPreview.scopedOrigin.documentVersion).not.toBe(
+      firstPreview.scopedOrigin.documentVersion,
+    );
+    expect(secondPreview.scopedOrigin.previewPolicy.sandboxProfile).toBe('powered');
+    const secondScope = secondPreview.url.match(/\/preview\/([^/]+)\//u)?.[1];
+    const current = await scopedRequest(
+      '/large-version-race.html',
+      `p-${secondScope}.localhost:${port}`,
+    );
+    expect(current.status).toBe(200);
+    expect(current.body).toContain('Version Two');
+    expect(current.body).not.toContain('Version One');
+    expect(current.body).toContain(JSON.stringify(secondPreview.scopedOrigin.documentVersion));
+  });
+
   it('binds a scoped preview origin to one project root and blocks daemon APIs', async () => {
     const minted = await fetch(
       `${baseUrl}/api/projects/${projectId}/preview-url?file=prototypes%2Fbooking%2Findex.html`,
@@ -1783,6 +1838,13 @@ describe('GET /api/projects/:id/raw/* range request route', () => {
     expect(large.body.indexOf('data-od-preview-runtime')).toBeLessThan(
       large.body.indexOf('<script src="./support.js">'),
     );
+
+    const viteEntry = await scopedRequest('/vite-entry.html', normalHost);
+    expect(viteEntry.status).toBe(200);
+    expect(viteEntry.body).not.toContain('/src/main.tsx');
+    expect(viteEntry.body).toContain('src="dist/assets/app.js"');
+    expect(viteEntry.body).toContain('href="dist/assets/app.css"');
+    expect(viteEntry.body).toContain('data-od-preview-runtime');
 
     const smallDeck = await scopedRequest('/deck.html', normalHost);
     expect(smallDeck.status).toBe(200);

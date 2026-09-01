@@ -55,6 +55,25 @@ describe('HtmlPreviewPolicyIndex', () => {
     expect(scan).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses exact-version policy across request-local snapshot paths', async () => {
+    const scan = vi.fn(async () => result({ needsFocusGuard: true }));
+    const index = new HtmlPreviewPolicyIndex({ scan });
+
+    await index.get({
+      filePath: '/tmp/request-a.html',
+      cacheKey: '/project/index.html',
+      documentVersion: 'v1',
+    });
+    await index.get({
+      filePath: '/tmp/request-b.html',
+      cacheKey: '/project/index.html',
+      documentVersion: 'v1',
+    });
+
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(scan).toHaveBeenCalledWith('/tmp/request-a.html');
+  });
+
   it('prewarms a version without making callers own the scan promise', async () => {
     const pending = deferred<HtmlHeadScanResult>();
     const scan = vi.fn(() => pending.promise);

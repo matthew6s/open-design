@@ -2387,6 +2387,7 @@ function createProjectPreviewScopeRegistry() {
       scopes.set(scope, {
         projectId: String(projectId),
         workspace,
+        document: options.document,
         expiresAt: Date.now() + (options.ttlMs ?? PROJECT_PREVIEW_SCOPE_TTL_MS),
       });
       return scope;
@@ -2449,6 +2450,7 @@ function createProjectPreviewScopeRegistry() {
       return {
         projectId: entry.projectId,
         workspace: entry.workspace ?? null,
+        ...(entry.document ? { document: entry.document } : {}),
       };
     },
   };

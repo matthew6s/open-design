@@ -101,6 +101,11 @@ import {
 } from '../../http/html-stream-injection.js';
 import { HtmlPreviewPolicyIndex } from '../../http/html-preview-policy-index.js';
 import {
+  PreviewDocumentSnapshotStore,
+  PreviewDocumentVersionChangedError,
+  type PreviewDocumentSnapshot,
+} from '../../http/preview-document-snapshot.js';
+import {
   buildProjectPreviewOrigin,
   parseProjectPreviewOriginAuthority,
 } from '../../http/project-preview-origin.js';
@@ -5670,6 +5675,7 @@ export function registerProjectArtifactRoutes(app: Express, ctx: RegisterProject
 export interface RegisterProjectFileRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'uploads' | 'node' | 'projectStore' | 'projectFiles' | 'documents' | 'artifacts' | 'projectPreviewScopes'> {
   getResolvedPort: () => number;
   htmlPreviewPolicyIndex?: HtmlPreviewPolicyIndex;
+  previewDocumentSnapshotStore?: PreviewDocumentSnapshotStore;
   verifyWorkspaceRequestAuthority?: VerifyWorkspaceRequestAuthority;
   authorizeProjectRequest?: AuthorizeProjectRequest;
   /** Startup-hydrated O(1) quarantine lookup for stale Team mirrors. */
@@ -5683,7 +5689,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   const { sendApiError, sendMulterError } = ctx.http;
   // The design-token suggestion route reads the design-system roots to resolve
   // a project's tokens, so this scope needs them alongside PROJECTS_DIR.
-  const { PROJECTS_DIR, DESIGN_SYSTEMS_DIR, USER_DESIGN_SYSTEMS_DIR } = ctx.paths;
+  const { PROJECTS_DIR, DESIGN_SYSTEMS_DIR, USER_DESIGN_SYSTEMS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
   const { upload } = ctx.uploads;
   const { fs } = ctx.node;
   const { getProject, getWorkspaceProject, getWorkspaceProjectByProjectId } = ctx.projectStore;
@@ -5716,6 +5722,10 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   const { validateArtifactManifestInput } = ctx.artifacts;
   const { projectPreviewScopes } = ctx;
   const htmlPreviewPolicyIndex = ctx.htmlPreviewPolicyIndex ?? new HtmlPreviewPolicyIndex();
+  const previewDocumentSnapshotStore = ctx.previewDocumentSnapshotStore
+    ?? new PreviewDocumentSnapshotStore({
+      rootDir: path.join(RUNTIME_DATA_DIR, 'preview-document-snapshots'),
+    });
   const prewarmHtmlPreviewPolicy = (
     projectId: string,
     fileName: string,
@@ -6049,6 +6059,59 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     return Number.isFinite(since) && Math.floor(mtimeMs / 1000) * 1000 <= since;
   }
 
+  type ProjectFileSendMeta = {
+    filePath: string;
+    mime: string;
+    size: number;
+    mtime: number;
+  };
+
+  async function capturePreviewDocumentSnapshot(
+    project: any,
+    relPath: string,
+    meta: ProjectFileSendMeta,
+  ): Promise<PreviewDocumentSnapshot | null> {
+    if (!/^text\/html(?:;|$)/iu.test(meta.mime)) return null;
+    if (meta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES) {
+      return previewDocumentSnapshotStore.captureFile(meta.filePath);
+    }
+    return previewDocumentSnapshotStore.captureBuffer(async () => {
+      const file = await readProjectFile(
+        PROJECTS_DIR,
+        project.id,
+        relPath,
+        project.metadata,
+      );
+      const transformed = await maybeResolveVitePreviewHtml({
+        file,
+        projectId: project.id,
+        relPath,
+        metadata: project.metadata,
+        projectsRoot: PROJECTS_DIR,
+        readProjectFile,
+      });
+      return Buffer.isBuffer(transformed) ? transformed : Buffer.from(String(transformed));
+    });
+  }
+
+  function previewSnapshotPolicyCacheKey(filePath: string): string {
+    // Keep request-local immutable scans separate from the legacy path-based
+    // prewarm, whose source may be replaced between hashing and scanning.
+    return `snapshot\0${filePath}`;
+  }
+
+  function sendPreviewDocumentReadError(res: Response, error: any): void {
+    if (error instanceof PreviewDocumentVersionChangedError || error?.code === 'VERSION_CHANGED') {
+      sendApiError(res, 409, 'VERSION_CHANGED', String(error));
+      return;
+    }
+    if (error?.code === 'ENOENT') {
+      sendApiError(res, 404, 'FILE_NOT_FOUND', String(error));
+      return;
+    }
+    sendApiError(res, 400, 'BAD_REQUEST', String(error));
+  }
+
   async function sendProjectFile(
     req: any,
     res: Response,
@@ -6068,13 +6131,14 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       content: Buffer;
       annotateManualEditSource?: boolean;
     } | null>,
+    sourceMeta?: ProjectFileSendMeta,
   ) {
-    const meta = await resolveProjectFilePath(
+    const meta = sourceMeta ?? (await resolveProjectFilePath(
       PROJECTS_DIR,
       projectId,
       relPath,
       metadata,
-    );
+    ));
     beforeSend?.(meta.mime);
 
     const injected = streamInjection ? await streamInjection(meta) : null;
@@ -6200,7 +6264,9 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       return;
     }
 
-    const file = await readProjectFile(PROJECTS_DIR, projectId, relPath, metadata);
+    const file = sourceMeta
+      ? { mime: meta.mime, buffer: await fs.promises.readFile(meta.filePath) }
+      : await readProjectFile(PROJECTS_DIR, projectId, relPath, metadata);
     const body = transformFile ? await transformFile(file) : file.buffer;
     if (revalidate && willSubstitute) {
       // Validator from the ACTUAL response bytes, so a change to the substituted
@@ -6662,6 +6728,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   });
 
   app.get('/api/projects/:id/preview-url', async (req, res) => {
+    let previewSnapshot: PreviewDocumentSnapshot | null = null;
     try {
       const project = getProject(db, req.params.id);
       if (!project) {
@@ -6676,6 +6743,18 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         requestedPath,
         project.metadata,
       );
+      previewSnapshot = await capturePreviewDocumentSnapshot(project, meta.name, meta);
+      const documentVersion = previewSnapshot?.documentVersion
+        ?? await htmlPreviewDocumentVersion(meta);
+      const previewPolicy = /^text\/html(?:;|$)/i.test(meta.mime)
+        ? await htmlPreviewPolicyIndex.get({
+            filePath: previewSnapshot?.filePath ?? meta.filePath,
+            cacheKey: previewSnapshot
+              ? previewSnapshotPolicyCacheKey(meta.filePath)
+              : meta.filePath,
+            documentVersion,
+          })
+        : null;
       const requestContext = workspaceProjectContextFromRequest(req);
       const scope = projectPreviewScopes.mint(
         project.id,
@@ -6685,6 +6764,12 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               workspaceId: requestContext.workspaceId,
               workspaceMemberId: requestContext.workspaceMemberId,
             },
+        {
+          document: {
+            relPath: meta.name,
+            documentVersion,
+          },
+        },
       );
       const expiresAt = projectPreviewScopes.expiresAt(project.id, scope);
       if (expiresAt === undefined) {
@@ -6695,13 +6780,6 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       const normalOrigin = buildProjectPreviewOrigin(scope, 'normal', daemonPort);
       const poweredOrigin = buildProjectPreviewOrigin(scope, 'powered', daemonPort);
       const encodedFilePath = encodeProjectPathForUrl(meta.name);
-      const documentVersion = await htmlPreviewDocumentVersion(meta);
-      const previewPolicy = /^text\/html(?:;|$)/i.test(meta.mime)
-        ? await htmlPreviewPolicyIndex.get({
-            filePath: meta.filePath,
-            documentVersion,
-          })
-        : null;
       /** @type {import('@open-design/contracts').ProjectPreviewUrlResponse} */
       const body = {
         url: `/api/projects/${encodeURIComponent(project.id)}/preview/${scope}/${encodedFilePath}`,
@@ -6732,13 +6810,9 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       res.setHeader('Cache-Control', 'no-store');
       res.json(body);
     } catch (err: any) {
-      const status = err && err.code === 'ENOENT' ? 404 : 400;
-      sendApiError(
-        res,
-        status,
-        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
-        String(err),
-      );
+      sendPreviewDocumentReadError(res, err);
+    } finally {
+      await previewSnapshot?.release().catch(() => undefined);
     }
   });
 
@@ -7204,6 +7278,8 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     );
     if (!authority) return next();
 
+    let previewSnapshot: PreviewDocumentSnapshot | null = null;
+    let snapshotReleaseAttached = false;
     try {
       const previewScope = projectPreviewScopes.resolveScope(authority.scope);
       if (!previewScope) {
@@ -7241,7 +7317,17 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         relPath,
         project.metadata,
       );
-      const documentVersion = await htmlPreviewDocumentVersion(previewMeta);
+      previewSnapshot = await capturePreviewDocumentSnapshot(project, previewMeta.name, previewMeta);
+      const documentVersion = previewSnapshot?.documentVersion
+        ?? await htmlPreviewDocumentVersion(previewMeta);
+      const expectedDocument = previewScope.document?.relPath === previewMeta.name
+        ? previewScope.document
+        : null;
+      if (expectedDocument && expectedDocument.documentVersion !== documentVersion) {
+        throw new PreviewDocumentVersionChangedError(
+          'preview document no longer matches the version bound to this scope',
+        );
+      }
       const scopedBridgeRequest = [
         ...previewBridgeTokens(req.query.odPreviewBridge).filter((token) =>
           token === 'sandbox' || token === 'focus' || token === 'redirect'),
@@ -7275,8 +7361,27 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           deckRuntime,
         ],
       });
-      const streamRuntimeBootstrap = /^text\/html(?:;|$)/iu.test(previewMeta.mime)
-        && previewMeta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES;
+      const responseMeta: ProjectFileSendMeta = previewSnapshot
+        ? {
+            filePath: previewSnapshot.filePath,
+            mime: previewMeta.mime,
+            size: previewSnapshot.size,
+            // Validation is content-based; retain the authored timestamp only
+            // so an unchanged exact version keeps stable HTTP validators.
+            mtime: previewMeta.mtime,
+          }
+        : previewMeta;
+      const streamRuntimeBootstrap = /^text\/html(?:;|$)/iu.test(responseMeta.mime)
+        && responseMeta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES;
+      if (previewSnapshot) {
+        const snapshot = previewSnapshot;
+        const release = () => {
+          void snapshot.release().catch(() => undefined);
+        };
+        res.once('finish', release);
+        res.once('close', release);
+        snapshotReleaseAttached = true;
+      }
 
       await sendProjectFile(
         req,
@@ -7291,14 +7396,16 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               res.setHeader('X-Content-Type-Options', 'nosniff');
             },
         async (file) => {
-          const transformed = await maybeResolveVitePreviewHtml({
-            file,
-            projectId: project.id,
-            relPath,
-            metadata: project.metadata,
-            projectsRoot: PROJECTS_DIR,
-            readProjectFile,
-          });
+          const transformed = previewSnapshot
+            ? file.buffer
+            : await maybeResolveVitePreviewHtml({
+                file,
+                projectId: project.id,
+                relPath,
+                metadata: project.metadata,
+                projectsRoot: PROJECTS_DIR,
+                readProjectFile,
+              });
           const artifactHtml = Buffer.isBuffer(transformed)
             ? transformed.toString('utf8')
             : String(transformed);
@@ -7320,9 +7427,10 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         },
         true,
         streamRuntimeBootstrap
-          ? async () => {
+          ? async (streamMeta) => {
               const { scan } = await htmlPreviewPolicyIndex.get({
-                filePath: previewMeta.filePath,
+                filePath: streamMeta.filePath,
+                cacheKey: previewSnapshotPolicyCacheKey(previewMeta.filePath),
                 documentVersion,
               });
               const runtimeBootstrap = buildScopedRuntimeBootstrap(
@@ -7349,15 +7457,14 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               };
             }
           : undefined,
+        responseMeta,
       );
     } catch (err: any) {
-      const status = err && err.code === 'ENOENT' ? 404 : 400;
-      sendApiError(
-        res,
-        status,
-        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
-        String(err),
-      );
+      sendPreviewDocumentReadError(res, err);
+    } finally {
+      if (!snapshotReleaseAttached) {
+        await previewSnapshot?.release().catch(() => undefined);
+      }
     }
   });
 
