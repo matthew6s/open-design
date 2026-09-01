@@ -16627,6 +16627,10 @@ function HtmlViewer({
   const previewRuntimeVersionChangeBlocked =
     previewRuntimeScopeRemintRequiredGeneration !== null
     && previewRuntimeScopeRemintRequiredGeneration === previewRuntimeNavigationGeneration;
+  const previewRuntimeNavigationBlocked = previewRuntimeVersionChangeBlocked || (
+    previewRuntimeTimedOutGeneration !== null
+    && previewRuntimeTimedOutGeneration === previewRuntimeNavigationGeneration
+  );
   const retryPreviewRuntimeNavigation = () => {
     setPreviewRuntimeTimedOutGeneration(null);
     if (previewRuntimeVersionChangeBlocked) {
@@ -17706,7 +17710,7 @@ function HtmlViewer({
                             srcDoc={redirectLoopBlockedDoc}
                           />
                         ) : previewRuntimeNavigation.navigation ? (
-                          previewRuntimeVersionChangeBlocked ? (
+                          previewRuntimeNavigationBlocked ? (
                             <div
                               className="artifact-preview-first-load preview-runtime-navigation-error"
                               role="alert"
@@ -17750,10 +17754,9 @@ function HtmlViewer({
                               onStandbyFrameChange={(frame) => {
                                 previewRuntimeStandbyIframeRef.current = frame;
                               }}
-                              onStandbyTimedOut={(failed, current) => {
+                              onStandbyTimedOut={(failed, _current) => {
                                 if (
-                                  current
-                                  || previewRuntimeNavigationGeneration === null
+                                  previewRuntimeNavigationGeneration === null
                                   || failed.sessionId
                                     !== previewRuntimeNavigation.navigation?.sessionId
                                   || failed.documentVersion
@@ -17804,33 +17807,15 @@ function HtmlViewer({
                             {workspaceActive
                               && mode === 'preview'
                               && previewRuntimeCurrentFrame === null ? (
-                                previewRuntimeTimedOutGeneration
-                                  === previewRuntimeNavigationGeneration ? (
-                                    <div
-                                      className="artifact-preview-first-load preview-runtime-navigation-error"
-                                      role="alert"
-                                      data-testid="preview-runtime-navigation-error"
-                                    >
-                                      <p>{t('fileViewer.previewUnavailable')}</p>
-                                      <Button
-                                        variant="ghost"
-                                        data-testid="preview-runtime-navigation-retry"
-                                        onClick={retryPreviewRuntimeNavigation}
-                                      >
-                                        {`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div
-                                      className="artifact-preview-first-load"
-                                      role="status"
-                                      aria-busy="true"
-                                      aria-label={t('fileViewer.loading')}
-                                      data-testid="artifact-preview-first-load"
-                                    >
-                                      <CenteredLoader label={t('fileViewer.loading')} />
-                                    </div>
-                                  )
+                                <div
+                                  className="artifact-preview-first-load"
+                                  role="status"
+                                  aria-busy="true"
+                                  aria-label={t('fileViewer.loading')}
+                                  data-testid="artifact-preview-first-load"
+                                >
+                                  <CenteredLoader label={t('fileViewer.loading')} />
+                                </div>
                               ) : null}
                             </>
                           )
