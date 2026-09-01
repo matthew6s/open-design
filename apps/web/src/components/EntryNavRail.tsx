@@ -58,7 +58,7 @@ import { RemixIcon } from './RemixIcon';
 import { InviteDialog } from './InviteDialog';
 import { MessageCenter } from './MessageCenter';
 import type { EntrySettingsSection } from './EntrySettingsMenu';
-import { useI18n } from '../i18n';
+import { isRtlLocale, useI18n } from '../i18n';
 import { useDismissOnOutsideInteraction } from '../hooks/useDismissOnOutsideInteraction';
 import { ENTRY_RAIL_TOGGLE_EVENT } from './entryRailBridge';
 import {
@@ -97,6 +97,7 @@ import {
   workspaceAnalyticsDimensions,
 } from '../analytics/workspace';
 import { WorkbenchCampaignBadge } from './WorkbenchCampaignBadge';
+import { workspaceChromeAccountActionsHost } from './workspaceChromeActions';
 
 const REPO_URL = 'https://github.com/nexu-io/open-design';
 const GITHUB_HELP_URL = `${REPO_URL}/issues/new`;
@@ -210,7 +211,7 @@ interface Props {
   newProjectDisabled?: boolean;
   /** When false the rail is collapsed (hidden off-canvas) on the entry view. */
   open: boolean;
-  /** Extra content for the floating top-right cluster, rendered LEFT of the
+  /** Extra content for the top-right chrome cluster, rendered LEFT of the
    *  account module (e.g. the DeepSeek campaign badge). */
   topRightSlot?: ReactNode;
   /** The one shared workspace context; null → local (no cloud identity) state. */
@@ -233,7 +234,7 @@ interface Props {
    * The update-ready host (`UpdaterPopup`), which renders nothing until the
    * updater reports a downloaded, unopened installer.
    *
-   * It is an independent control in the floating top-right cluster
+   * It is an independent control in the top-right chrome cluster
    * (`.entry-nav-rail__account-updater`), immediately after the account capsule
    * when one is present.
    */
@@ -546,7 +547,7 @@ interface EntryTopRightClusterProps {
 }
 
 /**
- * Top-right floating cluster (portaled to document.body): an optional leading
+ * Top-right chrome cluster: an optional leading
  * slot, the standalone credits pill, and the avatar account module with its
  * hover menu — one flex row riding the workbench top-right corner.
  *
@@ -575,6 +576,21 @@ export function EntryTopRightCluster({
   const { t } = useI18n();
   const analytics = useAnalytics();
   const workspaceDimensions = workspaceAnalyticsDimensions(context);
+  const [chromeActionsHost, setChromeActionsHost] = useState<HTMLElement | null>(
+    workspaceChromeAccountActionsHost,
+  );
+
+  // On the initial App render the tabs chrome and this cluster are committed
+  // in the same pass, so the host does not exist while this component renders.
+  // A layout effect finds it after the DOM commit and moves the controls before
+  // paint. Electron can then build its first draggable-region hit map with the
+  // no-drag controls as real descendants of the drag header.
+  useLayoutEffect(() => {
+    // Isolated component harnesses do not mount the application chrome. Keep
+    // those public component tests usable without re-creating the whole App;
+    // the real shell always supplies the dedicated host above.
+    setChromeActionsHost(workspaceChromeAccountActionsHost() ?? document.body);
+  }, []);
 
   const isTeam = Boolean(context) && context!.workspaceType === 'team';
   const permissions = context?.permissions;
@@ -642,7 +658,7 @@ export function EntryTopRightCluster({
     const observer = new MutationObserver(syncVisibility);
     observer.observe(host, { childList: true });
     return () => observer.disconnect();
-  }, [updaterSlot]);
+  }, [chromeActionsHost, updaterSlot]);
   const accountOpen = accountMenuMode !== 'closed';
   const closeAccountMenu = () => setAccountMenuMode('closed');
   useEffect(() => {
@@ -784,7 +800,7 @@ export function EntryTopRightCluster({
     });
   }
 
-  if (typeof document === 'undefined') return null;
+  if (typeof document === 'undefined' || !chromeActionsHost) return null;
   if (!leadingSlot && !context && !updaterSlot) return null;
 
   const clusterVisible = Boolean(leadingSlot || context || updaterControlVisible);
@@ -1058,7 +1074,7 @@ export function EntryTopRightCluster({
             {updaterSlot}
           </div>
         </div>,
-        document.body,
+        chromeActionsHost,
       )}
       {/* Panel + unread polling live here (outside the hover menu, which
           unmounts when closed); the 消息中心 menu row above just opens it.
@@ -1169,8 +1185,9 @@ export function WorkspaceTopRightAccountCluster({
  * Community/contact links pinned to the bottom of the nav rail.
  *
  * The row's first slot is the Discord invite for every locale (the Chinese
- * Feishu group entry was retired so there is one community to point at). X
- * and mail are locale-independent. Analytics keeps reporting these
+ * Feishu group entry was retired so there is one community to point at).
+ * All three labels are translated and surface through the shared
+ * `.od-tooltip` layer. Analytics keeps reporting these
  * under `area: 'account_menu'` so the existing funnel stays comparable across
  * the move out of that menu.
  */
@@ -1181,9 +1198,20 @@ function RailSocialRow({
   page: TrackingWorkspacePage;
   dimensions: ReturnType<typeof workspaceAnalyticsDimensions>;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const analytics = useAnalytics();
+  // The rail sits on the leading edge, so tooltips open away from it —
+  // right in LTR, left once RTL moves the whole rail to the right edge.
+  // Without the flip the bubble would be clamped against the viewport
+  // and land back on top of the icons it describes.
+  const tooltipPlacement = isRtlLocale(locale) ? 'left' : 'right';
+  // One string per link doubles as the accessible name and the hover
+  // tooltip: the bubble is the only place the icons say what they do, so
+  // the copy leads with the payoff (Discord hands out credits) rather
+  // than naming the destination.
   const communityLabel = t('entry.discordAria');
+  const xLabel = t('entry.xAria');
+  const mailLabel = t('entry.mailAria');
 
   function track(element: AccountMenuClickProps['element']) {
     trackAccountMenuClick(analytics.track, {
@@ -1197,31 +1225,34 @@ function RailSocialRow({
   return (
     <div className="entry-nav-rail__social" data-testid="entry-nav-rail-social">
       <a
-        className="entry-nav-rail__social-btn"
+        className="entry-nav-rail__social-btn od-tooltip"
         href={DISCORD_URL}
         {...externalLinkProps}
         aria-label={communityLabel}
-        title={communityLabel}
+        data-tooltip={communityLabel}
+        data-tooltip-placement={tooltipPlacement}
         data-testid="entry-nav-rail-discord"
         onClick={() => track('discord')}
       >
         <Icon name="discord" size={15} />
       </a>
       <a
-        className="entry-nav-rail__social-btn"
+        className="entry-nav-rail__social-btn od-tooltip"
         href={X_URL}
         {...externalLinkProps}
-        aria-label="@OpenDesignHQ"
-        title="@OpenDesignHQ"
+        aria-label={xLabel}
+        data-tooltip={xLabel}
+        data-tooltip-placement={tooltipPlacement}
         onClick={() => track('twitter')}
       >
         <span className="entry-nav-rail__menu-x" aria-hidden>X</span>
       </a>
       <a
-        className="entry-nav-rail__social-btn"
+        className="entry-nav-rail__social-btn od-tooltip"
         href={CONTACT_EMAIL_URL}
-        aria-label={t('entry.mailAria')}
-        title={t('entry.mailAria')}
+        aria-label={mailLabel}
+        data-tooltip={mailLabel}
+        data-tooltip-placement={tooltipPlacement}
         onClick={() => track('email')}
       >
         <Icon name="mail" size={15} />
@@ -1910,9 +1941,9 @@ export function EntryNavRail({
             : undefined
         }
       />
-      {/* Top-right floating cluster: campaign badge (slot) + credits pill +
-          the account module, portaled to document.body so all ride the
-          workbench top-right corner in one flex row. Extracted so the project
+      {/* Top-right chrome cluster: campaign badge (slot) + credits pill +
+          the account module, mounted into the tabs chrome's no-drag actions
+          host so Electron includes it in the first native hit map. Extracted so the project
           route can mount the same cluster without the rail (see
           `EntryTopRightCluster`). */}
       <EntryTopRightCluster
