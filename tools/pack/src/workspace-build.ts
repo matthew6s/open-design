@@ -276,6 +276,7 @@ async function stripBrokenSymlinks(rootPath: string): Promise<void> {
 }
 
 const WEB_STANDALONE_ARTIFACT = "apps/web/.next/standalone";
+const WEB_STATIC_ARTIFACT = "apps/web/.next/static";
 const WEB_STANDALONE_APP_NODE_MODULES = "apps/web/node_modules";
 // Peer deps the web-standalone after-pack audit looks up through
 // `createRequire(server.js).resolve(<pkg>/package.json)`. Next 16
@@ -381,7 +382,9 @@ export async function ensureWorkspaceBuildArtifacts(
       });
   const materialize = artifacts.map((artifact) => ({
     from: artifact.cachePath,
-    reuse: true,
+    // Sourcemap processing removes maps from the workspace copy. Restore the
+    // pristine cached static tree before every materialization-time pass.
+    reuse: artifact.workspacePath !== WEB_STATIC_ARTIFACT,
     reuseRequiredPaths: artifact.requiredPathGroups,
     to: join(config.workspaceRoot, artifact.workspacePath),
   }));
