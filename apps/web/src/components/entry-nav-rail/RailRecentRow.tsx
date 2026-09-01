@@ -16,10 +16,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { WorkspaceCollabContext } from '@open-design/contracts';
+import type { ProjectDisplayStatus, WorkspaceCollabContext } from '@open-design/contracts';
 
 import { useT } from '../../i18n';
 import { RemixIcon } from '../RemixIcon';
+import { hasRunStatusGlyph, ProjectRunStatusIcon } from '../ProjectRunStatusIcon';
+import { STATUS_LABEL_KEYS } from '../../state/projectRunStatus';
 import { exportProjectAsZip } from '../../runtime/exports';
 import { fetchProjectFiles } from '../../providers/registry';
 import { workspaceIdentityCacheKey } from '../../collab/workspace-identity';
@@ -129,15 +131,44 @@ function DeleteMark() {
   );
 }
 
+/**
+ * The mark every recent row leads with (supplied artwork): a chat bubble with a
+ * spark, i.e. "a conversation with the agent lives in here" — which is what a
+ * project is from the rail's point of view.
+ *
+ * Inlined for the same reason as the marks above: the shared icon set has no
+ * glyph for it, and this is the only place it appears. `currentColor` is what
+ * lets it take the row's ink, including the darker hover one.
+ */
+function ChatMark() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={16}
+      height={16}
+      fill="currentColor"
+      aria-hidden
+      focusable="false"
+    >
+      <path d="M7.0009 4.00001C3.6869 4.00001 1 6.69522 1 9.99416V22.0001H14.999C18.3131 22.0001 21 19.3049 21 16.0059V12.0001H19V16.0059C19 18.2043 17.2045 20.0001 14.999 20.0001H3V9.99416C3 7.79582 4.7954 6.00001 7.0009 6.00001H13V4.00001H7.0009ZM13 14.0001H15V12.0001H13V14.0001ZM7 14.0001H9V12.0001H7V14.0001ZM19.4707 2.31934C19.2942 1.89355 18.7058 1.89355 18.5293 2.31934L18.2764 2.93067C17.8445 3.97346 17.0385 4.80618 16.0254 5.25685L15.3076 5.57618C14.8973 5.759 14.8974 6.35621 15.3076 6.53908L16.0674 6.87697C17.055 7.31625 17.8466 8.11947 18.2861 9.12795L18.5332 9.69338C18.7136 10.1075 19.2863 10.1075 19.4668 9.69338L19.7139 9.12795C20.1534 8.11948 20.9449 7.31625 21.9326 6.87697L22.6924 6.53908C23.1025 6.35621 23.1026 5.759 22.6924 5.57618L21.9746 5.25685C20.9615 4.80619 20.1555 3.97349 19.7236 2.93067L19.4707 2.31934Z" />
+    </svg>
+  );
+}
+
 export function RailRecentRow({
   project,
   workspaceContext,
+  runStatus,
   onOpen,
   onRename,
   onDelete,
 }: {
   project: Project;
   workspaceContext?: WorkspaceCollabContext | null;
+  /** This project's live run status, when it has one (per product: 如果有项目在
+   *  进行，这个 icon 换成状态). Drives the leading glyph and nothing else. */
+  runStatus?: ProjectDisplayStatus;
   onOpen?: (id: string) => void | Promise<unknown>;
   onRename?: (id: string, name: string) => void;
   onDelete?: (id: string) => Promise<boolean | void> | boolean | void;
@@ -320,7 +351,25 @@ export function RailRecentRow({
              which can also wrap it instead of ellipsizing. */
           data-testid="entry-nav-recent-item"
         >
-          {project.name}
+          {/* The row's leading glyph, in the SAME column the destinations put
+              their icons in, so the rail stays one left edge. A project with a
+              run to report shows that run's status instead of the chat mark
+              (per product: 和项目切换器里的状态对齐) — the very same component
+              the workspace tab dropdown leads its rows with
+              (`leadGlyphFor` in WorkspaceTabsBar), so the two can never tell
+              different stories about the same project. */}
+          <span className="entry-nav-rail__recent-icon">
+            {runStatus && hasRunStatusGlyph(runStatus) ? (
+              <ProjectRunStatusIcon
+                status={runStatus}
+                size={14}
+                label={t(STATUS_LABEL_KEYS[runStatus])}
+              />
+            ) : (
+              <ChatMark />
+            )}
+          </span>
+          <span className="entry-nav-rail__recent-name">{project.name}</span>
         </button>
       )}
       {onRename || onDelete ? (

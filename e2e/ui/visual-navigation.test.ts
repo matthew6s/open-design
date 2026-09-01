@@ -168,9 +168,9 @@ test('[P2] captures the integrations MCP surface', async ({ page }) => {
 
 async function openSettingsSection(page: import('@playwright/test').Page, testId: string) {
   // #5971 deleted the rail-footer settings chip (`entry-settings-button`).
-  // `openSettingsDialog` owns every remaining entry point — the rail's
-  // `entry-nav-settings` item when signed out, the account menu when signed in
-  // — including the rail-open handling this used to do by hand.
+  // `openSettingsDialog` owns every remaining entry point — chiefly the rail's
+  // own item under 插件, which now renders in both identity states — including
+  // the rail-open handling this used to do by hand.
   const dialog = await openSettingsDialog(page);
   await dialog.getByTestId(testId).click();
   return dialog;

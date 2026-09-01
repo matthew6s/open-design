@@ -385,6 +385,20 @@ export function CommunityView({
             </div>
             <footer className="community-template-card__foot">
               <span className="community-template-card__title">{template.title}</span>
+              {/* The byline the caption sits on: who published the template,
+                  then what it is. Both come out of the catalogue record
+                  (`buildCommunityTemplates`) — the view/remix counts this row
+                  used to carry alongside them were placeholder numbers with no
+                  source behind them, so they stay out until one exists. The
+                  initial disc is drawn from the name itself, not a stored
+                  avatar. */}
+              <span className="community-template-card__byline">
+                <span className="community-template-card__avatar" aria-hidden>
+                  {template.author.trim().charAt(0).toUpperCase()}
+                </span>
+                <span className="community-template-card__author">{template.author}</span>
+                <span className="community-template-card__meta">{template.meta}</span>
+              </span>
             </footer>
           </article>
         ))}

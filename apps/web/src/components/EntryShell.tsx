@@ -2313,14 +2313,6 @@ function OnboardingView({
   const [amrLoginCancelPending, setAmrLoginCancelPending] = useState(false);
   const passiveReauthCompletedRef = useRef(false);
   const [amrLoginError, setAmrLoginError] = useState<string | null>(null);
-  // Local dismissal for the cloud landing's activation-retry card only (its
-  // own × close, distinct from "取消登录" which cancels the whole vela login).
-  // Reset whenever a login attempt isn't in flight, so a canceled-then-retried
-  // attempt shows the hint again instead of staying hidden from a prior dismiss.
-  const [activationHintClosed, setActivationHintClosed] = useState(false);
-  useEffect(() => {
-    if (!amrLoginPending) setActivationHintClosed(false);
-  }, [amrLoginPending]);
   const [visibleAgentIds, setVisibleAgentIds] = useState<string[]>([]);
   const [dshSetup, setDshSetup] = useState<{ busy: boolean; error: string | null } | null>(null);
   const [providerTestState, setProviderTestState] = useState<
@@ -3468,88 +3460,94 @@ function OnboardingView({
           <div className="onboarding-cloud__center">
             <h1 className="onboarding-cloud__title">{t('settings.onboardingCloudTitle')}</h1>
             <p className="onboarding-cloud__body">{t('settings.onboardingCloudBody')}</p>
-            <button
-              type="button"
-              className="onboarding-cloud__primary"
-              onClick={() => {
-                if (amrStatusResolving) return;
-                if (amrSignedIn) {
-                  recordAmrEntry(analytics.track, 'onboarding_amr_card', new Date(), {
-                    metricsConsent: config.telemetry?.metrics === true,
-                  });
-                  recordAmrEntry(
-                    analytics.track,
-                    'onboarding_amr_sign_in_continue',
-                    new Date(),
-                    {
+            {/* While a login is in flight the primary slot stops being a button
+                and becomes the STATUS ROW (per product: 登录中的按钮兼容下边的两
+                个按钮): the same capsule, now holding "登录中…" on the left and
+                the two controls that used to live under it on the right — the
+                activation link first, then the cancel. It cannot stay a
+                `<button>`: a button may not contain a link or another button.
+                The retry card and the separate 取消登录 row below it are gone
+                (per product); everything that mattered on them is in here. */}
+            {cloudBusy ? (
+              <div
+                className="onboarding-cloud__primary onboarding-cloud__primary--busy"
+                role="status"
+                aria-live="polite"
+              >
+                <span className="onboarding-cloud__busy-label">
+                  <Icon name="log-in" size={17} />
+                  {/* The card's own "we couldn't open your browser" copy takes
+                      this slot when that is what happened — the sentence is the
+                      reason the 打开登录页 button beside it exists, so losing the
+                      card must not lose it. */}
+                  <span>
+                    {amrStatus?.browserOpenFailed
+                      ? t('settings.amrActivationBrowserFailed')
+                      : t('settings.amrSigningIn')}
+                  </span>
+                </span>
+                <span className="onboarding-cloud__busy-actions">
+                  {amrStatus?.activationUrl ? (
+                    <a
+                      className="onboarding-cloud__busy-open"
+                      href={amrStatus.activationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t('settings.amrActivationOpen')}
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="onboarding-cloud__busy-cancel"
+                    onClick={handleCancelAmrLogin}
+                    disabled={amrLoginCancelPending}
+                  >
+                    {t('settings.amrCancelSignIn')}
+                  </button>
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="onboarding-cloud__primary"
+                onClick={() => {
+                  if (amrStatusResolving) return;
+                  if (amrSignedIn) {
+                    recordAmrEntry(analytics.track, 'onboarding_amr_card', new Date(), {
                       metricsConsent: config.telemetry?.metrics === true,
-                      reuseExistingFrom: ['onboarding_amr_card'],
-                    },
-                  );
-                  continueAfterCloudSignIn();
-                  return;
-                }
-                void handleCloudSignIn();
-              }}
-              disabled={cloudBusy || amrLoginCancelPending || amrStatusResolving}
-              aria-busy={cloudBusy || amrStatusResolving ? true : undefined}
-            >
-              <Icon name="log-in" size={17} />
-              <span>
-                {cloudBusy
-                  ? t('settings.amrSigningIn')
-                  : amrStatusResolving
+                    });
+                    recordAmrEntry(
+                      analytics.track,
+                      'onboarding_amr_sign_in_continue',
+                      new Date(),
+                      {
+                        metricsConsent: config.telemetry?.metrics === true,
+                        reuseExistingFrom: ['onboarding_amr_card'],
+                      },
+                    );
+                    continueAfterCloudSignIn();
+                    return;
+                  }
+                  void handleCloudSignIn();
+                }}
+                disabled={amrLoginCancelPending || amrStatusResolving}
+                aria-busy={amrStatusResolving ? true : undefined}
+              >
+                <Icon name="log-in" size={17} />
+                <span>
+                  {amrStatusResolving
                     ? t('common.loading')
                     : amrSignedIn
                       ? t('settings.onboardingCloudContinue')
                       : t('settings.onboardingCloudSignIn')}
-              </span>
-            </button>
+                </span>
+              </button>
+            )}
             {amrLoginError ? (
               <span className="onboarding-cloud__error" role="alert">
                 {amrLoginError}
               </span>
-            ) : null}
-            {/* Manual device-auth fallback, mirroring Settings' AmrLoginPill:
-                vela auto-opens the browser, but when that fails silently (e.g.
-                corp-managed hosts) the pending login otherwise looks like a
-                dead button — surface the activation link the status poll
-                already carries. */}
-            {cloudBusy && amrStatus?.activationUrl && !activationHintClosed ? (
-              <div className="amr-login-activation onboarding-cloud__activation" role="group">
-                <span className="amr-login-activation__hint">
-                  {amrStatus.browserOpenFailed
-                    ? t('settings.amrActivationBrowserFailed')
-                    : t('settings.amrActivationHint')}
-                </span>
-                <div className="amr-login-activation__actions">
-                  <a
-                    className="amr-login-activation__open"
-                    href={amrStatus.activationUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t('settings.amrActivationOpen')}
-                  </a>
-                  <button
-                    type="button"
-                    className="onboarding-cloud__activation-dismiss"
-                    onClick={() => setActivationHintClosed(true)}
-                  >
-                    {t('common.cancel')}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {cloudBusy ? (
-              <button
-                type="button"
-                className="onboarding-cloud__cancel"
-                onClick={handleCancelAmrLogin}
-                disabled={amrLoginCancelPending}
-              >
-                {t('settings.amrCancelSignIn')}
-              </button>
             ) : null}
           </div>
           <footer className="onboarding-cloud__footer">
@@ -3699,7 +3697,11 @@ function OnboardingView({
     <section className="onboarding-view" aria-label={t('settings.welcomeTitle')}>
       <div className="onboarding-view__body">
         <div className="onboarding-view__content">
-          <div className="onboarding-view__panel">
+          {/* Back and Continue share one row above the panel (per product:
+              继续在右边和上一步一排) — the step's two navigation controls, one
+              per edge, instead of Continue sitting alone under a panel whose
+              height changes with the runtime. */}
+          <div className="onboarding-view__topbar">
             <button
               type="button"
               className="onboarding-view__back-to-cloud"
@@ -3708,6 +3710,26 @@ function OnboardingView({
               <Icon name="chevron-left" size={14} />
               <span>{t('settings.onboardingBack')}</span>
             </button>
+            <div className="onboarding-view__actions">
+              {amrLoginError ? (
+                <span className="onboarding-view__action-status is-error" role="alert">
+                  {amrLoginError}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className={`onboarding-view__primary${connectGateTooltip ? ' od-tooltip' : ''}`}
+                onClick={handlePrimaryAction}
+                disabled={amrLoginPending || amrLoginCancelPending}
+                aria-disabled={connectStepBlocked || undefined}
+                data-tooltip={connectGateTooltip ?? undefined}
+                data-tooltip-placement="top"
+              >
+                <span>{primaryActionLabel}</span>
+              </button>
+            </div>
+          </div>
+          <div className="onboarding-view__panel">
             <OnboardingPanelHeader
               title={
                 runtime === 'byok'
@@ -3799,24 +3821,6 @@ function OnboardingView({
               ) : null}
             </div>
           </div>
-          <div className="onboarding-view__actions">
-            {amrLoginError ? (
-              <span className="onboarding-view__action-status is-error" role="alert">
-                {amrLoginError}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              className={`onboarding-view__primary${connectGateTooltip ? ' od-tooltip' : ''}`}
-              onClick={handlePrimaryAction}
-              disabled={amrLoginPending || amrLoginCancelPending}
-              aria-disabled={connectStepBlocked || undefined}
-              data-tooltip={connectGateTooltip ?? undefined}
-              data-tooltip-placement="top"
-            >
-              <span>{primaryActionLabel}</span>
-            </button>
-          </div>
         </div>
       </div>
       {dshSetup ? (
@@ -3831,6 +3835,13 @@ function OnboardingView({
       ) : null}
     </section>
   );
+}
+
+/** The bring-your-own-key runtime among the scanned CLIs. It is not a CLI the
+ *  user installed — it is the key-driven runtime OpenCode fronts — so the grid
+ *  gives it its own closing row rather than a slot in the CLI rows. */
+function isByokCliAgent(agent: Pick<AgentInfo, 'id'>): boolean {
+  return agent.id === 'byok-opencode';
 }
 
 function OnboardingCliSetupPanel({
@@ -3866,6 +3877,15 @@ function OnboardingCliSetupPanel({
   const scanning = scanStatus === 'scanning';
   const running = testState.status === 'running';
   const showEmpty = scanStatus === 'done' && agents.length === 0;
+  /* BYOK sits alone on the closing row (per product: 最后一个是 byok 单一排),
+     so it has to actually BE last — the scan returns whatever order the
+     registry walked, not a display order. `sort` is stable, so every other
+     agent keeps the order it arrived in. The full-row span itself is CSS
+     (`.onboarding-view__agent-chip.is-byok`). */
+  const orderedAgents = useMemo(
+    () => [...agents].sort((a, b) => Number(isByokCliAgent(a)) - Number(isByokCliAgent(b))),
+    [agents],
+  );
   return (
     <div className="onboarding-view__setup-panel">
       <div className="onboarding-view__setup-head">
@@ -3906,13 +3926,13 @@ function OnboardingCliSetupPanel({
       ) : null}
       {agents.length > 0 ? (
         <div className="onboarding-view__agent-strip">
-          {agents.map((agent, index) => (
+          {orderedAgents.map((agent, index) => (
             <button
               key={agent.id}
               type="button"
               className={`onboarding-view__agent-chip${
                 selectedAgentId === agent.id ? ' is-selected' : ''
-              }`}
+              }${isByokCliAgent(agent) ? ' is-byok' : ''}`}
               style={{ animationDelay: `${index * 45}ms` }}
               onClick={() => onSelectAgent(agent.id)}
               aria-pressed={selectedAgentId === agent.id}

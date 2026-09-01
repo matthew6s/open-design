@@ -48,13 +48,20 @@ interface Props {
  * fills, so it cannot go through `Icon` — that component emits a single
  * `currentColor` path. Standalone two-colour marks are the repo's convention
  * here (see PlanWordmark, EditorIcon).
+ *
+ * The viewBox is the disc's own bounds (a circle of r=10 centred at 12,12),
+ * NOT the artwork's 24-unit frame: at `size` 14 that frame left the disc
+ * drawing 11.7px while the running orb — which fills its box edge to edge —
+ * drew the full 14, so "running" and "done" were visibly different sizes in
+ * the same column (per product: 运行中和完成的 icon 大小一样 14px). Cropping to
+ * the ink makes `size` mean the same thing for both.
  */
 function SucceededBadge({ size, label }: { size: number; label?: string }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="2 2 20 20"
       fill="none"
       focusable="false"
       {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}

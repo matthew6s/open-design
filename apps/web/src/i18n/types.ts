@@ -1217,6 +1217,7 @@ export interface Dict {
   'entry.accountToggleTheme': string;
   'entry.accountSwitchLanguage': string;
   'entry.accountLanguageMeta': string;
+  'entry.accountBilling': string;
   'entry.accountGithubHelp': string;
   'entry.accountFeatureRequest': string;
   'entry.accountAddAccount': string;

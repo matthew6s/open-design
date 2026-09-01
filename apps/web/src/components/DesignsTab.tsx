@@ -1053,7 +1053,8 @@ export function DesignsTab({
 											diagnostic={`${p.id}:${cover.name ?? "unknown"}`}
 										/>
 									) : (
-										<span className="project-thumb-glyph">{cover.initial}</span>
+										// Nothing to show: the empty plate above is the whole cover.
+										null
 									)}
 									{liveCount > 0 ? (
 										<span className="design-live-count">
@@ -1349,6 +1350,9 @@ function isOrbitProject(project: Project): boolean {
 }
 
 
+/** The flat plate a project with no artifact shows instead of a cover. */
+const EMPTY_COVER_STYLE: CSSProperties = { background: "#F7F7F7" };
+
 function projectCover(
 	project: Project,
 	override: ProjectCoverOverride | null,
@@ -1413,7 +1417,11 @@ function projectCover(
 		if (meta?.kind === "video") return { kind: "video", src, style, initial };
 		if (/\.html?$/i.test(entry)) return { kind: "html", src, style, initial, name: entry };
 	}
-	return { kind: "fallback", style, initial };
+	// No artifact at all — the project has produced nothing yet. Same product
+	// call the rail's grid follows (see RecentProjectsStrip's projectCover): a
+	// flat neutral plate, no per-project colour and no initial. The gradient
+	// above stays for covers that DO have an artifact.
+	return { kind: "fallback", style: EMPTY_COVER_STYLE, initial };
 }
 
 // Best-effort hostname for the brand cover's favicon fallback. Mirrors the

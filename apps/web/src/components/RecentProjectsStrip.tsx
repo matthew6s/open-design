@@ -1829,18 +1829,6 @@ export function RecentProjectsStrip({
                     >
                       <Icon name="spinner" size={18} />
                     </span>
-                  ) : shared && view !== 'list' ? (
-                    // Grid's thumb has room for the badge as a floating overlay
-                    // (hover-revealed, see recent-projects.css); list view's
-                    // thumb is far too small (128x52) for it — the inline
-                    // variant next to the name below covers that case instead.
-                    <span className="recent-projects__card-badge recent-projects__card-badge--shared">
-                      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="9" cy="8" r="3" />
-                        <path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0-1-5.8M21 20a6 6 0 0 0-5-5.9" />
-                      </svg>
-                      {t('recentProjects.sharedBadge')}
-                    </span>
                   ) : null}
                 </div>
                 <div className="recent-projects__card-meta">
@@ -1853,10 +1841,7 @@ export function RecentProjectsStrip({
                     <span className="recent-projects__card-name">{project.name}</span>
                     {shared && view === 'list' ? (
                       <span className="recent-projects__card-badge recent-projects__card-badge--shared recent-projects__card-badge--inline">
-                        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="9" cy="8" r="3" />
-                          <path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0-1-5.8M21 20a6 6 0 0 0-5-5.9" />
-                        </svg>
+                        <Icon name="swap" size={13} />
                         {t('recentProjects.sharedBadge')}
                       </span>
                     ) : null}
@@ -1926,6 +1911,20 @@ export function RecentProjectsStrip({
                   </div>
                 </div>
               </button>
+              {/* The team badge overlays the cover but hangs off the CARD, not
+                  the thumb — the same box the ⋯ button's anchor uses. Inside
+                  the thumb it inherited that element's 1.03 hover scale, so it
+                  grew and slid outward exactly when it appeared, landing flush
+                  with the card edge while ⋯ stayed 8px in (per product: 这个间距
+                  和最右侧的一样). Grid only: list rows are 128x52 and carry the
+                  inline variant beside the name instead. While a share is
+                  in flight the thumb shows its spinner instead. */}
+              {shared && view !== 'list' && sharingId !== project.id ? (
+                <span className="recent-projects__card-badge recent-projects__card-badge--shared">
+                  <Icon name="swap" size={13} />
+                  {t('recentProjects.sharedBadge')}
+                </span>
+              ) : null}
               {actionsAvailable && !selectionMode ? (
                 <div
                   className="recent-projects__card-menu-anchor"
@@ -1963,7 +1962,7 @@ export function RecentProjectsStrip({
                           title={creator.ownedBySelf ? undefined : t('recentProjects.ownOnlyMutation')}
                           onClick={() => startRename(project)}
                         >
-                          <Icon name="pencil" size={12} />
+                          <Icon name="pencil" size={14} />
                           <span>{t('designs.menuRename')}</span>
                         </button>
                       ) : null}
@@ -1983,7 +1982,7 @@ export function RecentProjectsStrip({
                           title={creator.ownedBySelf ? undefined : t('recentProjects.ownOnlyMutation')}
                           onClick={() => requestDuplicate(project)}
                         >
-                          <Icon name="copy" size={12} />
+                          <Icon name="copy" size={14} />
                           <span>{t('designs.menuDuplicate')}</span>
                         </button>
                       ) : null}
@@ -2002,7 +2001,7 @@ export function RecentProjectsStrip({
                           disabled={unsharingId === project.id}
                           onClick={() => requestMove(project, 'to-personal')}
                         >
-                          <Icon name="close" size={12} />
+                          <Icon name="close" size={14} />
                           <span>
                             {unsharingId === project.id
                               ? t('recentProjects.unshareInProgress')
@@ -2017,7 +2016,7 @@ export function RecentProjectsStrip({
                           title={!creator.ownedBySelf ? t('recentProjects.ownOnlyMutation') : undefined}
                           onClick={() => requestMove(project, 'to-team')}
                         >
-                          <Icon name="share" size={12} />
+                          <Icon name="share" size={14} />
                           <span>
                             {sharingId === project.id
                               ? t('recentProjects.shareInProgress')
@@ -2047,7 +2046,7 @@ export function RecentProjectsStrip({
                           title={creator.ownedBySelf ? undefined : t('recentProjects.ownOnlyMutation')}
                           onClick={() => requestDelete(project)}
                         >
-                          <Icon name="close" size={12} />
+                          <Icon name="close" size={14} />
                           <span>{t('designs.menuDelete')}</span>
                         </button>
                       ) : null}
@@ -2330,7 +2329,9 @@ export function ProjectCoverMedia({
       />
     );
   }
-  return <span className="recent-projects__card-glyph">{cover.initial}</span>;
+  // Nothing to show: a project with no artifact renders as the empty plate
+  // `projectCover` painted, with no initial on it.
+  return null;
 }
 
 // Card thumbnails for HTML projects render the real artifact, not a
@@ -2664,6 +2665,9 @@ function relativeTime(ts: number, t: ReturnType<typeof useT>): string {
   return new Date(ts).toLocaleDateString();
 }
 
+/** The flat plate a project with no artifact shows instead of a cover. */
+const EMPTY_COVER_STYLE: CSSProperties = { background: '#F7F7F7' };
+
 export function projectCover(
   project: Project,
   override: ProjectCoverOverride | null,
@@ -2713,7 +2717,13 @@ export function projectCover(
     if (meta?.kind === 'video') return { kind: 'video', src, style, initial };
     if (/\.html?$/i.test(entry)) return { kind: 'html', src, style, initial, name: entry };
   }
-  return { kind: 'fallback', style, initial };
+  // No artifact at all — the project has produced nothing yet. Product call:
+  // that state stops advertising itself with a per-project colour and a big
+  // initial, and shows a flat neutral plate instead (`ProjectCoverMedia` drops
+  // the glyph to match). The hue gradient above stays for covers that DO have
+  // an artifact: it is the ground a still with transparency sits on and what
+  // fills the box while a sandboxed page loads.
+  return { kind: 'fallback', style: EMPTY_COVER_STYLE, initial };
 }
 
 export type ProjectCategory =

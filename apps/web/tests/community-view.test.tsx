@@ -39,6 +39,7 @@ const PITCH_DECK = plugin({
   title: 'Seed Round Pitch',
   manifest: {
     description: 'A decision-grade seed round narrative.',
+    author: { name: 'Zara Zhang' },
     tags: ['deck'],
     od: {
       mode: 'deck',
@@ -523,5 +524,28 @@ describe('CommunityView tab signal', () => {
     clickTab('Slides');
 
     expect(onTabsChange).toHaveBeenCalled();
+  });
+});
+
+describe('CommunityView card byline', () => {
+  it('names the publisher from the catalogue and keeps the type line under the caption', async () => {
+    await renderCommunity();
+    // Prototype leads the row now, and its one card is not the fixture pair
+    // this spec is about — the two Slides decks are (one with a manifest
+    // author, one without).
+    clickTab('Slides');
+    const [pitch, sales] = renderedCards();
+
+    // Manifest author wins outright.
+    expect(pitch!.querySelector('.community-template-card__author')?.textContent).toBe('Zara Zhang');
+    expect(pitch!.querySelector('.community-template-card__avatar')?.textContent).toBe('Z');
+    // No manifest author: every fixture here is `sourceKind: 'bundled'`, i.e.
+    // shipped by the daemon, so the source answers it. Never a made-up handle.
+    expect(sales!.querySelector('.community-template-card__author')?.textContent).toBe('Open Design');
+
+    // The `type · sub-facet` line the caption gave up when it became the title
+    // rides the byline instead of disappearing.
+    expect(sales!.querySelector('.community-template-card__meta')?.textContent)
+      .toBe('Slides \u00b7 B2B sales');
   });
 });

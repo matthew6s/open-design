@@ -1345,25 +1345,35 @@
 
 /* Shared badge on the thumbnail + creator avatar in the meta row. Private projects stay unbadged. */
 .recent-projects__card-badge {
-  /* 4px inside the thumb's top-left corner (the thumb is the positioned
-     ancestor), pill-shaped. Hidden at rest — it fades in on card hover so
-     covers stay clean. */
+  /* Mirrors `.recent-projects__card-menu-anchor` exactly — same positioned
+     ancestor (the card), same 8px inset — so the badge sits as far in from the
+     left edge as the ⋯ button does from the right (per product: 这个间距和最
+     右侧的一样). It must NOT hang off the thumb: that box scales 1.03 on
+     hover, which grew the badge and pushed it out to the card's edge at the
+     very moment it faded in. Pill-shaped, hidden at rest — it fades in on card
+     hover so covers stay clean. */
   position: absolute;
-  top: 4px;
-  left: 4px;
-  z-index: 2;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
   opacity: 0;
   pointer-events: none;
   transition: opacity 140ms var(--ease-out);
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 20px;
+  /* Same 26px box the ⋯ button wears, so the two hover affordances read as one
+     pair across the cover's top edge (per product: 高度和右边的一样). */
+  height: 26px;
   padding: 0 8px;
   border-radius: var(--radius-pill);
-  border: var(--stroke-thin) solid color-mix(in srgb, var(--green) 24%, transparent);
-  background: color-mix(in srgb, var(--green) 10%, var(--bg-panel));
-  color: color-mix(in srgb, var(--green) 72%, var(--text-strong));
+  /* A plain white chip, like ⋯ — no stroke, no green wash. The tokens land on
+     the values product asked for in light mode (#fafafa ground, #353535 text)
+     and still invert with the dark theme, which literal hex values would not:
+     a hard-coded white pill would sit beside a dark ⋯ button. */
+  border: 0;
+  background: var(--bg-panel);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
 }

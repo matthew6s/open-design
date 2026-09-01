@@ -1877,8 +1877,8 @@
 }
 
 .community-template-card__foot {
-  /* A column: the caption on its own line, with room under it for a second
-     row once the catalogue carries per-template stats. */
+  /* A column: the caption on its own line, with the byline (publisher +
+     type · subtype) on the row under it. */
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1912,6 +1912,62 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The second row the `__foot` column was already leaving room for: who
+   published the template, then what it is. One line, and it truncates from the
+   type end so the name — the part that identifies a person — is the last thing
+   to go. */
+.community-template-card__byline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Initial disc, drawn from the name. No avatar is stored anywhere in the
+   catalogue, so this is a letterform rather than an <img> that would only ever
+   resolve to a placeholder. */
+.community-template-card__avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.community-template-card__author {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `type · subtype`, the line the caption replaced when it became the title.
+   It keeps its own middot separator from the name, and it is what gives up
+   room first when the card is narrow. */
+.community-template-card__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-template-card__meta::before {
+  content: '·';
+  margin-right: 6px;
 }
 .community-template-thumb {
   width: 100%;

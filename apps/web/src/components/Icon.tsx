@@ -88,6 +88,7 @@ export type IconName =
   | 'puzzle'
   | 'slides'
   | 'star'
+  | 'swap'
   | 'swatchbook'
   | 'play'
   | 'present'
@@ -232,6 +233,7 @@ const REMIX_ICON: Partial<Record<IconName, string>> = {
   stop: 'stop-line',
   sun: 'sun-line',
   'sun-moon': 'sun-foggy-line',
+  swap: 'swap-2-fill',
   swatchbook: 'artboard-line',
   terminal: 'terminal-box-line',
   'thumbs-down': 'thumb-down-line',

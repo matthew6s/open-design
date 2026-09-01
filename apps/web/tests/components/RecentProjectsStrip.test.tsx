@@ -1035,7 +1035,7 @@ describe('RecentProjectsStrip', () => {
     );
   });
 
-  it('falls back to the glyph and logs when an HTML cover is unavailable', async () => {
+  it('falls back to the empty plate and logs when an HTML cover is unavailable', async () => {
     stubCoverProbe(404, 'Not Found');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1056,7 +1056,12 @@ describe('RecentProjectsStrip', () => {
     await waitFor(() => {
       const htmlThumb = container.querySelector('.recent-projects__card-thumb');
       expect(htmlThumb?.querySelector('iframe')).toBeNull();
-      expect(htmlThumb?.querySelector('.recent-projects__card-glyph')?.textContent).toBe('W');
+      // A cover the server says is unreadable leaves the project with nothing
+      // to show, which is the same state as never having produced anything:
+      // the flat plate, with no initial drawn on it.
+      expect(htmlThumb?.classList.contains('recent-projects__card-thumb-fallback')).toBe(true);
+      expect(htmlThumb?.querySelector('.recent-projects__card-glyph')).toBeNull();
+      expect((htmlThumb as HTMLElement | null)?.style.background).toBe('rgb(247, 247, 247)');
       expect(warn).toHaveBeenCalledWith(
         '[project-cover] HTML cover unavailable (404 Not Found):',
         'project-html:index.html',
@@ -1104,11 +1109,11 @@ describe('recvq5fpqrXzV1 — per-card move-to-team menu item', () => {
 
 describe('recvqabp2Uy23r — shared badge grid overlay vs list inline', () => {
   // The badge has two renderings (see recent-projects.css): a floating
-  // hover-revealed overlay inside the thumb (grid) and an always-visible
+  // hover-revealed overlay over the cover (grid) and an always-visible
   // inline pill next to the name (list, whose 128x52 thumb has no room for
   // the overlay). Both must actually be wired to the shared card — a
   // shared project rendering neither is exactly this bug.
-  it('renders the shared badge as a thumb overlay in grid view', () => {
+  it('renders the shared badge as a card overlay in grid view', () => {
     render(
       <RecentProjectsStrip
         projects={[project({ id: 'project-1', name: 'Shared One' })]}
@@ -1121,7 +1126,12 @@ describe('recvqabp2Uy23r — shared badge grid overlay vs list inline', () => {
     const badge = screen.getByText('Shared').closest('.recent-projects__card-badge');
     expect(badge).not.toBeNull();
     expect(badge?.classList.contains('recent-projects__card-badge--inline')).toBe(false);
-    expect(badge?.closest('.recent-projects__card-thumb')).not.toBeNull();
+    // Anchored to the CARD, outside the cover button: the thumb scales 1.03 on
+    // hover, so a badge nested in it grew and slid off its 8px inset exactly
+    // when it faded in (per product: 这个间距和最右侧的一样 — the ⋯ anchor's).
+    expect(badge?.closest('.recent-projects__card')).not.toBeNull();
+    expect(badge?.closest('.recent-projects__card-main')).toBeNull();
+    expect(badge?.closest('.recent-projects__card-thumb')).toBeNull();
   });
 
   it('renders the shared badge inline next to the name in list view', () => {

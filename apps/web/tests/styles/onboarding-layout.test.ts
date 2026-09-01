@@ -47,17 +47,22 @@ describe('onboarding layout styles', () => {
     expect(benefitsBlock).not.toMatch(/(?:^|[;\n])\s*flex-wrap:\s*nowrap\s*;/);
   });
 
-  it('centers intrinsic-width activation retry controls', () => {
-    const actionsBlock = cssDeclarations(
-      '.onboarding-cloud__activation .amr-login-activation__actions',
-    );
-    const openBlock = cssDeclarations(
-      '.onboarding-cloud__activation .amr-login-activation__open',
-    );
-    const dismissBlock = cssDeclarations('.onboarding-cloud__activation-dismiss');
+  // The retry card and the standalone 取消登录 row are gone: while a login is
+  // in flight the primary capsule itself carries the two controls (打开登录页 +
+  // 取消登录) on its trailing edge. The label yields, the controls never do.
+  it('keeps the signing-in controls intact on the primary capsule', () => {
+    const busyBlock = cssDeclarations('.onboarding-cloud__primary--busy');
+    const labelBlock = cssDeclarations('.onboarding-cloud__busy-label');
+    const actionsBlock = cssDeclarations('.onboarding-cloud__busy-actions');
+    const openBlock = cssDeclarations('.onboarding-cloud__busy-open');
+    const cancelBlock = cssDeclarations('.onboarding-cloud__busy-cancel');
 
-    expect(actionsBlock).toMatch(/(?:^|[;\n])\s*justify-content:\s*center\s*;/);
+    expect(busyBlock).toMatch(/(?:^|[;\n])\s*justify-content:\s*space-between\s*;/);
+    expect(busyBlock).toMatch(/(?:^|[;\n])\s*flex-wrap:\s*wrap\s*;/);
+    expect(labelBlock).toMatch(/(?:^|[;\n])\s*flex:\s*1\s+1\s+auto\s*;/);
+    expect(labelBlock).toMatch(/(?:^|[;\n])\s*min-width:\s*0\s*;/);
+    expect(actionsBlock).toMatch(/(?:^|[;\n])\s*flex:\s*0\s+0\s+auto\s*;/);
     expect(openBlock).toMatch(/(?:^|[;\n])\s*flex:\s*0\s+0\s+auto\s*;/);
-    expect(dismissBlock).toMatch(/(?:^|[;\n])\s*flex:\s*0\s+0\s+auto\s*;/);
+    expect(cancelBlock).toMatch(/(?:^|[;\n])\s*flex:\s*0\s+0\s+auto\s*;/);
   });
 });

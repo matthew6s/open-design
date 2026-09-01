@@ -122,6 +122,17 @@
 }
 
 .entry-nav-rail {
+  /* The ink EVERY unselected row in the rail shares — destinations, the
+     最近浏览过 heading, and the project rows under it (per product: 未选中的
+     颜色和「最近浏览过」这一档一样). Only `.entry-nav-rail__btn.is-active`
+     leaves it, so "you are here" is the one thing that comes forward.
+     #5c5c5c (per product), a flat opaque grey rather than the alpha this used
+     to carry: the rail is a frosted panel, so a translucent ink took its tone
+     from whatever scrolled under it and read washed-out over the pale page —
+     the very contrast the selected row is supposed to win on. Same reason the
+     selected row is a literal (see `.entry-nav-rail__btn.is-active`).
+     Dark mode keeps the alpha below; #5c5c5c is far too dark on that ground. */
+  --rail-ink-quiet: #5c5c5c;
   /* Fill the grid track (0 collapsed → rail width expanded) rather than a
      fixed width, so a 0-wide track truly hides the rail instead of letting a
      56px rail overflow it. The rail box itself is a transparent container; the
@@ -139,6 +150,18 @@
      the overflow clip below — no opacity fade, which previously crossed with
      the topbar toggle's fade-out and caused a flash on expand. */
   pointer-events: none;
+}
+/* Dark mode keeps the derived alpha the light theme used to share: over the
+   dark panel a mix off --text (#ededed) lands where it should, and the
+   selected row still comes forward on --text-strong. Only the light theme
+   pins a literal. */
+[data-theme="dark"] .entry-nav-rail {
+  --rail-ink-quiet: color-mix(in srgb, var(--text) 52%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .entry-nav-rail {
+    --rail-ink-quiet: color-mix(in srgb, var(--text) 52%, transparent);
+  }
 }
 /* The whole sidebar reads as one floating layer: the content sits in a panel
    inset from the grid-track edges (margin) with rounded corners + elevation,
@@ -844,13 +867,11 @@
      anchors; the UA underline breaks the uniform nav-item look (#5517 rail
      items are plain). */
   text-decoration: none;
-  /* ONE ink for every row, selected or not (per product: 没有选中的颜色和选中的
-     颜色要一致) — the near-black the selected row already used. Selection is
-     said by the filled pill behind the row now, not by darkening its text, so
-     an unselected destination no longer reads as half-disabled.
-     Written as the same literal `.is-active` carries, with the dark-mode
-     override right below (a #121212 on a dark ground is invisible). */
-  color: #121212;
+  /* Unselected ink (per product: 选中和未选中要做出区分) — the rail's shared
+     quiet tone, the one the 最近浏览过 heading and its project rows carry, well
+     clear of the selected row's #121212. See `--rail-ink-quiet` on
+     `.entry-nav-rail`. */
+  color: var(--rail-ink-quiet);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -936,9 +957,9 @@
   cursor: pointer;
   font: inherit;
   text-align: left;
-  /* One step quieter than a destination (68%): this is a heading for the rows
-     under it, not a place you can be. */
-  color: color-mix(in srgb, var(--text) 52%, transparent);
+  /* The rail's shared quiet ink — this heading is where that tone came from
+     (per product), and the unselected rows above and below now match it. */
+  color: var(--rail-ink-quiet);
   transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 .entry-nav-rail__recent-head:hover:not(:disabled) {
@@ -1196,16 +1217,22 @@
 .entry-nav-rail__recent-item {
   appearance: none;
   width: 100%;
-  /* `display: block`, not the inherited flex: primitives.css sets every button
-     to `inline-flex` + `justify-content: center`, which centres a name inside
-     the row AND defeats `text-overflow` (a flex item has no line box to
-     ellipsize). A block button truncates the way the destinations' labels do. */
-  display: block;
+  /* A LEFT-ALIGNED flex row (glyph + name), spelled out rather than inherited:
+     primitives.css sets every button to `inline-flex` + `justify-content:
+     center`, which would centre the pair in the row. The name's truncation
+     moved onto `__recent-name` with it — a flex item has no line box of its
+     own to ellipsize, so the rule has to sit on the span that holds the text. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  /* The destinations' icon→label gap, so a project name lands on the same
+     column as 插件's label. */
+  gap: 9px;
   height: auto;
   /* Flush with the destinations' own leading inset (per product: 左边对齐和
-     首页的选项), so a project name starts on the SAME column as 插件's puzzle
-     mark and the whole rail reads as one left edge. It used to sit at 43 —
-     16 inset + 18 icon + 9 gap — i.e. indented under the labels instead. */
+     首页的选项), so the row's GLYPH starts on the same column as 插件's puzzle
+     mark — and, since the glyph slot repeats the destinations' 18 + 9, the name
+     behind it lands on the labels' column. One left edge either way. */
   /* 38 tall, matching the destinations and the heading above (per product).
      This row is `display: block` (see above), so the height comes from an
      explicit line box plus symmetric padding — 10 + 18 + 10 — rather than from
@@ -1215,18 +1242,37 @@
   border: 0;
   border-radius: 12px;
   background: transparent;
-  /* Same ink as the destinations above (per product) — the list reads as one
-     column of rows, not as a bright half and a faded half. */
-  color: #121212;
+  /* Same ink as the UNSELECTED destinations above (per product: 未选中的和最近
+     浏览过的颜色一致) — one quiet column from 首页 down to the last project;
+     only `.entry-nav-rail__btn.is-active` sits darker than it. */
+  color: var(--rail-ink-quiet);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
   text-align: left;
+  overflow: hidden;
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+/* The leading glyph's slot: the chat mark, or this project's run status when it
+   has one (RailRecentRow). Same 18px box the destinations' icons occupy
+   (`.entry-nav-rail__btn-icon`) — that is what puts both columns of glyphs, and
+   therefore both columns of text, on one edge. Fixed width so a 14px status orb
+   and a 16px chat mark never shift the name sideways as a run starts. */
+.entry-nav-rail__recent-icon {
+  flex: 0 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Tracks the row's ink, hover included. */
+  color: inherit;
+}
+.entry-nav-rail__recent-name {
+  min-width: 0;
+  flex: 1 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 .entry-nav-rail__recent-item:hover:not(:disabled) {
   /* Same fill as the section heading above it and as 首页 when it is the
@@ -1249,21 +1295,19 @@
 .entry-nav-rail__btn.is-active .entry-nav-rail__btn-label {
   font-weight: 600;
 }
-/* Dark mode takes the token for BOTH states — #121212 is invisible on a dark
-   ground, and now that every row shares one ink the override has to cover the
-   unselected rows and the recent list too. */
-[data-theme="dark"] .entry-nav-rail__btn,
-[data-theme="dark"] .entry-nav-rail__recent-item,
+/* Dark mode only has to move the SELECTED row: every unselected row carries
+   `--rail-ink-quiet`, which the rail redefines for dark up top.
+   #121212 is invisible on the dark ground, so the selected row takes
+   --text-strong (#fafafa) — the same "one step brighter than its neighbours"
+   relationship the light theme draws. */
 [data-theme="dark"] .entry-nav-rail__btn.is-active .entry-nav-rail__btn-icon,
 [data-theme="dark"] .entry-nav-rail__btn.is-active .entry-nav-rail__btn-label {
-  color: var(--selected);
+  color: var(--text-strong);
 }
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme]) .entry-nav-rail__btn,
-  html:not([data-theme]) .entry-nav-rail__recent-item,
   html:not([data-theme]) .entry-nav-rail__btn.is-active .entry-nav-rail__btn-icon,
   html:not([data-theme]) .entry-nav-rail__btn.is-active .entry-nav-rail__btn-label {
-    color: var(--selected);
+    color: var(--text-strong);
   }
 }
 
@@ -3366,7 +3410,12 @@
     transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.onboarding-cloud__primary:hover:not(:disabled) {
+/* `:not(...--busy)` on both: the signing-in row reuses this capsule but is a
+   <div>, so `:not(:disabled)` matches it and it would take the CTA's dark
+   hover fill — the whole bar turned near-black under the pointer. It is a
+   status readout, not a target: nothing about it may move on hover (per
+   product: hover 后的颜色不要有变化). */
+.onboarding-cloud__primary:hover:not(:disabled):not(.onboarding-cloud__primary--busy) {
   /* Keep the dark fill on hover — the global `button:hover` rule in
      primitives.css would otherwise repaint the background to --bg-subtle and
      wash the white label away. Opacity alone carries the hover feedback. */
@@ -3375,7 +3424,7 @@
   opacity: 0.88;
 }
 
-.onboarding-cloud__primary:active:not(:disabled) {
+.onboarding-cloud__primary:active:not(:disabled):not(.onboarding-cloud__primary--busy) {
   transform: translateY(1px);
 }
 
@@ -3389,65 +3438,98 @@
   outline-offset: 2px;
 }
 
-.onboarding-cloud__cancel {
-  margin-top: 22px;
-  border: 0;
-  background: transparent;
+/* ── 登录中 ──────────────────────────────────────────────────────────────
+   The same capsule as the primary CTA, but no longer a button: while the vela
+   login is in flight it is a STATUS ROW carrying the two controls that used to
+   sit under it (per product: 登录中的按钮兼容下边的两个按钮，左边是打开登录页；
+   the retry card and the separate 取消登录 row are gone).
+   A quiet fill rather than the CTA's near-black: nothing here is the page's
+   primary action any more — the dark pill inside it is. */
+.onboarding-cloud__primary--busy {
+  justify-content: space-between;
+  gap: 12px;
+  /* Wraps rather than squeezes: the browser-open-failed sentence is a full
+     line of copy, and the two controls must never be crushed to fit beside
+     it. */
+  flex-wrap: wrap;
+  padding: 10px 12px 10px 18px;
+  background: var(--bg-subtle);
   color: var(--text-muted);
+  cursor: default;
+}
+
+.onboarding-cloud__busy-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* Takes the slack and gives it back: the label is what yields when the row
+     runs out of room, never the controls. */
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
-  cursor: pointer;
-  transition: color 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  text-align: left;
 }
 
-.onboarding-cloud__cancel:hover {
-  color: var(--text-strong);
-}
-
-/* Capsule treatment for the activation-retry card on THIS view only — the
- * base `.amr-login-activation` rule (artifacts.css) stays untouched so
- * Settings/AmrLoginPill and CloudSignInTip keep their compact inline card.
- * Compound selector (not cascade order) guarantees this wins over the base
- * padding/radius regardless of stylesheet import order. */
-.amr-login-activation.onboarding-cloud__activation {
-  padding: 16px;
-  border-radius: 28px;
-}
-
-/* Keep the retry controls centered in the activation card. They deliberately
- * retain their intrinsic width instead of stretching from the left edge — the
- * primary "Open sign-in page" action should read as the card's focal CTA. */
-.onboarding-cloud__activation .amr-login-activation__actions {
-  width: 100%;
-  justify-content: center;
+.onboarding-cloud__busy-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 8px;
 }
 
-.onboarding-cloud__activation .amr-login-activation__open {
-  flex: 0 0 auto;
-  justify-content: center;
-}
-
-.onboarding-cloud__activation-dismiss {
+/* The activation link, carrying the CTA's own fill now that the capsule
+   around it has gone quiet — this is the action the row exists to offer. */
+.onboarding-cloud__busy-open {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  padding: 4px 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--text-strong);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Both controls answer the pointer with a fade and nothing else — no fill, no
+   border and no ink moves (per product: hover 后的颜色不要有变化). */
+.onboarding-cloud__busy-open:hover {
+  opacity: 0.88;
+}
+
+.onboarding-cloud__busy-cancel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: border-color 120ms, background 120ms, color 120ms;
 }
 
-.onboarding-cloud__activation-dismiss:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-subtle);
-  color: var(--text);
+.onboarding-cloud__busy-cancel:hover:not(:disabled) {
+  /* Its resting palette, restated: without this the global
+     `button:hover:not(:disabled)` in primitives.css repaints the fill to
+     --bg-subtle and darkens the border. */
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.onboarding-cloud__busy-cancel:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* Two runtime-choice buttons ("local CLI" or "your own key") on one row,
@@ -3821,6 +3903,16 @@
   line-height: 1.45;
 }
 
+/* Back on the left, Continue on the right, one row above the panel (per
+   product: 继续在右边和上一步一排). */
+.onboarding-view__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
 .onboarding-view__actions {
   display: flex;
   flex-wrap: wrap;
@@ -3828,6 +3920,15 @@
   align-items: center;
   justify-content: flex-end;
   margin-top: 4px;
+}
+
+/* In the top row the actions are one of two flex items, not a block under the
+   panel: no lead-in margin, and they keep their width so the back link takes
+   the slack. */
+.onboarding-view__topbar .onboarding-view__actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-top: 0;
 }
 
 .onboarding-view__action-status {
@@ -4055,13 +4156,24 @@
 
 .onboarding-view__agent-strip {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Three per row (per product: 模型的每排 3 个). */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* BYOK closes the grid on a row of its own (per product: 最后一个是 byok 单一
+   排). `EntryShell` sorts it last so this span never leaves a hole above it. */
+.onboarding-view__agent-chip.is-byok {
+  grid-column: 1 / -1;
 }
 
 .onboarding-view__agent-chip {
   display: flex;
   align-items: center;
+  /* The button primitive centers its content (primitives.css); a card whose
+     logo floats mid-tile instead of leading the name is not a list row (per
+     product: 模型的 logo 左边对齐). */
+  justify-content: flex-start;
   gap: 9px;
   min-width: 0;
   min-height: 48px;

@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
 
+import { RemixIcon } from './RemixIcon';
+
 interface Props {
   id: string;
   size?: number;
@@ -60,8 +62,18 @@ const MONO_ICONS = new Set([
   'grok-build',
 ]);
 
+/** The bring-your-own-key runtime, mirrored in EntryShell's grid. */
+const BYOK_AGENT_ID = 'byok-opencode';
+
 export function AgentIcon({ id, size = 36, className }: Props) {
   const cls = 'agent-icon' + (className ? ' ' + className : '');
+  // BYOK has no vendor behind it — the runtime is whatever provider key the
+  // user brings — so it wears the product's key glyph (per product) instead of
+  // the initial-letter tile the fallback below would give it. currentColor, so
+  // it takes the surrounding text colour in either theme.
+  if (id === BYOK_AGENT_ID) {
+    return <RemixIcon name="key-2-fill" size={size} className={cls} />;
+  }
   const assetId = ICON_ASSET_ID[id] ?? id;
   const ext = ICON_EXT[assetId];
   if (ext) {

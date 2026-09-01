@@ -3158,10 +3158,15 @@
 /* The example's poster, enlarged (per product) from the 55x42 that merely fit
    beside the text to 56px tall — now the tallest thing in the row, which is
    why `--preset-row-h` above moved with it (8 + 56 + 16 = 80).
-   Width comes from `aspect-ratio`, not a second number: 640/488 is the baked
-   posters' own ratio, so the box matches the source exactly and `cover` below
-   has nothing to crop. Sizing by ratio also means a future height change
-   cannot silently put the box off-ratio.
+   Width comes from `aspect-ratio`, not a second number: 16:9 (per product),
+   so 56 tall reads 99.6 wide. Sizing by ratio also means a future height
+   change cannot silently put the box off-ratio.
+   The two poster sources meet that box differently, and `cover` below is what
+   resolves both: the daemon-baked stills are 640x488 (≈1.31 — the tile aspect
+   `scripts/bake-plugin-previews.mjs` captures at), so ~13% is trimmed off the
+   top and the bottom, which on a deck bake is mostly the band around the
+   slide; the remote posters video/image-template plugins carry are already
+   16:9 and now land with nothing cropped at all.
    Keeps its box when empty: a missing poster must not shift that row's title
    off the column every other row starts on. */
 .home-hero__plugin-preset-row-thumb {
@@ -3171,7 +3176,7 @@
   cursor: pointer;
   flex: none;
   height: 56px;
-  aspect-ratio: 640 / 488;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: var(--radius-large);
   background: var(--bg-subtle);

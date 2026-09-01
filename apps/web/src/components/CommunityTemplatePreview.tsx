@@ -40,6 +40,9 @@ export type TemplateDemo = {
   tags: string[];
   accent: string;
   meta: string;
+  /** Who published the template, for the card byline under the caption. Real
+   *  catalogue data only — see `templateAuthor`. */
+  author: string;
   type: TemplateType;
   subtype: string;
   /** The WHOLE media spec the gallery tile renders — poster plus, for plugins
@@ -121,6 +124,26 @@ function templateAccent(id: string): string {
   return TEMPLATE_ACCENTS[hashString(id) % TEMPLATE_ACCENTS.length]!;
 }
 
+/** The byline's identity, from the catalogue and nothing else.
+ *
+ *  A manifest that names its author wins outright. Failing that the SOURCE
+ *  answers it — what the daemon ships and what the marketplace serves are both
+ *  published by Open Design, and a plugin authored on this machine is the
+ *  signed-in person's own (the same official / 你 split `PluginsView` hands
+ *  `SkillDetailView`). Nothing here invents a handle: the removed version of
+ *  this byline paired a made-up name with made-up view/remix counts, and the
+ *  counts have no source to come back from. */
+function templateAuthor(
+  record: InstalledPluginRecord,
+  t: ReturnType<typeof useT>,
+): string {
+  const named = record.manifest?.author?.name?.trim();
+  if (named) return named;
+  return record.sourceKind === 'bundled' || record.sourceKind === 'marketplace'
+    ? 'Open Design'
+    : t('chat.you');
+}
+
 /** Project the installed plugin catalogue onto the Community grid's card shape.
  *  Every field the grid reads — badge counts, subtype pills, thumbnails, the
  *  modal preview, and the composer seed — is derived here from the record, so
@@ -187,6 +210,7 @@ export function buildCommunityTemplates(
       tags: record.manifest?.tags ?? [],
       accent: templateAccent(record.id),
       meta: subtype ? `${typeLabel} · ${subtype}` : typeLabel,
+      author: templateAuthor(record, t),
       type,
       subtype,
       cardMedia,

@@ -6,8 +6,9 @@
 // demo's hardcoded 琼羽 / Refly / 800 placeholders:
 //
 //   • Account section (top) — real `context.displayName` + an account menu
-//     (settings / GitHub help / feature request / socials / sign out — theme and
-//     language live in 设置·通用 only, matching #5517).
+//     (GitHub help / feature request / socials / sign out — 设置 is a rail item
+//     under 插件 in both states, and theme + language live in 设置·通用 only,
+//     matching #5517).
 //     No header block when there is no cloud identity (context === null) —
 //     the rail starts at the search box; expand/collapse lives in the
 //     workspace tabs bar's pinned Home toggle.
@@ -25,6 +26,7 @@
 // personal_byok workspace still has full team features.
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -59,6 +61,7 @@ import { PlanWordmark, planBadgeTierForWorkspace } from './PlanWordmark';
 import { RemixIcon } from './RemixIcon';
 import { InviteDialog } from './InviteDialog';
 import { RailRecentRow } from './entry-nav-rail/RailRecentRow';
+import { useProjectRunStatuses } from '../hooks/useProjectRunStatuses';
 import { MessageCenter } from './MessageCenter';
 import type { EntrySettingsSection } from './EntrySettingsMenu';
 import type { Project } from '../types';
@@ -78,7 +81,11 @@ import {
   workspaceIdentityCacheKey,
 } from '../collab/useWorkspaceContext';
 import { canUpgradeFromPlanTier, hasTeamPlan, resolvePlanLabelTier } from '../collab/team-plan';
-import { AMR_CONSOLE_UPGRADE_INTENT, amrPlansUrlForProfile } from '../runtime/amr-guidance';
+import {
+  AMR_CONSOLE_UPGRADE_INTENT,
+  amrConsoleUrlForWorkspace,
+  amrPlansUrlForProfile,
+} from '../runtime/amr-guidance';
 import { useWorkspaceInvalidation } from '../collab/workspace-events';
 import type { EntryHomeView } from '../router';
 import type {
@@ -340,6 +347,44 @@ function readStoredRecentOpen(): boolean {
 }
 
 /**
+ * Projects whose finished run the user has already gone in and looked at (per
+ * product: 点进去之后对号换回默认 icon).
+ *
+ * The ✓ is a NOTICE — "a run finished here since you last looked" — not a
+ * permanent property of the project, so opening the project spends it and the
+ * row falls back to its default chat mark. The acknowledgement is dropped again
+ * the moment that project starts working (`queued` / `running`), so the NEXT
+ * completion is announced like the first.
+ *
+ * Persisted next to the section's own open/closed flag: a reload re-reads the
+ * same runs feed and would otherwise re-raise every ✓ the user has already
+ * cleared.
+ */
+const RECENT_SEEN_DONE_STORAGE_KEY = 'od.entry.railRecentSeenDone';
+
+function readStoredSeenDone(): ReadonlySet<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(RECENT_SEEN_DONE_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === 'string'));
+  } catch {
+    // Corrupt or unavailable storage: start from "nothing acknowledged". The
+    // worst case is one ✓ the user has already seen, never a missing one.
+    return new Set();
+  }
+}
+
+function writeStoredSeenDone(ids: ReadonlySet<string>): void {
+  try {
+    window.localStorage.setItem(RECENT_SEEN_DONE_STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Private mode / storage disabled: the ✓ still clears for this session.
+  }
+}
+
+/**
  * 最近浏览过 — a collapsible list of the projects the 全部项目 view's own
  * 最近浏览过 tab would show, sitting under 插件 in the rail (per product).
  *
@@ -367,6 +412,53 @@ function RailRecentSection({
   const items = useMemo(
     () => [...projects].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RAIL_RECENT_LIMIT),
     [projects],
+  );
+  // Run status for the rows' leading glyph. `Project.status` cannot serve it —
+  // it only arrives on the UNSCOPED project list, so it is absent for every
+  // workspace-bound project (see the hook's own note) — and this is the same
+  // feed the workspace tab dropdown reads, which is what keeps the two glyph
+  // columns telling one story.
+  // Only polled while the disclosure is open: it costs one request per listed
+  // project (≤ RAIL_RECENT_LIMIT), and a collapsed section shows no glyphs.
+  const runStatusProjectIds = useMemo(() => items.map((item) => item.id), [items]);
+  const runStatusByProjectId = useProjectRunStatuses(runStatusProjectIds, {
+    enabled: open,
+    workspaceContext,
+  });
+  const [seenDone, setSeenDone] = useState<ReadonlySet<string>>(readStoredSeenDone);
+  // A project that is working again has something new to announce when it
+  // finishes, so its old acknowledgement is spent. Only a LIVE status clears it
+  // — never a missing one, or the first render (statuses arrive one fetch
+  // later) would wipe every ✓ the user had already cleared.
+  useEffect(() => {
+    setSeenDone((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        const status = runStatusByProjectId.get(id);
+        if (status === 'queued' || status === 'running') next.delete(id);
+      }
+      if (next.size === prev.size) return prev;
+      writeStoredSeenDone(next);
+      return next;
+    });
+  }, [runStatusByProjectId]);
+
+  // Opening a project is what spends its ✓ (per product). Recorded only when
+  // there is actually one on screen, so the stored set stays the list of
+  // notices the user has dismissed rather than of every project ever opened.
+  const openProject = useCallback(
+    (id: string) => {
+      if (runStatusByProjectId.get(id) === 'succeeded') {
+        setSeenDone((prev) => {
+          if (prev.has(id)) return prev;
+          const next = new Set(prev).add(id);
+          writeStoredSeenDone(next);
+          return next;
+        });
+      }
+      return onOpen?.(id);
+    },
+    [onOpen, runStatusByProjectId],
   );
 
   function toggle() {
@@ -409,17 +501,25 @@ function RailRecentSection({
       <div className={`accordion-collapsible${open ? ' open' : ''}`}>
         <div className="accordion-collapsible-inner">
           <ul className="entry-nav-rail__recent-list">
-            {items.map((project) => (
-              <li key={project.id}>
-                <RailRecentRow
-                  project={project}
-                  workspaceContext={workspaceContext}
-                  onOpen={onOpen}
-                  onRename={onRename}
-                  onDelete={onDelete}
-                />
-              </li>
-            ))}
+            {items.map((project) => {
+              const status = runStatusByProjectId.get(project.id);
+              // An acknowledged ✓ is DROPPED, not drawn quieter: the row goes
+              // back to its default chat mark (per product). Every other status
+              // is live and stays.
+              const acknowledged = status === 'succeeded' && seenDone.has(project.id);
+              return (
+                <li key={project.id}>
+                  <RailRecentRow
+                    project={project}
+                    workspaceContext={workspaceContext}
+                    runStatus={acknowledged ? undefined : status}
+                    onOpen={openProject}
+                    onRename={onRename}
+                    onDelete={onDelete}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
@@ -990,6 +1090,15 @@ export function EntryTopRightCluster({
   const billingConsoleUrl = workspaceSettingsUrl
     ? teamConsoleUrl(workspaceSettingsUrl, 'billing')
     : null;
+  // Where the account menu's 账单 row goes. The workspace-settings URL is the
+  // better answer when the context carries one (it pins the console to THIS
+  // workspace through the deep-link param it already holds), but a context can
+  // arrive without it — a local runtime does — and this row must not silently
+  // vanish because of that. The fallback builds the same workspace-scoped
+  // dashboard from the workspace id alone, exactly as EntryShell and the
+  // campaign badge already build their plans links.
+  const accountBillingUrl =
+    billingConsoleUrl ?? amrConsoleUrlForWorkspace(undefined, context?.workspaceId);
   // Product decision: plan selection / payment lives in Vela Web. The local
   // client opens that billing surface, then refreshes billing + context when
   // focus returns so direct web upgrades sync plan, credits, seats and gates.
@@ -1356,23 +1465,35 @@ export function EntryTopRightCluster({
                         <span className="entry-nav-rail__account-head-email">{accountEmail}</span>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      className="entry-nav-rail__menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        trackAccountAction('settings');
-                        setAccountOpen(false);
-                        onOpenSettings?.();
-                      }}
-                    >
-                      <Icon name="settings" size={15} /> {t('entry.accountSettings')}
-                    </button>
-                    {/* #5517's account menu goes 设置 → GitHub 帮助 → 功能建议 → 社交行,
-                        with no theme row, no language submenu, and no divider in
-                        between. Both controls still have a home in 设置·通用 (theme
-                        segmented control + language picker), so dropping the
-                        duplicates here costs no capability. */}
+                    {/* 账单 leads the menu: it is the only account-level
+                        destination left here, and it opens the membership
+                        surface in B's console — the same place the 额度 row and
+                        the 升级 pill land, so plan, seats and balance are never
+                        split across two destinations. Gated on the URL: without
+                        a console to reach, the row would be a dead click. */}
+                    {accountBillingUrl ? (
+                      <a
+                        className="entry-nav-rail__menu-item"
+                        role="menuitem"
+                        href={accountBillingUrl}
+                        {...externalLinkProps}
+                        data-testid="entry-account-billing"
+                        onClick={() => {
+                          trackAccountAction('billing');
+                          setAccountOpen(false);
+                        }}
+                      >
+                        <RemixIcon name="wallet-line" size={15} /> {t('entry.accountBilling')}
+                      </a>
+                    ) : null}
+                    {/* #5517's account menu went 设置 → GitHub 帮助 → 功能建议 →
+                        社交行, with no theme row, no language submenu, and no
+                        divider in between. Both of those controls still have a
+                        home in 设置·通用 (theme segmented control + language
+                        picker), so dropping the duplicates here costs no
+                        capability. 设置 itself left too: it is now a rail item
+                        under 插件 on this branch as well, and repeating it here
+                        would be the same dialog twice in one column. */}
                     <a
                       className="entry-nav-rail__menu-item"
                       role="menuitem"
@@ -1482,9 +1603,11 @@ export function WorkspaceTopRightAccountCluster({
 }) {
   const ambient = useWorkspaceContext();
   const hasExplicitWorkspaceContext = workspaceContextOverride !== undefined;
-  const context = hasExplicitWorkspaceContext
-    ? workspaceContextOverride
-    : ambient.context;
+  // TEMP(preview only — REVERT): pin the rail to the signed-out shell so the
+  // logged-out footer can be looked at without actually signing the dev copy
+  // out. Restore the two lines below this one to go back.
+  const context: WorkspaceCollabContext | null = null;
+  void (hasExplicitWorkspaceContext ? workspaceContextOverride : ambient.context);
   const billingResponse = useWorkspaceBillingResponse({
     context,
     loading: hasExplicitWorkspaceContext
@@ -2048,6 +2171,28 @@ export function EntryNavRail({
             >
               <Icon name="puzzle" size={16} />
             </NavButton>
+            {/* 设置 is a rail destination on BOTH branches (product: 设置的按钮
+                在插件下边). Signed-in used to keep it only in the account hover
+                menu — two interactions deep, and invisible until you found the
+                avatar. It sits directly under 插件 so the destination list ends
+                the same way in either state, above 最近浏览过 (content, not a
+                place to go). `entry-settings-button` stays UNIQUE: this branch
+                and the signed-out one below are mutually exclusive. */}
+            <NavButton
+              ariaLabel={t('entry.accountSettings')}
+              label={t('entry.accountSettings')}
+              onClick={() => {
+                trackAccountMenuClick(analytics.track, {
+                  page_name: analyticsPage,
+                  area: 'account_menu',
+                  element: 'settings',
+                });
+                onOpenSettings?.();
+              }}
+              testId="entry-settings-button"
+            >
+              <Icon name="settings" size={16} />
+            </NavButton>
             {/* 最近浏览过 sits under 插件 (per product) — the last thing in the
                 destination list, because it is a list of CONTENT rather than a
                 place to go. */}
@@ -2115,9 +2260,9 @@ export function EntryNavRail({
                 case. #5517 then dropped that chip (the footer only hosts the
                 updater popup now), and a signed-out rail has no account menu
                 either — leaving no settings entry at all. This item is the
-                ONLY signed-out settings entry (testId `entry-settings-button`
-                is the e2e contract); signed-in keeps settings in the account
-                menu, so it must not render on that branch. */}
+                signed-out half of the pair (testId `entry-settings-button` is
+                the e2e contract); the signed-in branch above renders the same
+                item in the same slot under 插件, and the two never coexist. */}
             <NavButton
               ariaLabel={t('entry.accountSettings')}
               label={t('entry.accountSettings')}

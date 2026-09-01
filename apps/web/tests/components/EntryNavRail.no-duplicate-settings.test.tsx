@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 //
-// Settings-entry invariant: exactly one settings entry per identity state.
+// Settings-entry invariant: exactly one settings entry per identity state, and
+// it is the rail item directly under 插件 (Plugins) in BOTH states.
 //
 // History: 飞书 recvq4hGF7BJkI ("Personal 用户，左侧栏有 2 个设置入口") removed
 // the rail's own signed-out settings item because EntryShell's footer carried
 // an `entry-settings-chip` for the same falsy-context condition. #5517 then
 // dropped that footer chip (the footer only hosts the updater popup now) — and
-// a signed-out rail has no account menu either, so the rail item is back as
-// the ONLY signed-out settings entry. Signed-in keeps settings inside the
-// account menu, so the rail item must not render on that branch.
+// a signed-out rail has no account menu either, so the rail item came back as
+// the only signed-out settings entry. Signed-in then had NO visible entry at
+// all: settings hid inside the account hover menu, two interactions deep.
+// Product (设置的按钮在插件下边) put the same rail item on the signed-in branch
+// too and dropped the account-menu row, so the count stays exactly one.
 // (Upstream #5971 restored the same entry as `entry-nav-settings`; this repo
 // keeps the `entry-settings-button` testId the e2e suite contracts on.)
 
@@ -49,18 +52,37 @@ afterEach(() => {
   cleanup();
 });
 
+/** The rail item that follows 插件 in the destination column, by testId. */
+function testIdAfterPlugins(): string | null {
+  const group = document.querySelector('.entry-nav-rail__group');
+  if (!group) return null;
+  const items = Array.from(group.querySelectorAll('.entry-nav-rail__btn'));
+  const pluginsIndex = items.findIndex(
+    (el) => el.getAttribute('data-testid') === 'entry-nav-plugins',
+  );
+  if (pluginsIndex < 0) return null;
+  return items[pluginsIndex + 1]?.getAttribute('data-testid') ?? null;
+}
+
 describe('EntryNavRail settings entry', () => {
-  it('renders the settings item below 扩展 when there is no cloud identity', () => {
+  it('renders the settings item below 插件 when there is no cloud identity', () => {
     const onOpenSettings = renderRail(null);
 
     const settings = screen.getByTestId('entry-settings-button');
     expect(settings).toBeTruthy();
+    expect(testIdAfterPlugins()).toBe('entry-settings-button');
     fireEvent.click(settings);
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('does not render the rail settings item when signed in (account menu owns it)', () => {
-    renderRail(signedInContext);
-    expect(screen.queryByTestId('entry-settings-button')).toBeNull();
+  it('renders the same item, in the same slot under 插件, when signed in', () => {
+    const onOpenSettings = renderRail(signedInContext);
+
+    // Exactly one — the account hover menu no longer carries a 设置 row, so a
+    // second entry here would be the same dialog twice in one column.
+    expect(screen.getAllByTestId('entry-settings-button')).toHaveLength(1);
+    expect(testIdAfterPlugins()).toBe('entry-settings-button');
+    fireEvent.click(screen.getByTestId('entry-settings-button'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 });

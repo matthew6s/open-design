@@ -325,10 +325,10 @@ export async function openSettingsDialog(page: Page) {
   await dismissPrivacyDialog(page);
   await ensureEntryRailOpenIfPresent(page);
   const dialog = settingsSurface(page);
-  // On the entry, `entry-settings-button` is the rail nav item that carries
-  // settings when signed out (see EntryNavRail — it calls itself the e2e
-  // contract); signed in, settings lives in the account menu, which the
-  // aria-label reaches. `entry-settings-menu-trigger` belongs to
+  // On the entry, `entry-settings-button` is the rail nav item under 插件 that
+  // carries settings in BOTH identity states (see EntryNavRail — it calls
+  // itself the e2e contract); the aria-label route stays as a fallback for
+  // older skins. `entry-settings-menu-trigger` belongs to
   // `EntrySettingsMenu`, which #5517 left unrendered — kept last so an older
   // skin still resolves.
   const settingsTrigger = page
