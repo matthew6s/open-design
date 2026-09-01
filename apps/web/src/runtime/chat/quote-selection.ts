@@ -27,6 +27,10 @@ export function quoteBarPlacement(input: {
   selectionTop: number;
   /** 聊天面板可视区的上边(视口坐标) */
   panelTop: number;
+  /** 选区矩形的下边；提供它与 panelBottom 后可避开底部 composer */
+  selectionBottom?: number;
+  /** 聊天日志可视区的下边（即 composer 上沿） */
+  panelBottom?: number;
   /** 浮条高度,默认按稿子的 3px 内距 + 28px 按钮算 */
   barHeight?: number;
   /** 浮条与选区之间的缝,稿子是 7px */
@@ -34,7 +38,63 @@ export function quoteBarPlacement(input: {
 }): 'above' | 'below' {
   const bar = input.barHeight ?? 34;
   const gap = input.gap ?? 7;
-  return input.selectionTop - input.panelTop < bar + gap ? 'below' : 'above';
+  const needed = bar + gap;
+  const availableAbove = input.selectionTop - input.panelTop;
+  if (availableAbove >= needed) return 'above';
+  if (input.panelBottom == null || input.selectionBottom == null) return 'below';
+  const availableBelow = input.panelBottom - input.selectionBottom;
+  if (availableBelow >= needed) return 'below';
+  return availableAbove >= availableBelow ? 'above' : 'below';
+}
+
+export function quoteBarPosition(input: {
+  selectionLeft: number;
+  selectionRight: number;
+  selectionTop: number;
+  selectionBottom: number;
+  panelLeft: number;
+  panelRight: number;
+  panelTop: number;
+  panelBottom: number;
+  barWidth?: number;
+  barHeight?: number;
+  gap?: number;
+  edgeInset?: number;
+}): { left: number; top: number; placement: 'above' | 'below' } {
+  const barWidth = input.barWidth ?? 112;
+  const barHeight = input.barHeight ?? 34;
+  const gap = input.gap ?? 7;
+  const edge = input.edgeInset ?? 8;
+  const placement = quoteBarPlacement({
+    selectionTop: input.selectionTop,
+    selectionBottom: input.selectionBottom,
+    panelTop: input.panelTop,
+    panelBottom: input.panelBottom,
+    barHeight,
+    gap,
+  });
+
+  const center = (input.selectionLeft + input.selectionRight) / 2;
+  const minLeft = input.panelLeft + edge + barWidth / 2;
+  const maxLeft = input.panelRight - edge - barWidth / 2;
+  const left = maxLeft < minLeft
+    ? (input.panelLeft + input.panelRight) / 2
+    : Math.min(Math.max(center, minLeft), maxLeft);
+
+  const desiredTop = placement === 'above'
+    ? input.selectionTop - gap
+    : input.selectionBottom + gap;
+  const minTop = placement === 'above'
+    ? input.panelTop + edge + barHeight
+    : input.panelTop + edge;
+  const maxTop = placement === 'above'
+    ? input.panelBottom - edge
+    : input.panelBottom - edge - barHeight;
+  const top = maxTop < minTop
+    ? (minTop + maxTop) / 2
+    : Math.min(Math.max(desiredTop, minTop), maxTop);
+
+  return { left, top, placement };
 }
 
 /**

@@ -1650,10 +1650,9 @@ const CELLS: Cell[] = [
  * 还是旧的?你的 compare 是假的吗?」两个盲区,这一族是冲着第一个建的:
  *
  *  1. **只照得到「我喂了夹具的那条分支」**。真实运行时可能走另一条,而那条在 84 格里
- *     没有格子,就永远照不到。活例子:用户消息上方那块灰色的「本条消息带了哪些上下文」
- *     (`.msg-applied-context`)—— 84 格的 `msg()` 传的是 `appliedContextItems={[]}`,
- *     这条分支从头到尾没被照过一次。`runContext.workspaceItems`、`producedFiles`、
- *     「一轮两张壳」、失败轮的报错卡、done 密钥协议,同理。
+ *     没有格子,就永远照不到。活例子包括带附件的完整用户消息、`producedFiles`、
+ *     「一轮两张壳」、失败轮的报错卡、done 密钥协议。runContext / applied plugin
+ *     数据仍由夹具携带,但产品当前明确不在历史消息上展示对应标签。
  *  2. **摆拍的宿主曾经是理想的**。这一条已经由上一个提交(旧聊天皮肤那次)收掉了 ——
  *     84 格现在也套在 `.app` 里、`routines.css` 那一层也内联进来了。这一族沿用同一条祖先链,
  *     并且在它下面再补一层 `.chat-log`:消息之间的间距、气泡与执行记录壳的相对位置,
@@ -1830,11 +1829,11 @@ const LIVE_TURN_EVENTS: PersistedAgentEvent[] = [
 const LIVE: LiveCell[] = [
   {
     id: 'E2E-1',
-    title: '一整轮 · 带上下文的设计请求',
-    state: '成功 · 用户消息(上下文行 + 附件 + 气泡)→ 执行记录 → 结论 → 回合状态行',
+    title: '一整轮 · 带上下文数据的设计请求',
+    state: '成功 · 用户消息(附件 + 气泡,上下文标签隐藏)→ 执行记录 → 结论 → 回合状态行',
     covers: [
-      '用户消息带 `appliedContextItems` —— 那块灰色的「本条消息带了哪些上下文」(`.msg-applied-context`),84 格里传的一直是 `[]`',
-      '一条消息上**三样东西同时在**:上下文行 + 附件行 + 气泡(84 格是拆成三格分别摆的)',
+      '用户消息仍携带 `appliedContextItems`,但历史流水不再渲染 `msg-applied-context` / `msg-run-context-row`',
+      '一条消息上附件行 + 气泡同时在,且隐藏的上下文数据不改变两者布局',
       '执行记录壳与它上下两条消息的**间距**(`.chat-log` 的 gap)—— 单摆一个壳看不见这件事',
     ],
     node: () => liveTurn(
@@ -1854,7 +1853,7 @@ const LIVE: LiveCell[] = [
       },
     ),
     notes: [
-      '**上下文那一行默认是收起的**(`AppliedContextDisclosure` 自己的 `useState`),静态页够不着那个 state —— 这一格照的是收起态,展开态要起真实页面',
+      '**上下文标签按产品裁决隐藏**:这里只验证数据存在时正文、附件与回复仍正常渲染',
       '✅ **气泡这一条是「已经修好了」的现场**:浏览器里量到 `background rgb(32,32,32)` / `color rgb(255,255,255)` / '
         + '`border-radius 12px 12px 4px`,和第 45 格逐值相同 —— 上一个提交(旧聊天皮肤那次)删掉了 `routines.css` 里'
         + '那条把气泡刷成 `#ededed` 的规则,这一格是它在**一整条会话里**也成立的证据。'
@@ -1870,12 +1869,12 @@ const LIVE: LiveCell[] = [
   },
   {
     id: 'E2E-2',
-    title: '一整轮 · 消息带工作区上下文',
-    state: '成功 · 用户消息上方那一行里,「Current」芯片与上下文折叠行并排',
+    title: '一整轮 · 消息带工作区上下文数据',
+    state: '成功 · CURRENT / Using 标签隐藏,正文与 agent 上下文数据保留',
     covers: [
-      '用户消息带 `runContext.workspaceItems` —— `ActiveWorkspaceContextChip`,84 格里从没喂过',
-      '`design-system` 那一条**会被过滤掉**(`visibleWorkspaceItems`),芯片数与喂进去的条数不相等',
-      '同一行(`.msg-run-context-row`)里**芯片与上下文折叠行同时出现**时怎么排、会不会挤 —— 两样东西共用一个容器,单摆哪一个都看不见',
+      '用户消息带 `runContext.workspaceItems`,但不再渲染 `ActiveWorkspaceContextChip`',
+      '工作区与设计系统条目仍保留在消息数据中,不会因为 UI 隐藏而被删除',
+      '历史消息没有 `msg-run-context-row`,避免 CURRENT / Using 标签占用纵向空间',
     ],
     node: () => liveTurn(
       liveUser({
@@ -1898,15 +1897,13 @@ const LIVE: LiveCell[] = [
         conclusion('价格行调到 15px 了,和标题差一档,行高没动。'),
       ]),
       {
-        // 芯片和上下文折叠行**共用** `.msg-run-context-row` 这一个容器,
-        // 所以这一格两样都喂,照的是它们并排时的排布
+        // 仍然喂入 applied context,验证隐藏只发生在呈现层。
         applied: [{ kind: 'design-system', title: 'Nexu Design' }],
         artifactActions: true,
       },
     ),
     notes: [
-      '喂了三条 `workspaceItems`,页面上只出**两枚**芯片 —— `design-system` 那一条被 `UserMessageImpl` 过滤掉了。这是设计好的(设计系统由别处表达),写在这儿是免得下次有人当 bug 修',
-      '⚠️ **芯片上那个「Current」是硬编码的英文**,不走 i18n(`ChatPane.tsx` 的 `ActiveWorkspaceContextChip`)。19 个语言包里都没有这个键 —— 待产品/设计确认要不要翻',
+      '喂了三条 `workspaceItems` 和一条 applied design-system,页面仍不出现 CURRENT / Using；数据链由独立 provider / daemon 测试守住',
     ],
   },
   {
@@ -2115,19 +2112,19 @@ describe('镜像陈列页', () => {
       return found ?? '';
     };
 
-    // 84 格的 `msg()` 传的是 `appliedContextItems={[]}`,这条分支在那边永远不出
-    expect(html('E2E-1')).toContain('msg-applied-context');
-    expect(html('E2E-1')).toContain('msg-run-context-row');
-    // 同一条消息上「上下文行 + 附件行 + 气泡」三样同时在
+    // 上下文数据仍在夹具里,但产品历史流水不展示 CURRENT / Using 标签。
+    expect(html('E2E-1')).not.toContain('msg-applied-context');
+    expect(html('E2E-1')).not.toContain('msg-run-context-row');
+    // 同一条消息上附件行 + 气泡仍同时在。
     expect(html('E2E-1')).toContain('msg-att');
     expect(html('E2E-1')).toContain('user-bubble');
 
-    // workspaceItems 芯片;喂了 3 条,design-system 那条被过滤掉,只出 2 枚
+    // workspaceItems / applied context 只隐藏 UI,不在陈列页留下旧标签。
     const chips = html('E2E-2').match(/msg-plugin-chip--workspace /g) ?? [];
-    expect(chips).toHaveLength(2);
+    expect(chips).toHaveLength(0);
     expect(html('E2E-2')).not.toContain('msg-plugin-chip--workspace-design-system');
-    // 芯片与上下文折叠行共用一个容器 —— 这一格两样都在
-    expect(html('E2E-2')).toContain('msg-applied-context');
+    expect(html('E2E-2')).not.toContain('msg-applied-context');
+    expect(html('E2E-2')).not.toContain('msg-run-context-row');
 
     // producedFiles → `ProducedFiles` 那条分支:`.md` 走 `doc` 档卡
     expect(html('E2E-3')).toContain('data-kind="doc"');

@@ -3555,7 +3555,7 @@ export const id: Dict = {
   "chat.input.viewAll": "Lihat semua",
   "chat.artifact.export": "Export",
   "chat.artifact.pending": "Membuat…",
-  "chat.artifact.publish": "Terbitkan",
+  "chat.artifact.publish": "Bagikan",
   "chat.edge.paused": "Tugas dijeda secara manual",
   "chat.edge.reconnectCta": "Sambungkan ulang",
   "chat.edge.reconnectDetail": "Lihat detail",

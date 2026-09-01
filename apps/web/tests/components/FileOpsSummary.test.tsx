@@ -279,11 +279,17 @@ describe('FileOpsSummary artifact cards', () => {
      * 两枚都**不在卡上画菜单**:它们把「哪份产物 + 锚在哪枚按钮上」交给预览区,
      * 由预览区把**它本来那两块菜单**开在这枚按钮旁边(产品 2026-08-27:
      * 「为啥不直接复用现在那个分享弹窗??」「导出这个样式也不对呢, 为啥不直接复用?」)。
-     */
+    */
     fireEvent.click(acts[0] as HTMLElement);
-    expect(onPublish).toHaveBeenCalledWith('landing.html', 'publish:landing.html');
+    expect(onPublish).toHaveBeenCalledWith(
+      'landing.html',
+      expect.stringMatching(/^publish:[^:]+:landing\.html$/),
+    );
     fireEvent.click(acts[1] as HTMLElement);
-    expect(onExport).toHaveBeenCalledWith('landing.html', 'export:landing.html');
+    expect(onExport).toHaveBeenCalledWith(
+      'landing.html',
+      expect.stringMatching(/^export:[^:]+:landing\.html$/),
+    );
   });
 
   it('leaves a non-HTML artifact with export alone (grid 32)', () => {

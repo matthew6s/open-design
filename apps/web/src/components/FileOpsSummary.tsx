@@ -14,7 +14,7 @@
  * future surfaces (sidebar, log export, etc.) without coupling to
  * AssistantMessage's render shape.
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { VisuallyHidden } from '@open-design/components';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
@@ -460,6 +460,7 @@ export function ArtifactCards({
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
 }) {
+  const anchorScope = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   if (items.length === 0) return null;
   return (
     <div className="artifact-cards" data-testid="artifact-cards">
@@ -471,6 +472,7 @@ export function ArtifactCards({
           onOpen={onOpen}
           onPublish={onPublish}
           onExport={onExport}
+          anchorScope={anchorScope}
         />
       ))}
     </div>
@@ -483,12 +485,14 @@ function ArtifactCard({
   onOpen,
   onPublish,
   onExport,
+  anchorScope,
 }: {
   item: ArtifactCardItem;
   projectId: string;
   onOpen?: ((name: string) => void) | undefined;
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
+  anchorScope: string;
 }) {
   const t = useT();
   const { workspaceContext } = useProjectCollabContext();
@@ -568,9 +572,9 @@ function ArtifactCard({
               type="button"
               className="artifact-card-act"
               aria-haspopup="menu"
-              onClick={() => onPublish(item.name, artifactAnchorId('publish', item.name))}
+              onClick={() => onPublish(item.name, artifactAnchorId('publish', item.name, anchorScope))}
               data-testid={`artifact-card-publish-${item.name}`}
-              {...{ [ARTIFACT_ANCHOR_ATTR]: artifactAnchorId('publish', item.name) }}
+              {...{ [ARTIFACT_ANCHOR_ATTR]: artifactAnchorId('publish', item.name, anchorScope) }}
             >
               {/* 稿子里「发布」是**纯文字**,那枚圈中箭头只给「导出」——
                   `components.css` 把理由写死了:「两个方向相反的动作并排,给其中
@@ -586,9 +590,9 @@ function ArtifactCard({
               type="button"
               className="artifact-card-act"
               aria-haspopup="menu"
-              onClick={() => onExport(item.name, artifactAnchorId('export', item.name))}
+              onClick={() => onExport(item.name, artifactAnchorId('export', item.name, anchorScope))}
               data-testid={`artifact-card-export-${item.name}`}
-              {...{ [ARTIFACT_ANCHOR_ATTR]: artifactAnchorId('export', item.name) }}
+              {...{ [ARTIFACT_ANCHOR_ATTR]: artifactAnchorId('export', item.name, anchorScope) }}
             >
               <ArtifactExportIcon />
               {t('chat.artifact.export')}

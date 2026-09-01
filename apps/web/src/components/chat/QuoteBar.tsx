@@ -10,7 +10,7 @@
  */
 import { forwardRef, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { useT } from '../../i18n';
-import { isQuotable, normalizeQuoteText, quoteBarPlacement } from '../../runtime/chat/quote-selection';
+import { isQuotable, normalizeQuoteText, quoteBarPosition } from '../../runtime/chat/quote-selection';
 import styles from './QuoteBar.module.css';
 
 export interface QuoteBarProps {
@@ -42,7 +42,7 @@ function messageIdOf(node: Node | null): string | null {
 export function QuoteBar({ scopeRef, onQuote }: QuoteBarProps): ReactElement | null {
   const t = useT();
   const [bar, setBar] = useState<BarState | null>(null);
-  const barRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLSpanElement>(null);
 
   const sync = useCallback(() => {
     const scope = scopeRef.current;
@@ -56,11 +56,23 @@ export function QuoteBar({ scopeRef, onQuote }: QuoteBarProps): ReactElement | n
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return setBar(null);
     const panel = scope.getBoundingClientRect();
-    const placement = quoteBarPlacement({ selectionTop: rect.top, panelTop: panel.top });
+    const measuredBar = barRef.current?.getBoundingClientRect();
+    const position = quoteBarPosition({
+      selectionLeft: rect.left,
+      selectionRight: rect.right,
+      selectionTop: rect.top,
+      selectionBottom: rect.bottom,
+      panelLeft: panel.left,
+      panelRight: panel.right,
+      panelTop: panel.top,
+      panelBottom: panel.bottom,
+      barWidth: measuredBar?.width || undefined,
+      barHeight: measuredBar?.height || undefined,
+    });
     setBar({
-      left: rect.left + rect.width / 2,
-      top: placement === 'above' ? rect.top - 7 : rect.bottom + 6,
-      placement,
+      left: position.left,
+      top: position.top,
+      placement: position.placement,
       text: normalizeQuoteText(raw),
       messageId: messageIdOf(range.commonAncestorContainer),
     });

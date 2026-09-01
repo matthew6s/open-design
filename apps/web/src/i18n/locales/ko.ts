@@ -3555,7 +3555,7 @@ export const ko: Dict = {
   "chat.input.viewAll": "전체 보기",
   "chat.artifact.export": "내보내기",
   "chat.artifact.pending": "생성 중…",
-  "chat.artifact.publish": "게시",
+  "chat.artifact.publish": "공유",
   "chat.edge.paused": "작업을 수동으로 일시 중지했습니다",
   "chat.edge.reconnectCta": "다시 연결",
   "chat.edge.reconnectDetail": "세부 정보 보기",

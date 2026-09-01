@@ -3555,7 +3555,7 @@ export const hu: Dict = {
   "chat.input.viewAll": "Összes megtekintése",
   "chat.artifact.export": "Exportálás",
   "chat.artifact.pending": "Generálás…",
-  "chat.artifact.publish": "Közzététel",
+  "chat.artifact.publish": "Megosztás",
   "chat.edge.paused": "A feladat manuálisan szüneteltetve",
   "chat.edge.reconnectCta": "Újracsatlakozás",
   "chat.edge.reconnectDetail": "Részletek megtekintése",

@@ -778,7 +778,7 @@ describe('ChatPane streaming state', () => {
     expect(onSwitchToLocalCli).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the applied plugin context on user turns (mode chip removed 2026-08-26)', () => {
+  it('keeps workspace/plugin context off the transcript while preserving the user turn', () => {
     const messages: ChatMessage[] = [
       {
         id: 'user-1',
@@ -827,9 +827,6 @@ describe('ChatPane streaming state', () => {
       },
     ];
 
-    const onRequestOpenFile = vi.fn();
-    const onRequestPluginDetails = vi.fn();
-    const onRequestDesignSystemDetails = vi.fn();
     const activeDesignSystem = {
       id: 'neutral-modern',
       title: 'Neutral Modern',
@@ -854,35 +851,16 @@ describe('ChatPane streaming state', () => {
         onSelectConversation={vi.fn()}
         onDeleteConversation={vi.fn()}
         projectMetadata={projectMetadata}
-        onRequestOpenFile={onRequestOpenFile}
-        onRequestPluginDetails={onRequestPluginDetails}
-        onRequestDesignSystemDetails={onRequestDesignSystemDetails}
         activeDesignSystem={activeDesignSystem}
         skills={[skillSummary('visual-explain')]}
       />,
     );
 
-    // 会话模式徽标已经不挂在这一行了(用户 2026-08-26 真机指认「把这个东西干掉」):
-    // 这一行要说的是「这条消息带了哪些上下文」,发送时选的模式不属于它。
-    // Design is the default mode, so it carries no chip — only the opt-outs
-    // (Ask / Plan) are labelled.
+    expect(screen.getByText('Generate the refinement glow-up deck')).toBeTruthy();
+    expect(screen.queryByTestId('msg-run-context-row')).toBeNull();
     expect(screen.queryByTestId('msg-session-mode-chip')).toBeNull();
-    expect(screen.getByTestId('msg-workspace-context-chip').textContent).toContain('Dribbble');
-    const context = screen.getByTestId('msg-applied-context');
-    expect(context.textContent).toContain('A Decade of Refinement Glow-Up');
-    expect(context.textContent).toContain('visual-explain');
-    expect(context.textContent).toContain('Neutral Modern');
-    fireEvent.click(screen.getByTestId('msg-workspace-context-chip'));
-    expect(onRequestOpenFile).toHaveBeenCalledWith('tab-1');
-    fireEvent.click(within(context).getByRole('button', { name: /Using/ }));
-    fireEvent.click(within(context).getByRole('button', { name: /Plugin.*A Decade of Refinement Glow-Up/ }));
-    expect(onRequestPluginDetails).toHaveBeenCalledWith('refinement-plugin');
-    fireEvent.click(within(context).getByRole('button', { name: /Design system.*Neutral Modern/ }));
-    expect(onRequestDesignSystemDetails).toHaveBeenCalledWith(activeDesignSystem);
-    // The plugin's resolved context is now collapsed into the single
-    // plugin chip — the per-category (asset/design/skill) fan-out is no
-    // longer rendered in the bubble, even though the full snapshot still
-    // rides the run for the agent.
+    expect(screen.queryByTestId('msg-workspace-context-chip')).toBeNull();
+    expect(screen.queryByTestId('msg-applied-context')).toBeNull();
     expect(screen.queryByText('template.json')).toBeNull();
   });
 
@@ -920,7 +898,7 @@ describe('ChatPane streaming state', () => {
     expect(screen.getByTestId('assistant-role-assistant-4').textContent).toBe('shown');
   });
 
-  it('shows applied context again only when the configuration changes', () => {
+  it('does not render applied-context chrome even when the configuration changes', () => {
     const messages: ChatMessage[] = [
       {
         id: 'user-1',
@@ -965,10 +943,8 @@ describe('ChatPane streaming state', () => {
       />,
     );
 
-    const contexts = screen.getAllByTestId('msg-applied-context');
-    expect(contexts).toHaveLength(2);
-    expect(contexts[0]?.textContent).toContain('visual-explain');
-    expect(contexts[1]?.textContent).toContain('imagegen');
+    expect(screen.queryByTestId('msg-run-context-row')).toBeNull();
+    expect(screen.queryByTestId('msg-applied-context')).toBeNull();
   });
 
   // OD Next is applied by the daemon, not picked by the user: the strategy
@@ -1054,7 +1030,7 @@ describe('ChatPane streaming state', () => {
     expect(screen.queryByTestId('msg-session-mode-chip')).toBeNull();
   });
 
-  it('still lists user-chosen context on a strategy-owned turn', () => {
+  it('keeps user-chosen strategy context in data but not transcript chrome', () => {
     const messages: ChatMessage[] = [
       {
         id: 'user-1',
@@ -1087,9 +1063,9 @@ describe('ChatPane streaming state', () => {
       />,
     );
 
-    const context = screen.getByTestId('msg-applied-context');
-    expect(context.textContent).toContain('visual-explain');
-    expect(context.textContent).not.toContain('OD Next Strategy V2');
+    expect(screen.getByText('Same app, softer shelves')).toBeTruthy();
+    expect(screen.queryByTestId('msg-run-context-row')).toBeNull();
+    expect(screen.queryByTestId('msg-applied-context')).toBeNull();
     expect(screen.queryByTestId('msg-session-mode-chip')).toBeNull();
   });
 

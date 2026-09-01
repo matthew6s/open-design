@@ -3555,7 +3555,7 @@ export const de: Dict = {
   "chat.input.viewAll": "Alles anzeigen",
   "chat.artifact.export": "Exportieren",
   "chat.artifact.pending": "Wird erstellt …",
-  "chat.artifact.publish": "Veröffentlichen",
+  "chat.artifact.publish": "Teilen",
   "chat.edge.paused": "Aufgabe manuell pausiert",
   "chat.edge.reconnectCta": "Erneut verbinden",
   "chat.edge.reconnectDetail": "Details anzeigen",

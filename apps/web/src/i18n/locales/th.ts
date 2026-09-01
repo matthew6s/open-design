@@ -3555,7 +3555,7 @@ export const th: Dict = {
   "chat.input.viewAll": "ดูทั้งหมด",
   "chat.artifact.export": "ส่งออก",
   "chat.artifact.pending": "กำลังสร้าง…",
-  "chat.artifact.publish": "เผยแพร่",
+  "chat.artifact.publish": "แชร์",
   "chat.edge.paused": "หยุดงานด้วยตนเองแล้ว",
   "chat.edge.reconnectCta": "เชื่อมต่อใหม่",
   "chat.edge.reconnectDetail": "ดูรายละเอียด",

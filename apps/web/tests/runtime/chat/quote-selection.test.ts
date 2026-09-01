@@ -7,6 +7,7 @@ import {
   isQuotable,
   normalizeQuoteText,
   quoteBarPlacement,
+  quoteBarPosition,
   quotePromptPrefix,
   splitQuotedPrompt,
 } from '../../../src/runtime/chat/quote-selection';
@@ -25,6 +26,69 @@ describe('浮条翻面(稿子 23-1 / 23-2)', () => {
     expect(quoteBarPlacement({ selectionTop: 140, panelTop: 100, barHeight: 34, gap: 7 })).toBe('below');
     // 正好放得下 → 不翻
     expect(quoteBarPlacement({ selectionTop: 141, panelTop: 100, barHeight: 34, gap: 7 })).toBe('above');
+  });
+
+  it('选区贴着 composer 时下方放不下,保持在上方', () => {
+    expect(quoteBarPlacement({
+      selectionTop: 450,
+      selectionBottom: 480,
+      panelTop: 100,
+      panelBottom: 500,
+    })).toBe('above');
+  });
+
+  it('上下都放不下时选择空间更大的一侧', () => {
+    expect(quoteBarPlacement({
+      selectionTop: 115,
+      selectionBottom: 130,
+      panelTop: 100,
+      panelBottom: 170,
+    })).toBe('below');
+  });
+});
+
+describe('浮条位置夹取', () => {
+  it('靠左右边选择时把完整浮条夹在聊天栏内', () => {
+    const left = quoteBarPosition({
+      selectionLeft: 100,
+      selectionRight: 120,
+      selectionTop: 300,
+      selectionBottom: 320,
+      panelLeft: 100,
+      panelRight: 400,
+      panelTop: 100,
+      panelBottom: 500,
+      barWidth: 120,
+    });
+    const right = quoteBarPosition({
+      selectionLeft: 380,
+      selectionRight: 400,
+      selectionTop: 300,
+      selectionBottom: 320,
+      panelLeft: 100,
+      panelRight: 400,
+      panelTop: 100,
+      panelBottom: 500,
+      barWidth: 120,
+    });
+    expect(left.left).toBe(168);
+    expect(right.left).toBe(332);
+  });
+
+  it('底部选区的浮条坐标不会落进 composer 一侧', () => {
+    const position = quoteBarPosition({
+      selectionLeft: 180,
+      selectionRight: 260,
+      selectionTop: 450,
+      selectionBottom: 480,
+      panelLeft: 100,
+      panelRight: 400,
+      panelTop: 100,
+      panelBottom: 500,
+      barHeight: 34,
+    });
+    expect(position.placement).toBe('above');
+    expect(position.top).toBeLessThan(480);
   });
 });
 

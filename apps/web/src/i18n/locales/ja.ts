@@ -3555,7 +3555,7 @@ export const ja: Dict = {
   "chat.input.viewAll": "すべて表示",
   "chat.artifact.export": "エクスポート",
   "chat.artifact.pending": "生成中…",
-  "chat.artifact.publish": "公開",
+  "chat.artifact.publish": "共有",
   "chat.edge.paused": "タスクを手動で一時停止しました",
   "chat.edge.reconnectCta": "再接続",
   "chat.edge.reconnectDetail": "詳細を表示",

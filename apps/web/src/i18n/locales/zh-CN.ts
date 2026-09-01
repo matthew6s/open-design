@@ -3741,7 +3741,7 @@ export const zhCN: Dict = {
   "chat.input.viewAll": "查看全部",
   "chat.artifact.export": "导出",
   "chat.artifact.pending": "生成中…",
-  "chat.artifact.publish": "发布",
+  "chat.artifact.publish": "分享",
   "chat.edge.paused": "已手动暂停任务",
   "chat.edge.reconnectCta": "重新连接",
   "chat.edge.reconnectDetail": "查看详情",

@@ -32,11 +32,6 @@
   justify-content: center;
   margin: 0 var(--chat-composer-inline-inset, 12px);
   pointer-events: none;
-  transition: bottom var(--chat-dur-normal) var(--chat-ease-out);
-}
-
-.raised {
-  bottom: 52px;
 }
 
 /* 稿子 `.pmini { position: relative; display: inline-flex }`。

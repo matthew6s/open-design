@@ -3555,7 +3555,7 @@ export const fa: Dict = {
   "chat.input.viewAll": "نمایش همه",
   "chat.artifact.export": "خروجی گرفتن",
   "chat.artifact.pending": "در حال ساخت…",
-  "chat.artifact.publish": "انتشار",
+  "chat.artifact.publish": "اشتراک‌گذاری",
   "chat.edge.paused": "وظیفه به صورت دستی متوقف شد",
   "chat.edge.reconnectCta": "اتصال مجدد",
   "chat.edge.reconnectDetail": "مشاهده جزئیات",

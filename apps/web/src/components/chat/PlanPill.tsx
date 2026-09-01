@@ -29,11 +29,9 @@ export interface PlanPillProps {
   todos: readonly PlanPillTodo[] | undefined;
   /** run 还在跑吗;跑完了这枚药丸就该走 */
   running: boolean;
-  /** “回到最新”同时出现时上移一档,两枚浮层不互相盖住。 */
-  raised?: boolean;
 }
 
-export function PlanPill({ todos, running, raised = false }: PlanPillProps): ReactElement | null {
+export function PlanPill({ todos, running }: PlanPillProps): ReactElement | null {
   const t = useT();
   const state = planPillState(todos, running);
   // 出没判据全在纯函数里,这里只认 null(chat/AGENTS.md §3:数据缺席时不占位)
@@ -47,7 +45,7 @@ export function PlanPill({ todos, running, raised = false }: PlanPillProps): Rea
        内层 `.wrap` 只裹住药丸本身,它是悬停 / 聚焦的触发面 ——
        并成一层就等于让整条空白都能把浮层勾出来。 */
     <div
-      className={`${styles.row}${raised ? ` ${styles.raised}` : ''}`}
+      className={styles.row}
       data-testid="chat-plan-pill"
     >
       <div className={styles.wrap}>

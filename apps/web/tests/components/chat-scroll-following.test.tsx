@@ -298,6 +298,29 @@ function longConversation(chunkText: string): ChatMessage[] {
   return messages;
 }
 
+function longConversationWithTodo(chunkText: string): ChatMessage[] {
+  const messages = longConversation(chunkText);
+  const current = messages[messages.length - 1]!;
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...current,
+      events: [{
+        kind: 'tool_use' as const,
+        id: 'todo-current',
+        name: 'TodoWrite',
+        input: {
+          todos: [
+            { content: 'Inspect the current layout', status: 'completed' },
+            { content: 'Apply the visual fix', status: 'in_progress' },
+            { content: 'Verify the result', status: 'pending' },
+          ],
+        },
+      }],
+    },
+  ];
+}
+
 describe('流式输出时的滚动跟随(用户 2026-08-27)', () => {
   /*
    * 「agent 在快速流式输出内容时,每次输出就会自动回到最底,整个对话框连向上滚动都不行」
@@ -490,6 +513,28 @@ describe('「回到最新」什么时候该在(用户 2026-08-27:「总是在不
     expect(jumpBtnShown()).toBe(false);
 
     await userScrollTo(1000);
+    expect(jumpBtnShown()).toBe(true);
+  });
+
+  it('执行步骤药丸出现时占用唯一浮层位,结束后才恢复回到最新入口', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    const { rerender } = render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
+    await flushFrames();
+    await userScrollTo(1000);
+
+    expect(screen.getByTestId('chat-plan-pill')).toBeTruthy();
+    expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(true);
+    expect(jumpBtnShown()).toBe(false);
+
+    const finishedMessages = longConversationWithTodo('chunk').map((message) =>
+      message.id === 'streaming' ? { ...message, runStatus: 'succeeded' as const } : message,
+    );
+    await act(async () => {
+      rerender(chatPaneEl(finishedMessages, { streaming: false }));
+    });
+
+    expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
+    expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(false);
     expect(jumpBtnShown()).toBe(true);
   });
 

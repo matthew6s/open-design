@@ -63,10 +63,6 @@ import {
   attachmentNavState,
   type AttachmentNavState,
 } from '../runtime/chat/attachment-nav';
-import {
-  isInternalStrategySnapshot,
-  shouldShowSessionModeChip,
-} from '../runtime/strategy-turn-chrome';
 import type { Dict } from '../i18n/types';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { useLiquidGlass } from '../hooks/useLiquidGlass';
@@ -100,6 +96,7 @@ import { commentTargetDisplayName, commentsToAttachments, simplePositionLabel } 
 import { AssistantMessage, type QuestionFormSubmitHandler } from './AssistantMessage';
 import { chatSeam } from './chat/ChatRoot';
 import { PlanPill } from './chat/PlanPill';
+import { planPillState } from '../runtime/chat/plan-pill';
 import { Reconnect } from './chat/Reconnect';
 import type { ChatReconnectView } from '../runtime/chat/reconnect-state';
 import { TodoCard } from './ToolCard';
@@ -1617,6 +1614,8 @@ export function ChatPane({
     [displayMessages],
   );
   const planPillRunning = streaming || hasActiveRunMessage;
+  const planPillVisible = planPillState(planPillTodos, planPillRunning) !== null;
+  const showJumpToLatest = scrolledFromBottom && !planPillVisible;
   const retryAssistant = retryableAssistantMessage(displayMessages, lastAssistantId, streaming);
   // The failed run's error event lives on the (persisted) assistant message, so
   // the error card + AMR card survive a reload — unlike the ephemeral global
@@ -3301,6 +3300,7 @@ export function ChatPane({
                   chatLogScrollable ? 'is-scrollable' : '',
                   chatLogScrolling ? 'is-scrolling' : '',
                   shouldBalanceFinishedTranscript ? 'is-balanced-transcript' : '',
+                  planPillVisible ? 'has-plan-pill-reserve' : '',
                 ].filter(Boolean).join(' ')}
                 ref={logRef}
                 data-testid="chat-log"
@@ -3796,23 +3796,23 @@ export function ChatPane({
                 <button
                 type="button"
                 ref={jumpBtnGlassRef}
-                className={`chat-jump-btn od-glass-refract${scrolledFromBottom ? ' chat-jump-btn-active' : ''}`}
+                className={`chat-jump-btn od-glass-refract${showJumpToLatest ? ' chat-jump-btn-active' : ''}`}
                 data-testid="chat-jump-btn"
                 onClick={jumpToBottom}
                 title={t('chat.scrollToLatest')}
-                aria-hidden={!scrolledFromBottom}
-                tabIndex={scrolledFromBottom ? 0 : -1}
+                aria-hidden={!showJumpToLatest}
+                tabIndex={showJumpToLatest ? 0 : -1}
                 >
                   <Icon name="arrow-up" size={14} style={{ transform: 'rotate(180deg)' }} />
                   <span>{t('chat.jumpToLatest')}</span>
                 </button>
                 {/* Plan 药丸是滚动区上的浮层,不是输入框前的一行布局。
-                  放在 chat-log-wrap 里绝对定位,才不会撑出一条白带并遮住流水末尾。
-                  “回到最新”出现时它上移一档,两枚浮层不重叠。 */}
+                  放在 chat-log-wrap 里绝对定位,才不会撑出一条白带；对应的
+                  chat-log 底部预留让末尾文案能完整滚到它上方。它与“回到最新”
+                  共用唯一浮层位,运行期间由 Plan 优先。 */}
                 <PlanPill
                   todos={planPillTodos}
                   running={planPillRunning}
-                  raised={scrolledFromBottom}
                 />
               </div>
               {chatLogTray}
@@ -4236,11 +4236,6 @@ type ChatRenderItem = {
   message: ChatMessage;
 };
 
-type AppliedContextItem =
-  | { kind: 'plugin'; title: string; pluginId: string }
-  | { kind: 'skill'; title: string }
-  | { kind: 'design-system'; title: string; system?: DesignSystemSummary };
-
 function ChatConversationLoading({ t }: { t: TranslateFn }) {
   return (
     <div className="chat-loading-state" role="status" aria-live="polite">
@@ -4392,62 +4387,6 @@ function ChatRows({
     () => buildChatRenderItems(messages),
     [messages],
   );
-  const appliedContextByMessageId = useMemo(() => {
-    const skillNames = new Map(
-      (nextStepSkills ?? []).map((skill) => [skill.id, skill.name || skill.id]),
-    );
-    const byMessageId = new Map<string, AppliedContextItem[]>();
-    let previousSignature = '';
-
-    for (const message of messages) {
-      if (message.role !== 'user') continue;
-      const pluginSnapshot = message.appliedPluginSnapshot ?? activePluginSnapshot ?? null;
-      const contextItems: AppliedContextItem[] = [];
-
-      // A strategy package is daemon-applied plumbing, never a plugin the
-      // user chose, so it stays out of the applied-context line in both the
-      // snapshot and the raw-id form.
-      if (pluginSnapshot && !isInternalStrategySnapshot(pluginSnapshot)) {
-        contextItems.push({
-          kind: 'plugin',
-          title: pluginSnapshot.pluginTitle ?? pluginSnapshot.pluginId,
-          pluginId: pluginSnapshot.pluginId,
-        });
-      }
-      for (const pluginId of message.runContext?.pluginIds ?? []) {
-        if (pluginSnapshot?.pluginId === pluginId) continue;
-        if (pluginId === OD_NEXT_STRATEGY_ID) continue;
-        contextItems.push({ kind: 'plugin', title: pluginId, pluginId });
-      }
-      for (const skillId of message.runContext?.skillIds ?? []) {
-        contextItems.push({ kind: 'skill', title: skillNames.get(skillId) ?? skillId });
-      }
-      if (activeDesignSystem) {
-        contextItems.push({
-          kind: 'design-system',
-          title: activeDesignSystem.title,
-          system: activeDesignSystem,
-        });
-      }
-      for (const item of message.runContext?.workspaceItems ?? []) {
-        if (item.kind !== 'design-system') continue;
-        if (contextItems.some((candidate) => candidate.kind === 'design-system' && candidate.title === item.label)) {
-          continue;
-        }
-        contextItems.push({ kind: 'design-system', title: item.label });
-      }
-
-      const deduped = contextItems.filter((item, index, all) =>
-        all.findIndex((candidate) => candidate.kind === item.kind && candidate.title === item.title) === index,
-      );
-      const signature = deduped.map((item) => `${item.kind}:${item.title}`).join('|');
-      if (signature && signature !== previousSignature) {
-        byMessageId.set(message.id, deduped);
-      }
-      previousSignature = signature;
-    }
-    return byMessageId;
-  }, [activeDesignSystem, activePluginSnapshot, messages, nextStepSkills]);
   /**
    * 每条助手消息「在它之前这场对话已经宣布过的那份清单」。
    *
@@ -4501,11 +4440,7 @@ function ChatRows({
           projectId={projectId}
           projectFileNames={projectFileNames}
           onRequestOpenFile={onRequestOpenFile}
-          onRequestPluginDetails={onRequestPluginDetails}
-          onRequestDesignSystemDetails={onRequestDesignSystemDetails}
           t={t}
-          appliedContextItems={appliedContextByMessageId.get(m.id) ?? []}
-          showSessionModeChip={shouldShowSessionModeChip(m.sessionMode)}
           highlighted={highlightedUserMessageId === m.id}
         />
       );
@@ -5573,11 +5508,7 @@ const UserMessage = memo(UserMessageImpl);
   projectId,
   projectFileNames,
   onRequestOpenFile,
-  onRequestPluginDetails,
-  onRequestDesignSystemDetails,
   t,
-  appliedContextItems,
-  showSessionModeChip = false,
   highlighted,
   onResend,
 }: {
@@ -5587,33 +5518,16 @@ const UserMessage = memo(UserMessageImpl);
   onRequestOpenFile?: (name: string) => void;
   /** 发送失败时那颗常驻的「重试」(稿子第 49 / 50 格) */
   onResend?: (message: ChatMessage) => void;
+  /** Legacy mirror-fixture inputs are accepted but intentionally not rendered. */
   onRequestPluginDetails?: (pluginId: string) => void;
   onRequestDesignSystemDetails?: (system: DesignSystemSummary) => void;
+  appliedContextItems?: ReadonlyArray<unknown>;
   t: TranslateFn;
-  appliedContextItems: AppliedContextItem[];
-  /**
-   * Whether the send-time session mode is worth surfacing on this message.
-   *
-   * origin/main introduced it as a required prop feeding both the mode chip
-   * and `hasRunContext`. This branch dropped the chip itself (product ruling,
-   * see the render site), so the only consumer left is `hasRunContext` — and an
-   * omitted value must mean "do not open the context row for the mode alone".
-   * Optional with a `false` default so the chat unit tests can mount a user
-   * message without restating a flag that no longer draws anything.
-   */
-  showSessionModeChip?: boolean;
   highlighted?: boolean;
 }) {
   const { workspaceContext } = useProjectCollabContext();
   const attachments = sortChatAttachmentsForDisplay(message.attachments ?? []);
   const commentAttachments = message.commentAttachments ?? [];
-  const workspaceItems = message.runContext?.workspaceItems ?? [];
-  const visibleWorkspaceItems = workspaceItems.filter((item) => item.kind !== 'design-system');
-  const hasRunContext = Boolean(
-    showSessionModeChip ||
-      visibleWorkspaceItems.length > 0 ||
-      appliedContextItems.length > 0,
-  );
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const isDesignSystemWorkspaceRequest = isDesignSystemWorkspacePrompt(message.content);
@@ -5653,38 +5567,9 @@ const UserMessage = memo(UserMessageImpl);
       data-chat-message-id={message.id}
     >
       <span className="sr-only">{t('chat.you')}</span>
-      {hasRunContext ? (
-        <div className="msg-run-context-row" data-testid="msg-run-context-row">
-          {/*
-            会话模式徽标(「设计」/「对话」/「计划」)**不出**在消息上方那一行 ——
-            用户 2026-08-26 真机指认「把这个东西干掉」。模式是发送时的选择,
-            上面那行要说的是「这条消息带了哪些上下文」;把模式混进去只是多一枚
-            没人会去点的标签。组件保留(别处可能还要用),这里不挂。
-
-            NOTE(sync/main): origin/main (#7016) 在这里加的是「只有 Ask/Plan 才挂徽标、
-            Design 是默认档不挂」。本分支的裁决更靠前一步 —— 一个都不挂 —— 所以那次改动
-            在渲染点上整个作废。`showSessionModeChip` 仍留在 `hasRunContext` 里:它比原来的
-            `message.sessionMode` 更严,能挡掉「只有模式、没有别的上下文」时那一行空壳。
-          */}
-
-          {visibleWorkspaceItems.map((item) => (
-            <ActiveWorkspaceContextChip
-              key={`${item.kind}:${item.id}`}
-              item={item}
-              onOpen={onRequestOpenFile}
-              t={t}
-            />
-          ))}
-          {appliedContextItems.length > 0 ? (
-            <AppliedContextDisclosure
-              items={appliedContextItems}
-              t={t}
-              onOpenPlugin={onRequestPluginDetails}
-              onOpenDesignSystem={onRequestDesignSystemDetails}
-            />
-          ) : null}
-        </div>
-      ) : null}
+      {/* CURRENT workspace targets and applied plugin/scenario snapshots still
+          travel with the message and `/api/runs`; product currently suppresses
+          their historical chips in the transcript UI only. */}
       {/* 附件在上、文字在下,右边界对齐:附件行锁 412、气泡锁 380,两条上限
           各管各的(#53)。壳子刻意不设 width:100% —— 那样两个孩子会各自按
           自己的百分比算宽度,右边界反而对不上。 */}
@@ -6139,217 +6024,6 @@ const UserMessage = memo(UserMessageImpl);
     [ref, base, avail],
   );
   }
-
-  // Plugin, skill and design-system inputs are supporting context, not separate
-  // cards. Collapse them into one line and only render that line when the
-  // selection changes (the caller performs the conversation-level dedupe).
-  function AppliedContextDisclosure({
-  items,
-  t,
-  onOpenPlugin,
-  onOpenDesignSystem,
-}: {
-  items: AppliedContextItem[];
-  t: TranslateFn;
-  onOpenPlugin?: (pluginId: string) => void;
-  onOpenDesignSystem?: (system: DesignSystemSummary) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const names = items.map((item) => item.title).join(' · ');
-  const summary = t('brand.appliedToChat', { name: names });
-  return (
-    <div className="msg-applied-context" data-testid="msg-applied-context">
-      <button
-        type="button"
-        className="msg-applied-context__toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        title={summary}
-      >
-        <span className="msg-applied-context__icon" aria-hidden>
-          <Icon name="blocks" size={11} />
-        </span>
-        <span className="msg-applied-context__summary">{summary}</span>
-        <span className={`msg-applied-context__chevron${open ? ' is-open' : ''}`} aria-hidden>
-          <Icon name="chevron-down" size={11} />
-        </span>
-      </button>
-      <div className={`accordion-collapsible${open ? ' open' : ''}`}>
-        <div className="accordion-collapsible-inner">
-          <div className="msg-applied-context__details">
-            {items.map((item, index) => {
-              const label = item.kind === 'plugin'
-                ? t('chat.designToolbox.kind.plugin')
-                : item.kind === 'skill'
-                  ? t('chat.designToolbox.kind.skill')
-                  : t('chat.plus.designSystem');
-              const canOpenPlugin = item.kind === 'plugin' && !!onOpenPlugin;
-              const canOpenSystem = item.kind === 'design-system' && !!item.system && !!onOpenDesignSystem;
-              const content = (
-                <>
-                  <span className="msg-applied-context__kind">{label}</span>
-                  <span>{item.title}</span>
-                </>
-              );
-              return canOpenPlugin || canOpenSystem ? (
-                <button
-                  key={`${item.kind}:${item.title}:${index}`}
-                  type="button"
-                  className="msg-applied-context__item is-action"
-                  onClick={() => {
-                    if (item.kind === 'plugin') onOpenPlugin?.(item.pluginId);
-                    if (item.kind === 'design-system' && item.system) {
-                      onOpenDesignSystem?.(item.system);
-                    }
-                  }}
-                >
-                  {content}
-                </button>
-              ) : (
-                <span
-                  key={`${item.kind}:${item.title}:${index}`}
-                  className="msg-applied-context__item"
-                >
-                  {content}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MessageSessionModeChip({
-  mode,
-  t,
-}: {
-  mode: ChatSessionMode;
-  t: TranslateFn;
-}) {
-  const label = mode === 'chat'
-    ? t('chat.mode.chat.label')
-    : mode === 'plan'
-      ? t('chat.mode.plan.label')
-      : t('chat.mode.design.label');
-  const icon = mode === 'chat' ? 'comment' : mode === 'plan' ? 'file' : 'sparkles';
-  return (
-    <div
-      className={`msg-mode-chip msg-mode-chip--${mode}`}
-      data-testid="msg-session-mode-chip"
-      title={label}
-    >
-      <Icon name={icon} size={12} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-const WORKSPACE_DESIGN_FILES_TAB = '__design_files__';
-const WORKSPACE_DESIGN_SYSTEM_TAB = '__design_system__';
-
-function ActiveWorkspaceContextChip({
-  item,
-  onOpen,
-  t,
-}: {
-  item: WorkspaceContextItem;
-  onOpen?: (name: string) => void;
-  t: TranslateFn;
-}) {
-  const target = workspaceContextOpenTarget(item);
-  const content = (
-    <>
-      <span className="msg-plugin-chip__icon" aria-hidden>
-        <Icon name={workspaceContextIcon(item)} size={12} />
-      </span>
-      <span className="msg-plugin-chip__label">
-        <span className="msg-plugin-chip__kind">{t('fileViewer.versions.current')}</span>
-        <span className="msg-plugin-chip__title">{item.label}</span>
-      </span>
-    </>
-  );
-  if (!target || !onOpen) {
-    return (
-      <div
-        className={`msg-plugin-chip msg-plugin-chip--workspace msg-plugin-chip--workspace-${item.kind}`}
-        data-testid="msg-workspace-context-chip"
-        title={workspaceContextTitle(item, t)}
-      >
-        {content}
-      </div>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={`msg-plugin-chip msg-plugin-chip--workspace msg-plugin-chip--workspace-${item.kind} msg-plugin-chip--action`}
-      data-testid="msg-workspace-context-chip"
-      title={workspaceContextTitle(item, t)}
-      onClick={() => onOpen(target)}
-    >
-      {content}
-    </button>
-  );
-}
-
-function workspaceContextOpenTarget(item: WorkspaceContextItem): string | null {
-  if (item.tabId) return item.tabId;
-  if (item.kind === 'design-files') return WORKSPACE_DESIGN_FILES_TAB;
-  if (item.kind === 'design-system') return WORKSPACE_DESIGN_SYSTEM_TAB;
-  if (item.kind === 'file' || item.kind === 'live-artifact') {
-    return item.path ?? item.label;
-  }
-  return null;
-}
-
-function workspaceContextIcon(item: WorkspaceContextItem): IconName {
-  if (item.kind === 'browser') return 'globe';
-  if (item.kind === 'folder' || item.kind === 'design-files') return 'folder';
-  if (item.kind === 'project') return 'folder';
-  if (item.kind === 'local-code') return 'terminal';
-  if (item.kind === 'terminal') return 'terminal';
-  if (item.kind === 'side-chat') return 'comment';
-  if (item.kind === 'design-system') return 'blocks';
-  return 'file';
-}
-
-function workspaceContextTitle(item: WorkspaceContextItem, t: TranslateFn): string {
-  return [
-    workspaceContextKindLabel(item.kind, t),
-    item.path ? `path: ${item.path}` : null,
-    item.absolutePath ? `absolute: ${item.absolutePath}` : null,
-    item.url ? `url: ${item.url}` : null,
-    item.title ? `title: ${item.title}` : null,
-  ].filter(Boolean).join(' | ');
-}
-
-function workspaceContextKindLabel(kind: WorkspaceContextItem['kind'], t: TranslateFn): string {
-  switch (kind) {
-    case 'browser':
-      return t('chat.designToolbox.context.browser');
-    case 'design-files':
-      return t('chat.designToolbox.context.designFiles');
-    case 'design-system':
-      return t('chat.designToolbox.context.designSystem');
-    case 'folder':
-      return t('chat.designToolbox.context.folder');
-    case 'project':
-      return t('workspaceTabs.project');
-    case 'local-code':
-      return t('dsCreate.localCodeLabel');
-    case 'terminal':
-      return t('chat.designToolbox.context.terminal');
-    case 'side-chat':
-      return t('chat.designToolbox.context.sideChat');
-    case 'live-artifact':
-      return t('chat.designToolbox.context.liveArtifact');
-    case 'file':
-    default:
-      return t('chat.designToolbox.context.file');
-  }
-}
 
 function sortChatAttachmentsForDisplay(attachments: ChatAttachment[]): ChatAttachment[] {
   return attachments

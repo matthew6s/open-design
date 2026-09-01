@@ -9405,6 +9405,7 @@ function HtmlViewer({
    * (产品 2026-08-27)—— 菜单本身是同一块,只是换个地方渲染。
    */
   const [menuAnchorId, setMenuAnchorId] = useState<string | null>(null);
+  const [menuOrigin, setMenuOrigin] = useState<'toolbar' | 'artifact-card'>('toolbar');
   /*
    * 稳定身份 —— 这个回调会进 `AnchoredMenuShell` 里那条 effect 的依赖数组。
    * 传内联箭头的话它每次渲染都是新的,effect 于是每帧重跑;菜单已隐藏期间
@@ -15132,6 +15133,7 @@ function HtmlViewer({
      * 下面(产品 2026-08-27:「为啥不直接复用现在那个分享弹窗??」)。
      */
     setMenuAnchorId(shareRequest?.anchorId ?? null);
+    setMenuOrigin(shareRequest?.anchorId ? 'artifact-card' : 'toolbar');
     setUnifiedActionTab('share');
     setDeployMenuOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -15150,6 +15152,7 @@ function HtmlViewer({
     markExportReadyNudgeSeen(projectId, file.name);
     /* 与分享同一条路,换成导出菜单。 */
     setMenuAnchorId(downloadRequest?.anchorId ?? null);
+    setMenuOrigin(downloadRequest?.anchorId ? 'artifact-card' : 'toolbar');
     setUnifiedActionTab('export');
     setDeployMenuOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -15194,6 +15197,7 @@ function HtmlViewer({
      * 就 `findAnchor` 落空、什么都不画,表现为**点了没反应**。
      */
     setMenuAnchorId(null);
+    setMenuOrigin('toolbar');
     setDeployMenuOpen((v) => {
       const nextTab = tab === 'share' && !rawCanShare ? 'export' : tab;
       setUnifiedActionTab(nextTab);
@@ -16957,7 +16961,7 @@ function HtmlViewer({
                       <div className="chrome-unified-panel chrome-unified-panel--share">
                       {/* Team-only, same as ReactComponentViewer's copy of this card above —
                           see the comment there (recvq5bM78HWCE). */}
-                      {workspaceContextHasTeamIdentity(workspaceContext) ? (
+                      {menuOrigin === 'toolbar' && workspaceContextHasTeamIdentity(workspaceContext) ? (
                       <>
                       {/* Access control gets the same section-label + row treatment as the
                           publish / deploy / save tiers below; its explanation moves into the
@@ -17124,121 +17128,94 @@ function HtmlViewer({
                       ) : null}
                       </>
                       ) : null}
-                      {/* The share panel is organized by intent, not by
-                          backend: the publish card above is the hero "get a
-                          link" path; social icons appear only once ANY link
-                          exists (published or deployed); Vercel/Cloudflare are
-                          the secondary "more ways to publish" tier; save-as-
-                          template keeps its spot at the bottom. */}
-                      {/* Icons only for a CLEAN link (published file or a
-                          deployment whose share page is live) — a protected or
-                          still-preparing deployment must not hand out a URL
-                          that recipients cannot open. */}
-                      {activeProjectSocialShare && (shareableDeploymentUrl || publishedFileUrl) ? (
+                      {menuOrigin === 'toolbar' ? (
                         <>
+                          {/* Icons only for a clean link. Artifact-card Share is
+                              intentionally narrower: Quick Share above only. */}
+                          {activeProjectSocialShare && (shareableDeploymentUrl || publishedFileUrl) ? (
+                            <>
+                              <div className="share-menu-section-label" role="presentation">
+                                {t('socialShare.projectSection')}
+                              </div>
+                              <SocialShareGrid share={activeProjectSocialShare} />
+                            </>
+                          ) : null}
+                          <div className="share-menu-divider" />
                           <div className="share-menu-section-label" role="presentation">
-                            {t('socialShare.projectSection')}
+                            {t('fileViewer.shareMenuPublishOnline')}
                           </div>
-                          <SocialShareGrid share={activeProjectSocialShare} />
+                          {DEPLOY_PROVIDER_OPTIONS.map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              className="share-menu-item"
+                              role="menuitem"
+                              disabled={streaming || viewerOnly}
+                              title={
+                                viewerOnly
+                                  ? viewerOnlyDisabledTitle
+                                  : streaming
+                                    ? t('fileViewer.shareAfterGenerationComplete')
+                                    : undefined
+                              }
+                              onClick={() => {
+                                void openDeployModal(option.id);
+                              }}
+                            >
+                              <span className="share-menu-icon"><RemixIcon name={deployActionIconFor(option.id)} size={15} /></span>
+                              <span>{deployActionLabelFor(option.id)}</span>
+                            </button>
+                          ))}
+                          {sharePageUrl ? (
+                            <>
+                              <button
+                                type="button"
+                                className="share-menu-item"
+                                role="menuitem"
+                                disabled={!canCopyShareLink || viewerOnly}
+                                title={
+                                  viewerOnly
+                                    ? viewerOnlyDisabledTitle
+                                    : canCopyShareLink
+                                      ? undefined
+                                      : shareUnavailableHint
+                                }
+                                onClick={() => {
+                                  void copyShareLink(sharePageUrl);
+                                }}
+                              >
+                                <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
+                                <span>{copyShareLinkLabel}</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="share-menu-item"
+                                role="menuitem"
+                                disabled={!canOpenSharePage || viewerOnly}
+                                title={
+                                  viewerOnly
+                                    ? viewerOnlyDisabledTitle
+                                    : canOpenSharePage
+                                      ? undefined
+                                      : shareLinkStatusHint || shareUnavailableHint
+                                }
+                                onClick={() => {
+                                  if (!canOpenSharePage) return;
+                                  window.open(sharePageUrl, '_blank', 'noopener');
+                                }}
+                              >
+                                <span className="share-menu-icon"><RemixIcon name="external-link-line" size={15} /></span>
+                                <span>{t('fileViewer.openSharePage')}</span>
+                              </button>
+                            </>
+                          ) : null}
+                          {sharePageUrl && (shareLinkStatusHint || shareUnavailableHint) ? (
+                            <div className="share-menu-section-label" role="presentation">
+                              {shareLinkStatusHint || shareUnavailableHint}
+                            </div>
+                          ) : null}
                         </>
                       ) : null}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuPublishOnline')}
-                      </div>
-                      {DEPLOY_PROVIDER_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className="share-menu-item"
-                          role="menuitem"
-                          disabled={streaming || viewerOnly}
-                          title={
-                            viewerOnly
-                              ? viewerOnlyDisabledTitle
-                              : streaming
-                                ? t('fileViewer.shareAfterGenerationComplete')
-                                : undefined
-                          }
-                          onClick={() => {
-                            void openDeployModal(option.id);
-                          }}
-                        >
-                          <span className="share-menu-icon"><RemixIcon name={deployActionIconFor(option.id)} size={15} /></span>
-                          <span>{deployActionLabelFor(option.id)}</span>
-                        </button>
-                      ))}
-                      {sharePageUrl ? (
-                        <>
-                          <button
-                            type="button"
-                            className="share-menu-item"
-                            role="menuitem"
-                            disabled={!canCopyShareLink || viewerOnly}
-                            title={
-                              viewerOnly
-                                ? viewerOnlyDisabledTitle
-                                : canCopyShareLink
-                                  ? undefined
-                                  : shareUnavailableHint
-                            }
-                            onClick={() => {
-                              void copyShareLink(sharePageUrl);
-                            }}
-                          >
-                            <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
-                            <span>{copyShareLinkLabel}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="share-menu-item"
-                            role="menuitem"
-                            disabled={!canOpenSharePage || viewerOnly}
-                            title={
-                              viewerOnly
-                                ? viewerOnlyDisabledTitle
-                                : canOpenSharePage
-                                  ? undefined
-                                  : shareLinkStatusHint || shareUnavailableHint
-                            }
-                            onClick={() => {
-                              if (!canOpenSharePage) return;
-                              window.open(sharePageUrl, '_blank', 'noopener');
-                            }}
-                          >
-                            <span className="share-menu-icon"><RemixIcon name="external-link-line" size={15} /></span>
-                            <span>{t('fileViewer.openSharePage')}</span>
-                          </button>
-                        </>
-                      ) : null}
-                      {sharePageUrl && (shareLinkStatusHint || shareUnavailableHint) ? (
-                        <div className="share-menu-section-label" role="presentation">
-                          {shareLinkStatusHint || shareUnavailableHint}
-                        </div>
-                      ) : null}
-                      <div className="share-menu-divider" />
-                      <div className="share-menu-section-label" role="presentation">
-                        {t('fileViewer.shareMenuSave')}
-                      </div>
-                      <button
-                        type="button"
-                        className="share-menu-item"
-                        role="menuitem"
-                        disabled={savingTemplate || viewerOnly}
-                        title={viewerOnly ? viewerOnlyDisabledTitle : undefined}
-                        onClick={() => {
-                          openSaveAsTemplateModal();
-                        }}
-                      >
-                        <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
-                        <span>
-                          {savingTemplate
-                            ? t('fileViewer.savingTemplate')
-                            : templateNote
-                              ? templateNote
-                              : t('fileViewer.saveAsTemplate')}
-                        </span>
-                      </button>
                       </div>
                     ) : null}
                     {unifiedActionTab === 'export' && rawCanDownload ? (

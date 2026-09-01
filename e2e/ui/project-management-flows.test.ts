@@ -2388,7 +2388,7 @@ test('[P1] BYOK OpenCode unavailable blocks the project run before daemon routin
   });
 });
 
-test('[P1] project detail active file context is sent with the run and shown on the user message', async ({ page }) => {
+test('[P1] project detail active file context is sent with the run but hidden on the user message', async ({ page }) => {
   const runRequestBodies: Array<Record<string, unknown>> = [];
   await routeSuccessfulRuns(page, { bodies: runRequestBodies, runIdPrefix: 'workspace-context-run' });
 
@@ -2412,12 +2412,11 @@ test('[P1] project detail active file context is sent with the run and shown on 
   await expect.poll(() => runRequestBodies.length).toBe(1);
   const context = runRequestBodies[0]?.context as { workspaceItems?: Array<{ label?: string; id?: string }> } | undefined;
   expect(context?.workspaceItems?.some((item) => item.label === uploadedName || item.id?.includes(uploadedName))).toBe(true);
-  const chip = page.getByTestId('msg-workspace-context-chip').last();
-  await expect(chip).toBeVisible();
-  await expect(chip).toContainText(uploadedName);
+  await expect(page.getByTestId('msg-run-context-row')).toHaveCount(0);
+  await expect(page.getByTestId('msg-workspace-context-chip')).toHaveCount(0);
 });
 
-test('[P1] project detail active file context survives reload in message history', async ({ page }) => {
+test('[P1] project detail active file context survives reload while its message chip stays hidden', async ({ page }) => {
   const runRequestBodies: Array<Record<string, unknown>> = [];
   await routeSuccessfulRuns(page, { bodies: runRequestBodies, runIdPrefix: 'workspace-context-reload-run' });
 
@@ -2443,12 +2442,14 @@ test('[P1] project detail active file context survives reload in message history
   expect(runRequestBodies[0]?.sessionMode).toBe('design');
   expect(context?.workspaceItems?.some((item) => item.label === uploadedName || item.id?.includes(uploadedName))).toBe(true);
   await expect(page.getByTestId('msg-session-mode-chip')).toHaveCount(0);
-  await expect(page.getByTestId('msg-workspace-context-chip').last()).toContainText(uploadedName);
+  await expect(page.getByTestId('msg-run-context-row')).toHaveCount(0);
+  await expect(page.getByTestId('msg-workspace-context-chip')).toHaveCount(0);
 
   await page.reload();
   await expectWorkspaceReady(page);
   await expect(page.getByTestId('msg-session-mode-chip')).toHaveCount(0);
-  await expect(page.getByTestId('msg-workspace-context-chip').last()).toContainText(uploadedName);
+  await expect(page.getByTestId('msg-run-context-row')).toHaveCount(0);
+  await expect(page.getByTestId('msg-workspace-context-chip')).toHaveCount(0);
 });
 
 test('[P1] active project API defaults to the selected project file from the real workspace', async ({ page }) => {
@@ -2635,6 +2636,36 @@ test('[P1] project detail assistant completion actions support copy, fork, and f
   await expect
     .poll(() => getProjectContextFromUrl(page).conversationId)
     .not.toBe(conversationId);
+});
+
+test('[P1] repeated artifact cards anchor Share to the clicked turn and keep the card menu focused', async ({ page }) => {
+  await mockWritablePersonalProjectScope(page);
+  const { projectId, conversationId } = await seedProjectWithRepeatedArtifactCards(page);
+
+  await page.goto(`/projects/${projectId}/conversations/${conversationId}`);
+  await expectWorkspaceReady(page);
+
+  const shareButtons = page.getByTestId('artifact-card-publish-index.html');
+  await expect(shareButtons).toHaveCount(2);
+  const firstShare = shareButtons.nth(0);
+  const secondShare = shareButtons.nth(1);
+  const firstAnchor = await firstShare.getAttribute('data-artifact-anchor');
+  const secondAnchor = await secondShare.getAttribute('data-artifact-anchor');
+  expect(firstAnchor).toBeTruthy();
+  expect(secondAnchor).toBeTruthy();
+  expect(secondAnchor).not.toBe(firstAnchor);
+
+  await secondShare.click();
+
+  const anchoredMenu = page.locator('[data-anchored-menu]');
+  await expect(anchoredMenu).toHaveCount(1);
+  await expect(anchoredMenu).toHaveAttribute('data-anchored-menu', secondAnchor!);
+  const menu = anchoredMenu.locator('.share-menu-popover[role="menu"]');
+  await expect(menu).toBeVisible();
+  await expect(menu).toContainText(/Quick Share/i);
+  await expect(menu).not.toContainText('Share project in workspace');
+  await expect(menu).not.toContainText('Deploy to Vercel');
+  await expect(menu).not.toContainText('Save as template');
 });
 
 test('[P1] project detail fork emits correlated click and result analytics', async ({ page }) => {
@@ -3744,6 +3775,102 @@ async function seedProjectWithAssistantCompletion(
   expect(assistantResponse.ok(), `seed assistant message: ${await assistantResponse.text()}`).toBeTruthy();
 
   return { projectId, conversationId, assistantMessageId, assistantText };
+}
+
+async function seedProjectWithRepeatedArtifactCards(
+  page: Page,
+): Promise<{ projectId: string; conversationId: string }> {
+  const projectId = `repeated-artifact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const projectResponse = await page.request.post('/api/projects', {
+    data: {
+      id: projectId,
+      name: 'Repeated Artifact Card Anchors',
+      skillId: null,
+      designSystemId: null,
+      metadata: { kind: 'prototype', nameSource: 'user' },
+    },
+  });
+  expect(projectResponse.ok(), `create project: ${await projectResponse.text()}`).toBeTruthy();
+  const { conversationId } = (await projectResponse.json()) as { conversationId: string };
+
+  const fileName = 'index.html';
+  const fileContent = '<!doctype html><html><body><main><h1>Repeated artifact anchors</h1></main></body></html>';
+  const fileResponse = await page.request.post(`/api/projects/${projectId}/files`, {
+    data: {
+      name: fileName,
+      content: fileContent,
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: fileName,
+        entry: fileName,
+        renderer: 'html',
+        exports: ['html'],
+      },
+    },
+  });
+  expect(fileResponse.ok(), `seed ${fileName}: ${await fileResponse.text()}`).toBeTruthy();
+
+  const startedAt = Date.now() - 4_000;
+  const producedFile = {
+    name: fileName,
+    path: fileName,
+    localPath: `/project/${projectId}/${fileName}`,
+    type: 'file',
+    size: fileContent.length,
+    mtime: startedAt + 1_000,
+    kind: 'html',
+    mime: 'text/html',
+  };
+
+  for (let turn = 0; turn < 2; turn += 1) {
+    const userMessageId = `repeated-artifact-user-${turn}-${projectId}`;
+    const assistantMessageId = `repeated-artifact-assistant-${turn}-${projectId}`;
+    const turnStartedAt = startedAt + turn * 2_000;
+    const userResponse = await page.request.put(
+      `/api/projects/${projectId}/conversations/${conversationId}/messages/${userMessageId}`,
+      {
+        data: {
+          id: userMessageId,
+          role: 'user',
+          content: `Generate ${fileName}, turn ${turn + 1}.`,
+          createdAt: turnStartedAt,
+        },
+      },
+    );
+    expect(userResponse.ok(), `seed user turn ${turn + 1}: ${await userResponse.text()}`).toBeTruthy();
+
+    const toolUseId = `write-index-${turn}`;
+    const assistantResponse = await page.request.put(
+      `/api/projects/${projectId}/conversations/${conversationId}/messages/${assistantMessageId}`,
+      {
+        data: {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: `Generated ${fileName}, turn ${turn + 1}.`,
+          runStatus: 'succeeded',
+          startedAt: turnStartedAt + 200,
+          endedAt: turnStartedAt + 1_200,
+          events: [
+            {
+              kind: 'tool_use',
+              id: toolUseId,
+              name: 'Write',
+              input: { file_path: producedFile.localPath, content: fileContent },
+            },
+            { kind: 'tool_result', toolUseId, content: 'ok', isError: false },
+            { kind: 'text', text: `Generated ${fileName}, turn ${turn + 1}.` },
+            { kind: 'artifact_focus', show: [fileName] },
+          ],
+          producedFiles: [producedFile],
+          createdAt: turnStartedAt + 1_000,
+        },
+      },
+    );
+    expect(assistantResponse.ok(), `seed assistant turn ${turn + 1}: ${await assistantResponse.text()}`).toBeTruthy();
+  }
+
+  return { projectId, conversationId };
 }
 
 async function seedProjectWithLargeAssistantHistory(

@@ -75,8 +75,12 @@ import styles from './AnchoredMenuShell.module.css';
 /** 卡上那两枚胶囊各自的锚点属性;`FileViewer` 靠它把菜单找回按钮身边。 */
 export const ARTIFACT_ANCHOR_ATTR = 'data-artifact-anchor';
 
-export function artifactAnchorId(kind: 'publish' | 'export', name: string): string {
-  return `${kind}:${name}`;
+export function artifactAnchorId(
+  kind: 'publish' | 'export',
+  name: string,
+  scope?: string,
+): string {
+  return scope ? `${kind}:${scope}:${name}` : `${kind}:${name}`;
 }
 
 /**

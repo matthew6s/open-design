@@ -232,9 +232,8 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
     expect(valueOf(wrap, 'position'), '药丸自己不能再当包含块,否则 100% 只有药丸那么宽').toBeNull();
   });
 
-  it('回到最新同时出现时把 Plan 上移一档', () => {
-    const body = declarationsFor(`.${local(planStyles.raised)}`);
-    expect(valueOf(body, 'bottom')).toBe('52px');
+  it('Plan 只有一个固定的底部位置,不再为了同时展示 Jump 上移', () => {
+    expect(CSS).not.toMatch(/\.raised\s*\{/);
   });
 
   it('浮层被夹在那一行之内 —— .pane 是 overflow:hidden,窄面板下会被切', () => {

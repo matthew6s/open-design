@@ -3555,7 +3555,7 @@ export const ru: Dict = {
   "chat.input.viewAll": "Показать всё",
   "chat.artifact.export": "Экспорт",
   "chat.artifact.pending": "Создание…",
-  "chat.artifact.publish": "Опубликовать",
+  "chat.artifact.publish": "Поделиться",
   "chat.edge.paused": "Задача остановлена вручную",
   "chat.edge.reconnectCta": "Переподключиться",
   "chat.edge.reconnectDetail": "Показать подробности",

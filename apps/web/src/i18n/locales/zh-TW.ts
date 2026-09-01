@@ -3751,7 +3751,7 @@ export const zhTW: Dict = {
   "chat.input.viewAll": "查看全部",
   "chat.artifact.export": "匯出",
   "chat.artifact.pending": "產生中…",
-  "chat.artifact.publish": "發布",
+  "chat.artifact.publish": "分享",
   "chat.edge.paused": "已手動暫停任務",
   "chat.edge.reconnectCta": "重新連線",
   "chat.edge.reconnectDetail": "查看詳情",

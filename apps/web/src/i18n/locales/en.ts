@@ -3569,7 +3569,7 @@ export const en: Dict = {
   "chat.input.viewAll": "View all",
   "chat.artifact.export": "Export",
   "chat.artifact.pending": "Generating…",
-  "chat.artifact.publish": "Publish",
+  "chat.artifact.publish": "Share",
   "chat.edge.paused": "Task paused manually",
   "chat.edge.reconnectCta": "Reconnect",
   "chat.edge.reconnectDetail": "View details",

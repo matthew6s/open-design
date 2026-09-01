@@ -3555,7 +3555,7 @@ export const ptBR: Dict = {
   "chat.input.viewAll": "Ver tudo",
   "chat.artifact.export": "Exportar",
   "chat.artifact.pending": "Gerando…",
-  "chat.artifact.publish": "Publicar",
+  "chat.artifact.publish": "Compartilhar",
   "chat.edge.paused": "Tarefa pausada manualmente",
   "chat.edge.reconnectCta": "Reconectar",
   "chat.edge.reconnectDetail": "Ver detalhes",

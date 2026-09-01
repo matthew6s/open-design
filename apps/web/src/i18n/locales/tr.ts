@@ -3555,7 +3555,7 @@ export const tr: Dict = {
   "chat.input.viewAll": "Tümünü göster",
   "chat.artifact.export": "Dışa aktar",
   "chat.artifact.pending": "Oluşturuluyor…",
-  "chat.artifact.publish": "Yayınla",
+  "chat.artifact.publish": "Paylaş",
   "chat.edge.paused": "Görev el ile duraklatıldı",
   "chat.edge.reconnectCta": "Yeniden bağlan",
   "chat.edge.reconnectDetail": "Ayrıntıları görüntüle",

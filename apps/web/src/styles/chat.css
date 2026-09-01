@@ -251,6 +251,13 @@
      positional affordance for the log. */
   scrollbar-width: none;
 }
+/* The Step pill is an overlay, but the final transcript line still needs a
+   real scroll destination above it. Reserve only while the pill exists so
+   virtualized and regular transcripts share the same bottom safety area. */
+.chat-log.has-plan-pill-reserve {
+  padding-bottom: 52px;
+  scroll-padding-bottom: 52px;
+}
 .chat-log::-webkit-scrollbar {
   display: none;
 }

@@ -429,6 +429,7 @@ describe('卡上的两枚胶囊复用预览区的菜单', () => {
     renderHtmlCard({ onPublish });
 
     const act = screen.getByTestId('artifact-card-publish-landing.html');
+    expect(act).toHaveTextContent('Share');
     fireEvent.click(act);
 
     // 自制的那枚窄浮层必须消失
@@ -469,6 +470,34 @@ describe('卡上的两枚胶囊复用预览区的菜单', () => {
     fireEvent.click(screen.getByTestId('artifact-card-publish-landing.html'));
     fireEvent.click(screen.getByTestId('artifact-card-export-landing.html'));
     expect(onPublish.mock.calls[0]?.[1]).not.toBe(onExport.mock.calls[0]?.[1]);
+  });
+
+  it('前后两轮产出同名文件时,第二轮按钮仍有独立锚点', () => {
+    const firstPublish = vi.fn();
+    const secondPublish = vi.fn();
+    render(
+      <CollabProvider value={projectCollabValue()}>
+        <FileOpsSummary
+          entries={[fileOpEntry('landing.html')]}
+          projectId={PROJECT_ID}
+          onPublish={firstPublish}
+        />
+        <FileOpsSummary
+          entries={[fileOpEntry('landing.html')]}
+          projectId={PROJECT_ID}
+          onPublish={secondPublish}
+        />
+      </CollabProvider>,
+    );
+
+    const [firstButton, secondButton] = screen.getAllByTestId('artifact-card-publish-landing.html');
+    fireEvent.click(firstButton!);
+    fireEvent.click(secondButton!);
+
+    const firstAnchorId = firstPublish.mock.calls[0]?.[1] as string;
+    const secondAnchorId = secondPublish.mock.calls[0]?.[1] as string;
+    expect(secondAnchorId).not.toBe(firstAnchorId);
+    expect(document.querySelector(`[data-artifact-anchor="${secondAnchorId}"]`)).toBe(secondButton);
   });
 
   it('单格式产物照旧直接下载,压根不惊动预览区(反向对照)', () => {
