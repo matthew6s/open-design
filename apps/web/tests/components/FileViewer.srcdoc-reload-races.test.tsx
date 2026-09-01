@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Reload and mode-switch race coverage for the converged real-URL Runtime.
-// There is no srcDoc recovery lane: the current document stays visible until
-// an exact replacement completes the Runtime protocol.
+// There is no srcDoc recovery lane: the current document stays visible while
+// an exact replacement is pending, then an exhausted replacement becomes an
+// explicit retry state instead of silently leaving stale output interactive.
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -106,7 +107,7 @@ afterEach(() => {
 });
 
 describe('FileViewer real-URL reload race conditions', () => {
-  it('retains the current document when a reload Runtime handshake times out', async () => {
+  it('offers retry when a reload Runtime handshake times out', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<FileViewer projectId="project-1" projectKind="prototype" file={htmlFile()} />);
     const current = await promoteStandby();
@@ -117,8 +118,15 @@ describe('FileViewer real-URL reload race conditions', () => {
 
     act(() => vi.advanceTimersByTime(5_000));
     await waitFor(() => expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull());
-    expect(currentFrame()).toBe(current);
-    expect(current.getAttribute('data-od-active')).toBe('true');
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
+    const retry = await waitFor(standbyFrame);
+    expect(retry).not.toBe(current);
+    settleFileViewerPreviewRuntimeStandby(retry);
+    await waitFor(() => expect(currentFrame()).toBe(retry));
+    expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
   });
 
   it('settles only the latest candidate when Reload is clicked twice', async () => {

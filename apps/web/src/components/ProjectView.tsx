@@ -4075,10 +4075,15 @@ export function ProjectView({
       // deliberately reports `change` with an empty path; FileWorkspace treats
       // that entry as the project wildcard.
       if (evt.kind === 'change') {
+        const refreshGeneration = ++fileContentRefreshGenerationRef.current;
         pendingFileContentRefreshKeysRef.current.set(
           normalizeComparableFilePath(evt.path),
-          ++fileContentRefreshGenerationRef.current,
+          refreshGeneration,
         );
+        // HTML can load arbitrary project resources, including dynamic imports
+        // that cannot be derived statically. Conservatively invalidate every
+        // open HTML document for the same settled watcher generation.
+        pendingFileContentRefreshKeysRef.current.set('', refreshGeneration);
       }
       iframeKeepAlivePool.evictProject(project.id);
       invalidateHtmlSourceSnapshotProject(project.id);

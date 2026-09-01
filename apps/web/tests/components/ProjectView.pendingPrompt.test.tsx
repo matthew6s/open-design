@@ -434,6 +434,44 @@ describe('ProjectView pending prompt seeding', () => {
     });
   });
 
+  it('invalidates every HTML preview when a project resource changes', async () => {
+    const htmlFile: ProjectFile = {
+      name: 'index.html',
+      path: 'index.html',
+      size: 100,
+      mtime: 1_000,
+      kind: 'html',
+      mime: 'text/html',
+    };
+    const cssFile: ProjectFile = {
+      name: 'style.css',
+      path: 'style.css',
+      size: 50,
+      mtime: 1_000,
+      kind: 'text',
+      mime: 'text/css',
+    };
+    mockedFetchProjectFiles.mockResolvedValue([htmlFile, cssFile]);
+
+    renderProjectView(project('resource-generation'));
+    await waitFor(() => {
+      expect(fileWorkspaceSpy.mock.calls.at(-1)?.[0]?.files).toEqual([htmlFile, cssFile]);
+    });
+
+    const handleProjectEvent = mockedUseProjectFileEvents.mock.calls.at(-1)?.[2] as
+      | ((event: { type: 'file-changed'; path: string; kind: 'change' }) => void)
+      | undefined;
+    act(() => {
+      handleProjectEvent?.({ type: 'file-changed', path: 'style.css', kind: 'change' });
+    });
+
+    await waitFor(() => {
+      const keys = fileWorkspaceSpy.mock.calls.at(-1)?.[0]?.fileContentRefreshKeys;
+      expect(keys?.get('style.css')).toBe(1);
+      expect(keys?.get('')).toBe(1);
+    });
+  });
+
   it('advances the accepted file generation for a fresh same-key revalidation', async () => {
     const oldFile: ProjectFile = {
       name: 'index.html',

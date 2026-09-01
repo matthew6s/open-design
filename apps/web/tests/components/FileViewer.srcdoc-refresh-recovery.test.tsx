@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // File-watch recovery coverage for the converged real-URL Preview Runtime.
-// A refreshed file stages a versioned candidate while the last-good document
-// remains current; there is no srcDoc activation or Blob recovery lane.
+// A refreshed file stages a versioned candidate while the previous document
+// remains current. If the candidate exhausts its settle budget, the viewer
+// stops exposing stale output and offers an explicit retry.
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
@@ -107,7 +108,7 @@ afterEach(() => {
 });
 
 describe('FileViewer real-URL file-watch recovery', () => {
-  it('retains the current document when a refreshed revision candidate times out', async () => {
+  it('offers retry instead of exposing stale output when a refreshed revision times out', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = render(
       <FileViewer
@@ -136,8 +137,17 @@ describe('FileViewer real-URL file-watch recovery', () => {
 
     act(() => vi.advanceTimersByTime(5_000));
     await waitFor(() => expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull());
-    expect(currentFrame()).toBe(current);
-    expect(current.getAttribute('data-od-active')).toBe('true');
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
+
+    act(() => {
+      screen.getByTestId('preview-runtime-navigation-retry').click();
+    });
+    const retry = await waitFor(standbyFrame);
+    expect(retry).not.toBe(current);
+    settleFileViewerPreviewRuntimeStandby(retry);
+    await waitFor(() => expect(currentFrame()).toBe(retry));
+    expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
   });
 
   it('fences a superseded file revision from the current document', async () => {

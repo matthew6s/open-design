@@ -9758,7 +9758,7 @@ describe('FileViewer tweaks toolbar', () => {
     expect(document.body.contains(first)).toBe(false);
   });
 
-  it('keeps exposing the last-good frame when its replacement cannot settle', async () => {
+  it('stops exposing last-good and offers retry when a replacement cannot settle', async () => {
     const fileV1 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 1_000, size: 100 });
     const fileV2 = htmlPreviewFile({ name: 'failed-replacement.html', path: 'failed-replacement.html', mtime: 2_000, size: 120 });
     let servedVersion = 1;
@@ -9857,13 +9857,20 @@ describe('FileViewer tweaks toolbar', () => {
       vi.advanceTimersByTime(PREVIEW_SESSION_STANDBY_TIMEOUT_MS);
     });
 
-    expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
-    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
+    expect(screen.getByTestId('preview-runtime-navigation-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
     expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
-    expect(first.dataset.odActive).toBe('true');
-    expect(first).not.toHaveAttribute('aria-hidden');
-    expect(first).toHaveAttribute('tabindex', '0');
     expect(document.body.contains(replacement)).toBe(false);
+
+    fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
+    const retry = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    expect(retry).not.toBe(first);
+    signal(retry, 2, 'od:preview:hello');
+    signal(retry, 2, 'od:preview:capabilities-applied');
+    signal(retry, 2, 'od:preview:ready');
+    signal(retry, 2, 'od:preview:presentation-state-applied');
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(retry);
+    expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
   });
 
   it('remints when changed bytes preserve size and mtime but advance the settled file-watch generation', async () => {

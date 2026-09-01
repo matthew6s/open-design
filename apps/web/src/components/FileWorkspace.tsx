@@ -3395,9 +3395,12 @@ export function FileWorkspace({
       projectKind={projectKind}
       file={file}
       filesRefreshKey={filesRefreshKey}
-      fileContentRefreshKey={fileContentRefreshKeys?.get(
-        normalizeProjectFilePath(file.path ?? file.name),
-      ) ?? fileContentRefreshKeys?.get('') ?? 0}
+      fileContentRefreshKey={Math.max(
+        fileContentRefreshKeys?.get(
+          normalizeProjectFilePath(file.path ?? file.name),
+        ) ?? 0,
+        fileContentRefreshKeys?.get('') ?? 0,
+      )}
       isDeck={isDeck}
       streaming={streaming}
       commentQueueOnSend={commentQueueOnSend}

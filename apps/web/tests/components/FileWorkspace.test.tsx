@@ -1942,6 +1942,44 @@ describe('FileWorkspace launcher tab creation', () => {
     }
   });
 
+  it('remints an HTML preview when a newer project resource generation supersedes its file key', async () => {
+    const file = workspaceFile('index.html');
+    const workspaceContext = teamContext('workspace-a', 'member-a');
+
+    function Harness({ resourceGeneration }: { resourceGeneration: number }) {
+      return (
+        <IframeKeepAliveProvider>
+          <CollabProvider value={collabValue(workspaceContext)}>
+            <FileWorkspace
+              projectId="project-1"
+              projectKind="prototype"
+              files={[file]}
+              fileContentRefreshKeys={new Map([
+                ['index.html', 1],
+                ['', resourceGeneration],
+              ])}
+              liveArtifacts={[]}
+              onRefreshFiles={vi.fn()}
+              isDeck={false}
+              tabsState={{ tabs: [file.name], active: file.name }}
+              onTabsStateChange={vi.fn()}
+            />
+          </CollabProvider>
+        </IframeKeepAliveProvider>
+      );
+    }
+
+    const { rerender } = render(<Harness resourceGeneration={1} />);
+    await waitFor(() => expect(mockedFetchProjectScopedPreviewNavigation).toHaveBeenCalledTimes(1));
+    const first = await waitFor(() => presentedRuntimeFrame());
+
+    rerender(<Harness resourceGeneration={2} />);
+
+    await waitFor(() => expect(mockedFetchProjectScopedPreviewNavigation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(presentedRuntimeFrame()).not.toBe(first));
+    expect(presentedRuntimeFrame().src).toContain('n-scope-project-1-2.localhost');
+  });
+
   it('deletes the active HTML viewer without reattaching a surviving warm iframe', async () => {
     const alpha = workspaceFile('alpha.html');
     const beta = workspaceFile('beta.html');
