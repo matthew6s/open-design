@@ -651,6 +651,33 @@ describe('AssistantMessage status badge updates (Bug A)', () => {
     expect(screen.getByText('Visible answer')).toBeTruthy();
     expect(screen.queryByText('opencode_compaction')).toBeNull();
   });
+
+  it('suppresses normalized and legacy Codex reconnect telemetry from history', () => {
+    render(
+      <AssistantMessage
+        message={baseMessage({
+          events: [
+            { kind: 'text', text: 'Visible answer' } as ChatMessage['events'][number],
+            {
+              kind: 'status',
+              label: 'agent_reconnecting',
+              detail: '2/5',
+            } as ChatMessage['events'][number],
+            {
+              kind: 'status',
+              label: 'Reconnecting... 3/5 (stream disconnected before completion: socket closed)',
+            } as ChatMessage['events'][number],
+          ],
+        })}
+        streaming={false}
+        projectId="proj-1"
+      />,
+    );
+
+    expect(screen.getByText('Visible answer')).toBeTruthy();
+    expect(screen.queryByText('agent_reconnecting')).toBeNull();
+    expect(screen.queryByText(/Reconnecting\.\.\./u)).toBeNull();
+  });
 });
 
 describe('AssistantMessage thinking blocks', () => {

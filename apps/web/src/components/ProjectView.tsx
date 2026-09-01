@@ -20,6 +20,7 @@ import { recoverHtmlDocumentFromMarkdownFence, recoverStandaloneHtmlDocument, re
 import { createArtifactParser } from '../artifacts/parser';
 import { useI18n } from '../i18n';
 import {
+  type DaemonAgentReconnectState,
   type DaemonAgentRetryState,
   type DaemonReconnectState,
   fetchChatRunStatus,
@@ -6376,6 +6377,16 @@ export function ProjectView({
                 phase: state.phase,
               });
             },
+            onAgentReconnect: (state: DaemonAgentReconnectState) => {
+              pushReconnectSignal({
+                kind: 'agent-reconnect',
+                runId,
+                conversationId: reattachConversationId,
+                attempt: state.attempt,
+                max: state.max,
+                phase: state.phase,
+              });
+            },
             onDone: async () => {
               reattachHeardFromDaemon = true;
               // A reattached run interrupted by a "send now" still receives a
@@ -8225,6 +8236,17 @@ export function ProjectView({
           if (!currentRunId) return;
           pushReconnectSignal({
             kind: 'agent-retry',
+            runId: currentRunId,
+            conversationId: runConversationId,
+            attempt: state.attempt,
+            max: state.max,
+            phase: state.phase,
+          });
+        },
+        onAgentReconnect: (state: DaemonAgentReconnectState) => {
+          if (!currentRunId) return;
+          pushReconnectSignal({
+            kind: 'agent-reconnect',
             runId: currentRunId,
             conversationId: runConversationId,
             attempt: state.attempt,

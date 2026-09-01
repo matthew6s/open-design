@@ -2029,7 +2029,7 @@ test('codex json stream treats reconnect errors as status warnings not fatal (re
   assert.deepEqual(events, [
     { type: 'status', label: 'initializing', sessionId: 'thr-1' },
     { type: 'status', label: 'thinking' },
-    { type: 'status', label: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' },
+    { type: 'status', label: 'agent_reconnecting', detail: '2/5' },
     { type: 'text_delta', delta: 'OK' },
     { type: 'usage', usage: { input_tokens: 5, output_tokens: 2, cached_read_tokens: 0 } },
   ]);
@@ -2052,10 +2052,7 @@ test('codex json stream treats stream disconnect reconnect errors as status warn
   assert.deepEqual(events, [
     { type: 'status', label: 'initializing', sessionId: 'thr-1' },
     { type: 'status', label: 'thinking' },
-    {
-      type: 'status',
-      label: 'Reconnecting... 2/5 (stream disconnected before completion: Connection reset by peer (os error 54))',
-    },
+    { type: 'status', label: 'agent_reconnecting', detail: '2/5' },
     { type: 'text_delta', delta: 'OK' },
     { type: 'usage', usage: { input_tokens: 5, output_tokens: 2, cached_read_tokens: 0 } },
   ]);
@@ -2070,7 +2067,7 @@ test('codex json stream still treats real errors as fatal after reconnect warnin
   );
 
   assert.deepEqual(events, [
-    { type: 'status', label: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' },
+    { type: 'status', label: 'agent_reconnecting', detail: '2/5' },
     { type: 'error', message: 'Authentication failed: invalid API key' },
   ]);
 });

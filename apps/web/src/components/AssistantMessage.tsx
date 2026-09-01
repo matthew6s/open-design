@@ -4202,6 +4202,12 @@ function buildBlocks(events: AgentEvent[]): Block[] {
         // adapter classified it as a diagnostic, so suppress that legacy label
         // during history replay as well as on the live path.
         ev.label === "opencode_compaction" ||
+        // Codex versions before the normalized reconnect protocol persisted
+        // every `Reconnecting... n/5 (...)` warning as assistant history.
+        // New runs use the machine label and are dropped before persistence;
+        // suppress both shapes so old conversations remain compatible.
+        ev.label === "agent_reconnecting" ||
+        /^Reconnecting\.\.\.\s+\d+\/\d+\b/u.test(ev.label) ||
         // Transient ACP tool-call markers (#4618). On the live SSE path the
         // daemon normalizes these to `running` (TRANSIENT_ACP_STATUS_LABELS in
         // providers/daemon.ts), which is already skipped above; the persisted-

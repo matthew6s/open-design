@@ -136,14 +136,23 @@ function extractErrorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function isRecoverableCodexReconnect(message: string): boolean {
-  return (
-    message.startsWith('Reconnecting...') &&
-    (
-      message.includes('timeout waiting for child process to exit') ||
-      message.includes('stream disconnected before completion')
-    )
-  );
+function recoverableCodexReconnectProgress(
+  message: string,
+): { attempt: number; max: number } | null {
+  if (
+    !message.includes('timeout waiting for child process to exit') &&
+    !message.includes('stream disconnected before completion')
+  ) {
+    return null;
+  }
+  const match = /^Reconnecting\.\.\.\s+(\d+)\/(\d+)\b/u.exec(message);
+  if (!match) return null;
+  const attempt = Number(match[1]);
+  const max = Number(match[2]);
+  if (!Number.isFinite(attempt) || attempt <= 0 || !Number.isFinite(max) || max <= 0) {
+    return null;
+  }
+  return { attempt, max };
 }
 
 function formatOpenCodeUsage(tokens: unknown): Usage | null {
@@ -958,9 +967,17 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
 
   if (obj.type === 'error') {
     const message = extractErrorMessage(obj.message ?? obj.error, 'Codex error');
-    // Reconnecting events are recoverable — treat as status warning, not fatal
-    if (isRecoverableCodexReconnect(message)) {
-      onEvent({ type: 'status', label: message });
+    // Codex reports its own upstream reconnect loop as error-shaped JSONL.
+    // Normalize it into an ephemeral machine status: the web renders one
+    // in-place reconnect row, while the daemon persistence layer drops it.
+    // Never put the raw SDK sentence in assistant history.
+    const reconnect = recoverableCodexReconnectProgress(message);
+    if (reconnect) {
+      onEvent({
+        type: 'status',
+        label: 'agent_reconnecting',
+        detail: `${reconnect.attempt}/${reconnect.max}`,
+      });
       return true;
     }
     if (!state.codexErrorEmitted) {

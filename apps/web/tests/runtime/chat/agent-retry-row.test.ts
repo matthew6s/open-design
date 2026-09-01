@@ -103,6 +103,39 @@ describe('自动重试也走流水尾部那一行', () => {
   });
 });
 
+describe('agent 上游重连也复用同一行', () => {
+  it('原地更新计数，恢复后消失', () => {
+    const first = nextChatReconnectView(null, {
+      kind: 'agent-reconnect',
+      runId: RUN,
+      conversationId: CONV,
+      attempt: 1,
+      max: 5,
+      phase: 'reconnecting',
+    });
+    expect(first).toMatchObject({ reason: 'agent-reconnect', attempt: 1, max: 5 });
+
+    const second = nextChatReconnectView(first, {
+      kind: 'agent-reconnect',
+      runId: RUN,
+      conversationId: CONV,
+      attempt: 2,
+      max: 5,
+      phase: 'reconnecting',
+    });
+    expect(second).toMatchObject({ reason: 'agent-reconnect', attempt: 2, max: 5 });
+
+    expect(nextChatReconnectView(second, {
+      kind: 'agent-reconnect',
+      runId: RUN,
+      conversationId: CONV,
+      attempt: 0,
+      max: 5,
+      phase: 'cleared',
+    })).toBeNull();
+  });
+});
+
 describe('两种自救同时在场时,断线那一行优先', () => {
   // 这两件事在今天的实现里**碰不到一起**:daemon 发 `error` 帧不会关流
   // (`runtimes/runs.ts` 只有 `finish()` 才 `sse.end()`,而同 run 重试不走

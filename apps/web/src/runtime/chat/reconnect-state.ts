@@ -42,7 +42,7 @@ import type { ChatRunStatus } from '@open-design/contracts';
  * 也是「共几次」取哪个预算的判据 —— 传输层是 5(`DAEMON_STREAM_RECONNECT_LIMIT`),
  * 自动重试是那一轮的 `retry_max_attempts`。一行只说一件事,所以两个预算不会混。
  */
-export type ChatSelfHealReason = 'transport' | 'agent-retry';
+export type ChatSelfHealReason = 'transport' | 'agent-retry' | 'agent-reconnect';
 
 /** 流水尾部那一行的读数。`null` = 此刻不该有这一行。 */
 export interface ChatReconnectView {
@@ -117,6 +117,15 @@ export type ChatReconnectSignal =
       max: number;
       phase: 'retrying' | 'cleared';
     }
+  /** Agent CLI is reconnecting its upstream model stream (for example Codex). */
+  | {
+      kind: 'agent-reconnect';
+      runId: string;
+      conversationId: string;
+      attempt: number;
+      max: number;
+      phase: 'reconnecting' | 'cleared';
+    }
   /**
    * 本地不再跟这条流了:切会话、离开项目、组件卸载。不带 `runId` 就是全清。
    * 与 `settled` 分开是因为它不表达运行结果 —— 那一轮可能还在 daemon 上跑着。
@@ -175,7 +184,7 @@ export function nextChatReconnectView(
     return { ...prev, attempt: prev.max, exhausted: true, manualRetry: false };
   }
 
-  if (signal.kind === 'agent-retry') {
+  if (signal.kind === 'agent-retry' || signal.kind === 'agent-reconnect') {
     if (prev && prev.runId !== signal.runId) return prev;
     /*
      * 断线那一行盖得住重试那一行,反过来不行。
@@ -191,7 +200,7 @@ export function nextChatReconnectView(
     if (prev?.reason === 'transport') return prev;
     if (signal.phase === 'cleared') return null;
     return {
-      reason: 'agent-retry',
+      reason: signal.kind,
       runId: signal.runId,
       conversationId: signal.conversationId,
       attempt: signal.attempt,

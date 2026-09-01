@@ -721,6 +721,10 @@ const DETAIL_FAILURE_UI: Record<string, RunFailureUi> = {
 // every agent, including AMR. They leak in under the opaque AGENT_EXECUTION_FAILED
 // / process-exit codes, so without this the card would only show the raw stderr.
 const AGENT_AGNOSTIC_DETAIL_FAILURE_UI: Record<string, RunFailureUi> = {
+  stream_disconnected: retryWithGuidance(
+    'chat.runError.title.connectionDropped',
+    'chat.connectionDropped',
+  ),
   // Hard wall-clock timeout for the run (daemon user_action: retry). A plain
   // retry — optionally with a smaller task — usually gets through.
   timeout: retryWithGuidance(

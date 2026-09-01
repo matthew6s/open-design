@@ -62,6 +62,11 @@ describe('传输层那一行一个字没变', () => {
     expect(row().textContent).toBe('正在重新连接2/5');
   });
 
+  it('agent 上游重连也说「正在重新连接」并原位显示计数', () => {
+    render(<Reconnect attempt={2} max={5} reason="agent-reconnect" />);
+    expect(row().textContent).toBe('正在重新连接2/5');
+  });
+
   it('读数超过预算仍然夹到预算上', () => {
     render(<Reconnect attempt={7} max={5} reason="transport" />);
     expect(row().textContent).toBe('正在重新连接5/5');

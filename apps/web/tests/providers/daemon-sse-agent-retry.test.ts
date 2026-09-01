@@ -11,7 +11,11 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import { reattachDaemonRun, type DaemonAgentRetryState } from '../../src/providers/daemon';
+import {
+  reattachDaemonRun,
+  type DaemonAgentReconnectState,
+  type DaemonAgentRetryState,
+} from '../../src/providers/daemon';
 
 function enc(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -132,5 +136,48 @@ describe('传输层把 run_retry_attempted 转成 UI 读数', () => {
       sseEvent(3, 'end', { status: 'succeeded', code: 0 }),
     ]);
     expect(seen).toEqual([]);
+  });
+});
+
+describe('agent upstream reconnect becomes one ephemeral UI reading', () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('reports progress, suppresses the status row, then clears on visible output', async () => {
+    const reader = makeFiniteReader([
+      enc(sseEvent(1, 'agent', { type: 'status', label: 'agent_reconnecting', detail: '2/5' })),
+      enc(sseEvent(2, 'stdout', { chunk: 'back' })),
+      enc(sseEvent(3, 'end', { status: 'succeeded', code: 0 })),
+    ]);
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = typeof url === 'string' ? url : url.toString();
+      if (u.includes('/events')) return streamResponse(reader);
+      return jsonResponse({ status: 'succeeded', exitCode: 0, signal: null });
+    }) as unknown as typeof globalThis.fetch;
+
+    const reconnects: DaemonAgentReconnectState[] = [];
+    const agentEvents: unknown[] = [];
+    await reattachDaemonRun({
+      runId: 'reconnect-run',
+      signal: new AbortController().signal,
+      handlers: {
+        onDelta: () => {},
+        onDone: () => {},
+        onError: () => {},
+        onAgentEvent: (event) => { agentEvents.push(event); },
+        onAgentReconnect: (state) => { reconnects.push(state); },
+      },
+    });
+
+    expect(reconnects).toEqual([
+      { attempt: 2, max: 5, phase: 'reconnecting' },
+      { attempt: 0, max: 0, phase: 'cleared' },
+    ]);
+    expect(agentEvents).not.toContainEqual({
+      kind: 'status',
+      label: 'agent_reconnecting',
+      detail: '2/5',
+    });
   });
 });

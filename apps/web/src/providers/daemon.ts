@@ -325,6 +325,8 @@ export interface DaemonStreamHandlers extends StreamHandlers {
    * 让调用方撤掉那一行 —— 恢复后整行消失,不留「已恢复」。
    */
   onAgentRetry?: (state: DaemonAgentRetryState) => void;
+  /** Codex/agent CLI is reconnecting to its upstream model stream. */
+  onAgentReconnect?: (state: DaemonAgentReconnectState) => void;
 }
 
 /**
@@ -349,6 +351,13 @@ export interface DaemonAgentRetryState {
    * 一闪而过,最需要解释的那 30 秒照旧沉默。
    */
   phase: 'retrying' | 'cleared';
+}
+
+/** Upstream reconnect progress emitted by an agent runtime (not browser SSE). */
+export interface DaemonAgentReconnectState {
+  attempt: number;
+  max: number;
+  phase: 'reconnecting' | 'cleared';
 }
 
 /**
@@ -1578,6 +1587,7 @@ async function consumeDaemonPhysicalRun({
    * 不该因为换了条 TCP 就凭空消失或者重复宣告一次。
    */
   let agentRetryPending = false;
+  let agentReconnectPending = false;
   let stderrBuf = '';
   let exitCode: number | null = null;
   let exitSignal: string | null = null;
@@ -1846,10 +1856,15 @@ async function consumeDaemonPhysicalRun({
            * 也不认 `status`(壳头那句「启动中」):它不是上游给的东西,重跑成不成
            * 它都会来。
            */
-          const clearAgentRetryOnVisibleOutput = (): void => {
-            if (!agentRetryPending) return;
-            agentRetryPending = false;
-            handlers.onAgentRetry?.({ attempt: 0, max: 0, phase: 'cleared' });
+          const clearAgentSelfHealOnVisibleOutput = (): void => {
+            if (agentRetryPending) {
+              agentRetryPending = false;
+              handlers.onAgentRetry?.({ attempt: 0, max: 0, phase: 'cleared' });
+            }
+            if (agentReconnectPending) {
+              agentReconnectPending = false;
+              handlers.onAgentReconnect?.({ attempt: 0, max: 0, phase: 'cleared' });
+            }
           };
 
           if (event.event === 'run_retry_attempted') {
@@ -1872,7 +1887,7 @@ async function consumeDaemonPhysicalRun({
           if (event.event === 'stdout') {
             const chunk = String(event.data.chunk ?? '');
             acc += chunk;
-            clearAgentRetryOnVisibleOutput();
+            clearAgentSelfHealOnVisibleOutput();
             handlers.onDelta(chunk);
             handlers.onAgentEvent({ kind: 'text', text: chunk });
             continue;
@@ -1886,7 +1901,18 @@ async function consumeDaemonPhysicalRun({
           if (event.event === 'agent') {
             const translated = translateAgentEvent(event.data);
             if (!translated) continue;
-            if (translated.kind !== 'status') clearAgentRetryOnVisibleOutput();
+            if (translated.kind === 'status' && translated.label === 'agent_reconnecting') {
+              const match = /^(\d+)\/(\d+)$/u.exec(translated.detail?.trim() ?? '');
+              const attempt = Number(match?.[1]);
+              const max = Number(match?.[2]);
+              if (Number.isFinite(attempt) && attempt > 0 && Number.isFinite(max) && max > 0) {
+                agentReconnectPending = true;
+                handlers.onAgentReconnect?.({ attempt, max, phase: 'reconnecting' });
+              }
+              // This is transport telemetry, never assistant content.
+              continue;
+            }
+            if (translated.kind !== 'status') clearAgentSelfHealOnVisibleOutput();
             if (translated.kind === 'text') {
               acc += translated.text;
               handlers.onDelta(translated.text);

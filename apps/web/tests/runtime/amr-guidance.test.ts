@@ -446,6 +446,23 @@ describe('resolveRunFailureUi', () => {
     }
   });
 
+  it('localizes a classified stream disconnect instead of exposing raw SDK text', () => {
+    for (const agent of ['amr', 'codex', 'claude', null]) {
+      const ui = resolveRunFailureUi(
+        'AGENT_EXECUTION_FAILED',
+        'stream_disconnected',
+        agent,
+        'stream disconnected before completion: Transport error',
+      );
+      expect(ui).toMatchObject({
+        primaryAction: 'retry',
+        titleKey: 'chat.runError.title.connectionDropped',
+        messageKey: 'chat.connectionDropped',
+        showSwitchCard: false,
+      });
+    }
+  });
+
   it('offers authorize-and-retry for an unauthorized AMR run (sign-in copy, no card)', () => {
     const ui = resolveRunFailureUi('AMR_AUTH_REQUIRED', null, 'amr');
     expect(ui).toMatchObject({
