@@ -50,6 +50,13 @@ const subscribeToNoopStore = () => () => {};
 const getClientSnapshot = () => false;
 const getServerSnapshot = () => true;
 const getServerRevision = () => 0;
+const preservedOnLastAttach = new WeakSet<HTMLIFrameElement>();
+
+export function iframeBrowsingContextWasPreservedOnLastAttach(
+  frame: HTMLIFrameElement,
+): boolean {
+  return preservedOnLastAttach.has(frame);
+}
 
 function useIsServerRender() {
   return useSyncExternalStore(
@@ -63,7 +70,15 @@ export function previewIframeKeepAliveKey(projectId: string, fileName: string): 
   return `${projectId}\0${fileName}`;
 }
 
+function blurIframeIfFocused(frame: HTMLIFrameElement): void {
+  // moveBefore() deliberately preserves the browsing context, including its
+  // focused descendant. Release focus before hiding the frame so subsequent
+  // keyboard input cannot keep flowing to an off-screen authored document.
+  if (document.activeElement === frame) frame.blur();
+}
+
 function parkIframeElement(frame: HTMLIFrameElement) {
+  blurIframeIfFocused(frame);
   frame.onload = null;
   frame.removeAttribute('data-testid');
   frame.setAttribute('data-od-active', 'false');
@@ -71,7 +86,7 @@ function parkIframeElement(frame: HTMLIFrameElement) {
   frame.setAttribute('tabindex', '-1');
 }
 
-function moveIframeElement(target: HTMLElement, frame: HTMLIFrameElement): void {
+function moveIframeElement(target: HTMLElement, frame: HTMLIFrameElement): boolean {
   const moveBefore = (target as AtomicMoveTarget).moveBefore;
   const canMoveAtomically =
     frame.isConnected
@@ -79,7 +94,7 @@ function moveIframeElement(target: HTMLElement, frame: HTMLIFrameElement): void 
     && typeof moveBefore === 'function';
   if (!canMoveAtomically) {
     target.appendChild(frame);
-    return;
+    return false;
   }
 
   try {
@@ -87,10 +102,11 @@ function moveIframeElement(target: HTMLElement, frame: HTMLIFrameElement): void 
     // browsing context. moveBefore() keeps the loaded document and JS runtime
     // alive while the pool moves it between its visible and parked hosts.
     moveBefore.call(target, frame, null);
+    return true;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'NotSupportedError') {
       target.appendChild(frame);
-      return;
+      return false;
     }
     throw error;
   }
@@ -171,7 +187,11 @@ export function IframeKeepAliveProvider({
       }
       entry.lastUsedAt = Date.now();
       activeKeysRef.current.add(key);
-      moveIframeElement(host, entry.element);
+      if (moveIframeElement(host, entry.element)) {
+        preservedOnLastAttach.add(entry.element);
+      } else {
+        preservedOnLastAttach.delete(entry.element);
+      }
       // A project switch can leave parked entries behind immediately before
       // the next project's viewers attach. Enforce the bound here as well as
       // on release so a newly attached frame cannot temporarily push the pool
@@ -186,6 +206,7 @@ export function IframeKeepAliveProvider({
       if (entry && parkedHost) {
         parkIframeElement(entry.element);
         moveIframeElement(parkedHost, entry.element);
+        preservedOnLastAttach.delete(entry.element);
       }
       enforceLimit();
     },
@@ -337,6 +358,7 @@ export function useIframeKeepAlivePool(): IframeKeepAlivePoolValue {
 type PooledIframeProps = ComponentPropsWithoutRef<'iframe'> & {
   cacheKey: string;
   src: string;
+  'data-od-active'?: 'true' | 'false';
 };
 
 function setForwardedRef(ref: Ref<HTMLIFrameElement> | undefined, value: HTMLIFrameElement | null) {
@@ -402,6 +424,7 @@ function syncIframeProps(
   appliedAttributes: Set<string>,
   appliedStyleKeys: Set<string>,
 ) {
+  if (props['data-od-active'] === 'false') blurIframeIfFocused(frame);
   // A pooled srcDoc frame carries `src="about:blank"` as its parking URL.
   // Set that URL before srcdoc on a fresh DOM node. Reversing this order starts
   // the real about:srcdoc navigation and then immediately cancels it with the

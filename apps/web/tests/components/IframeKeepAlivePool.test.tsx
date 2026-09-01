@@ -103,6 +103,64 @@ describe('PooledIframe', () => {
     expect(secondRef).toHaveBeenLastCalledWith(frame);
   });
 
+  it('blurs a focused frame before parking its live browsing context', () => {
+    function Harness({ shown }: { shown: boolean }) {
+      return (
+        <IframeKeepAliveProvider>
+          {shown ? (
+            <PooledIframe
+              cacheKey={previewIframeKeepAliveKey('project-1', 'index.html')}
+              src="http://n-scope-0001.localhost:17456/index.html"
+              title="index.html"
+              data-testid="pooled-frame"
+            />
+          ) : null}
+        </IframeKeepAliveProvider>
+      );
+    }
+
+    const { rerender } = render(<Harness shown />);
+    const frame = screen.getByTestId('pooled-frame') as HTMLIFrameElement;
+    frame.focus();
+    expect(document.activeElement).toBe(frame);
+    const blur = vi.spyOn(frame, 'blur');
+
+    rerender(<Harness shown={false} />);
+
+    expect(blur).toHaveBeenCalledOnce();
+    expect(document.activeElement).not.toBe(frame);
+  });
+
+  it('blurs a focused retained frame when it becomes inactive without parking', () => {
+    function Harness({ active }: { active: boolean }) {
+      return (
+        <IframeKeepAliveProvider>
+          <PooledIframe
+            cacheKey={previewIframeKeepAliveKey('project-1', 'index.html')}
+            src="http://n-scope-0001.localhost:17456/index.html"
+            title="index.html"
+            data-testid="pooled-frame"
+            data-od-active={active ? 'true' : 'false'}
+            aria-hidden={active ? undefined : 'true'}
+            tabIndex={active ? 0 : -1}
+          />
+        </IframeKeepAliveProvider>
+      );
+    }
+
+    const { rerender } = render(<Harness active />);
+    const frame = screen.getByTestId('pooled-frame') as HTMLIFrameElement;
+    frame.focus();
+    expect(document.activeElement).toBe(frame);
+    const blur = vi.spyOn(frame, 'blur');
+
+    rerender(<Harness active={false} />);
+
+    expect(screen.getByTestId('pooled-frame')).toBe(frame);
+    expect(blur).toHaveBeenCalledOnce();
+    expect(document.activeElement).not.toBe(frame);
+  });
+
   it('evicts the least-recently-used suspended file frame at the retention limit', () => {
     function Harness({ fileName }: { fileName: string }) {
       return (

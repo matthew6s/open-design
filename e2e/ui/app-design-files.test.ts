@@ -1074,7 +1074,16 @@ test('[P0] @critical HTML file list and previews stay stable across repeated swi
 
   const projectId = await createProjectViaApi(page, 'Uploaded file switching stability');
   const seededHtml = new Map([
-    ['stable-alpha.html', '<!doctype html><html><body><main><h1>Stable Alpha</h1></main></body></html>'],
+    ['stable-alpha.html', `<!doctype html><html><body data-hidden-keydown-count="0">
+      <main><h1>Stable Alpha</h1><input data-testid="retained-focus-input"></main>
+      <script>
+        window.addEventListener('keydown', function () {
+          document.body.dataset.hiddenKeydownCount = String(
+            Number(document.body.dataset.hiddenKeydownCount || 0) + 1
+          );
+        });
+      </script>
+    </body></html>`],
     ['stable-beta.html', '<!doctype html><html><body><main><h1>Stable Beta</h1></main></body></html>'],
   ]);
   for (const [name, html] of seededHtml) {
@@ -1185,8 +1194,28 @@ test('[P0] @critical HTML file list and previews stay stable across repeated swi
   await expect(alphaHeading).toBeVisible();
   await expectWarmFrameUnchanged('stable-alpha.html', alphaFrameHandle, true);
   await expectWarmFrameUnchanged('stable-beta.html', betaFrameHandle, false);
-  await betaTab.click();
+  const alphaPreview = page.frameLocator(
+    'iframe[title="stable-alpha.html"][data-od-render-mode="runtime-url"]',
+  );
+  await alphaPreview.getByTestId('retained-focus-input').focus();
+  await expect(alphaPreview.getByTestId('retained-focus-input')).toBeFocused();
+  await page.evaluate(() => {
+    const host = window as typeof window & { __odHiddenFrameParentKeydowns?: number };
+    host.__odHiddenFrameParentKeydowns = 0;
+    window.addEventListener('keydown', () => {
+      host.__odHiddenFrameParentKeydowns = (host.__odHiddenFrameParentKeydowns ?? 0) + 1;
+    }, { capture: true });
+  });
+  // Programmatic tab activation intentionally does not move focus first. The
+  // pool must blur the live iframe before parking it, otherwise Chromium keeps
+  // routing keyboard input to the now-hidden authored document.
+  await betaTab.evaluate((node) => (node as HTMLElement).click());
   await expect(betaHeading).toBeVisible();
+  await page.keyboard.press('q');
+  await expect(alphaPreview.locator('body')).toHaveAttribute('data-hidden-keydown-count', '0');
+  expect(await page.evaluate(() => (
+    window as typeof window & { __odHiddenFrameParentKeydowns?: number }
+  ).__odHiddenFrameParentKeydowns ?? 0)).toBe(1);
   await expectWarmFrameUnchanged('stable-alpha.html', alphaFrameHandle, false);
   await expectWarmFrameUnchanged('stable-beta.html', betaFrameHandle, true);
   await waitForObservedActivityQuiescence(

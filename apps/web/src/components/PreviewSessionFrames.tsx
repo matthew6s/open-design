@@ -22,6 +22,7 @@ import {
 export type { PreviewSessionNavigation } from '../runtime/preview-session-navigation';
 import type { PreviewRuntimeMessageTarget } from '../runtime/preview-runtime-controller';
 import {
+  iframeBrowsingContextWasPreservedOnLastAttach,
   PooledIframe,
   previewIframeKeepAliveKey,
   useIframeKeepAlivePool,
@@ -150,6 +151,39 @@ interface LegacyRenderedPreviewDocument {
   frame: HTMLIFrameElement;
 }
 
+const legacyExpectedSettlement = new WeakMap<HTMLIFrameElement, string>();
+const legacySettledFrames = new WeakMap<HTMLIFrameElement, string>();
+const legacyObservedFrames = new WeakSet<HTMLIFrameElement>();
+
+function legacySettledMarker(
+  cacheKey: string,
+  navigation: PreviewSessionNavigation,
+): string {
+  const policy = previewSessionFramePolicy(navigation.sandboxProfile);
+  return JSON.stringify([
+    cacheKey,
+    navigation.url,
+    navigation.runtimeProtocol,
+    navigation.sandboxProfile,
+    navigation.deck,
+    policy.sandbox,
+    policy.allow ?? null,
+  ]);
+}
+
+function observeLegacyFrameLoad(frame: HTMLIFrameElement, marker: string): void {
+  legacyExpectedSettlement.set(frame, marker);
+  if (legacyObservedFrames.has(frame)) return;
+  legacyObservedFrames.add(frame);
+  // This listener intentionally outlives the React owner while the pool parks
+  // the frame. A real navigation can finish off-screen, and Chromium does not
+  // replay `load` when moveBefore() later reattaches that browsing context.
+  frame.addEventListener('load', () => {
+    const expected = legacyExpectedSettlement.get(frame);
+    if (expected) legacySettledFrames.set(frame, expected);
+  });
+}
+
 /**
  * Rolling-upgrade adapter for daemons that predate the universal Preview
  * Runtime. It still renders exactly one real-URL document transport. Because
@@ -178,6 +212,12 @@ function LegacyPreviewSessionFramesForFile({
     && current.navigation.url === navigation.url
     && current.navigationAttempt === navigationRetryToken;
   const standby = requestedIsCurrent ? null : navigation;
+  const standbyCacheKey = standby
+    ? documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)
+    : null;
+  const standbySettledMarker = standby && standbyCacheKey
+    ? legacySettledMarker(standbyCacheKey, standby)
+    : null;
 
   useEffect(() => {
     onCurrentFrameChange?.(active ? current?.frame ?? null : null);
@@ -190,6 +230,9 @@ function LegacyPreviewSessionFramesForFile({
 
   const promote = useCallback((frame: HTMLIFrameElement) => {
     if (!standby) return;
+    if (standbySettledMarker) {
+      legacySettledFrames.set(frame, standbySettledMarker);
+    }
     const previous = current;
     setCurrent({
       navigation: standby,
@@ -205,7 +248,28 @@ function LegacyPreviewSessionFramesForFile({
         previous.navigationAttempt,
       ));
     }
-  }, [current, fileName, navigationRetryToken, onPromoted, pool, projectId, standby]);
+  }, [
+    current,
+    fileName,
+    navigationRetryToken,
+    onPromoted,
+    pool,
+    projectId,
+    standby,
+    standbySettledMarker,
+  ]);
+
+  const stageLegacyFrame = useCallback((frame: HTMLIFrameElement | null) => {
+    onStandbyFrameChange?.(frame);
+    if (!frame || !standbySettledMarker) return;
+    observeLegacyFrameLoad(frame, standbySettledMarker);
+    if (
+      iframeBrowsingContextWasPreservedOnLastAttach(frame)
+      && legacySettledFrames.get(frame) === standbySettledMarker
+    ) {
+      promote(frame);
+    }
+  }, [onStandbyFrameChange, promote, standbySettledMarker]);
 
   const commonProps = {
     ...iframeProps,
@@ -243,10 +307,10 @@ function LegacyPreviewSessionFramesForFile({
       ) : null}
       {standby ? (
         <PooledIframe
-          key={documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)}
+          key={standbyCacheKey!}
           {...commonProps}
-          ref={onStandbyFrameChange}
-          cacheKey={documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)}
+          ref={stageLegacyFrame}
+          cacheKey={standbyCacheKey!}
           src={standby.url}
           sandbox={previewSessionFramePolicy(standby.sandboxProfile).sandbox}
           allow={previewSessionFramePolicy(standby.sandboxProfile).allow}

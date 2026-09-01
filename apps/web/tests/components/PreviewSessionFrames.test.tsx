@@ -13,6 +13,7 @@ import {
   PREVIEW_SESSION_STANDBY_TIMEOUT_MS,
   PreviewSessionFrames,
   previewSessionNavigationAttemptUrl,
+  type PreviewSessionFramesProps,
   type PreviewSessionNavigation,
 } from '../../src/components/PreviewSessionFrames';
 
@@ -67,6 +68,79 @@ function settle(frame: HTMLIFrameElement, document: PreviewSessionNavigation) {
   signal(frame, document, 'od:preview:capabilities-applied');
   signal(frame, document, 'od:preview:ready');
   signal(frame, document, 'od:preview:presentation-state-applied');
+}
+
+function installAtomicMoveBefore(): () => void {
+  const prototype = Element.prototype as Element & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  const original = prototype.moveBefore;
+  Object.defineProperty(Element.prototype, 'moveBefore', {
+    configurable: true,
+    value(this: Element, node: Node, child: Node | null) {
+      this.insertBefore(node, child);
+    },
+    writable: true,
+  });
+  return () => {
+    if (original) {
+      Object.defineProperty(Element.prototype, 'moveBefore', {
+        configurable: true,
+        value: original,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(Element.prototype, 'moveBefore');
+    }
+  };
+}
+
+function disableAtomicMoveBefore(): () => void {
+  const prototype = Element.prototype as Element & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  const original = prototype.moveBefore;
+  Reflect.deleteProperty(Element.prototype, 'moveBefore');
+  return () => {
+    if (!original) return;
+    Object.defineProperty(Element.prototype, 'moveBefore', {
+      configurable: true,
+      value: original,
+      writable: true,
+    });
+  };
+}
+
+function legacyNavigation(): PreviewSessionNavigation {
+  return {
+    ...navigation('legacy-v1'),
+    runtimeProtocol: 'legacy-url',
+    url: 'http://localhost/api/projects/project-1/preview/legacy-scope/index.html',
+  };
+}
+
+function LegacyRetentionHarness({
+  shown,
+  navigation: legacy,
+  onPromoted,
+}: {
+  shown: boolean;
+  navigation: PreviewSessionNavigation;
+  onPromoted?: PreviewSessionFramesProps['onPromoted'];
+}) {
+  return (
+    <IframeKeepAliveProvider>
+      {shown ? (
+        <PreviewSessionFrames
+          projectId="project-1"
+          fileName="index.html"
+          navigation={legacy}
+          active
+          onPromoted={onPromoted}
+        />
+      ) : null}
+    </IframeKeepAliveProvider>
+  );
 }
 
 describe('PreviewSessionFrames', () => {
@@ -552,5 +626,98 @@ describe('PreviewSessionFrames', () => {
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(standby);
     expect(document.querySelectorAll('iframe')).toHaveLength(1);
     expect(onPromoted).toHaveBeenCalledWith(legacy, null);
+  });
+
+  it('restores an exact settled old-daemon frame without waiting for a second load event', () => {
+    const restoreMoveBefore = installAtomicMoveBefore();
+    const legacy = legacyNavigation();
+    const onPromoted = vi.fn();
+    const view = (shown: boolean) => (
+      <LegacyRetentionHarness shown={shown} navigation={legacy} onPromoted={onPromoted} />
+    );
+
+    try {
+      const { rerender } = render(view(true));
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      act(() => frame.dispatchEvent(new Event('load')));
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+
+      rerender(view(false));
+      rerender(view(true));
+
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+      expect(onPromoted).toHaveBeenCalledTimes(2);
+    } finally {
+      restoreMoveBefore();
+    }
+  });
+
+  it('keeps an unsettled old-daemon frame on standby after reattachment', () => {
+    const restoreMoveBefore = installAtomicMoveBefore();
+    const legacy = legacyNavigation();
+    const view = (shown: boolean) => (
+      <LegacyRetentionHarness shown={shown} navigation={legacy} />
+    );
+
+    try {
+      const { rerender } = render(view(true));
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+
+      rerender(view(false));
+      rerender(view(true));
+
+      expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+      expect(screen.getByTestId('preview-runtime-frame-standby')).toBe(frame);
+      act(() => frame.dispatchEvent(new Event('load')));
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+    } finally {
+      restoreMoveBefore();
+    }
+  });
+
+  it('waits for a new load when fallback reattachment cannot preserve the old document', () => {
+    const restoreMoveBefore = disableAtomicMoveBefore();
+    const legacy = legacyNavigation();
+    const view = (shown: boolean) => (
+      <LegacyRetentionHarness shown={shown} navigation={legacy} />
+    );
+
+    try {
+      const { rerender } = render(view(true));
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      act(() => frame.dispatchEvent(new Event('load')));
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+
+      rerender(view(false));
+      rerender(view(true));
+
+      expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+      expect(screen.getByTestId('preview-runtime-frame-standby')).toBe(frame);
+      act(() => frame.dispatchEvent(new Event('load')));
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+    } finally {
+      restoreMoveBefore();
+    }
+  });
+
+  it('records an old-daemon load that completes while the frame is parked', () => {
+    const restoreMoveBefore = installAtomicMoveBefore();
+    const legacy = legacyNavigation();
+    const view = (shown: boolean) => (
+      <LegacyRetentionHarness shown={shown} navigation={legacy} />
+    );
+
+    try {
+      const { rerender } = render(view(true));
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      rerender(view(false));
+
+      act(() => frame.dispatchEvent(new Event('load')));
+      rerender(view(true));
+
+      expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+    } finally {
+      restoreMoveBefore();
+    }
   });
 });
