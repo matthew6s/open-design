@@ -507,26 +507,23 @@ function testRect(left: number, top: number, width: number, height: number): DOM
   } as DOMRect;
 }
 
-function installSandboxedPreviewWindow(frame: HTMLIFrameElement): Window {
-  const previousPostMessage = frame.contentWindow?.postMessage;
-  const postMessage = vi.fn();
-  if (vi.isMockFunction(previousPostMessage)) {
-    postMessage.mock.calls.push(...previousPostMessage.mock.calls);
-  }
-  const previewWindow = {
-    postMessage,
-  } as unknown as Window;
-  Object.defineProperty(previewWindow, 'document', {
-    configurable: true,
-    get() {
-      throw new DOMException('Blocked by iframe sandbox', 'SecurityError');
-    },
-  });
-  Object.defineProperty(frame, 'contentWindow', {
-    configurable: true,
-    value: previewWindow,
-  });
-  return previewWindow;
+function installSandboxedPreviewWindows(): void {
+  const frameWindows = new WeakMap<HTMLIFrameElement, Window>();
+  vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get')
+    .mockImplementation(function sandboxedContentWindow(this: HTMLIFrameElement) {
+      let previewWindow = frameWindows.get(this);
+      if (!previewWindow) {
+        previewWindow = { postMessage: vi.fn() } as unknown as Window;
+        Object.defineProperty(previewWindow, 'document', {
+          configurable: true,
+          get() {
+            throw new DOMException('Blocked by iframe sandbox', 'SecurityError');
+          },
+        });
+        frameWindows.set(this, previewWindow);
+      }
+      return previewWindow;
+    });
 }
 
 function latestPreviewContentSizeRequest(source: Window) {
@@ -1842,7 +1839,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(onBrandExtractionStopRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('reloads a URL-loaded HTML preview with a new cache key without replacing the iframe', () => {
+  it('reloads a real-URL HTML preview by promoting a ready replacement', async () => {
     const file = baseFile({
       name: 'page.html',
       path: 'page.html',
@@ -1867,14 +1864,19 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    expect(frame.getAttribute('src')).toContain('/api/projects/project-1/raw/page.html?v=1710000000&r=0&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=');
+    const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const initialSrc = frame.src;
+    expect(initialSrc).not.toBe('about:blank');
 
     fireEvent.click(screen.getByRole('button', { name: /reload preview/i }));
 
-    const reloadedFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    expect(reloadedFrame).toBe(frame);
-    expect(reloadedFrame.getAttribute('src')).toContain('/api/projects/project-1/raw/page.html?v=1710000000&r=1&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=');
+    const reloadedFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      return current;
+    });
+    expect(reloadedFrame.src).not.toBe(initialSrc);
+    expect(reloadedFrame.src).not.toBe('about:blank');
   });
 
   it('keeps raw file-watch refresh measurements on the refreshed document epoch', async () => {
@@ -1925,24 +1927,28 @@ describe('FileViewer SVG artifacts', () => {
     };
     const { rerender } = render(<FileViewer {...props} />);
     const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const initialEpoch = new URL(frame.src).searchParams.get('odPreviewEpoch');
-    expect(initialEpoch).toMatch(/^preview-document-\d+$/);
+    const initialDocumentVersion = frame.dataset.odDocumentVersion;
 
-    rerender(<FileViewer {...props} filesRefreshKey={7} />);
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 1 }}
+        filesRefreshKey={7}
+      />,
+    );
 
-    await waitFor(() => expect(frame.getAttribute('src')).toContain('fr=7'));
+    const refreshedFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      expect(current.dataset.odDocumentVersion).not.toBe(initialDocumentVersion);
+      return current;
+    });
     expect(replaceMock).not.toHaveBeenCalled();
-    const refreshedUrl = new URL(frame.src, window.location.href);
-    expect(refreshedUrl.pathname).toBe('/api/projects/project-1/raw/page.html');
-    expect(refreshedUrl.searchParams.get('fr')).toBe('7');
-    expect(refreshedUrl.searchParams.get('odPreviewEpoch')).toMatch(/^preview-document-\d+$/);
-    expect(refreshedUrl.searchParams.get('odPreviewEpoch')).not.toBe(initialEpoch);
 
-    frame.setAttribute('src', refreshedUrl.toString());
-    fireEvent.load(frame);
-    const previewWindow = frame.contentWindow!;
+    fireEvent.load(refreshedFrame);
+    const previewWindow = refreshedFrame.contentWindow!;
     const refreshedRequest = latestPreviewContentSizeRequest(previewWindow);
-    expect(refreshedRequest.documentEpoch).toBe(refreshedUrl.searchParams.get('odPreviewEpoch'));
+    expect(refreshedRequest.documentEpoch).toMatch(/^preview-document-\d+$/);
     act(() => postPreviewContentSizeResponse(previewWindow, refreshedRequest, 1440, 900));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '63%' })).toBeTruthy();
@@ -2014,7 +2020,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it('prewarms the latest file-watch refresh while retained and does not navigate on reactivation', async () => {
+  it('retains the visible file-watch document while inactive and adopts the latest refresh on reactivation', async () => {
     const replaceMock = vi.fn();
     const frameWindows = new WeakMap<HTMLIFrameElement, Window>();
     vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockImplementation(function (this: HTMLIFrameElement) {
@@ -2054,23 +2060,62 @@ describe('FileViewer SVG artifacts', () => {
     const initialSrc = frame.getAttribute('src');
     replaceMock.mockClear();
 
-    rerender(<FileViewer {...props} workspaceActive={false} filesRefreshKey={7} />);
-    rerender(<FileViewer {...props} workspaceActive={false} filesRefreshKey={9} />);
-    await waitFor(() => expect(frame.getAttribute('src')).toContain('fr=9'));
-    const prewarmedSrc = frame.getAttribute('src');
-    expect(prewarmedSrc).not.toBe(initialSrc);
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 1 }}
+        workspaceActive={false}
+        filesRefreshKey={7}
+      />,
+    );
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 2 }}
+        workspaceActive={false}
+        filesRefreshKey={9}
+      />,
+    );
+    expect(frame.getAttribute('src')).toBe(initialSrc);
     expect(replaceMock).not.toHaveBeenCalled();
 
-    rerender(<FileViewer {...props} workspaceActive filesRefreshKey={9} />);
-    expect(frame.getAttribute('src')).toBe(prewarmedSrc);
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 2 }}
+        workspaceActive
+        filesRefreshKey={9}
+      />,
+    );
+    const refreshedFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      return current;
+    });
+    expect(refreshedFrame.getAttribute('src')).not.toBe(initialSrc);
+    expect(refreshedFrame.getAttribute('src')).not.toBe('about:blank');
     expect(replaceMock).not.toHaveBeenCalled();
 
-    rerender(<FileViewer {...props} workspaceActive={false} filesRefreshKey={9} />);
-    rerender(<FileViewer {...props} workspaceActive filesRefreshKey={9} />);
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 2 }}
+        workspaceActive={false}
+        filesRefreshKey={9}
+      />,
+    );
+    rerender(
+      <FileViewer
+        {...props}
+        file={{ ...file, mtime: file.mtime + 2 }}
+        workspaceActive
+        filesRefreshKey={9}
+      />,
+    );
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it('re-probes a retained URL preview bridge when its file tab reactivates', async () => {
+  it('reactivates the retained universal runtime without navigating it', async () => {
     const file = baseFile({
       name: 'retained-bridge.html',
       path: 'retained-bridge.html',
@@ -2101,10 +2146,11 @@ describe('FileViewer SVG artifacts', () => {
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith(
-        { type: 'od:url-selection-bridge-probe' },
+        { active: true, type: 'od:preview-observability-host-state' },
         '*',
       );
     });
+    expect(screen.getByTestId('artifact-preview-frame')).toBe(frame);
     expect(frame.getAttribute('src')).not.toBe('about:blank');
   });
 
@@ -2145,7 +2191,7 @@ describe('FileViewer SVG artifacts', () => {
     }
   });
 
-  it('prewarms simultaneous mtime and file-watch updates while retained, then reactivates without navigation', async () => {
+  it('coalesces inactive mtime and file-watch updates into one ready document on reactivation', async () => {
     const replaceMock = vi.fn();
     const frameWindows = new WeakMap<HTMLIFrameElement, Window>();
     vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockImplementation(function (this: HTMLIFrameElement) {
@@ -2203,13 +2249,8 @@ describe('FileViewer SVG artifacts', () => {
         workspaceActive={false}
       />,
     );
-    await waitFor(() => expect(frame.getAttribute('src')).toContain('fr=9'));
-
     expect(document.querySelector('iframe[title="retained-version.html"]')).toBe(frame);
-    const prewarmedSrc = String(frame.getAttribute('src'));
-    expect(prewarmedSrc).not.toBe(initialSrc);
-    expect(prewarmedSrc).toContain('v=3000');
-    expect(prewarmedSrc).toContain('fr=9');
+    expect(frame.getAttribute('src')).toBe(initialSrc);
     expect(replaceMock).not.toHaveBeenCalled();
 
     rerender(
@@ -2220,7 +2261,13 @@ describe('FileViewer SVG artifacts', () => {
         workspaceActive
       />,
     );
-    expect(frame.getAttribute('src')).toBe(prewarmedSrc);
+    const refreshedFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      return current;
+    });
+    expect(refreshedFrame.getAttribute('src')).not.toBe(initialSrc);
+    expect(refreshedFrame.getAttribute('src')).not.toBe('about:blank');
     expect(replaceMock).not.toHaveBeenCalled();
 
     rerender(
@@ -2482,7 +2529,7 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    expect((await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement).getAttribute('data-od-render-mode')).toBe('url-load');
+    expect((await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement).getAttribute('data-od-render-mode')).toBe('runtime-url');
 
     await openUnifiedExportTab();
 
@@ -2746,7 +2793,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(restoreCalls()).toHaveLength(0);
   });
 
-  it('returns to the URL transport after leaving manual edit without persisted changes', async () => {
+  it('leaves manual edit without replacing the real-URL document when nothing changed', async () => {
     const file = baseFile({
       name: 'page.html',
       path: 'page.html',
@@ -2762,7 +2809,7 @@ describe('FileViewer SVG artifacts', () => {
       },
     });
 
-    const { container } = render(
+    render(
       <FileViewer
         projectId="project-1"
         projectKind="prototype"
@@ -2771,25 +2818,21 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    expect((await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement).getAttribute('data-od-render-mode')).toBe('url-load');
+    const previewFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const previewSrc = previewFrame.src;
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
-    const editFrame = await waitFor(() => {
-      const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(frame.getAttribute('data-od-render-mode')).toBe('srcdoc');
-      expect(frame.srcdoc).toContain('data-od-edit-bridge');
-      return frame;
+    await waitFor(() => {
+      expect(screen.getByTestId('manual-edit-mode-toggle')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('artifact-preview-frame')).toBe(previewFrame);
     });
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
 
     await waitFor(() => expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('false'));
-    const previewFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const urlFrame = container.querySelector('iframe[data-od-render-mode="url-load"]') as HTMLIFrameElement | null;
-
-    expect(previewFrame).toBe(urlFrame);
-    expect(previewFrame.getAttribute('data-od-render-mode')).toBe('url-load');
+    expect(screen.getByTestId('artifact-preview-frame')).toBe(previewFrame);
+    expect(previewFrame.getAttribute('data-od-render-mode')).toBe('runtime-url');
+    expect(previewFrame.src).toBe(previewSrc);
     expect(previewFrame.getAttribute('src')).not.toBe('about:blank');
-    expect(editFrame.getAttribute('data-od-active')).toBe('false');
   });
 
   it('settles manual edit and reloads without leaving edit mode', async () => {
@@ -4429,11 +4472,9 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    const initialFrame = container.querySelector(
-      'iframe[data-od-render-mode="url-load"]',
-    ) as HTMLIFrameElement;
+    const initialFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const initialSrc = initialFrame.getAttribute('src');
-    expect(initialSrc).toContain('/raw/');
+    expect(initialSrc).not.toBe('about:blank');
 
     for (let index = 0; index < 6; index += 1) {
       fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
@@ -4445,10 +4486,10 @@ describe('FileViewer SVG artifacts', () => {
       expect(initialFrame.getAttribute('src')).toBe(initialSrc);
     }
 
-    expect(container.querySelector('iframe[data-od-render-mode="url-load"]')).toBe(initialFrame);
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(initialFrame);
   });
 
-  it('keeps srcDoc HTML previews available with a compact Code action', async () => {
+  it('keeps the real-URL HTML preview available with a compact Code action', async () => {
     const file = baseFile({
       name: 'page.html',
       path: 'page.html',
@@ -4464,7 +4505,7 @@ describe('FileViewer SVG artifacts', () => {
       },
     });
 
-    const { container } = render(
+    render(
       <FileViewer
         projectId="project-1"
         projectKind="prototype"
@@ -4476,21 +4517,24 @@ describe('FileViewer SVG artifacts', () => {
     // Both destinations stay on the bar as a two-segment tablist.
     expect(screen.getByRole('tab', { name: 'Code' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Preview' })).toBeTruthy();
+    const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const initialSrc = frame.src;
     fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
     expect(screen.getByRole('tab', { name: 'Code' }).getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('.viewer-source')?.textContent).toContain('data-od-id="hero"');
+    expect(document.querySelector('.viewer-source')?.textContent).toContain('data-od-id="hero"');
     fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
 
     await waitFor(() => {
       const activeFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(activeFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
-      expect(activeFrame.srcdoc).toContain('data-od-edit-bridge');
-      expect(activeFrame.srcdoc).toContain('Hero');
+      expect(activeFrame).toBe(frame);
+      expect(activeFrame.getAttribute('data-od-render-mode')).toBe('runtime-url');
+      expect(activeFrame.src).toBe(initialSrc);
+      expect(screen.getByTestId('manual-edit-mode-toggle')).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
-  it('uses the next file URL immediately when switching URL-loaded HTML previews', () => {
+  it('keeps the current file visible until the next real-URL preview is ready', async () => {
     const first = baseFile({
       name: 'first.html',
       path: 'first.html',
@@ -4515,20 +4559,10 @@ describe('FileViewer SVG artifacts', () => {
         entry: 'second.html',
       },
     };
-    const observedCommittedSrcs: Array<string | null> = [];
-
     function Switcher() {
       const [file, setFile] = useState<ProjectFile>(first);
-      const hostRef = useRef<HTMLDivElement | null>(null);
-      useLayoutEffect(() => {
-        observedCommittedSrcs.push(
-          hostRef.current
-            ?.querySelector<HTMLIFrameElement>('[data-testid="artifact-preview-frame"]')
-            ?.getAttribute('src') ?? null,
-        );
-      });
       return (
-        <div ref={hostRef}>
+        <div>
           <button type="button" onClick={() => setFile(second)}>Switch file</button>
           <FileViewer projectId="project-1" projectKind="prototype" file={file}
             liveHtml="<html><body>preview</body></html>"
@@ -4537,20 +4571,20 @@ describe('FileViewer SVG artifacts', () => {
       );
     }
 
-    const { container } = render(<Switcher />);
-    const getFrame = () => container.querySelector<HTMLIFrameElement>('[data-testid="artifact-preview-frame"]');
-    const initialFrame = getFrame();
-    expect(initialFrame?.getAttribute('src')).toContain('/api/projects/project-1/raw/first.html?v=1710000000&r=0&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=');
+    render(<Switcher />);
+    const initialFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const initialSrc = initialFrame.src;
 
-    const observationsBeforeSwitch = observedCommittedSrcs.length;
     fireEvent.click(screen.getByRole('button', { name: 'Switch file' }));
 
-    const nextFrame = getFrame();
-    expect(nextFrame).toBeTruthy();
-    expect(observedCommittedSrcs[observationsBeforeSwitch]).toContain(
-      '/api/projects/project-1/raw/second.html?v=1710000000&r=0&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=',
-    );
-    expect(nextFrame?.getAttribute('src')).toContain('/api/projects/project-1/raw/second.html?v=1710000000&r=0&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=');
+    const nextFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(initialFrame);
+      return current;
+    });
+    expect(nextFrame.src).not.toBe(initialSrc);
+    expect(nextFrame.title).toBe('second.html');
+    expect(nextFrame.src).not.toBe('about:blank');
   });
 
   it('allows downloads in the in-tab HTML presentation iframe', { timeout: 10_000 }, async () => {
@@ -5523,7 +5557,8 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    const firstExportButton = screen.getByRole('button', { name: /export/i });
+    await screen.findByTestId('artifact-preview-frame');
+    const firstExportButton = await screen.findByRole('button', { name: /export/i });
     await waitFor(() => {
       expect(firstExportButton.classList.contains('export-ready-nudge')).toBe(true);
     });
@@ -5539,7 +5574,10 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    const secondExportButton = screen.getByRole('button', { name: /export/i });
+    await waitFor(() => {
+      expect((screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement).title).toBe('nudge-second.html');
+    });
+    const secondExportButton = await screen.findByRole('button', { name: /export/i });
     await waitFor(() => {
       expect(secondExportButton.classList.contains('export-ready-nudge')).toBe(true);
     });
@@ -8596,9 +8634,11 @@ describe('FileViewer tweaks toolbar', () => {
     const mintCount = fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
     )).length;
-    rerender(renderViewer(
+    previewRuntimeHarness.sources.set(
+      'project-1\0preview.html',
       '<!doctype html><html><body><main data-od-id="hero">Streaming update</main></body></html>',
-    ));
+    );
+    rerender(renderViewer());
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(recoveredFrame);
     expectScopedPreviewNavigationUrl(
       recoveredFrame,
@@ -11233,6 +11273,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('auto-fits wide desktop HTML previews until the user manually zooms', async () => {
+    installSandboxedPreviewWindows();
     let viewerBodyWidth = 900;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
@@ -11264,7 +11305,7 @@ describe('FileViewer tweaks toolbar', () => {
     );
 
     const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const previewWindow = installSandboxedPreviewWindow(frame);
+    const previewWindow = frame.contentWindow!;
     fireEvent.load(frame);
     const neutralRequest = latestPreviewContentSizeRequest(previewWindow);
     expect(neutralRequest.measurementId).toMatch(/^preview-host-\d+:measurement-\d+$/);
@@ -11309,6 +11350,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('updates auto-fit when the overflow witness changes at the same measured width', async () => {
+    installSandboxedPreviewWindows();
     let viewerBodyWidth = 900;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
@@ -11335,7 +11377,7 @@ describe('FileViewer tweaks toolbar', () => {
     );
 
     const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const previewWindow = installSandboxedPreviewWindow(frame);
+    const previewWindow = frame.contentWindow!;
     fireEvent.load(frame);
     const responsiveRequest = latestPreviewContentSizeRequest(previewWindow);
     act(() => postPreviewContentSizeResponse(previewWindow, responsiveRequest, 900, 900));
@@ -11366,6 +11408,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('requests the content-size bridge for powered desktop previews before auto-fitting', async () => {
+    installSandboxedPreviewWindows();
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
         if (this.classList.contains('viewer-body')) return testRect(0, 0, 900, 700);
@@ -11428,7 +11471,7 @@ describe('FileViewer tweaks toolbar', () => {
     });
 
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const previewWindow = installSandboxedPreviewWindow(frame);
+    const previewWindow = frame.contentWindow!;
     fireEvent.load(frame);
     act(() => postPreviewContentWidth(previewWindow, 1440, 900));
 
@@ -11438,6 +11481,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('keeps desktop HTML previews at 100% when measured content already fits', async () => {
+    installSandboxedPreviewWindows();
     let viewerBodyWidth = 900;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
@@ -11469,7 +11513,7 @@ describe('FileViewer tweaks toolbar', () => {
     );
 
     const responsiveFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const previewWindow = installSandboxedPreviewWindow(responsiveFrame);
+    const previewWindow = responsiveFrame.contentWindow!;
     fireEvent.load(responsiveFrame);
     act(() => postPreviewContentWidth(previewWindow, 900));
 
@@ -11489,6 +11533,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('reuses a confirmed fixed-width witness only for the same file revision', async () => {
+    installSandboxedPreviewWindows();
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
         if (
@@ -11514,7 +11559,7 @@ describe('FileViewer tweaks toolbar', () => {
 
     const first = render(<FileViewer {...props} />);
     const firstFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const firstWindow = installSandboxedPreviewWindow(firstFrame);
+    const firstWindow = firstFrame.contentWindow!;
     fireEvent.load(firstFrame);
     act(() => postPreviewContentWidth(firstWindow, 1440, 900));
     await waitFor(() => {
@@ -11535,9 +11580,9 @@ describe('FileViewer tweaks toolbar', () => {
     first.unmount();
 
     const sameRevision = render(<FileViewer {...props} />);
+    const remountedFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
     expect(screen.getByRole('button', { name: '63%' })).toBeTruthy();
-    const remountedFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const remountedWindow = installSandboxedPreviewWindow(remountedFrame);
+    const remountedWindow = remountedFrame.contentWindow!;
     fireEvent.load(remountedFrame);
     const remountedRequest = latestPreviewContentSizeRequest(remountedWindow);
     expect(remountedRequest.measurementId).not.toBe(preReloadRequest.measurementId);
@@ -11546,7 +11591,10 @@ describe('FileViewer tweaks toolbar', () => {
     sameRevision.unmount();
 
     render(<FileViewer {...props} file={{ ...file, mtime: 1710000001 }} />);
-    expect(screen.getByRole('button', { name: '100%' })).toBeTruthy();
+    await screen.findByTestId('artifact-preview-frame');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '100%' })).toBeTruthy();
+    });
   });
 
   it.each([
@@ -11554,6 +11602,7 @@ describe('FileViewer tweaks toolbar', () => {
     ['Draw', 'draw-overlay-toggle'],
     ['Edit', 'manual-edit-mode-toggle'],
   ])('keeps fixed-width auto-fit stable while %s freezes an older revision', async (_mode, toggleTestId) => {
+    installSandboxedPreviewWindows();
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function getBoundingClientRectMock(this: HTMLElement) {
         if (
@@ -11578,8 +11627,8 @@ describe('FileViewer tweaks toolbar', () => {
         liveHtml='<html><body><main style="min-width:1440px">Frozen V1</main></body></html>'
       />,
     );
-    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    const previewWindow = installSandboxedPreviewWindow(frame);
+    const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const previewWindow = frame.contentWindow!;
     fireEvent.load(frame);
     act(() => postPreviewContentWidth(previewWindow, 1440, 900));
     await waitFor(() => {
