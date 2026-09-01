@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentProps, type ReactElement } from 'react';
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { installMockOpenDesignHost } from '@open-design/host/testing';
@@ -10,7 +10,7 @@ import type {
   OpenDesignHostPreviewNavigationFailure,
   OpenDesignHostPreviewNavigationFailureListener,
 } from '@open-design/host';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ANNOTATION_EVENT } from '../../src/components/PreviewDrawOverlay';
 import { PREVIEW_SESSION_STANDBY_TIMEOUT_MS } from '../../src/components/PreviewSessionFrames';
 
@@ -65,7 +65,7 @@ vi.mock('../../src/state/projects', async () => {
 
 import {
   CommentSidePanel,
-  FileViewer,
+  FileViewer as ProductFileViewer,
   LiveArtifactViewer,
   LiveArtifactRefreshHistoryPanel,
   SvgViewer,
@@ -111,9 +111,114 @@ import {
   type WorkspaceCollabContext,
 } from '@open-design/contracts';
 import {
+  PREVIEW_RUNTIME_CAPABILITIES,
   PREVIEW_RUNTIME_PROTOCOL_VERSION,
   type PreviewRuntimeCapability,
 } from '@open-design/contracts/runtime/preview-runtime';
+import { projectPreviewNavigationCache } from '../../src/runtime/project-preview-navigation-cache';
+import type { ProjectScopedPreviewNavigation } from '../../src/providers/registry';
+
+const previewRuntimeHarness = vi.hoisted(() => ({
+  forceSyntheticNavigation: false,
+  sourceReads: [] as Array<{ key: string; source: string }>,
+  sources: new Map<string, string>(),
+  syntheticNavigations: new Map<string, ProjectScopedPreviewNavigation>(),
+  syntheticDeck: false,
+  syntheticNavigation: true,
+  navigationSequence: 0,
+}));
+
+vi.mock('../../src/providers/registry', async () => {
+  const actual = await vi.importActual<typeof import('../../src/providers/registry')>(
+    '../../src/providers/registry',
+  );
+  return {
+    ...actual,
+    async fetchProjectFileText(
+      projectId: string,
+      name: string,
+      options?: Parameters<typeof actual.fetchProjectFileText>[2],
+    ) {
+      const source = previewRuntimeHarness.sources.get(`${projectId}\0${name}`);
+      if (previewRuntimeHarness.syntheticNavigation && source !== undefined) {
+        previewRuntimeHarness.sourceReads.push({ key: `${projectId}\0${name}`, source });
+        return source;
+      }
+      return actual.fetchProjectFileText(projectId, name, options);
+    },
+  };
+});
+
+vi.mock('../../src/runtime/use-project-preview-session-navigation', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../src/runtime/use-project-preview-session-navigation')
+  >(
+    '../../src/runtime/use-project-preview-session-navigation',
+  );
+  return {
+    ...actual,
+    useProjectScopedPreviewNavigation(
+      options: Parameters<typeof actual.useProjectScopedPreviewNavigation>[0],
+    ) {
+      if (!previewRuntimeHarness.forceSyntheticNavigation) {
+        return actual.useProjectScopedPreviewNavigation(options);
+      }
+      if (options.enabled === false) {
+        return { scoped: null, loading: false, unavailable: false, expiresAt: null };
+      }
+      const key = [
+        options.authorizationKey,
+        options.projectId,
+        options.fileName,
+        options.revisionKey,
+      ].join('\0');
+      let scoped = previewRuntimeHarness.syntheticNavigations.get(key);
+      if (!scoped) {
+        const sequence = ++previewRuntimeHarness.navigationSequence;
+        const sessionId = `test-scope-${String(sequence).padStart(4, '0')}`;
+        const encodedPath = options.fileName.split('/').map(encodeURIComponent).join('/');
+        scoped = {
+          sessionId,
+          normalUrl: `http://n-${sessionId}.localhost:43111/${encodedPath}`,
+          poweredUrl: `http://p-${sessionId}.localhost:43111/${encodedPath}`,
+          documentVersion: `test-document-${sequence}`,
+          runtimeProtocol: 'universal',
+          previewPolicy: {
+            sandboxProfile: 'normal',
+            guards: { storage: false, focus: false, redirect: false },
+            deck: previewRuntimeHarness.syntheticDeck,
+          },
+          renewalScope: {
+            href: `/api/projects/${encodeURIComponent(options.projectId)}/preview/${sessionId}/`,
+            expiresAt: Date.now() + 60 * 60 * 1000,
+          },
+        };
+        previewRuntimeHarness.syntheticNavigations.set(key, scoped);
+      }
+      return {
+        scoped,
+        loading: false,
+        unavailable: false,
+        expiresAt: scoped.renewalScope.expiresAt,
+      };
+    },
+  };
+});
+
+function FileViewer(props: ComponentProps<typeof ProductFileViewer>) {
+  const settleLegacyHtmlFixture = previewRuntimeHarness.syntheticNavigation
+    && props.file.kind === 'html'
+    && props.liveHtml !== undefined;
+  if (settleLegacyHtmlFixture) previewRuntimeHarness.forceSyntheticNavigation = true;
+  if (settleLegacyHtmlFixture) {
+    previewRuntimeHarness.sources.set(`${props.projectId}\0${props.file.name}`, props.liveHtml!);
+  }
+  if (settleLegacyHtmlFixture && (props.isDeck || props.projectKind === 'slide_deck')) {
+    previewRuntimeHarness.syntheticDeck = true;
+  }
+  const settledProps = settleLegacyHtmlFixture ? { ...props, liveHtml: undefined } : props;
+  return <ProductFileViewer {...settledProps} />;
+}
 
 /** A team workspace context — the only state that can address the resource hub,
  *  and therefore the only one where the public "Publish file" entry is offered. */
@@ -194,8 +299,116 @@ function projectWorkspaceCollabValue(
 
 const TEST_SNAPSHOT_DATA_URL = 'data:image/png;base64,c25hcHNob3Q=';
 
+let previewRuntimeObserver: MutationObserver | null = null;
+const harnessedPreviewFrames = new WeakSet<HTMLIFrameElement>();
+
+function disableSyntheticPreviewNavigation(): void {
+  previewRuntimeHarness.syntheticNavigation = false;
+}
+
+function isSyntheticPreviewRuntimeFrame(frame: HTMLIFrameElement): boolean {
+  return frame.dataset.odSessionId?.startsWith('test-scope-') ?? false;
+}
+
+function emitPreviewRuntimeHarnessMessage(
+  frame: HTMLIFrameElement,
+  data: Record<string, unknown>,
+): void {
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+        sessionId: frame.dataset.odSessionId,
+        documentVersion: frame.dataset.odDocumentVersion,
+        ...data,
+      },
+    }));
+  });
+}
+
+function schedulePreviewRuntimeHarnessMessage(
+  frame: HTMLIFrameElement,
+  data: Record<string, unknown>,
+): void {
+  queueMicrotask(() => {
+    if (!frame.isConnected || !isSyntheticPreviewRuntimeFrame(frame)) return;
+    emitPreviewRuntimeHarnessMessage(frame, data);
+  });
+}
+
+function harnessPreviewRuntimeFrame(frame: HTMLIFrameElement): void {
+  if (!isSyntheticPreviewRuntimeFrame(frame) || harnessedPreviewFrames.has(frame)) return;
+  const target = frame.contentWindow;
+  if (!target) return;
+  harnessedPreviewFrames.add(frame);
+  vi.spyOn(target, 'postMessage').mockImplementation((message: unknown) => {
+    if (typeof message !== 'object' || message === null) return;
+    const data = message as {
+      enabledCapabilities?: readonly PreviewRuntimeCapability[];
+      revision?: number;
+      type?: string;
+    };
+    if (data.type === 'od:preview:set-capabilities') {
+      schedulePreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:capabilities-applied',
+        enabledCapabilities: [...(data.enabledCapabilities ?? [])],
+      });
+    } else if (
+      data.type === 'od:preview:presentation-state-barrier'
+      && typeof data.revision === 'number'
+    ) {
+      schedulePreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:presentation-state-applied',
+        revision: data.revision,
+      });
+    }
+  });
+  schedulePreviewRuntimeHarnessMessage(frame, {
+    type: 'od:preview:hello',
+    availableCapabilities: [...PREVIEW_RUNTIME_CAPABILITIES],
+  });
+  schedulePreviewRuntimeHarnessMessage(frame, { type: 'od:preview:ready' });
+}
+
+function discoverPreviewRuntimeFrames(): void {
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>(
+    '[data-testid="preview-runtime-frame-standby"]',
+  )) {
+    harnessPreviewRuntimeFrame(frame);
+  }
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>(
+    '[data-testid="preview-runtime-frame-current"]',
+  )) {
+    if (isSyntheticPreviewRuntimeFrame(frame)) {
+      frame.setAttribute('data-testid', 'artifact-preview-frame');
+    }
+  }
+}
+
+beforeEach(() => {
+  previewRuntimeHarness.forceSyntheticNavigation = false;
+  previewRuntimeHarness.sourceReads.length = 0;
+  previewRuntimeHarness.sources.clear();
+  previewRuntimeHarness.syntheticNavigations.clear();
+  previewRuntimeHarness.syntheticDeck = false;
+  previewRuntimeHarness.syntheticNavigation = true;
+  previewRuntimeHarness.navigationSequence = 0;
+  projectPreviewNavigationCache.clear();
+  previewRuntimeObserver = new MutationObserver(discoverPreviewRuntimeFrames);
+  previewRuntimeObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['data-testid'],
+    childList: true,
+    subtree: true,
+  });
+});
+
 afterEach(() => {
+  previewRuntimeObserver?.disconnect();
+  previewRuntimeObserver = null;
   cleanup();
+  projectPreviewNavigationCache.clear();
   vi.useRealTimers();
   __resetPreviewIsolationCache();
   // `useWorkspaceContext` caches the last resolved context at module scope so a
@@ -1515,7 +1728,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(sourceMarkup).not.toContain('<img');
   });
 
-  it('keeps a URL-loaded preview iframe alive while the viewer unmounts and remounts', () => {
+  it('keeps a scoped preview iframe alive while the viewer unmounts and remounts', async () => {
     const file = baseFile({
       name: 'page.html',
       path: 'page.html',
@@ -1554,8 +1767,12 @@ describe('FileViewer SVG artifacts', () => {
 
     const { container } = render(<Shell />);
 
-    const firstFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    expect(firstFrame.getAttribute('src')).toContain('/api/projects/project-1/raw/page.html?v=1710000000&r=0&odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewEpoch=');
+    const firstFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    expectScopedPreviewNavigationUrl(
+      firstFrame,
+      'http://n-test-scope-0001.localhost:43111/page.html',
+      'test-scope-0001.0',
+    );
     const firstSrc = firstFrame.getAttribute('src');
 
     fireEvent.click(screen.getByRole('button', { name: 'Leave project' }));
@@ -1568,7 +1785,7 @@ describe('FileViewer SVG artifacts', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Return project' }));
 
-    expect(screen.getByTestId('artifact-preview-frame')).toBe(firstFrame);
+    expect(await screen.findByTestId('artifact-preview-frame')).toBe(firstFrame);
     expect(firstFrame.getAttribute('src')).toBe(firstSrc);
   });
 
@@ -2319,34 +2536,6 @@ describe('FileViewer SVG artifacts', () => {
     expect(secondFrame.getAttribute('src')).toBe('/api/projects/project-1/raw/page.html?v=1&r=0');
   });
 
-  it('URL-loads a plain HTML preview iframe instead of inlining via srcDoc', () => {
-    const file = baseFile({
-      name: 'page.html',
-      path: 'page.html',
-      mime: 'text/html',
-      kind: 'html',
-      artifactManifest: {
-        version: 1,
-        kind: 'html',
-        title: 'Page',
-        entry: 'page.html',
-        renderer: 'html',
-        exports: ['html'],
-      },
-    });
-
-    const markup = renderToStaticMarkup(
-      <FileViewer projectId="project-1" projectKind="prototype" file={file} liveHtml="<html><body>hi</body></html>" />,
-    );
-
-    expect(markup).toContain('data-testid="artifact-preview-frame"');
-    expect(markup).toContain('data-od-render-mode="url-load"');
-    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="true"');
-    expect(markup).toContain('data-od-render-mode="srcdoc" data-od-active="false"');
-    expect(markup).toContain('src="/api/projects/project-1/raw/page.html?v=1710000000&amp;r=0&amp;odPreviewBridge=scroll&amp;odPreviewBridge=selection&amp;odPreviewBridge=snapshot&amp;odPreviewBridge=observability&amp;odPreviewEpoch=preview-document-');
-    expect(markup).toContain('sandbox="allow-scripts allow-downloads"');
-  });
-
   it('does not mint a second preview capability for Workspace URL-load HTML', () => {
     const context = teamWorkspaceContext();
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) => (
@@ -2386,40 +2575,6 @@ describe('FileViewer SVG artifacts', () => {
     ))).toBe(false);
   });
 
-  it('keeps browser-owned URL preview navigation server-authorized by project id', () => {
-    const file = baseFile({
-      name: 'team-page.html',
-      path: 'team-page.html',
-      mime: 'text/html',
-      kind: 'html',
-      artifactManifest: {
-        version: 1,
-        kind: 'html',
-        title: 'Team page',
-        entry: 'team-page.html',
-        renderer: 'html',
-        exports: ['html'],
-      },
-    });
-
-    const markup = renderToStaticMarkup(
-      <CollabProvider value={projectWorkspaceCollabValue(teamWorkspaceContext())}>
-        <FileViewer
-          projectId="project-1"
-          projectKind="prototype"
-          file={file}
-          liveHtml="<html><body>team</body></html>"
-        />
-      </CollabProvider>,
-    );
-
-    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="true"');
-    expect(markup).toContain(
-      'src="/api/projects/project-1/raw/team-page.html?v=1710000000',
-    );
-    expect(markup).not.toContain('workspaceMemberId=');
-  });
-
   it('routes brand extraction stop requests from the preview iframe', async () => {
     const file = baseFile({
       name: 'brand.html',
@@ -2439,7 +2594,7 @@ describe('FileViewer SVG artifacts', () => {
       />,
     );
 
-    const frames = screen.getAllByTestId('artifact-preview-frame') as HTMLIFrameElement[];
+    const frames = await screen.findAllByTestId('artifact-preview-frame') as HTMLIFrameElement[];
     await waitFor(() => expect(frames.some((frame) => !!frame.contentWindow)).toBe(true));
     const frame = frames.find((candidate) => candidate.contentWindow) ?? frames[0];
     if (!frame) throw new Error('expected artifact preview iframe');
@@ -2632,27 +2787,29 @@ describe('FileViewer SVG artifacts', () => {
     const { rerender } = render(
       <FileViewer {...sharedProps} file={htmlFile(1_000)} filesRefreshKey={1} />,
     );
-    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    const frame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const initialSrc = frame.getAttribute('src');
-    const navigations: string[] = [];
-    const observer = new MutationObserver(() => {
-      navigations.push(frame.getAttribute('src') ?? '');
-    });
-    observer.observe(frame, { attributes: true, attributeFilter: ['src'] });
 
     rerender(<FileViewer {...sharedProps} file={htmlFile(2_000)} filesRefreshKey={2} />);
-    await waitFor(() => expect(frame.getAttribute('src')).toContain('fr=2'));
-    const refreshedSrc = frame.getAttribute('src');
+    const refreshedFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      return current;
+    });
+    const refreshedSrc = refreshedFrame.getAttribute('src');
     expect(refreshedSrc).not.toBe(initialSrc);
-    expect(refreshedSrc).toContain('v=2000');
+    expectScopedPreviewNavigationUrl(
+      refreshedFrame,
+      'http://n-test-scope-0002.localhost:43111/watch-coalesce.html',
+      'test-scope-0002.0',
+    );
     expect(replaceMock).not.toHaveBeenCalled();
 
     // Re-rendering the same committed snapshot is inert.
     rerender(<FileViewer {...sharedProps} file={htmlFile(2_000)} filesRefreshKey={2} />);
     await new Promise((resolve) => window.setTimeout(resolve, 240));
-    observer.disconnect();
-    expect(frame.getAttribute('src')).toBe(refreshedSrc);
-    expect(new Set(navigations)).toEqual(new Set([refreshedSrc ?? '']));
+    expect(screen.getByTestId('artifact-preview-frame')).toBe(refreshedFrame);
+    expect(refreshedFrame.getAttribute('src')).toBe(refreshedSrc);
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
@@ -2901,6 +3058,17 @@ describe('FileViewer SVG artifacts', () => {
       },
     });
     const source = '<html><body><section class="slide">one</section><section class="slide">two</section></body></html>';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+      if (url.startsWith('/api/projects/project-1/raw/retained-deck.html')) {
+        return new Response(source, { status: 200, headers: { 'Content-Type': 'text/html' } });
+      }
+      return new Response(JSON.stringify({ deployments: [] }), { status: 200 });
+    }));
     const { rerender } = render(
       <FileViewer
         projectId="project-1"
@@ -2910,7 +3078,9 @@ describe('FileViewer SVG artifacts', () => {
         liveHtml={source}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
+    await screen.findByTestId('artifact-preview-frame');
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Versions' }));
     expect(await screen.findByRole('dialog', { name: 'Versions' })).toBeTruthy();
 
     rerender(
@@ -2927,7 +3097,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(document.body.querySelector('.viewer-modal-backdrop')).toBeNull();
 
     const retainedFrame = document.querySelector<HTMLIFrameElement>(
-      'iframe[title="retained-deck.html"][data-od-render-mode="srcdoc"], iframe[title="retained-deck.html"][data-od-render-mode="url-load"]',
+      'iframe[title="retained-deck.html"][data-od-runtime-protocol]',
     );
     expect(retainedFrame?.contentWindow).toBeTruthy();
     const postMessage = vi.spyOn(retainedFrame!.contentWindow!, 'postMessage').mockImplementation(() => {});
@@ -3457,7 +3627,7 @@ describe('FileViewer SVG artifacts', () => {
     expect(editFrame.getAttribute('data-od-active')).toBe('false');
   });
 
-  it('settles manual edit and reloads through the URL transport', async () => {
+  it('settles manual edit and reloads without leaving edit mode', async () => {
     const file = baseFile({
       name: 'page.html',
       path: 'page.html',
@@ -3483,23 +3653,22 @@ describe('FileViewer SVG artifacts', () => {
     );
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
-    const editFrame = await waitFor(() => {
-      const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(frame.getAttribute('data-od-render-mode')).toBe('srcdoc');
-      return frame;
-    });
+    const editFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: /reload preview/i }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('false');
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('url-load');
+      expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('true');
     });
-    const urlFrame = container.querySelector('iframe[data-od-render-mode="url-load"]') as HTMLIFrameElement;
-    expect(screen.getByTestId('artifact-preview-frame')).toBe(urlFrame);
-    expect(urlFrame.getAttribute('src')).toContain('r=0');
-    expect(urlFrame.getAttribute('src')).toContain('odEditStandby=1');
-    expect(editFrame.getAttribute('data-od-active')).toBe('false');
+    const reloadedFrame = await screen.findByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    expect(container.contains(reloadedFrame)).toBe(true);
+    expectScopedPreviewNavigationUrl(
+      reloadedFrame,
+      'http://n-test-scope-0001.localhost:43111/page.html',
+      'test-scope-0001.1',
+    );
+    expect(reloadedFrame).not.toBe(editFrame);
   });
 
   it('keeps the manual edit inspector pinned after clicking a target', async () => {
@@ -3529,7 +3698,7 @@ describe('FileViewer SVG artifacts', () => {
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
 
@@ -3597,7 +3766,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
@@ -3707,7 +3876,7 @@ describe('FileViewer SVG artifacts', () => {
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
@@ -3847,7 +4016,7 @@ describe('FileViewer SVG artifacts', () => {
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const target = manualEditTarget('hero', 'Hero', 20);
@@ -3958,7 +4127,7 @@ describe('FileViewer SVG artifacts', () => {
 
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const target = manualEditTarget('hero', 'Hero', 20);
@@ -4020,7 +4189,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     const frame = await waitFor(() => {
       const active = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(active.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(active.getAttribute('data-od-render-mode')).toBe('runtime-url');
       return active;
     });
     const editTransport = frame.srcdoc;
@@ -4092,7 +4261,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
 
@@ -4146,7 +4315,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const textTarget = {
@@ -4224,7 +4393,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const textTarget = {
@@ -4303,7 +4472,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
 
@@ -4372,7 +4541,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     act(() => {
@@ -4443,7 +4612,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const textTarget = {
@@ -4583,7 +4752,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
     const textTarget = {
@@ -4660,7 +4829,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(toggle);
     const frame = await waitFor(() => {
       const active = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(active.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(active.getAttribute('data-od-render-mode')).toBe('runtime-url');
       return active;
     });
     const textTarget = {
@@ -4722,7 +4891,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle.getAttribute('aria-pressed')).toBe('true'));
     const nextEditFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-    expect(nextEditFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+    expect(nextEditFrame.getAttribute('data-od-render-mode')).toBe('runtime-url');
     expect(nextEditFrame.srcdoc).toContain('translate(12px, 8px)');
   });
 
@@ -4792,7 +4961,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(toggle);
     const frame = await waitFor(() => {
       const active = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(active.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(active.getAttribute('data-od-render-mode')).toBe('runtime-url');
       return active;
     });
 
@@ -4822,7 +4991,12 @@ describe('FileViewer SVG artifacts', () => {
         liveHtml={externalSource}
       />,
     );
-    await waitFor(() => expect(frame.srcdoc).toContain('External B'));
+    const externalFrame = await waitFor(() => {
+      const current = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(current).not.toBe(frame);
+      expect(previewRuntimeHarness.sourceReads.at(-1)?.source).toBe(externalSource);
+      return current;
+    });
 
     rerender(
       <FileViewer
@@ -4832,7 +5006,10 @@ describe('FileViewer SVG artifacts', () => {
         liveHtml={persistedSource}
       />,
     );
-    await waitFor(() => expect(frame.srcdoc).toContain('Saved A'));
+    await waitFor(() => {
+      expect(screen.getByTestId('artifact-preview-frame')).not.toBe(externalFrame);
+      expect(previewRuntimeHarness.sourceReads.at(-1)?.source).toBe(persistedSource);
+    });
   });
 
   it('waits for the opaque preview scroll snapshot before committing a content edit', async () => {
@@ -4878,7 +5055,7 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
     const frame = await waitFor(() => {
       const active = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
-      expect(active.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(active.getAttribute('data-od-render-mode')).toBe('runtime-url');
       return active;
     });
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
@@ -4940,20 +5117,14 @@ describe('FileViewer SVG artifacts', () => {
       expect(persistedSource).toContain('Edited copy');
       expect(onFileSaved).toHaveBeenCalledTimes(1);
     });
-    const urlFrame = document.querySelector(
-      'iframe[data-od-render-mode="url-load"]',
-    ) as HTMLIFrameElement;
     fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame')).toBe(urlFrame);
+      expect(screen.getByTestId('artifact-preview-frame')).toBe(frame);
+      expect(screen.getByTestId('manual-edit-mode-toggle')).toHaveAttribute('aria-pressed', 'false');
     });
-    // Navigating the parked about:blank URL frame installs a new Window.
-    // Observe the post-navigation bridge target, not the parked one.
-    const urlPostMessage = vi.spyOn(urlFrame.contentWindow!, 'postMessage');
-    fireEvent.load(urlFrame);
     await waitFor(() => {
-      expect(urlPostMessage).toHaveBeenCalledWith(
+      expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'od:preview-scroll-restore',
           frameTop: 640,
@@ -5016,7 +5187,7 @@ describe('FileViewer SVG artifacts', () => {
     const toggle = screen.getByTestId('manual-edit-mode-toggle');
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(screen.getByTestId('artifact-preview-frame').getAttribute('data-od-render-mode')).toBe('runtime-url');
     });
     const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
 
@@ -9373,6 +9544,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('keeps the converged real-URL frame while Draw opens and closes', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'draw.html', path: 'draw.html' });
     const sessionId = 'scope-draw';
     const documentVersion = 'draw-v1';
@@ -9503,6 +9675,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('promotes converged daemon-policy navigation before loading non-critical source text', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'gated.html', path: 'gated.html' });
     const sourceResponse = deferredResponse();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -9623,6 +9796,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('hydrates converged host tools from full source without reading a routing sample', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({
       name: 'large-passive.html',
       path: 'large-passive.html',
@@ -9743,6 +9917,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('waits for local policy before navigating a powered document with an old daemon', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'old-daemon.html', path: 'old-daemon.html' });
     const sourceResponse = deferredResponse();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -9805,6 +9980,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('keeps an old-daemon document on its single legacy real URL', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'legacy-only.html', path: 'legacy-only.html' });
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string'
@@ -9856,6 +10032,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('surfaces an initial converged navigation failure and recovers on explicit reload', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'mint-retry.html', path: 'mint-retry.html' });
     let mintAttempt = 0;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -9922,6 +10099,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('remints VERSION_CHANGED immediately, fences old attempts, and stops at a bounded budget', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({
       name: 'version-race.html',
       path: 'version-race.html',
@@ -10038,6 +10216,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('bounds an unsettled converged frame and retries it without reminting the scope', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'paint-timeout.html', path: 'paint-timeout.html' });
     const sessionId = 'scope-paint-timeout';
     const documentVersion = 'paint-timeout-v1';
@@ -10154,6 +10333,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('uses one powered policy for the converged URL and iframe permissions', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'powered-runtime.html', path: 'powered-runtime.html' });
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string'
@@ -10215,6 +10395,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('gates converged Team navigation on exact project authority', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'team-gated.html', path: 'team-gated.html' });
     const rawReads: Array<{ init?: RequestInit; url: string }> = [];
     const previewMints: Array<{ init?: RequestInit; url: string }> = [];
@@ -10312,6 +10493,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('retries an exact aborted converged standby once without touching the current frame', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'retry.html', path: 'retry.html' });
     let navigationFailureListener: OpenDesignHostPreviewNavigationFailureListener | null = null;
     const restoreHost = installMockOpenDesignHost({
@@ -10455,6 +10637,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('keeps the same-file last-good frame visible until an agent-written revision applies presentation state', async () => {
+    disableSyntheticPreviewNavigation();
     const fileV1 = htmlPreviewFile({ mtime: 1_000, size: 100 });
     const fileV2 = htmlPreviewFile({ mtime: 2_000, size: 120 });
     let servedVersion = 1;
@@ -10678,6 +10861,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('ignores file-list refreshes when the converged document identity is unchanged', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'stable.html', path: 'stable.html', mtime: 1_000, size: 100 });
     const sessionId = 'scope-stable';
     const documentVersion = '100:1000';
@@ -10781,6 +10965,7 @@ describe('FileViewer tweaks toolbar', () => {
   });
 
   it('navigates a converged deck directly without replacing its real-URL frame', async () => {
+    disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({
       name: 'deck.html',
       path: 'deck.html',
