@@ -892,6 +892,16 @@ export function composeSystemPrompt({
   mediaHintSignal,
   platformHintSignal,
 }: ComposeInput): string {
+  // ── FORK POINT: two independent prompt implementations ──────────────────
+  // Everything below this early return is the legacy stack; OD Next runs never
+  // reach it. Their content comes from
+  // `plugins/_official/scenarios/od-next-strategy/assets/**` plus the
+  // TypeScript in `@open-design/contracts` `od-next-strategy.ts`, which is
+  // where OD Next carries host runtime contracts. The two sides share no
+  // composition floor, so a rule added below holds only for the runs that take
+  // this branch, and eligibility is re-evaluated per run
+  // (`../strategies/od-next/rollout.ts`). Read `docs/prompt-composition.md`
+  // before changing prompt text on either side.
   if (odNextStrategyRecipe) {
     return composeOdNextStrategyRequestPromptV2(odNextStrategyRecipe, {
       agentId,
@@ -1330,6 +1340,9 @@ export function composeSystemPrompt({
   const hasDeckSkillSeed =
     activeSkillModes.has('deck') && !!skillBody && /assets\/template\.html/.test(skillBody);
   if (!isAskMode && isDeckProject && !hasDeckSkillSeed) {
+    // ⚠️ This decides WHEN the legacy path gets the deck scaffold. OD Next has
+    // its own gate — `resolveOdNextDeckFrameworkMode` in `od-next-strategy.ts`.
+    // The scaffold is shared; the injection conditions are not. Change both.
     parts.push(`\n\n---\n\n${deckFrameworkDirective}`);
   } else if (
     !isAskMode &&

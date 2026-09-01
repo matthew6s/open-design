@@ -12,6 +12,7 @@ This file is the single source of truth for agents entering this repository. Rea
 - Directory-level agent guidance: `.github/AGENTS.md`, `apps/AGENTS.md`, `packages/AGENTS.md`, `tools/AGENTS.md`, `e2e/AGENTS.md`, `apps/web/src/components/chat/AGENTS.md` (chat 组件分层、`--chat-*` 样式接缝、降级形态与测试规约).
 - Packaged auto-update architecture and high-confidence local harness: read `tools/pack/AGENTS.md` section "Packaged auto-update architecture and harness" before touching packaged updater code, release-channel identity, installer behavior, or updater UI.
 - Packaged build cache contract: `tools/pack/CACHE.md` (determinant rules, materialization-time parameters, confidence grading — required before changing any build-cache node key).
+- Prompt composition has two independent implementations behind a rollout switch: `docs/prompt-composition.md` (fork point, variant axes, host runtime contract table, worked examples — required before changing any prompt text, in `apps/daemon/src/prompts/`, `packages/contracts/src/prompts/`, or under `plugins/_official/scenarios/od-next-strategy/`). See "Prompt variants" below.
 
 ## Workspace directories
 
@@ -283,6 +284,16 @@ This repository no longer ships a maintainer PR-duty control plane. The former
 so personal review-lane automation does not become product workspace
 maintenance surface. Do not recreate `tools/pr`, `@open-design/tools-pr`, or a
 root `pnpm tools-pr` script without a new explicit maintainer decision.
+
+## Prompt variants (two implementations, one switch)
+
+A generation run is composed by ONE of two independent prompt implementations. `composeSystemPrompt` returns early at `apps/daemon/src/prompts/system.ts:905` when a run carries an OD Next recipe, so the entire legacy stack below that line is skipped. The API/BYOK mirror at `packages/contracts/src/prompts/system.ts:318` forks the same way. The two sides share no composition floor: a rule added to one holds only for the runs that take that side.
+
+- **Legacy side**: `apps/daemon/src/prompts/` (mirrored for API/BYOK in `packages/contracts/src/prompts/`).
+- **OD Next side**: `plugins/_official/scenarios/od-next-strategy/assets/**` (markdown sent to the model verbatim) plus TypeScript in `packages/contracts/src/prompts/od-next-strategy.ts`, which is where OD Next carries host runtime contracts such as `<question-form>` and the deck framework — not in the task profiles.
+- **Switch**: Settings → Labs → Design Harness, app-config `odNextStrategyMode`, or `OD_NEXT_STRATEGY_ROLLOUT`. Eligibility is re-evaluated per run by `evaluateOdNextRollout` (`apps/daemon/src/strategies/od-next/rollout.ts:138`) and can be latched down mid-session by a runtime signal, so which side a run takes varies on one machine with the switch unchanged. Divergence between the sides therefore surfaces as an intermittent bug.
+
+Before changing any prompt text — in any of those locations — read `docs/prompt-composition.md`. It carries the variant axes, a host runtime contract table naming which path carries each contract today, the asset roster and package-hash rules for the plugin side, and the known gaps. A host contract should have one source that every path consumes: `packages/contracts/src/prompts/deck-framework.ts` is the worked example, feeding classic, BYOK, and OD Next from one scaffold. Repository-maintenance notes must never be written into files under that plugin's `assets/`; they are sent to the model verbatim.
 
 ## Agent runtime conventions
 
