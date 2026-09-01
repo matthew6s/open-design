@@ -550,7 +550,13 @@ function ArtifactCard({
             playsInline
           />
         ) : (
-          <img className="artifact-card-media" src={src} alt="" loading="lazy" />
+          <img
+            className="artifact-card-media"
+            src={src}
+            alt=""
+            loading="lazy"
+            data-preview-fit="contain"
+          />
         )}
       </span>
       {pending ? (

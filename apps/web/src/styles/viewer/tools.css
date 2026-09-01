@@ -115,6 +115,13 @@
   object-fit: cover;
   display: block;
 }
+/* Image deliverables must show the complete canvas. In particular, portrait
+   posters should letterbox inside the 16:10 card instead of losing their top
+   and bottom to the generic media crop. HTML keeps its scaled iframe path and
+   video keeps the dedicated portrait treatment below. */
+.artifact-card-media[data-preview-fit="contain"] {
+  object-fit: contain;
+}
 /* HTML artifacts render the real page as their thumbnail: the frame lays the
    page out at a DESKTOP viewport and the whole thing is then scaled down to
    the card. Same trick, same numbers-shape as the home project grid

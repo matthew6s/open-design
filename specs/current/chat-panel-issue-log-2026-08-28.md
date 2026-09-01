@@ -8,6 +8,27 @@
 >
 > 验证约束：用户明确要求不要跑全量测试；只运行与改动对应的聚焦测试。
 
+## 2026-09-01 OPEND-2543～2547 实时修复台账
+
+> Plane 当前间歇不可访问；代码工作继续，状态流转待服务恢复后补写。每次开始、修复、验证、提交、推送都必须同步更新本节。
+
+| Work item | 优先级 | 状态 | 已确认根因 / 当前动作 |
+|---|---:|---|---|
+| OPEND-2544 思考中不展示媒体 Retry | P1 | **修复中** | `AssistantMessage → ExecutionShell → ImageRow` 无整体 run terminal gate，单格失败就暴露 Retry，可能和 Agent fallback 并发。先补 live-run 红测，只在整轮 terminal 且仍有最终失败时开放 Retry。 |
+| OPEND-2543 媒体路径变化后缩略图裂图 | P1 | **排在 2544 后串行修复** | media task 永久保存生成时旧路径，agent move/rename 后未对账；web terminal 后又立即停轮询。需要先明确 task/file identity，再同步最终路径并补有界可访问性确认，不能只给 `<img>` 盲重试。 |
+| OPEND-2545 同名图片修改后仍展示旧图 | P1 / 需设计 | **暂停小修，版本语义设计中** | 产品最新裁决否定单纯 `mtime` cache-bust：图片历史卡必须保持并打开该轮当时版本，即使 Design Files 同名文件后来被覆盖。需要 immutable Chat snapshot；旧会话兼容、生命周期和清理策略正在单独设计。 |
+| OPEND-2547 9:16 图片被居中裁剪 | P2 | **代码已修、待 root 复验提交** | 仅 image artifact 大卡改为 contain/letterbox；video 专用布局、HTML iframe、文档卡、pending 与小型执行记录缩略图未改。红测先失败；`artifact-card-parity` 15/15、Web typecheck、diff-check 已通过。 |
+| OPEND-2546 重复添加文案无反馈 | P2 | **待上述共享文件收口后修复** | `appendQuote` 已去重，但 `handleQuote` 丢弃 duplicate 结果并清选区。应返回 added/duplicate，并通过现有 toast + typed i18n 提示；禁止在 React state updater 内触发 toast。 |
+
+并行分组：A = 2544 → 2543（媒体任务 / Retry 状态链）；B = 2545 → 2547（FileOpsSummary / 产物卡）；C = 2546（会碰近期 QuoteBar / ChatPane，待 A 收口后开始）。本地不得启动 Electron；focused tests 统一单 worker。
+
+### 产物卡最新产品裁决（2026-09-01）
+
+- HTML / 原型 / slide / 文档：会话栏展示静态“假预览图”，点击后右侧预览区打开工作区**最新版本**。
+- 图片：生成结果同步保存到 Design Files；会话栏展示该轮的**真实图片**，点击后右侧打开该轮**当时版本**。后续同名覆盖不得让旧消息卡跟着变图。
+- 因此不得把 OPEND-2545 简化成 filename + `mtime ?v=`：那只能解决当前卡缓存，却会把所有历史卡一起刷新成最新文件。
+- 设计输出：`specs/current/chat-artifact-versioning-design.md`（subagent 编写，root 评审）。必须定义 snapshot 存储、ID / contracts、HTML 首屏截图、引用与清理、quota / GC、中断恢复、删除语义、旧会话兼容、UI / CLI / HTTP 闭环和测试迁移计划；设计通过前不改 2545 产品代码。
+
 ## 2026-08-31 提测前内部收尾清单（不向测试同学转嫁）
 
 > 口径：以下事项由研发侧在提测前私下修复或复验。未完成前只留在本地滚动日志，不写入飞书提测文档的“已知风险”；飞书只保留真正需要测试知情、外部环境配合或产品决策的事项。

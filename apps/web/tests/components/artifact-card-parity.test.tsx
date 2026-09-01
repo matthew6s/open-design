@@ -286,7 +286,37 @@ describe('两条产物面板路径给出同一副卡', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 3 · 音频永远是那条胶囊,不套卡壳
+ * 3 · 图片卡展示完整画面，且不改变视频 / HTML 的专用预览
+ * ------------------------------------------------------------------ */
+describe('产物卡缩略图适配', () => {
+  it('图片卡声明完整画面适配，视频与 HTML 仍走各自的专用预览', () => {
+    render(
+      <CollabProvider value={projectCollabValue()}>
+        <FileOpsSummary
+          entries={[
+            fileOpEntry('portrait.png'),
+            fileOpEntry('portrait.mp4'),
+            fileOpEntry('landing.html'),
+          ]}
+          projectId={PROJECT_ID}
+        />
+      </CollabProvider>,
+    );
+
+    const imageCard = screen.getByTestId('artifact-card-portrait.png');
+    const videoCard = screen.getByTestId('artifact-card-portrait.mp4');
+    const htmlCard = screen.getByTestId('artifact-card-landing.html');
+
+    expect(imageCard.querySelector('img')?.getAttribute('data-preview-fit')).toBe('contain');
+    expect(videoCard.querySelector('video')).toBeTruthy();
+    expect(videoCard.querySelector('[data-preview-fit]')).toBeNull();
+    expect(htmlCard.querySelector('img, video')).toBeNull();
+    expect(htmlCard.querySelector('[data-preview-fit]')).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 4 · 音频永远是那条胶囊,不套卡壳
  * ------------------------------------------------------------------ */
 describe('音频产物', () => {
   it('在**没有工具行**的那条支上也画成胶囊,不是一张 doc 卡', () => {
@@ -307,7 +337,7 @@ describe('音频产物', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 4 · 「发布」是纯文字,方向感只给「导出」
+ * 5 · 「发布」是纯文字,方向感只给「导出」
  * ------------------------------------------------------------------ */
 describe('动作胶囊的字形', () => {
   it('「发布」不带图标,「导出」带那枚圈中箭头', () => {
@@ -334,7 +364,7 @@ describe('动作胶囊的字形', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 5 · 导出:单格式直接下载,多格式才把菜单交给预览区
+ * 6 · 导出:单格式直接下载,多格式才把菜单交给预览区
  * ------------------------------------------------------------------ */
 describe('导出行为', () => {
   it('单格式产物(md)点「导出」直接下载,不弹任何东西', () => {
@@ -395,7 +425,7 @@ describe('导出行为', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 6 · 卡上两枚都**复用预览区那两块菜单**,自己不另画
+ * 7 · 卡上两枚都**复用预览区那两块菜单**,自己不另画
  * ------------------------------------------------------------------ *
  * 产品 2026-08-27 看到卡上自制的窄浮层之后当场推翻:
  *   「为啥这个发布弹窗是这样的?? 为啥不直接复用现在那个分享弹窗??」
