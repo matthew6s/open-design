@@ -49,6 +49,7 @@ Read this section before changing packaged auto-update behavior. The updater cro
 - `apps/web/src/components/UpdaterPopup.tsx` remains the ready-update surface in the left rail. `apps/web/src/components/UpdateDialog.tsx` owns the explicit macOS app-menu check flow. All visible copy and native menu labels must go through `apps/web/src/i18n`.
 - `packages/launcher-proto` owns launcher pointer, attempt, and desktop-handoff journal shapes plus payload selection. `runtime.json` together with `attempt.json` is the only payload-version state machine.
 - `apps/packaged/src/index.ts` delegates to the selected payload desktop before initializing the outer Electron runtime, then passes packaged `appVersion` and namespace-scoped `updateRoot` into desktop main only when the outer itself must run.
+- `apps/daemon/src/sidecar/payload-desktop-handoff.ts` owns the historical-outer bridge. It uses the daemon's `SidecarFactory` client to confirm and shut down the exact outer desktop, then `spawnSidecar` to launch the payload generation while preserving the true previous launcher pointer across the `prepared` → `armed` → `confirmed` journal lifecycle.
 - `install.json` continues to identify the physically installed outer executable for recovery. Payload activation or handoff must not rewrite it to a versioned payload executable.
 - `tools/serve` owns deterministic local updater fixtures only. It must not contain product updater runtime logic.
 - `tools/pack` owns packaged build/install/start/inspect/logs/uninstall/cleanup and the platform installer harness, including Windows NSIS registry observation and cleanup.
@@ -135,6 +136,7 @@ C:\odtp-beta-release-fixed\out\win\namespaces\release-beta-win\builder\Open Desi
 - The native Windows File menu must not expose update actions. On macOS, the app menu exposes the state-aware update item and opens the renderer update dialog without making background checks intrusive.
 - The updater popup uses i18n strings and download progress must not flash to 100% before real bytes arrive.
 - Applying the payload update should quit and relaunch the exact executable under the prepared version's `payload` directory, then mark launcher `active` and `lastSuccessful` to that version and clear `attempt.json`.
+- For a historical outer, the handoff must retain the true previous launcher pointer for fail-closed recovery and terminate with `desktop-handoff.json` absent or `confirmed`; `prepared` and `armed` are not successful terminal states.
 - After a full stop, launching the installed shortcut/outer again must still converge on the same active payload desktop and preserve daemon/API behavior, including a real PPTX export.
 - If the updater falls back to the installer path, clicking `Open installer` opens the real downloaded beta installer. Installing it should overwrite the same `Open Design-release-beta-win` registry key, not create a second beta key.
 
