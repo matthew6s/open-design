@@ -89,7 +89,7 @@ function asPackagedHomeFirstRunSetupResult(
   if (
     candidate.instrumented !== true
     || typeof candidate.hrefBefore !== 'string'
-    || typeof candidate.inputTextBeforeSubmit !== 'string'
+    || candidate.inputTextBeforeSubmit !== PACKAGED_HOME_FIRST_RUN_PROMPT
     || typeof candidate.navigationEntryCountBefore !== 'number'
     || typeof candidate.performanceTimeOriginBefore !== 'number'
     || !isPackagedHomeFirstRunReadiness(candidate.readiness)
@@ -136,7 +136,10 @@ export function packagedHomeFirstRunExpression(): string {
       const prompt = ${JSON.stringify(PACKAGED_HOME_FIRST_RUN_PROMPT)};
       const stateKey = '__odPackagedHomeFirstRun';
       const existingState = globalThis[stateKey];
-      if (existingState?.instrumented === true) {
+      if (
+        existingState?.instrumented === true
+        && existingState.inputTextBeforeSubmit === prompt
+      ) {
         return {
           hrefBefore: existingState.hrefBefore,
           inputTextBeforeSubmit: existingState.inputTextBeforeSubmit,
@@ -176,9 +179,44 @@ export function packagedHomeFirstRunExpression(): string {
         return { instrumented: false, readiness };
       }
 
+      input.focus();
+      editor.setEditorState(editor.parseEditorState(JSON.stringify({
+        root: {
+          children: [{
+            children: [{
+              detail: 0,
+              format: 0,
+              mode: 'normal',
+              style: '',
+              text: prompt,
+              type: 'text',
+              version: 1,
+            }],
+            direction: null,
+            format: '',
+            indent: 0,
+            type: 'paragraph',
+            version: 1,
+            textFormat: 0,
+            textStyle: '',
+          }],
+          direction: null,
+          format: '',
+          indent: 0,
+          type: 'root',
+          version: 1,
+        },
+      })));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const inputTextBeforeSubmit = input.textContent?.trim() ?? '';
+      const currentInput = document.querySelector('[data-testid="home-hero-input"]');
+      if (currentInput !== input || inputTextBeforeSubmit !== prompt) {
+        throw new Error('packaged first Home run prompt was not retained on the current composer');
+      }
+
       const state = {
         hrefBefore: location.href,
-        inputTextBeforeSubmit: '',
+        inputTextBeforeSubmit,
         instrumented: true,
         injectedAuthorityOutageCount: 0,
         navigationEntryCountBefore: performance.getEntriesByType('navigation').length,
@@ -192,7 +230,6 @@ export function packagedHomeFirstRunExpression(): string {
         workspaceRequestHeaders: {},
         workspaceTabClicksBeforeOutput: 0,
       };
-      globalThis[stateKey] = state;
 
       const originalFetch = globalThis.fetch.bind(globalThis);
       state.originalFetch = originalFetch;
@@ -248,37 +285,7 @@ export function packagedHomeFirstRunExpression(): string {
           state.workspaceTabClicksBeforeOutput += 1;
         }
       }, true);
-
-      input.focus();
-      editor.setEditorState(editor.parseEditorState(JSON.stringify({
-        root: {
-          children: [{
-            children: [{
-              detail: 0,
-              format: 0,
-              mode: 'normal',
-              style: '',
-              text: prompt,
-              type: 'text',
-              version: 1,
-            }],
-            direction: null,
-            format: '',
-            indent: 0,
-            type: 'paragraph',
-            version: 1,
-            textFormat: 0,
-            textStyle: '',
-          }],
-          direction: null,
-          format: '',
-          indent: 0,
-          type: 'root',
-          version: 1,
-        },
-      })));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      state.inputTextBeforeSubmit = input.textContent?.trim() ?? '';
+      globalThis[stateKey] = state;
 
       return {
         hrefBefore: state.hrefBefore,

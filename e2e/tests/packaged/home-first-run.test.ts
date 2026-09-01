@@ -33,14 +33,20 @@ type FixtureDocumentOptions = {
   editorAfterQueries?: number;
   loadingVisible?: boolean;
   onboardingVisible?: boolean;
+  promptInsertionFailures?: number;
 };
 
 function renderFixture(options: FixtureDocumentOptions = {}) {
   const input = new FixtureElement(options.composerVisible ?? true);
   input.isContentEditable = options.composerContentEditable ?? true;
+  let promptInsertionFailures = options.promptInsertionFailures ?? 0;
   const editor = {
     parseEditorState: (value: string) => JSON.parse(value),
     setEditorState: (value: unknown) => {
+      if (promptInsertionFailures > 0) {
+        promptInsertionFailures -= 1;
+        throw new Error('fixture prompt insertion failed');
+      }
       const root = value as {
         root?: { children?: Array<{ children?: Array<{ text?: string }> }> };
       };
@@ -122,7 +128,7 @@ describe('packaged Home first-run readiness', () => {
       instrumented: false,
       readiness: { composerFound: false, composerVisible: false },
     });
-    expect(fixture.composerQueries()).toBe(3);
+    expect(fixture.composerQueries()).toBe(4);
     expect(fixture.input.textContent).toBe(PACKAGED_HOME_FIRST_RUN_PROMPT);
     expect(ready).toMatchObject({
       instrumented: true,
@@ -168,6 +174,21 @@ describe('packaged Home first-run readiness', () => {
       inputTextBeforeSubmit: PACKAGED_HOME_FIRST_RUN_PROMPT,
       readiness: { lexicalEditorReady: true },
     });
+  });
+
+  it('retries prompt insertion without accepting provisional success state', async () => {
+    const fixture = renderFixture({ promptInsertionFailures: 1 });
+    const evaluate = createExpressionEvaluator(fixture);
+    let inspectionCount = 0;
+
+    const setup = await waitForPackagedHomeFirstRunSetup(async () => {
+      inspectionCount += 1;
+      return await evaluate(packagedHomeFirstRunExpression());
+    }, { pollIntervalMs: 0, timeoutMs: 100 });
+
+    expect(inspectionCount).toBe(2);
+    expect(fixture.input.textContent).toBe(PACKAGED_HOME_FIRST_RUN_PROMPT);
+    expect(setup.inputTextBeforeSubmit).toBe(PACKAGED_HOME_FIRST_RUN_PROMPT);
   });
 
   it('reports why the current composer is not ready without blocking the inspection', async () => {
