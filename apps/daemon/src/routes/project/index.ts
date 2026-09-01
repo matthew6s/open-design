@@ -102,6 +102,11 @@ import {
 } from '../../http/html-stream-injection.js';
 import { HtmlPreviewPolicyIndex } from '../../http/html-preview-policy-index.js';
 import {
+  prewarmHtmlPreviewPolicyFile,
+  previewSnapshotPolicyCacheKey,
+  type HtmlPreviewPolicyFileIdentity,
+} from '../../http/html-preview-policy-prewarm.js';
+import {
   PreviewDocumentSnapshotStore,
   PreviewDocumentVersionChangedError,
   type PreviewDocumentSnapshot,
@@ -305,13 +310,6 @@ function sameLocalCatalogScopes(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-interface HtmlPreviewPolicyFileIdentity {
-  filePath: string;
-  size: number;
-  mtime: number;
-  mime?: string;
-}
-
 async function htmlPreviewDocumentVersion(meta: { filePath: string }): Promise<string> {
   const digest = createHash('sha256');
   for await (const chunk of createReadStream(meta.filePath)) {
@@ -320,24 +318,9 @@ async function htmlPreviewDocumentVersion(meta: { filePath: string }): Promise<s
   return `sha256:${digest.digest('hex')}`;
 }
 
-function prewarmHtmlPreviewPolicyFile(
-  index: HtmlPreviewPolicyIndex,
-  fileName: string,
-  file: HtmlPreviewPolicyFileIdentity,
-): void {
-  const isHtml = file.mime
-    ? /^text\/html(?:;|$)/i.test(file.mime)
-    : /\.html?$/i.test(fileName);
-  if (!isHtml) return;
-  void htmlPreviewDocumentVersion(file)
-    .then((documentVersion) => {
-      index.prewarm({ filePath: file.filePath, documentVersion });
-    })
-    .catch(() => undefined);
-}
-
 export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry' | 'appConfig' | 'agents' | 'validation' | 'collabSync'> {
   htmlPreviewPolicyIndex?: HtmlPreviewPolicyIndex;
+  previewDocumentSnapshotStore?: PreviewDocumentSnapshotStore;
   pluginScope?: {
     loadRegistry: (options: {
       workspaceId?: string | null;
@@ -2159,6 +2142,10 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   const { listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects, listUnboundProjects } = ctx.status;
   const { subscribeFileEvents, activeProjectEventSinks } = ctx.events;
   const htmlPreviewPolicyIndex = ctx.htmlPreviewPolicyIndex ?? new HtmlPreviewPolicyIndex();
+  const previewDocumentSnapshotStore = ctx.previewDocumentSnapshotStore
+    ?? new PreviewDocumentSnapshotStore({
+      rootDir: path.join(ctx.paths.RUNTIME_DATA_DIR, 'preview-document-snapshots'),
+    });
   const { randomId } = ctx.ids;
   const { validateProjectDesignSystemId, validateProjectSkillId } = ctx.validation;
   const { collabSync, teamProjectCatalog, workspaceTypes } = ctx;
@@ -5432,7 +5419,12 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       ) => {
         if (evt.kind !== 'unlink') {
           if (file) {
-            prewarmHtmlPreviewPolicyFile(htmlPreviewPolicyIndex, evt.path, file);
+            void prewarmHtmlPreviewPolicyFile(
+              htmlPreviewPolicyIndex,
+              evt.path,
+              file,
+              previewDocumentSnapshotStore,
+            ).catch(() => undefined);
           } else {
             // Custom watcher adapters may not provide an exact identity. Keep
             // them compatible while production's always-stat watcher starts
@@ -5443,7 +5435,12 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
               evt.path,
               watchProject?.metadata,
             ).then((resolved: HtmlPreviewPolicyFileIdentity) => {
-              prewarmHtmlPreviewPolicyFile(htmlPreviewPolicyIndex, evt.path, resolved);
+              return prewarmHtmlPreviewPolicyFile(
+                htmlPreviewPolicyIndex,
+                evt.path,
+                resolved,
+                previewDocumentSnapshotStore,
+              );
             }).catch(() => undefined);
           }
         }
@@ -5739,7 +5736,12 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   ): void => {
     void resolveProjectFilePath(PROJECTS_DIR, projectId, fileName, metadata)
       .then((meta: { filePath: string; mime: string; mtime: number; size: number }) => {
-        prewarmHtmlPreviewPolicyFile(htmlPreviewPolicyIndex, fileName, meta);
+        return prewarmHtmlPreviewPolicyFile(
+          htmlPreviewPolicyIndex,
+          fileName,
+          meta,
+          previewDocumentSnapshotStore,
+        );
       })
       .catch(() => undefined);
   };
@@ -6143,12 +6145,6 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
       });
       return Buffer.isBuffer(transformed) ? transformed : Buffer.from(String(transformed));
     }, captureOptions);
-  }
-
-  function previewSnapshotPolicyCacheKey(filePath: string): string {
-    // Keep request-local immutable scans separate from the legacy path-based
-    // prewarm, whose source may be replaced between hashing and scanning.
-    return `snapshot\0${filePath}`;
   }
 
   function sendPreviewDocumentReadError(res: Response, error: any): void {
