@@ -248,10 +248,7 @@ const REFUND_FAQ_BY_LOCALE: Partial<Record<LandingLocaleCode, FaqItem>> = {
  * and trial-mentioning answers swapped while the trial promo is offline. */
 export function getFaqs(locale: LandingLocaleCode): FaqItem[] {
   const sourceItems = FAQ_BY_LOCALE[locale] ?? FAQ_BY_LOCALE.en!;
-  const localizedRefund = REFUND_FAQ_BY_LOCALE[locale] ?? REFUND_FAQ_BY_LOCALE.en!;
-  const items = sourceItems.map((item) =>
-    item.refundPolicyCta ? localizedRefund : item,
-  );
+  const items = sourceItems.filter((item) => !item.refundPolicyCta);
   if (TRIAL_CREDIT_PROMO_ENABLED) return items;
   return items
     .filter((item) => !item.trialPromo)
@@ -276,22 +273,12 @@ export function getFaqTitle(locale: LandingLocaleCode): string {
   return FAQ_TITLE_BY_LOCALE[locale] ?? FAQ_TITLE_BY_LOCALE.en!;
 }
 
-const MORE_FAQ_LABEL_BY_LOCALE: Partial<Record<LandingLocaleCode, string>> = {
-  en: 'View more frequently asked questions',
-  zh: '查看更多常见问题',
-  'zh-tw': '查看更多常見問題',
-  ja: 'よくある質問をもっと見る',
-  ko: '자주 묻는 질문 더 보기',
-  de: 'Weitere häufig gestellte Fragen',
-  fr: 'Voir plus de questions fréquentes',
-  ru: 'Посмотреть больше часто задаваемых вопросов',
-  es: 'Ver más preguntas frecuentes',
-  'pt-br': 'Ver mais perguntas frequentes',
-};
-
-/** Localized link label for the standalone FAQ page, falling back to English. */
-export function getMoreFaqLabel(locale: LandingLocaleCode): string {
-  return MORE_FAQ_LABEL_BY_LOCALE[locale] ?? MORE_FAQ_LABEL_BY_LOCALE.en!;
+/** Localized bottom entry for the standalone refund policy. */
+export function getRefundPolicyLabel(locale: LandingLocaleCode): string {
+  return (
+    REFUND_FAQ_BY_LOCALE[locale]?.refundPolicyCta ??
+    REFUND_FAQ_BY_LOCALE.en!.refundPolicyCta!
+  );
 }
 
 export interface LeadFormCopy {

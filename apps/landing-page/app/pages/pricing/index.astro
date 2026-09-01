@@ -34,7 +34,7 @@ import EnterpriseLeadForm from '../../_components/enterprise-lead-form.astro';
 import {
   getFaqs,
   getFaqTitle,
-  getMoreFaqLabel,
+  getRefundPolicyLabel,
   getEnterprise,
 } from '../../_lib/pricing-extras-content';
 import { localeFromPath, localizedHref } from '../../i18n';
@@ -62,7 +62,7 @@ const footnoteHtml = fillTemplate(L.footnote, {
 
 const faqs = getFaqs(locale);
 const faqTitle = getFaqTitle(locale);
-const moreFaqLabel = getMoreFaqLabel(locale);
+const refundPolicyLabel = getRefundPolicyLabel(locale);
 const enterprise = getEnterprise(locale);
 const LF = enterprise.leadForm;
 
@@ -448,16 +448,11 @@ const jsonLd = [
         {faqs.map((faq) => (
           <details class="pr-faq-item">
             <summary class="pr-faq-q">{faq.q}</summary>
-            <div class="pr-faq-a">
-              <span>{faq.a}</span>
-              {faq.refundPolicyCta && (
-                <a class="pr-faq-policy" href={refundPolicyHref}>{faq.refundPolicyCta}</a>
-              )}
-            </div>
+            <div class="pr-faq-a">{faq.a}</div>
           </details>
         ))}
       </div>
-      <a class="pr-faq-more" href={href('/faq/')}>{moreFaqLabel}</a>
+      <a class="pr-faq-more" href={refundPolicyHref}>{refundPolicyLabel}</a>
     </section>
   </article>
 
@@ -1946,20 +1941,6 @@ const jsonLd = [
     font-size: 0.88rem;
     line-height: 1.65;
     color: var(--ink-soft, #555);
-  }
-  .pr-faq-policy {
-    display: block;
-    width: fit-content;
-    margin-top: 10px;
-    color: var(--ink, #262626);
-    font-weight: 700;
-    text-decoration: underline;
-    text-underline-offset: 4px;
-  }
-  .pr-faq-policy:focus-visible {
-    border-radius: 3px;
-    outline: 2px solid var(--ink);
-    outline-offset: 4px;
   }
   .pr-faq-more {
     display: table;

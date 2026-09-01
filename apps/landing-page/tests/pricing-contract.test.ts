@@ -621,27 +621,27 @@ describe("pricing contract", () => {
     assert.doesNotMatch(page, /限时抢购/);
   });
 
-  it("links the pricing FAQ to the localized standalone FAQ page", async () => {
+  it("uses the Pricing FAQ footer as the localized refund-policy entry", async () => {
     const [page, pricingExtras] = await Promise.all([
       readFile(PRICING_PAGE_PATH, "utf8"),
       import("../app/_lib/pricing-extras-content.ts"),
     ]);
-    const getMoreFaqLabel = (
+    const getRefundPolicyLabel = (
       pricingExtras as Record<string, unknown>
-    ).getMoreFaqLabel;
+    ).getRefundPolicyLabel;
 
-    assert.equal(typeof getMoreFaqLabel, "function");
+    assert.equal(typeof getRefundPolicyLabel, "function");
     assert.equal(
-      (getMoreFaqLabel as (locale: string) => string)("zh"),
-      "查看更多常见问题",
+      (getRefundPolicyLabel as (locale: string) => string)("zh"),
+      "查看完整退款政策",
     );
     assert.match(
       page,
-      /<a class="pr-faq-more" href=\{href\('\/faq\/'\)\}>\{moreFaqLabel\}<\/a>/,
+      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{refundPolicyLabel\}<\/a>/,
     );
   });
 
-  it("links the refund answer to the localized refund policy without the old no-refund copy", async () => {
+  it("removes the refund FAQ item and uses the bottom link as the localized policy entry", async () => {
     const [page, pricingExtras] = await Promise.all([
       readFile(PRICING_PAGE_PATH, "utf8"),
       import("../app/_lib/pricing-extras-content.ts"),
@@ -649,20 +649,13 @@ describe("pricing contract", () => {
     const getFaqs = (pricingExtras as Record<string, unknown>).getFaqs as (
       locale: string,
     ) => Array<{ q: string; a: string; refundPolicyCta?: string }>;
-    const zhRefund = getFaqs("zh").find((faq) => faq.refundPolicyCta);
-    const enRefund = getFaqs("en").find((faq) => faq.refundPolicyCta);
 
-    assert.ok(zhRefund);
-    assert.match(zhRefund.a, /地区、订阅类型和使用情况/);
-    assert.equal(zhRefund.refundPolicyCta, "查看完整退款政策");
-    assert.ok(enRefund);
-    assert.match(enRefund.a, /region, subscription type, and usage/i);
-    assert.doesNotMatch(`${zhRefund.a} ${enRefund.a}`, /暂不支持退款|currently non-refundable/i);
+    assert.equal(getFaqs("zh").some((faq) => faq.refundPolicyCta), false);
+    assert.equal(getFaqs("en").some((faq) => faq.refundPolicyCta), false);
+    assert.doesNotMatch(getFaqs("zh").map((faq) => faq.q).join(" "), /怎么申请退款/);
+    assert.doesNotMatch(getFaqs("en").map((faq) => faq.q).join(" "), /How do refunds work/i);
     assert.doesNotMatch(getFaqs("zh").map((faq) => faq.a).join(" "), /年付.*不支持退款/);
-    assert.match(
-      page,
-      /<a class="pr-faq-policy" href=\{refundPolicyHref\}>\{faq\.refundPolicyCta\}<\/a>/,
-    );
+    assert.doesNotMatch(page, /class="pr-faq-policy"/);
   });
 
   it("does not expose a campaign review preview backdoor", async () => {

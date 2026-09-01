@@ -22,7 +22,7 @@ describe('refund policy page', () => {
 
     const [
       { getRefundPolicyContent },
-      { getFaqs },
+      { getRefundPolicyLabel },
       { getHeaderLocaleSwitcher, LANDING_LOCALES },
       page,
       localizedPage,
@@ -102,9 +102,10 @@ describe('refund policy page', () => {
       assert.match(policyText, /48/, `${locale}: missing all-other-customers deadline`);
       assert.match(policyText, /10/, `${locale}: missing processing deadline`);
 
-      const refundFaq = getFaqs(locale).find((item) => item.refundPolicyCta);
-      assert.ok(refundFaq, `${locale}: missing localized pricing refund entry`);
-      assert.ok(refundFaq.a.length > 0, `${locale}: missing pricing refund summary`);
+      assert.ok(
+        getRefundPolicyLabel(locale).length > 0,
+        `${locale}: missing localized pricing refund-policy entry`,
+      );
     }
     assert.match(zhPolicy, /10 个工作日内.*发起退款/);
     assert.match(zhPolicy, /后台记录/);
@@ -118,6 +119,10 @@ describe('refund policy page', () => {
     assert.match(page, /suppressLocaleAutoRedirect/);
     assert.match(page, /section\.items\.slice\(0, section\.inlineItemCount\)/);
     assert.match(page, /section\.items\.slice\(section\.inlineItemCount \?\? 0\)/);
+    assert.match(
+      pricingPage,
+      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{refundPolicyLabel\}<\/a>/,
+    );
     assert.deepEqual(
       getHeaderLocaleSwitcher('en', '/refund-policy/', {
         availableLocaleCodes: activeLocaleCodes,
