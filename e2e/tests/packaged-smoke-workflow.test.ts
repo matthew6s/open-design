@@ -1484,6 +1484,23 @@ process.stdin.on("end", () => {
     expect(guardedJobs).toHaveLength(2);
   });
 
+  it("[P1] marks the catalog pack checkout safe and pins source commit to github.sha", async () => {
+    const workflow = await readFile(catalogPublishWorkflowPath, "utf8");
+    const pack = sectionBetween(workflow, "  pack:", "\n  publish:");
+
+    expect(pack).toContain("source_commit: ${{ github.sha }}");
+    expect(pack).toContain('git config --global --add safe.directory "$GITHUB_WORKSPACE"');
+    expect(pack.indexOf('git config --global --add safe.directory "$GITHUB_WORKSPACE"')).toBeGreaterThan(
+      pack.indexOf("uses: actions/checkout@v6.0.2"),
+    );
+    expect(pack.indexOf('git config --global --add safe.directory "$GITHUB_WORKSPACE"')).toBeLessThan(
+      pack.indexOf("pnpm exec tools-release export-catalog"),
+    );
+    expect(pack).toContain("CATALOG_SOURCE_COMMIT: ${{ github.sha }}");
+    expect(pack).not.toContain("git rev-parse HEAD");
+    expect(pack).not.toContain("steps.meta.outputs.source_commit");
+  });
+
   it("[P2] triggers catalog publishing for shared storage helpers", async () => {
     const [publishWorkflow, validateWorkflow] = await Promise.all([
       readFile(catalogPublishWorkflowPath, "utf8"),

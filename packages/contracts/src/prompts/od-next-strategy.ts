@@ -198,6 +198,19 @@ export function resolveOdNextDeckFrameworkMode(input: {
   return input.deckIntent ? 'canonical' : undefined;
 }
 
+/**
+ * OD-NEXT SIDE of the prompt fork. This list is declared TWICE: here, and as
+ * `od.pipeline.stages` in
+ * `plugins/_official/scenarios/od-next-strategy/open-design.json`. Keep them in
+ * step.
+ *
+ * This file — not the plugin's markdown task profiles — is where OD Next
+ * carries host runtime contracts: `discovery-question-form` mirrors the
+ * `<question-form>` guidance in the legacy `discovery.ts`, and
+ * `resolveOdNextDeckFrameworkMode` above reaches the shared deck scaffold. So
+ * "does OD Next say X?" has two possible homes; check both. See
+ * `docs/prompt-composition.md`.
+ */
 export const OD_NEXT_PROMPT_STAGE_CONTRACT_V2 = [
   { id: 'discovery', atoms: ['discovery-question-form'] },
   { id: 'plan', atoms: ['direction-picker', 'todo-write'] },

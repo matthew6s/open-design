@@ -310,6 +310,11 @@ export function composeSystemPrompt({
   userInstructions,
   projectInstructions,
 }: ComposeInput): string {
+  // ── FORK POINT (API/BYOK side) ──────────────────────────────────────────
+  // Mirrors the daemon fork in `apps/daemon/src/prompts/system.ts`. Everything
+  // below is the legacy stack; OD Next runs return here and never reach it.
+  // Read `docs/prompt-composition.md` before changing prompt text on either
+  // side of this fork.
   if (odNextStrategyRecipe) {
     return composeOdNextStrategyRequestPromptV2(odNextStrategyRecipe, {
       agentId,
@@ -531,6 +536,9 @@ export function composeSystemPrompt({
   const hasDeckSkillSeed =
     skillMode === 'deck' && !!skillBody && /assets\/template\.html/.test(skillBody);
   if (!isAskMode && isDeckProject && !hasDeckSkillSeed) {
+    // ⚠️ This decides WHEN the legacy path gets the deck scaffold. OD Next has
+    // its own gate — `resolveOdNextDeckFrameworkMode` in `od-next-strategy.ts`.
+    // The scaffold is shared; the injection conditions are not. Change both.
     parts.push(`\n\n---\n\n${deckFrameworkDirective}`);
   } else if (
     !isAskMode &&
