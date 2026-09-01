@@ -37,8 +37,17 @@ const zhGap = /[A-Za-z0-9)\]]$/.test(group.label) ? ' ' : '';
 const rankingTitle = isZh ? `${group.label}${zhGap}排名` : `${group.label} ranking`;
 const costTitle = isZh ? `${group.label}${zhGap}· 总分 × 成本` : `${group.label} · score vs cost`;
 const costDescription = isZh ? '左上象限代表用更低成本拿到更高的总分。横轴是对数刻度，实测成本跨度超过 200 倍。' : 'The upper-left quadrant reaches a higher score at a lower cost. The x-axis is logarithmic — measured cost spans more than 200x.';
-// 实测总分区间 65.7 – 79.8，用 58 – 85 作画布。
-const chartHeight = (value: number) => Math.max(12, Math.min(84, (value - 58) * 3.4));
+// 纵轴按本组真实分数自适应。写死 60–85 时，Web 应用这类低分场景会有
+// 四个模型同时被 clamp 到地板上，既看不出差距，标签也必然重叠。
+const scores = group.rows.map((row) => row.score);
+const rawMin = Math.min(...scores);
+const rawMax = Math.max(...scores);
+const span = Math.max(rawMax - rawMin, 6);
+const yMin = Math.floor((rawMin - span * 0.18) / 2) * 2;
+const yMax = Math.ceil((rawMax + span * 0.18) / 2) * 2;
+const plotY = (score: number) => Number(Math.max(6, Math.min(94, ((score - yMin) / (yMax - yMin)) * 88 + 6)).toFixed(2));
+const yTicks = [0, 1, 2, 3].map((step) => Math.round(yMax - ((yMax - yMin) / 3) * step));
+const chartHeight = (value: number) => Math.max(12, Math.min(84, ((value - yMin) / (yMax - yMin)) * 72 + 12));
 
 // 高效区边界按本组真实数据推导，而不是写死象限：
 // 锚点 = PDR 第一梯队（前半）里成本最低的模型，区域刚好把它包进来。
@@ -50,42 +59,69 @@ const zoneAnchor = topTier.reduce((best, row) => (row.cost < best.cost ? row : b
 // 中点规则会被"成本只高一点点"的模型挤到紧贴锚点；跟着一起进区的模型
 // 本来也是高性价比的那几个，读法不受影响。
 const zoneWidth = Math.min(96, zoneAnchor.x + 8);
-const zoneHeight = Math.min(96, 100 - (zoneAnchor.y - 8));
+const zoneHeight = Math.min(96, 100 - (plotY(zoneAnchor.score) - 8));
 
-// 常驻标签的方向在构建期算：重点模型沿成本-PDR 对角链排布，写死方向必然撞上相邻图标。
-// 用绘图区百分比估算标签占位，四个方向里挑与其它点重叠最少的那个。
-const LABEL_W = 34;   // 标签宽约占绘图区宽的 34%
-const LABEL_H = 11;   // 标签高约占绘图区高的 11%
-const GAP_X = 7;      // 图标半径 + 间距，换算成 x 百分比
-const GAP_Y = 6;      // 同上，y 百分比
-const DOT_X = 5;      // 重点图标半宽
-const DOT_Y = 4;      // 重点图标半高
-const labelRect = (row: RankingRow, dir: string) => {
-  if (dir === 'up') return { x0: row.x - LABEL_W / 2, x1: row.x + LABEL_W / 2, y0: row.y + GAP_Y, y1: row.y + GAP_Y + LABEL_H };
-  if (dir === 'down') return { x0: row.x - LABEL_W / 2, x1: row.x + LABEL_W / 2, y0: row.y - GAP_Y - LABEL_H, y1: row.y - GAP_Y };
-  if (dir === 'left') return { x0: row.x - GAP_X - LABEL_W, x1: row.x - GAP_X, y0: row.y - LABEL_H / 2, y1: row.y + LABEL_H / 2 };
-  return { x0: row.x + GAP_X, x1: row.x + GAP_X + LABEL_W, y0: row.y - LABEL_H / 2, y1: row.y + LABEL_H / 2 };
+// 每个点都常驻一个纯文字标签，所以 12 个标签必须逐个避让：
+// 标签宽度按名字长度估算（绘图区百分比），依次放置时同时避开其它点和已放好的标签。
+// 以下常数按浏览器里量出来的真实几何标定（绘图区约 358×372，标签 8px 字）：
+// 宽度 ≈ 1.1 × 字符数 + 2，高度恒为 2.2，圆点半径 4.5px、间距 5px。
+// 估算偏大会让求解器误判成"到处都撞"，反而选不出好方向。
+const labelWidth = (name: string) => Math.min(46, 2 + name.length * 1.1);
+const LABEL_H = 3;    // 单行文字高（实测 2.2，留一点余量）
+const GAP_X = 2.9;    // 圆点半径 + 间距，换算成 x 百分比
+const GAP_Y = 2.8;    // 同上，y 百分比
+const DOT_X = 1.5;    // 圆点半宽
+const DOT_Y = 1.4;    // 圆点半高
+type Box = { x0: number; x1: number; y0: number; y1: number };
+const labelRect = (input: RankingRow, dir: string): Box => {
+  const row = { x: input.x, y: plotY(input.score), name: input.name };
+  const w = labelWidth(row.name);
+  const half = LABEL_H / 2;
+  switch (dir) {
+    case 'up': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y, y1: row.y + GAP_Y + LABEL_H };
+    case 'down': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H, y1: row.y - GAP_Y };
+    case 'left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y - half, y1: row.y + half };
+    case 'right': return { x0: row.x + GAP_X, x1: row.x + GAP_X + w, y0: row.y - half, y1: row.y + half };
+    case 'up-left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y + GAP_Y - half, y1: row.y + GAP_Y + half };
+    case 'up-right': return { x0: row.x + GAP_X, x1: row.x + GAP_X + w, y0: row.y + GAP_Y - half, y1: row.y + GAP_Y + half };
+    case 'down-left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y - GAP_Y - half, y1: row.y - GAP_Y + half };
+    default: return { x0: row.x + GAP_X, x1: row.x + GAP_X + w, y0: row.y - GAP_Y - half, y1: row.y - GAP_Y + half };
+  }
 };
-// 依次放置：后放的标签要同时避开其它模型的图标和已放好的标签，
-// 否则三个标签会各自独立地都选「上」然后互相压住。
-const overlaps = (a: { x0: number; x1: number; y0: number; y1: number }, b: { x0: number; x1: number; y0: number; y1: number }) =>
-  a.x1 > b.x0 && a.x0 < b.x1 && a.y1 > b.y0 && a.y0 < b.y1;
-const placedLabels: Array<{ x0: number; x1: number; y0: number; y1: number }> = [];
+const overlaps = (a: Box, b: Box) => a.x1 > b.x0 && a.x0 < b.x1 && a.y1 > b.y0 && a.y0 < b.y1;
+const DIRECTIONS = ['right', 'left', 'up', 'down', 'up-right', 'up-left', 'down-right', 'down-left'];
 const labelDirs = new Map<string, string>();
-group.rows.slice(0, 3).forEach((row) => {
-  const others = group.rows.filter((other) => other !== row);
-  const scored = ['up', 'down', 'right', 'left'].map((dir) => {
-    const box = labelRect(row, dir);
-    const outside = box.x0 < -6 || box.x1 > 106 || box.y0 < -4 || box.y1 > 104 ? 1 : 0;
-    const hits = others.filter((other) =>
-      other.x + DOT_X > box.x0 && other.x - DOT_X < box.x1 && other.y + DOT_Y > box.y0 && other.y - DOT_Y < box.y1).length;
-    const clashes = placedLabels.filter((placed) => overlaps(box, placed)).length;
-    return { dir, box, cost: hits + clashes * 2 + outside * 3 };
-  });
-  const best = scored.reduce((winner, item) => (item.cost < winner.cost ? item : winner), scored[0]!);
-  placedLabels.push(best.box);
+const boxes = new Map<string, Box>();
+
+// 文字压文字完全不可读，比压住一个圆点严重得多，所以 clash 的权重要高很多。
+const scoreDir = (row: RankingRow, dir: string) => {
+  const box = labelRect(row, dir);
+  const outside = box.x0 < -2 || box.x1 > 102 || box.y0 < -2 || box.y1 > 102 ? 1 : 0;
+  const hits = group.rows.filter((other) => other !== row
+    && other.x + DOT_X > box.x0 && other.x - DOT_X < box.x1
+    && plotY(other.score) + DOT_Y > box.y0 && plotY(other.score) - DOT_Y < box.y1).length;
+  const clashes = [...boxes.entries()].filter(([name, placed]) => name !== row.name && overlaps(box, placed)).length;
+  return { box, cost: clashes * 12 + hits * 2 + outside * 8 };
+};
+const bestDir = (row: RankingRow) => DIRECTIONS
+  .map((dir) => ({ dir, ...scoreDir(row, dir) }))
+  .reduce((winner, item) => (item.cost < winner.cost ? item : winner));
+
+// 第一轮从高分往低分贪心放置。
+[...group.rows].forEach((row) => {
+  const best = bestDir(row);
+  boxes.set(row.name, best.box);
   labelDirs.set(row.name, best.dir);
 });
+// 贪心会把后放的标签逼进死角，再跑两轮局部修复：
+// 此时所有标签都已就位，重算一遍能让它们互相让开。
+for (let pass = 0; pass < 2; pass += 1) {
+  group.rows.forEach((row) => {
+    const best = bestDir(row);
+    boxes.set(row.name, best.box);
+    labelDirs.set(row.name, best.dir);
+  });
+}
 
 ---
 
@@ -138,20 +174,20 @@ group.rows.slice(0, 3).forEach((row) => {
     <div class="cost-stage">
       <span class="cost-y-label">{scoreAxisLabel} ({isZh ? '越高越好' : 'higher is better'})</span>
       <span class="cost-x-label">{isZh ? '单份产物成本（越低越好，对数刻度）' : 'Cost per artifact (lower is better, log scale)'}</span>
-      <div class="cost-y-ticks" aria-hidden="true"><span>85</span><span>78</span><span>72</span><span>65</span></div>
+      <div class="cost-y-ticks" aria-hidden="true">{yTicks.map((tick) => <span>{tick}</span>)}</div>
       <div class="cost-x-ticks" aria-hidden="true"><span>$0.02</span><span>$0.10</span><span>$0.50</span><span>$2</span><span>$10</span></div>
       <div class="cost-plot">
         <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高总分 / 低成本' : 'High score / low cost'}</span></div>
         {group.rows.map((model, index) => (
           <span
-            class:list={['cost-point', { 'is-leading': index < 4, 'is-labeled': index < 3, 'is-winner': index === 0 }]}
+            class:list={['cost-point', { 'is-winner': index === 0 }]}
             data-label-dir={labelDirs.get(model.name)}
-            style={`--x:${model.x}%;--y:${model.y}%;--point-color:${model.color}`}
+            style={`--x:${model.x}%;--y:${plotY(model.score)}%;--point-color:${model.color}`}
             aria-label={`${model.name}: ${isZh ? '总分' : 'score'} ${model.score.toFixed(1)}, $${formatCost(model.cost)}`}
             tabindex="0"
           >
-            {index < 4 ? <span class="model-icon"><img src={model.icon} alt="" width="26" height="26" /></span> : null}
-            <span class="cost-point-label"><strong>{model.name}</strong><small>{model.score.toFixed(1)} / ${formatCost(model.cost)}</small></span>
+            <span class="cost-point-name">{model.name}</span>
+            <span class="cost-point-tip">{model.score.toFixed(1)} / ${formatCost(model.cost)}</span>
           </span>
         ))}
       </div>
