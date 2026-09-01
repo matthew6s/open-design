@@ -77,6 +77,13 @@ stale output as if it were the requested file version.
 
 `Preview` to `Code`, file-tab changes, and project-tab changes only move between
 `READY` and `SUSPENDED`. They must not set the document URL to `about:blank`.
+Suspension may move a retained iframe between visible and parked hosts only with
+the browser's state-preserving `Element.moveBefore()` operation. Reparenting an
+already-loaded iframe with `appendChild()` destroys its browsing context in
+Chromium, starts another document request, and loses authored JS, scroll, and
+Deck state even though the DOM node itself is reused. First attachment may use
+`appendChild()`; an older browser without `moveBefore()` receives the previous
+best-effort behavior and must never become the packaged Electron baseline.
 
 ### Capability lifecycle
 
