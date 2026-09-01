@@ -14,7 +14,7 @@
    产品指定 #353535(原来是 --brand-text 的深绿 #0d5400)。
    选中态现在的三处变化里,颜色这一处退回中性:控件填 --pick 的荧光绿已经
    把"选的是这条"说完了,字再跟着变绿,一行里就有两处在喊同一件事,而绿字
-   压在白底上比黑字难读。字重 600 保留 —— 那是这一行跟其余几行的分档。
+   压在白底上比黑字难读。选中文字用 500,与确认卡标题保持同一档强调。
    值跟 --anim-ink 一样是巧合(同为产品给的那档深灰),不合并:一个是动效的墨,
    一个是选中行的字,下次谁变都不该带着另一个一起变。 */
 :root { --select-ink: #353535; }
@@ -27,13 +27,12 @@
    真要读的是收起后那条 .think(结论),它仍走正文墨色,不受这条影响。 */
 :root { --stream-ink: #a3a3a3; }
 
-/* ── Upgrade 按钮的字和图标 ──────────────────────────────────
-   产品指定 #00FF08。它只用在 18 · 升级那颗黑按钮上:底仍是黑的,
-   绿只落在【字和那枚闪光】上 —— 一屏里唯一一处"往前一步"的动作,
-   黑底给它分量,绿给它一眼能认出来的记号,两者不抢。
+/* ── Upgrade 按钮的底色 ──────────────────────────────────────
+   升级卡改为深灰底后,原来的 #00FF08 绿色改用于按钮底色,
+   文字和闪光图标固定使用 #353535,独立于卡面背景。
    注意它跟 --brand-weak(#00FF04,那枚绿勾)差 4 —— 是两个被分别指定的
    色号,不是同一个,所以不合并:一个说"这件事过了",一个说"这里可以升级"。 */
-:root { --upgrade-ink: #00FF08; }
+:root { --upgrade-surface: #00FF08; }
 
 /* ── 「过了」那枚勾 ─────────────────────────────────────────
    产品给的整图标(源文件 src/tick.svg,内联成 data URI —— 稿子是单文件)。
@@ -151,6 +150,7 @@
 html, body { height: 100%; }
 body {
   font-family: var(--sans);
+  font-weight: 500;
   font-size: var(--font-size-13);
   line-height: 1.5;
   color: var(--text);
@@ -249,7 +249,7 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
 .cmp-h .nm { flex: 1; min-width: 0; font-size: var(--t-lead); font-weight: 700; color: var(--text-strong); }
 .cmp-meta { display: flex; flex-wrap: wrap; gap: 0 14px; padding: 8px 13px 0; }
 .cmp-meta div { font-size: var(--t-cap); color: var(--text-soft); line-height: var(--lh-row); }
-.cmp-meta b { color: var(--text-muted); font-weight: 400; }
+.cmp-meta b { color: var(--text-muted); font-weight: 500; }
 .cmp-b { padding: 10px 13px; }
 .cmp-ops {
   display: flex; gap: 7px; padding: 8px 13px 10px;
@@ -330,11 +330,11 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
    要拿同一个色去盖住被截断的半个字(见 .bub.mod-clamp .more),
    而气泡 hover 时底色会变深 —— 两处必须永远同色,所以只留一个出处。 */
 .bub {
-  --bub-bg: var(--text-strong);
+  --bub-bg: #121212;
   max-width: min(84%, 380px); padding: 9px 13px;
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
   background: var(--bub-bg); color: var(--bg);
-  font-size: var(--t-body); line-height: var(--lh-body);
+  font-size: var(--t-body); font-weight: 500; line-height: var(--lh-body);
 }
 
 /* 超长消息折到 6 行,末尾留一枚「…」,hover 时「…」后面浮出下拉箭头。
@@ -404,21 +404,22 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
    都靠外缘,扫一列就对得上"这句几点发的 / 那句几点答的"。
    时间不是动作,所以不给它按钮那套 30px 命中框和 hover 底色 —— 它只是一段
    可读的文字,做成能点的样子等于给一个按了没反应的东西。
-   字号取 caption、颜色取 --text-soft:这一行的主角是复制,时间是背景信息,
-   跟图标同一个视觉重量的话,人会先去读那串数字。 */
+   字号取 caption,时间和未选中的操作图标统一用 #A3A3A3。 */
+/* 消息辅助信息专用色,不联动全局次级文字或已选中的反馈状态。 */
+.msg-act, .fb, .fork-note { --message-muted-ink: #a3a3a3; }
 .msg-act {
   flex: none; display: flex; align-items: center;
 }
-.msg-act .tm { margin-inline-start: 2px; font-size: var(--t-cap); color: var(--text-soft); }
+.msg-act .tm { margin-inline-start: 2px; font-size: var(--t-cap); color: var(--message-muted-ink); }
 /* 消息旁的操作按钮跟着气泡的行高走,
    不自己定尺寸。原来用的是 .btn.mod-sm,图标只有 11px。 */
 .msg-act button {
   display: grid; place-items: center; width: 30px; height: 30px;
-  border-radius: var(--radius-sm); color: var(--text-soft);
+  border-radius: var(--radius-sm); color: var(--message-muted-ink);
   transition: background-color var(--duration-faster) var(--ease-out),
               color var(--duration-faster) var(--ease-out);
 }
-.msg-act button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
+.msg-act button:hover { background: var(--bg-fill-secondary); color: var(--message-muted-ink); }
 .msg-act button svg { width: 16px; height: 16px; }
 
 /* 【重试】带可见文字,跟失败行的那枚同一套外观。
@@ -919,6 +920,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    只染图标不染文字:文字要跟其它折叠行保持一致,绿的是那个标记,
    不是那句话。 */
 .fold > summary .memo-ic { color: #00ff04; }
+/* 记忆卡的外壳和标题悬停底共用 16px 圆角,展开、收起保持一致。 */
+.fold:has(> summary > .memo-ic),
+.fold > summary:has(> .memo-ic) { border-radius: 16px; }
 /* 箭头一律靠右。原来右对齐是靠耗时 .ms 的 auto 外边距撑出来的,
    于是没有耗时的那几条(执行计划、记忆组件)箭头就贴在文字后面。
    现在两个都能自己靠右,谁先出现谁吃掉空白:
@@ -1045,30 +1049,23 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat[open] > summary + .body.mod-stack { border-top: var(--stroke-thin) solid var(--border); padding-top: 6px; }
 /* 纯文字直接落在左边缘 —— 它是正文,不该比动作行更靠里。 */
 .fold.mod-flat > .body.mod-stack > .think { padding: 6px 0; }
+/* 留下供阅读的推理正文用 13px;滚动中的过程文字保留原有字号。 */
+.fold.mod-flat > .body.mod-stack:not(.mod-stream) > .think { font-size: var(--t-body); }
 /* 动作行:同一套负外边距,状态点和标题行的状态点连成一列。 */
 .fold.mod-flat > .body.mod-stack > .fold { margin-inline: -7px; }
 .fold.mod-flat > .body.mod-stack > .fold > summary { padding: 5px 7px; border-radius: var(--radius-sm); }
-/* 步骤名加粗到 600。
-   ------------------------------------------------------------
-   这一层原来是常规字重 —— 当时的理由是"同一个 rank 的折叠块标题不该比卡头
-   更重"。串上链之后前提变了:这几行不再是并列的几个折叠块,而是一条链上的
-   【节点】,链上其它东西(小结、子行、耗时)都是围着它们说的。节点比说明重
-   一档,眼睛顺着链往下扫时才有落点。
-   只加在步骤名上:耗时 .ms 收回 400 —— 它是等宽数字,600 的等宽在 12px 上
-   会糊成一团黑,而且它本来就是次要信息,跟着标题一起变重就分不出主次了。 */
-.fold.mod-flat > .body.mod-stack > .fold > summary { font-weight: 600; }
-.fold.mod-flat > .body.mod-stack > .fold > summary .ms { font-weight: 400; }
-/* 步骤名之外的那几句话退成重灰。
-   ------------------------------------------------------------
-   步骤名刚加到 600,如果说明还跟它一样是 --text-strong,一块里就有两样东西
-   同时在喊 —— 加粗这件事只有在旁边有更轻的一档时才成立。
-   退到 --text-muted(#5c5c5c)这一档,不是最浅的 --text-soft:这几句是
-   Agent 说给你听的话,不是标注,得读得下来。白底上 7:1,一整段读着不费劲。
-   ------------------------------------------------------------
-   :has(> .fold) 圈的是【有步骤的那种块】—— 进行中 / 已完成。Thinking 那块
-   用的是同一副壳、里面也是 .think,但它整块就是一段推理,没有"标题 + 说明"
-   这层关系,轻重由它自己那套渐隐管,这里不去动它。 */
-.fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-muted); }
+.fold.mod-flat > .body.mod-stack .fold > summary:hover { border-radius: var(--radius); }
+/* 执行计划和步骤标题统一为 13px / 500,进行中、已完成及展开/收起共用。
+   标题文字也直接设置同一档,不只依赖继承。耗时保持独立规则,
+   不影响顶层状态标题和工具调用行。 */
+.fold.mod-flat > .body.mod-stack > .fold > summary,
+.fold.mod-flat > .body.mod-stack > .fold > summary > .mk + span { font-size: var(--t-body); font-weight: 500; }
+.fold.mod-flat > .body.mod-stack > .fold > summary .ms { color: #A3A3A3; font-weight: 500; }
+/* 步骤小结与正常命令行使用独立的浅灰色,不联动 Thinking 滚动流。 */
+.fold.mod-flat { --progress-detail-ink: #a3a3a3; }
+/* 开头说明沿用正文深色:浅色主题 --text-strong 为 #202020。
+   进行中和已完成保持一致;步骤间的小结在下方单独使用浅灰色。 */
+.fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-strong); }
 /* 步骤之间穿一条竖线 —— chain-of-thought 的那根"链"。
    ------------------------------------------------------------
    参照 21st.dev @elements- 的 chain-of-thought:线是每一步自己画的一段
@@ -1115,7 +1112,11 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) {
   position: relative;
   padding-inline-start: 22px;
+  /* 步骤间的小结用 12px;开头说明保留 13px。 */
+  font-size: var(--t-mini);
+  color: var(--progress-detail-ink);
 }
+.fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) code { color: inherit; }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold)::before {
   /* 7.5 而不是 14.5:步骤那一层挂着 margin-inline:-7px,盒子比小结往左多探 7px,
      两边各自的 0 点差了这 7px。要的是【同一条竖线】,所以数字得各算各的。 */
@@ -1147,6 +1148,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 折叠行的缩进由它的 summary 承担,盒子本身不再吃一份 —— 否则 29 + 29,
    一条可折叠的命令行会比它旁边那几条工具行深一格,读起来像多了一层。 */
 .fold.mod-flat .body.mod-stack .body.mod-stack > .fold { padding-inline: 0; }
+/* 正常命令行的文字、耗时和标记同色;失败行保留原有状态色。 */
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) { color: var(--progress-detail-ink); }
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.ti, .ms),
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > .ti > svg { color: inherit; }
 /* 终端块同样把 7px 的负外边距补回来:左边跟着它上面那行命令,右边收回卡内。
    只改左右两边 —— 上下那份间距是 .code 自己的,写成 margin 简写会把它顶掉。 */
 .fold.mod-flat .body.mod-stack .code { margin-inline: 29px 18px; }
@@ -1349,13 +1354,15 @@ button.att-d:hover { border-color: var(--border-strong); }
 .card > .h {
   display: flex; align-items: center; gap: 7px; padding: 9px 11px;
   border-bottom: 1px solid var(--border-soft); background: var(--bg-panel);
-  font-size: var(--t-mini); font-weight: 600; color: var(--text-strong);
+  font-size: var(--t-lead); font-weight: 600; color: var(--text-strong);
 }
 /* 卡头整行走 600(2026-08-19 按要求加粗):这一行是卡的名字,压在灰底上,
    字重是它跟下面正文拉开的唯一一档 —— 颜色两边都已经是最深的一档了。
    <b> 仍显式收回成 inherit:浏览器默认给它 700,留着就成了行内再上一档,
    同一行里两种字重。<b> 在标记里区分的是"标题"和旁边的计数 / 按钮,不是字重。 */
-.card > .h b { font-weight: inherit; }
+.card > .h b { font-weight: 600; }
+/* 带选项的确认卡标题用 Medium;计划卡和其它状态卡仍沿用 600。 */
+.card:has(> .cbody > .opts) > .h > b { font-weight: 500; }
 /* 数字位用 tabular-nums,不用等宽字体。
    ------------------------------------------------------------
    这一格里的内容多半是中文夹数字(「已选 2」「4 步」「旧计划 4 步」),
@@ -1363,7 +1370,10 @@ button.att-d:hover { border-color: var(--border-strong); }
    宽度,看着就散。真正需要的只是"数字不跳",tabular-nums 正好只做这件事。
    分数也一律写成 2/4 不写 2/4:等宽下每个空格都占满一个字宽,
    「2/5」会被撑成三段,散得像三个独立的数。 */
-.card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums; font-size: var(--t-cap); }
+.card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums; font-size: var(--t-cap); font-weight: 600; }
+/* 多选计数保留数字的原色,「已选」退后两档到 --text-soft。 */
+.card > .h .selection-count { color: var(--text-strong); }
+.card > .h .selection-count .count-label { color: var(--text-soft); }
 /* 卡头右上角直接放动作按钮,不再为它单开一行底栏。
    这张卡的正文已经是一份清单了,底下再挂一条只有一个按钮的横条,
    等于给两行东西撑出三行的高度 —— 而右上角本来就空着(原来放的是
@@ -1395,7 +1405,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    380 = 用户消息气泡的 max-width。对话里有形状的就这两样 —— 你说的话和
    它问你的话,同宽、一左一右,来回一目了然。 */
 .card:has(.q), .card:has(> .steps), .card:has(.foot), .errb { width: 380px; max-width: 100%; }
-.cbody > .q { padding: 10px 11px 8px; font-size: var(--t-body); line-height: var(--lh-body); color: var(--text-strong); }
+.cbody > .q { padding: 10px 11px 8px; font-size: var(--t-mini); font-weight: 500; line-height: var(--lh-body); color: var(--text-strong); }
+/* 澄清问句使用 13px 正文档,与下面 12px 的选项区分。 */
+.card:has(> .cbody > .opts) > .cbody > .q { font-size: var(--t-body); }
 .cbody > .opts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 11px 10px; }
 
 /* ---- 答题选项:纵向一行一个(mod-stack) ----
@@ -1439,11 +1451,11 @@ button.att-d:hover { border-color: var(--border-strong); }
    "哪条选中"这一件事说两遍,而底色是三者里最吵的一遍:它改变的是行的
    面积,不是行里的那个点。「自己填」展开输入框时更明显 —— 整块底色
    会连着输入框糊成一片绿。
-   选中态因此只剩两处变化:前面的控件填实(--pick),文字加粗到 600
-   并换成 --brand-text。底色那一档还给 hover:现在只有指针底下那条有底,
+   选中态因此只剩两处变化:前面的控件填实(--pick),文字使用 500
+   并换成 --select-ink。底色那一档还给 hover:现在只有指针底下那条有底,
    "能点的是这条"和"选中的是这条"各说各的,不再抢同一种表达。 */
 .opt.is-on {
-  color: var(--select-ink); font-weight: 600;
+  color: var(--select-ink); font-weight: 500;
 }
 .opt .ic { flex: none; display: grid; place-items: center; height: calc(var(--t-mini) * var(--lh-row)); color: var(--text-soft); }
 .opt .ic svg { width: 13px; height: 13px; }
@@ -1521,7 +1533,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    继续置灰:选了「自己填」却一个字没写,和一项都没选是同一种"还没答"。 */
 .opt.is-open { cursor: default; }
 .opt .own { flex: 1; min-width: 0; display: block; }
-.opt .own-l { display: block; font-weight: 600; }
+.opt .own-l { display: block; font-weight: 500; }
 /* 只留一条底线,不围一圈框 —— 和反馈弹窗那个补充框(.rsn .ta)同一种写法。
    ------------------------------------------------------------
    一圈框是"这是一个独立的输入区";可这个框长在【某一个选项里面】,
@@ -1533,7 +1545,7 @@ button.att-d:hover { border-color: var(--border-strong); }
   display: block; width: 100%; margin-top: 6px; padding: 2px 0 5px;
   border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
   background: none; color: var(--text-strong);
-  font-family: inherit; font-size: var(--t-mini); line-height: var(--lh-row);
+  font-family: inherit; font-size: var(--t-mini); font-weight: 500; line-height: var(--lh-row);
   field-sizing: content; resize: none; outline: none;
 }
 .opt .own-ta::placeholder { color: var(--text-soft); }
@@ -1548,6 +1560,260 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 聚焦只把线压深一档,不染色:染色是"这里有状态",而这儿要说的只是
    "光标在这条线上",压深已经够了 —— 和 .rsn .ta 保持一致。 */
 .opt .own-ta:focus { border-bottom-color: var(--border-strong); }
+
+/* ---- 意图澄清:语言下拉选择 ----
+   常用语言先放在首屏,低频语言收到「更多语言」下面。展开后的额外列表固定
+   露出 6.5 行(32px × 6.5 = 208px),半行提示下面还能继续滚。 */
+.opts.mod-language { display: block; padding: 0 11px 10px; }
+.language-select { position: relative; }
+.language-menu,
+.language-more {
+  overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); box-shadow: var(--shadow-sm);
+}
+.language-more { margin-top: 8px; }
+.language-more-list[hidden] { display: none; }
+.language-group-label {
+  display: block; padding: 7px 10px 3px;
+  color: var(--text-muted); font-size: var(--t-cap); font-weight: 500;
+}
+.language-option,
+.language-more-toggle {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 32px; padding: 6px 10px;
+  color: var(--text-strong); font-size: var(--t-mini); text-align: left;
+}
+.language-option:hover,
+.language-more-toggle:hover { background: var(--bg-fill-secondary); }
+.language-option[aria-selected="true"] { background: var(--brand-soft); color: var(--select-ink); font-weight: 500; }
+.language-option .language-code {
+  margin-inline-start: auto;
+  color: var(--text-muted); font-size: var(--t-cap);
+  font-variant-numeric: tabular-nums;
+}
+.language-option .language-check { width: 14px; height: 14px; margin-inline-start: auto; opacity: 0; color: var(--brand-text); }
+.language-option .language-code + .language-check { margin-inline-start: 0; }
+.language-option[aria-selected="true"] .language-check { opacity: 1; }
+.language-more-toggle { color: var(--text-muted); font-weight: 500; }
+.language-more-toggle .sp { flex: 1; }
+.language-more-toggle svg { width: 14px; height: 14px; transition: transform var(--duration-faster) var(--ease-out); }
+.language-more-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.language-more-list {
+  max-height: 208px; overflow-y: auto; overscroll-behavior: contain;
+  border-top: 1px solid var(--border); scrollbar-width: thin;
+}
+
+
+/* ---- 颜色选择:预设色 + 自定义色值 + 实时预览 ---- */
+.opts.mod-color {
+  display: grid; gap: 10px; padding: 0 11px 10px;
+}
+.color-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.color-field legend,
+.color-label {
+  display: block; margin: 0 0 6px;
+  font-size: var(--t-mini); font-weight: 600; color: var(--text-strong);
+}
+.color-presets {
+  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px;
+}
+.color-swatch {
+  width: 30px; height: 30px; justify-self: center;
+  border: 2px solid var(--bg); border-radius: var(--radius-circular);
+  background: var(--swatch); box-shadow: 0 0 0 1px var(--border);
+  transition: transform var(--duration-faster) var(--ease-out),
+              box-shadow var(--duration-faster) var(--ease-out);
+}
+.color-swatch:hover { transform: scale(1.06); }
+.color-swatch[aria-pressed="true"] {
+  transform: scale(1.06); box-shadow: 0 0 0 2px var(--text-strong);
+}
+.color-custom { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; }
+.color-native {
+  width: 34px; height: 34px; padding: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); overflow: hidden;
+}
+.color-native::-webkit-color-swatch-wrapper { padding: 0; }
+.color-native::-webkit-color-swatch { border: 0; border-radius: 2px; }
+.color-native::-moz-color-swatch { border: 0; border-radius: 2px; }
+.color-hex {
+  min-width: 0; height: 34px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text-strong);
+  font-family: var(--mono); font-size: var(--t-mini);
+}
+.color-hex:hover { border-color: var(--border-strong); }
+.color-hex:focus { border-color: var(--text-soft); outline: none; }
+.color-hex[aria-invalid="true"] { border-color: var(--red); }
+.color-preview {
+  min-height: 48px; display: flex; align-items: center;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--choice-color) 12%, var(--bg));
+  color: var(--choice-color); font-size: var(--t-mini); line-height: var(--lh-row);
+}
+.answered .color-answer { display: inline-flex; align-items: center; gap: 6px; }
+.answered .color-answer i {
+  width: 13px; height: 13px; border-radius: var(--radius-circular);
+  background: var(--answer-color); box-shadow: 0 0 0 1px var(--border);
+}
+
+/* ---- Amount Slider:滚动数值 + 光点矩阵 + 磁吸刻度 ---- */
+.opts.mod-slider { display: block; padding: 0 11px 10px; }
+.amount-slider { --range-pct: 25%; display: grid; gap: 7px; }
+.amount-readout {
+  min-height: 36px; display: flex; align-items: flex-start; justify-content: center; gap: 4px;
+  color: var(--text-strong); font-variant-numeric: tabular-nums;
+}
+.amount-value-viewport { display: block; height: 34px; overflow: hidden; }
+.amount-value-stack { display: flex; flex-direction: column; will-change: transform; }
+.amount-value-stack > span {
+  min-width: 22px; height: 34px; line-height: 34px; text-align: center;
+  font-family: var(--sans); font-size: 32px; font-weight: 600;
+}
+.amount-unit { margin-top: 3px; font-size: var(--t-cap); color: var(--text-muted); }
+.amount-announcer {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.amount-rail {
+  position: relative; height: 34px; overflow: hidden;
+  border-radius: var(--radius); background: var(--bg-panel);
+}
+.amount-grid {
+  position: absolute; inset-block: 0; inset-inline-start: 0; width: var(--range-pct);
+  min-width: 14px; overflow: hidden; pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg,
+      color-mix(in srgb, var(--accent) 24%, transparent) 0 2px,
+      transparent 2px 4px),
+    repeating-linear-gradient(0deg,
+      color-mix(in srgb, var(--accent) 18%, transparent) 0 2px,
+      transparent 2px 4px);
+}
+.amount-grid::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg,
+    transparent 15%,
+    color-mix(in srgb, var(--bg) 72%, transparent) 48%,
+    transparent 78%);
+  animation: amount-grid-shimmer 1.8s var(--curve-linear) infinite;
+}
+@keyframes amount-grid-shimmer {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(110%); }
+}
+.amount-stops {
+  position: absolute; inset: 0 9px; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  pointer-events: none;
+}
+.amount-stop {
+  width: 4px; height: 4px; border-radius: var(--radius-circular); background: var(--border-strong);
+  transition: background-color var(--duration-faster) var(--ease-out);
+}
+.amount-stop.is-past { background: var(--text-strong); }
+.amount-range {
+  position: absolute; inset: 0; z-index: 2;
+  appearance: none; width: 100%; height: 34px; margin: 0;
+  background: transparent; cursor: grab;
+}
+.amount-range:active { cursor: grabbing; }
+.amount-range::-webkit-slider-runnable-track { height: 34px; background: transparent; }
+.amount-range::-webkit-slider-thumb {
+  appearance: none; width: 18px; height: 32px; margin-top: 1px;
+  border: 0; border-radius: var(--radius); background: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.amount-range::-moz-range-track { height: 34px; border: 0; background: transparent; }
+.amount-range::-moz-range-thumb {
+  width: 18px; height: 32px; border: 0; border-radius: var(--radius);
+  background: var(--accent); box-shadow: var(--shadow-sm);
+}
+.amount-range:focus-visible { outline: none; }
+.amount-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--selected-soft); }
+.amount-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--selected-soft); }
+.amount-limits {
+  display: flex; justify-content: space-between;
+  font-size: var(--t-cap); color: var(--text-soft); font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .amount-grid::after { animation: none; }
+  .amount-value-stack { transition: none !important; }
+}
+
+/* 预设颜色的分组标签与确认卡标题使用同一档字重。 */
+.opts.mod-color .color-field > legend { font-weight: 500; }
+/* 选中状态只改变外圈,保留色块本身所代表的真实颜色。 */
+.opts.mod-color .color-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px #00FF08;
+}
+/* 自定义取色器的外框与浏览器内部色块统一为圆形。 */
+.opts.mod-color .color-native,
+.opts.mod-color .color-native::-webkit-color-swatch,
+.opts.mod-color .color-native::-moz-color-swatch {
+  border-radius: var(--radius-circular);
+}
+
+/* Amount Slider:上方数字可直接编辑,并与滑杆双向同步。
+   轨道不再放刻度点;数值位置由滑块本身和进度色共同表达。 */
+.opts.mod-slider { display: block; padding: 0 11px 10px; }
+.amount-slider {
+  --range-pct: 25%;
+  --amount-track-height: 16px;
+  --amount-thumb-size: calc(var(--amount-track-height) - 2px);
+  --amount-active: #00FF08;
+  display: grid; gap: 7px;
+}
+.amount-readout {
+  min-height: 36px; display: flex; align-items: flex-start; justify-content: center; gap: 4px;
+  color: var(--text-strong); font-variant-numeric: tabular-nums;
+}
+.amount-value-input {
+  box-sizing: content-box; width: 1.2em; height: 34px; padding: 0 2px;
+  appearance: textfield; border: 0; border-radius: var(--radius-sm); outline: none;
+  background: transparent; color: inherit;
+  font-family: var(--sans); font-size: 32px; font-weight: 600; line-height: 34px; text-align: center;
+}
+.amount-value-input::-webkit-outer-spin-button,
+.amount-value-input::-webkit-inner-spin-button { margin: 0; appearance: none; }
+.amount-value-input:hover { background: var(--bg-fill-secondary); }
+.amount-value-input:focus-visible {
+  outline: 1px solid var(--selected); outline-offset: 2px;
+  background: var(--bg);
+}
+.amount-unit { margin-top: 3px; font-size: var(--t-cap); color: var(--text-muted); }
+.amount-rail {
+  position: relative; height: var(--amount-track-height); overflow: hidden;
+  border-radius: var(--radius-circular);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--amount-active) 22%, var(--bg-panel)) 0 var(--range-pct),
+    var(--bg-panel) var(--range-pct) 100%);
+}
+.amount-range {
+  position: absolute; inset: 0; z-index: 1;
+  appearance: none; width: 100%; height: var(--amount-track-height); margin: 0;
+  background: transparent; cursor: grab;
+}
+.amount-range:active { cursor: grabbing; }
+.amount-range:focus-visible { outline: 1px solid var(--selected); outline-offset: -1px; }
+.amount-range::-webkit-slider-runnable-track { height: var(--amount-track-height); background: transparent; }
+.amount-range::-webkit-slider-thumb {
+  appearance: none; width: var(--amount-thumb-size); height: var(--amount-thumb-size); margin-top: 1px;
+  border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
+  box-shadow: var(--shadow-sm);
+}
+.amount-range::-moz-range-track { height: var(--amount-track-height); border: 0; background: transparent; }
+.amount-range::-moz-range-thumb {
+  width: var(--amount-thumb-size); height: var(--amount-thumb-size);
+  border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
+  box-shadow: var(--shadow-sm);
+}
+.amount-limits {
+  display: flex; justify-content: space-between;
+  color: var(--text-muted); font-size: var(--t-cap); font-variant-numeric: tabular-nums;
+}
 
 /* ---- 视觉方向:看图选择 ----
    来源 specs/current/studio-chat-visual-discovery.md:
@@ -1750,12 +2016,17 @@ button.att-d:hover { border-color: var(--border-strong); }
    不给它留出头顶那段高度,清单会被卡的上边缘切掉。真实场景里药丸钉在
    流水底部,上方本来就是空的,不需要这一层。 */
 .pdemo { padding-top: 136px; }
+/* Plan 的文字色只在本组件内使用;展开清单与收起浮层共用。 */
+.steps, .pmini {
+  --plan-current-text: #353535;
+  --plan-other-text: #848484;
+}
 .pmini { position: relative; display: inline-flex; }
 .pmini .pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 12px; border-radius: var(--radius-pill);
   border: 1px solid var(--border); background: var(--bg);
-  font-size: var(--t-mini); font-weight: 600; color: var(--text-strong); cursor: default;
+  font-size: var(--t-mini); font-weight: 600; color: var(--plan-current-text); cursor: default;
   transition: border-color var(--duration-faster) var(--ease-out);
 }
 .pmini:hover .pill, .pmini.is-hover .pill { border-color: var(--border-strong); }
@@ -1799,7 +2070,7 @@ button.att-d:hover { border-color: var(--border-strong); }
   background: var(--bg);
   border-start-start-radius: var(--radius); border-start-end-radius: var(--radius);
 }
-.steps li { display: flex; gap: 8px; padding: 5px 11px; font-size: var(--t-mini); line-height: var(--lh-row); color: var(--text); list-style: none; }
+.steps li { display: flex; gap: 8px; padding: 5px 11px; font-size: var(--t-mini); font-weight: 400; line-height: var(--lh-row); color: var(--plan-other-text); list-style: none; }
 /* 记号那一格现在是一枚四态图标,画法见 plan-todo.css。
    ------------------------------------------------------------
    这里原先记着三条演进:文字 ✓ 换成 SVG 勾、裸勾换成 .mk.is-ok 的绿底片、
@@ -1808,8 +2079,8 @@ button.att-d:hover { border-color: var(--border-strong); }
    未开始 / 进行中 / 做完了 / 取消了 全是同一个圆的四种画法,尺寸也统一了。
    .steps li .k(等宽序号)和 .steps li .mk(下移 1.5px 对齐首行)因此都退场,
    对齐改由 .steps li .tk 自己负责。 */
-.steps li.is-done { color: var(--text-muted); }
-.steps li.is-now { color: var(--text-strong); font-weight: 600; }
+.steps li.is-done { color: var(--plan-other-text); }
+.steps li.is-now { color: var(--plan-current-text); font-weight: 600; }
 
 /* ---- 答后陈述 ---- */
 /* 已回答:卡片收成一条陈述。三种问法收出来的形状不同,但壳是同一个。
@@ -1831,15 +2102,17 @@ button.att-d:hover { border-color: var(--border-strong); }
    大片空白 —— 那片空白不表示任何东西,只是让人以为还有内容没加载出来。
    写 width 而不是 align-self:flex-start,是为了在 block 和 flex 两种父容器里
    都成立(cross-size 不是 auto,flex 的 stretch 就不生效)。 */
-/* 【不套框、不铺底】。这几条是已经定下来的答案,它们是这段对话的一部分,
-   不是一块从流水里抠出来的独立面板 —— 上一条问题、下一条动作都是裸排的,
-   只有它套着一圈边和一层灰底,读起来像被谁装进了盒子。
-   「已确认」那个绿词已经把这段是什么说清楚了;真要分段,靠的是上面那条
-   状态标题和它自己的行距,不是一个框。
-   撤掉框之后左内边距也一起撤 —— 有框时那 11px 是把字从边上推开,
-   没框了它就成了一段无缘无故的缩进,答案该顶到跟旁边内容同一条左边缘。 */
-.answered { width: fit-content; max-width: 100%;
-  font-size: var(--t-mini); line-height: var(--lh-row); }
+/* 已确认结果统一加浅灰底,浅色主题复用 --bg-panel(#FAFAFA)。
+   16px 圆角只属于答案块,不改变其它卡片的圆角;12px 内边距让文字避开圆角。 */
+.answered {
+  --answered-radius: 16px;
+  --answered-padding: 12px;
+  width: fit-content; max-width: 100%; padding: var(--answered-padding);
+  background: var(--bg-panel); border-radius: var(--answered-radius);
+  font-size: var(--t-mini); line-height: var(--lh-row);
+}
+/* 视觉方向答案带缩略图,使用内容卡同档的 12px 圆角。 */
+.answered.mod-visual-answer { --answered-radius: var(--radius-lg); }
 /* 「已确认」用绿 —— 绿在这套系统里只有一个意思:这件事定了。
    之前它是灰的,和「执行计划」「读了 3 个文件」那些过程行同一档颜色,
    回看时一眼扫过去分不出哪条是【你做的决定】、哪条只是 agent 干过的活。
@@ -1850,6 +2123,10 @@ button.att-d:hover { border-color: var(--border-strong); }
    一个不带勾的绿词在一屏绿勾里反而更跳。 */
 .answered .k { margin-bottom: 3px; color: var(--brand-text); }
 .answered .ab { color: var(--text); }
+/* 颜色和数值的短答案行内部垂直居中;卡片位置及其它回答的排版不变。 */
+.answered .ab.mod-value { display: flex; align-items: center; }
+.answered .ab.mod-value > .ak { flex: none; }
+.answered .ab.mod-value > :last-child { min-width: 0; }
 /* 只用颜色分层,不再叠字重。答案是 --text-strong、旁边的关键词 .ak 是 --text-soft,
    两档颜色已经把"这是答案"和"这是问的哪件事"分开了;再加一档字重是同一件事
    说两遍。规则不能删 —— <b> 有浏览器默认的 700,删了反而更重。 */
@@ -1862,7 +2139,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    加上之后每一行都自足:扫一眼就知道"这是在说页面"。
    词用常规字重的灰,答案才是深色 600 —— 重点词是坐标不是内容,
    两个都加粗就分不出哪个是你的回答。 */
-.answered .ak { margin-inline-end: 6px; color: var(--text-soft); font-weight: 400; }
+.answered .ak { margin-inline-end: 6px; color: var(--text-soft); font-weight: 500; }
 .answered .al li + li { margin-top: 2px; }
 /* 缩略图另起一行,放在文字下面,不跟文字并排。
    并排时它跟一行字的高度对不上 —— 字有基线,方块没有,怎么对都差一点,
@@ -1890,8 +2167,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 .tool {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg); font-size: var(--t-body); color: var(--text); line-height: var(--lh-row);
+  background: var(--bg); font-size: var(--t-body); color: #A3A3A3; line-height: var(--lh-row);
 }
+/* 已完成的配套插图结果行更紧凑,圆角使用 4px 控件档。 */
+.tool.mod-image-result { border-radius: var(--radius-sm); }
 .tool + .tool { margin-top: 6px; }
 /* 折叠块一律满宽,卡片跟着内容。
    ------------------------------------------------------------
@@ -1906,8 +2185,8 @@ button.att-d:hover { border-color: var(--border-strong); }
    落单的。缩略图靠右:.tool .nm 默认 flex:1 会吃掉剩余空间,把图顶到行尾,
    这里正是要这个效果 —— 左边一句"生成了什么",右边是生成的东西本身。 */
 .tool .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool .nm code { font-family: var(--mono); font-size: var(--t-mini); color: var(--text-strong); }
-.tool .ms { flex: none; font-family: var(--mono); font-size: var(--t-cap); color: var(--text-soft); }
+.tool .nm code { font-family: var(--mono); font-size: var(--t-mini); color: #A3A3A3; }
+.tool .ms { flex: none; font-family: var(--mono); font-size: var(--t-cap); color: #A3A3A3; }
 
 /* 工具行前面那枚图标标【是哪类调用】,不标成没成。
    ------------------------------------------------------------
@@ -1934,13 +2213,13 @@ button.att-d:hover { border-color: var(--border-strong); }
    点走 currentColor,失败那行由下面 .tool.is-fail .ti 转红,记号照样一眼可见。
    点由 .ti:empty::before 画:标记里 .ti 留空就有,不必再挂一枚 svg。
    下面 .ti > svg 那两条留着 —— 哪天某一类真需要单独标一枚图标,塞进去即可用。 */
-.tool .ti { flex: none; width: 15px; height: 15px; display: grid; place-items: center; color: var(--text-strong); }
-.ti > svg { width: 14px; height: 14px; color: var(--text-soft); }
+.tool .ti { flex: none; width: 15px; height: 15px; display: grid; place-items: center; color: #A3A3A3; }
+.ti > svg { width: 16px; height: 16px; color: #A3A3A3; }
 .tool.is-fail .ti > svg,
 .fold.is-fail > summary .ti > svg { color: var(--red); }
 /* 计划里的序号占图标那一格 —— 计划的每一条还没跑,没有"哪类调用"可标,
    序号才是它此刻唯一的身份。宽度对齐 .ti,一摞行的左缘不会因为换了内容而错开。 */
-.tool .pk { flex: none; width: 15px; text-align: center; font-family: var(--mono); font-size: var(--t-cap); color: var(--text-soft); }
+.tool .pk { flex: none; width: 15px; text-align: center; font-family: var(--mono); font-size: var(--t-cap); color: #A3A3A3; }
 .tool.is-fail .ti { color: var(--red); }
 /* 非主产物的文件:文件名【就是】打开它的入口,不另立卡片。
    ------------------------------------------------------------
@@ -1957,7 +2236,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .tool .fn code { font-family: var(--mono); font-size: var(--t-mini); color: var(--text-strong);
   text-underline-offset: 2px; transition: text-decoration-color var(--duration-faster) var(--ease-out); }
 .tool .fn:hover code { text-decoration: underline; text-decoration-color: var(--text-soft); }
-.tool.is-fail .fn code { color: var(--text); }
+.tool.is-fail .fn code { color: #A3A3A3; }
 /* 跑命令这一行本身就是可折叠的:输出是它吐出来的,不是它旁边的另一块。
    ------------------------------------------------------------
    终端块动辄几十行,摊在流水里会把它上下的记录顶得老远,而多数时候你只想
@@ -1968,6 +2247,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    按钮做同一件事 —— 而且按钮嵌在 summary 里,点它会连带把折叠也切了。 */
 /* 折叠行里的那一格同理 —— 同一个动作行,收起和摊开不该长两个样。 */
 .fold > summary .ti { flex: none; width: 15px; height: 15px; display: grid; place-items: center; color: var(--text-strong); }
+/* 工具调用图标占 16px;没有图标的行首圆点和计划序号保持原尺寸。 */
+.tool .ti:has(> svg),
+.fold > summary .ti:has(> svg) { width: 16px; height: 16px; }
 .ti:empty::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .fold.is-fail > summary .ti { color: var(--red); }
 .fold > summary .why { flex: none; font-size: var(--t-cap); font-weight: 600; color: var(--red); }
@@ -1980,14 +2262,14 @@ button.att-d:hover { border-color: var(--border-strong); }
    所以 .nm 在有改动量时收成 flex:0 1 auto(只占文字宽),由 .dst 接过那份
    auto 外边距去顶住右侧的耗时。 */
 .tool:has(.dst) .nm { flex: 0 1 auto; }
-.tool .dst { flex: none; margin-inline-end: auto; font-family: var(--mono); font-size: var(--t-cap); font-variant-numeric: tabular-nums; color: var(--text-soft); }
+.tool .dst { flex: none; margin-inline-end: auto; font-family: var(--mono); font-size: var(--t-cap); font-variant-numeric: tabular-nums; color: #A3A3A3; }
 .tool .dst i { font-style: normal; }
 .tool .dst i + i { margin-inline-start: 5px; }
 /* 红只标错误本身,不染内容。
    原来整行(读取什么、耗时)全是红,"读取 规范.pdf"是这一步在做的事,
    不是错误;耗时更只是数据。一整行红反而让真正的错误标记淹没在里面。
    现在:行文字回正常色、耗时回常规灰,只剩「失败」两个字是红的。 */
-.tool.is-fail { border-color: var(--red-border); background: var(--red-bg); color: var(--text); }
+.tool.is-fail { border-color: var(--red-border); background: var(--red-bg); color: #A3A3A3; }
 /* 同上:不加下划线,与「重发」保持同一条规则 */
 .tool.is-fail .why { font-size: var(--t-cap); font-weight: 600; color: var(--red); }
 .tool.is-fail .why:hover { color: color-mix(in srgb, var(--red) 70%, var(--text-strong)); }
@@ -2154,6 +2436,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    能滚,它是一张卡的体量,却顶着控件的圆角,看着就比同屏的卡"硬"。
    12px 和报错卡、Plan 卡、澄清卡是同一档 —— 同样体量的东西用同样的角。 */
 .fold .body.mod-stack .code {
+  --term-section-gap: 8px;
   padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--bg-panel); overflow: hidden;
 }
@@ -2167,7 +2450,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    撤掉之后这一块只剩它真正要给的东西:执行了什么、吐出了什么。 */
 .term {
   max-height: 104px; overflow-y: auto; padding: 9px 11px;
-  font-family: var(--mono); font-size: var(--t-cap); line-height: 1.65; color: var(--text-muted);
+  font-family: var(--mono); font-size: var(--t-cap); line-height: 1.65; color: #A3A3A3;
 }
 .term div { white-space: pre-wrap; }
 /* 命令自己占一块,不塞在卡头当标题。
@@ -2187,15 +2470,18 @@ button.att-d:hover { border-color: var(--border-strong); }
    有 $ 的是我输入的,没有的是它吐出来的,不需要再画一道线复述一遍。
    一块里两道横线(这里一道、外框一圈)对一段四行的日志来说也已经够重了。 */
 .term.mod-cmd {
-  border-top: none; border-bottom: none; color: var(--text-strong);
+  border-top: none; border-bottom: none; color: #A3A3A3;
 }
 .term.mod-cmd + .term { border-top: none; }
+/* 命令与输出之间总间距 8px,两块相接处各占一半;外侧留白保持不变。 */
+.fold .body.mod-stack .code > .term.mod-cmd:has(+ .term) { padding-bottom: calc(var(--term-section-gap) / 2); }
+.fold .body.mod-stack .code > .term.mod-cmd + .term { padding-top: calc(var(--term-section-gap) / 2); }
 .term.mod-cmd div { padding-inline-start: 13px; text-indent: -13px; }
 .term.mod-cmd div::before { content: "$ "; color: var(--text-faint); }
 .term .ok { color: var(--brand-text); }
 /* 终端正文用正常深色,不整行红 —— 那是代码/日志内容,不是错误状态本身。
    只有行首的 ✗ 标记是红的。 */
-.term .er { color: var(--text-strong); }
+.term .er { color: #A3A3A3; }
 .term .er::first-letter { color: var(--red); font-weight: 700; }
 /* 卡头右侧的「失败」二字,是这张卡唯一的红 */
 /* 状态在前、耗时在后 —— 全文件统一这一个顺序。
@@ -2216,7 +2502,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .imgs { display: grid; grid-auto-flow: column; grid-auto-columns: 84px; gap: 6px; width: fit-content; max-width: 100%; }
 /* 独立出现时不带内边距;套进卡里就得跟卡的其他行一样留边,否则图贴着卡边。 */
 .card > .imgs { padding: 10px 11px; }
-.shot { position: relative; aspect-ratio: 3/4; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); background: var(--bg-subtle); }
+.shot { position: relative; aspect-ratio: 3/4; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: var(--bg-subtle); }
 /* 生图的占位跟附件缩略图共用 .mini —— 全站只有一种占位灰。
    ① 那是凭空发明的"四张图不一样"的效果,而占位图的职责只是压住范围,
       画出差异反而抢注意力(绿色那块尤其像个状态,不像一张图);
@@ -2234,7 +2520,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    信号交给内容本身:旁边三格都填着图,这一格是空的,中间还摆着
    「↻ 重试」—— 空 + 一个动作按钮,已经说完了"这张没成功、你可以再来一次"。
    红只留给「重试」两个字,那是要点的那一个点。 */
-.shot.is-fail { display: grid; place-items: center; }
+.shot.is-fail { display: grid; place-items: center; border-radius: var(--radius); }
 /* 跟附件托盘里那枚重试同一副样子:图标在上、文字在下,整格都是热区。
    两处是同一个动作(这一张没成,再来一次),不该有两种画法 ——
    原来这里是横排 inline-flex,而且标记里连图标都没有,只剩两个红字。 */
@@ -2316,33 +2602,36 @@ button.att-d:hover { border-color: var(--border-strong); }
    它们本来就该待在角上,不该横在画面中央。
    数量随产物类型变(HTML 两个、其余一个),所以用 flex 靠右而不是各自定位 ——
    少一个的时候整排自己往右收,右缘始终齐。
-   12px 的边距四角同一个数:图卡、视频卡并排时,贴边的距离对得上。 */
+   8px 的边距四角同一个数:图卡、视频卡并排时,贴边的距离对得上。 */
 .art .acts {
-  position: absolute; inset-inline-end: 12px; top: 12px; z-index: 2;
+  position: absolute; inset-inline-end: 8px; top: 8px; z-index: 2;
   display: flex; justify-content: flex-end; gap: 4px;
 }
 /* 一枚胶囊:压在产物图上的东西只有一类 —— "拿这份产物干什么"。
-   自带黑底而不是裸白字,底下是产物本身,可能是任何一张图。
+   深色半透明底保留白字对比,背景模糊让缩略图透出柔和的颜色。
    inline-flex + 6px 的缝是给「导出」前面那枚箭头留的:圈里一支向下的箭头,
    它说的是"落到本地",而「发布」说的是"送出去" —— 两个方向相反的动作并排,
    给其中一个加上方向,那一排就不必逐字读了。 */
 .art .acts button {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
-  padding: 2px 9px; border-radius: var(--radius-pill);
-  /* 产品指定 #353535 的实底(原来是 44% 的半透明黑)。
-     半透明的好处是"底下是什么颜色都能压得住",代价是【每张卡上的这枚都不一样】:
-     压在浅图上偏灰、压在深图上几乎看不见边,一排卡看过去按钮深浅不齐。
-     实底把这件事定死:它是一枚固定的控件,不随底下那张图漂移。 */
-  background: #353535; color: #fff;
-  font-size: var(--t-cap); font-weight: 600; cursor: pointer;
+  padding: 4px 8px; border-radius: var(--radius-pill);
+  /* 只虚化按钮背后的缩略图;内描边不占尺寸,文字与图标保持清晰。 */
+  background: rgb(18 18 18 / 60%); color: #fff;
+  -webkit-backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  box-shadow: inset 0 0 0 1px var(--overlay-glass-edge), 0 2px 8px rgb(0 0 0 / 12%);
+  font-size: var(--font-size-12); font-weight: 600; cursor: pointer;
   transition: background-color var(--duration-faster) var(--ease-out);
 }
-/* 12px:比 caption 的 12px 字号略大一点点会显得图标压着字,同号最稳。
-   -1px 的 margin 把 svg 自带的视觉留白吃掉,让圈和字看起来一样高。 */
+/* 图标保留 12px; -1px 的 margin 吃掉 svg 自带的视觉留白。 */
 .art .acts button svg { flex: none; width: 12px; height: 12px; margin-inline-start: -1px; }
-/* hover 往下压一档到 #202020(全稿"最深"那一档,勾的底片也是它):
-   实底之后不能再靠加深透明度了,得给一个实实在在的第二档。 */
-.art .acts button:hover { background: #202020; }
+/* 悬停加深半透明底,继续保留磨砂效果。 */
+.art .acts button:hover { background: rgb(18 18 18 / 72%); }
+/* 不支持背景模糊时保留原来的深色底,保证任意缩略图上的可读性。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .art .acts button { background: #353535; }
+  .art .acts button:hover { background: #202020; }
+}
 
 /* ---- 全局弹窗:联系支持 ---- */
 /* 求助不挂在报错卡里,单独开一个压在整个应用上的弹窗。
@@ -2352,7 +2641,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    会来点这里的人已经卡住了。 */
 .ovl { display: grid; place-items: center; padding: 18px; border-radius: var(--radius);
   background: color-mix(in srgb, var(--text-strong) 26%, transparent); }
-.modal { width: 100%; max-width: 316px; border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-lg); overflow: hidden; }
+.modal { width: 100%; max-width: 316px; border-radius: var(--radius-2xl); background: var(--bg); box-shadow: var(--shadow-lg); overflow: hidden; }
 /* 标题线不贯穿:左右各收 13px,跟正文的内边距对齐 —— 线的两端落在内容的
    左右边界上,而不是撞到弹窗的圆角边上。贯穿的线是"把这张卡切成两半",
    收进来的线才是"标题到这儿为止"。
@@ -2493,10 +2782,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fb .fin.mod-stop i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); }
 .fb button {
   display: grid; place-items: center; width: 26px; height: 26px;
-  border-radius: var(--radius-sm); color: var(--text-soft);
+  border-radius: var(--radius-sm); color: var(--message-muted-ink);
   transition: background-color var(--duration-faster) var(--ease-out), color var(--duration-faster) var(--ease-out);
 }
-.fb button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
+.fb button:hover { background: var(--bg-fill-secondary); color: var(--message-muted-ink); }
 /* 赞选中的底比「过了」那一档【浅一级】:同一个 #00FF04,掺 55% 白。
    ------------------------------------------------------------
    色号没换,换的是浓度 —— 这枚底是 26×26 的实心方块,而 .mk.is-ok 那枚
@@ -2541,12 +2830,12 @@ button.att-d:hover { border-color: var(--border-strong); }
   font-size: var(--t-cap); font-weight: 500; color: var(--brand-text);
 }
 /* 线底下那一句。新会话此刻只有上下文、还没有话 —— 所以这里不编一段对话出来,
-   只交代"带过来的是什么、接下来轮到谁"。它比标题还轻一档(--text-soft):
+   只交代"带过来的是什么、接下来轮到谁"。它比标题还轻一档(#A3A3A3):
    分界上的标题是这一段的名字,这句只是脚注。 */
 /* 跟着上面那条分界【居中】:它是这条线的脚注,不是新会话里的第一条消息 ——
    左对齐会让它读成"新会话已经开口说了一句",而这一刻新会话还没有内容。
    居中就还它一个附注的身份,和线、标题共用同一条中轴。 */
-.fork-note { display: flex; align-items: center; justify-content: center; gap: 6px; padding-bottom: 2px; font-size: var(--t-cap); color: var(--text-soft); }
+.fork-note { display: flex; align-items: center; justify-content: center; gap: 6px; padding-bottom: 2px; font-size: var(--t-cap); color: var(--message-muted-ink); }
 .fork-note svg { flex: none; width: 12px; height: 12px; }
 /* 点出来的那两块要"落"一下:静态稿里它们本来就在,分不出是点击的结果;
    落这一下(4px + 淡入)说的是"这是刚才那一下带来的"。
@@ -2604,7 +2893,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .nexts button {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 9px 11px; border: none;
-  background: none; font-size: var(--t-mini); color: var(--text); text-align: left;
+  background: none; font-size: var(--t-mini); font-weight: 500; color: var(--text); text-align: left;
   transition: background-color var(--duration-faster) var(--ease-out), color var(--duration-faster) var(--ease-out);
 }
 .nexts button:hover { background: var(--bg-panel); color: var(--text-strong); }
@@ -2671,109 +2960,73 @@ button.att-d:hover { border-color: var(--border-strong); }
   line-height: var(--lh-row);
 }
 /* 22px 的按钮盒对 18px 的首行,上移 2px 才与第一行同心 */
-.qops { display: flex; gap: 1px; margin-top: -2px; }
+.qops { flex: none; display: flex; gap: 1px; margin-top: -2px; }
 .qops button { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-sm); color: var(--text-soft); }
+.qops button.mod-steer {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  width: auto; padding: 0 4px; font-size: inherit; white-space: nowrap;
+}
 .qops button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
-.qops button svg { width: 12px; height: 12px; }
+.qops button svg { width: 14px; height: 14px; }
 
 /* ---- 升级 ---- */
-/* 圆角走 --radius-lg(12px)而不是别处的 --radius(8px):这张卡里套着一排刻度,
-   刻度是齐边抵到卡的两侧的 —— 角越硬,那排小竖线越像被卡的边"切"了一下。
-   12 是这套 token 的最上一档,和音频条(.aud)同一档。 */
+/* 额度卡采用上下两区;身份说明表继续使用原有浅色外壳。 */
 .up { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); overflow: hidden; }
-/* 两行了(数字 + 后果),顶对齐,按钮跟第一行齐平 */
-/* 卡分两段:上段是「还剩多少、要不要充」(数字 + 后果 + Upgrade),
-   下段是那排刻度。中间加一条通栏分割线 —— 上段是话和动作,下段是量,
-   两件事挨着排就成了一坨;有条线,眼睛才知道读完上面可以停一下。
-   线走通栏(不跟着 11px 内边距缩)—— 它标的是卡内两段的边界,
-   边界该抵到卡的两边;缩进去就成了一段内容自己的装饰。 */
-.up .h { display: flex; align-items: center; gap: 8px; padding: 10px 11px 0; }
-.up .h .amt { flex: 1; min-width: 0; }
-/* 「剩余额度 $3.20」是这张卡的主句,按产品指定单独定了一档:
-   14px(--t-lead,和组件名/卡片标题同级)、600、#353535 —— 比正文大一号、
-   重一档,颜色比 --text-strong(#202020)退半档,免得整句压过后面那个数。
-   金额本身用产品指定的 #F8672F:同一支橙贯穿"额度"这件事,
-   数字是这张卡唯一要人一眼抓到的东西,颜色只给它。 */
-.up .h .amt .n { display: block; font-size: var(--t-lead); font-weight: 600; color: #353535; }
-/* 还有余额时是橙(#F8672F):同一支橙贯穿"额度"这件事,
-   数字是这张卡唯一要人一眼抓到的东西,颜色只给它。
-   ------------------------------------------------------------
-   归零【换红】:橙是"注意,快没了",红是"已经不能用了" —— 这两句话
-   分量不一样,同一支橙说两遍,人得读完下面那行字才知道自己在哪一档。
-   这张卡上红只此一处:刻度条归零后是灰的(那是"没有额度"的槽,不是告警),
-   「现在无法开始新任务」也不染色 —— 红只标那个数,眼睛才有落点。 */
-.up .h .amt b { font-family: var(--mono); font-weight: 700; color: #f8672f; }
-.up .h .amt.is-out b { color: var(--red); }
-/* 只报数字不报后果,人没有行动的理由 —— $3.20 是多是少他不知道。
-   这一行讲的是"不充会怎样",不是促销。刻意不写"还能跑 N 轮"之类的
-   估算:单轮消耗随任务浮动,给个数反而是承诺了做不到的精确。 */
-/* 后果说明用 --text-soft(次级文字档),比金额浅一档 ——
-   它是补充说明,不该和"剩余额度 $3.20"抢同一层。
-   耗尽态例外:那条不是补充说明而是硬结论(发不出去了),保持红色。 */
-/* 后果句【单独占一行】,不再挤在 Upgrade 按钮旁边。
-   在 .h 那一行里,它的可用宽度是卡宽减掉按钮 —— 二十来个字必然折行,
-   而且折下来的尾巴常常只剩一两个字(「上」),一行半的形状比两行还难看。
-   搬到按钮下面就是整卡宽,这句话一行放得下,金额和按钮那一行也干净了。
-   顺带把 .h 改成垂直居中:那一行现在只剩「剩余额度 $3.20」和按钮两样,
-   顶对齐是为了让按钮跟【第一行】文字齐平,一行的时候居中才是齐的。 */
-/* 说明句下面那条分割线跟着刻度条一起去掉了 —— 它当初是为了把这句话
-   和底下那排刻度分开,刻度没了,线下面就什么都没有,成了一条收尾的横杠。
-   (刻度条那段 .up .meter 的样式留着没删:标记里去掉了,哪天要回来就是
-   把 <div class="meter"> 加回去。) */
-.up .why {
-  margin: 6px 11px 10px;
-  font-size: var(--t-cap); line-height: var(--lh-row); color: var(--text-soft);
+.up:not(.branch) {
+  --upgrade-card-bg: #121212;
+  --upgrade-card-text: #ffffff;
+  --upgrade-button-ink: #121212;
+  position: relative; isolation: isolate;
+  padding: 16px; border: none; border-radius: 16px;
+  background: var(--upgrade-card-bg); color: var(--upgrade-card-text);
 }
-/* 说明句不跟着变色 —— 颜色只给那个数和进度条。
-   额度归零时该看的是「$0.00」和那条已经走到头的刻度,那是事实;
-   「现在无法开始新任务」是它的后果,跟着染色就成了三处告警,
-   一多,眼睛反而不知道该落在哪。灰字加橙数,层次才出来。 */
-/* 进度不是一条线,是一排刻度块。
-   ------------------------------------------------------------
-   一条连续的线只说"占了多长";切成一排等宽的小块,读出来的是【还剩几格】——
-   额度本来就是可数的东西(还能跑几轮),离散的记号比连续的长度更贴事实,
-   也更容易一眼估量:数格子比量长度快。
-   实现【不铺 N 个 <i>】:整块用一层 repeating-linear-gradient 当遮罩切开,
-   遮罩对元素和它的子元素同时生效 —— 底下那排灰刻度和上面那截彩色填充
-   被同一副齿切,天然对齐,而填充仍然只是一个百分比宽度的实心块,
-   16% / 100% 这些数照写不误,不用换算成"几格"。
-   3px 齿 + 3px 缝、10px 高:齿比缝略窄会显得散,等宽最稳;
-   高度给到宽的三倍多,才是参考里那种竖条的比例,4px 那种是线不是块。
-   左右收 11px 跟卡头的文字对齐 —— 原来它是通栏贴着卡底的一条线,
-   现在它是一排记号,得站在内容的左边缘上。 */
+/* 保留提供的 SVG,旋转后放在右上角:小星在上、大星在下。 */
+.up.mod-glow::after {
+  content: ''; position: absolute; inset-inline-end: 0; top: 0; z-index: -1;
+  width: 48px; height: 62px; pointer-events: none; transform: rotate(180deg);
+  background: url("data:image/svg+xml,%3Csvg%20width%3D%2267%22%20height%3D%2287%22%20viewBox%3D%220%200%2067%2087%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%0A%3Cpath%20opacity%3D%220.5%22%20d%3D%22M25.1408%2059.8603L30.3371%2053.7463C34.9617%2048.3057%2041.3853%2044.8059%2048.3422%2043.9371L57.9258%2042.7402C60.9727%2042.3598%2062.1548%2038.4443%2059.8294%2036.4355L52.7432%2030.3142C47.2969%2025.6094%2043.8543%2018.9176%2043.1264%2011.6212L42.2837%203.17174C41.9709%200.036192%2038.1292%20-1.12822%2036.1342%201.30788L30.7582%207.87237C26.1159%2013.5412%2019.5483%2017.199%2012.4125%2018.0902L3.12809%2019.2497C0.0811039%2019.6301%20-1.10108%2023.5456%201.22452%2025.5544L8.53913%2031.873C13.8488%2036.4597%2017.2591%2042.9402%2018.0982%2050.0367L19.041%2058.0115C19.4035%2061.0766%2023.1432%2062.2101%2025.1408%2059.8603ZM50.6955%2086.3266L52.1573%2084.6058C54.7633%2081.5378%2058.3849%2079.5636%2062.3081%2079.0724L65.3252%2078.6944C66.957%2078.4901%2067.5894%2076.3956%2066.3442%2075.3194L64.1711%2073.4405C61.1003%2070.7862%2059.1599%2067.0126%2058.7507%2062.8995L58.5112%2060.4887C58.3439%2058.8085%2056.2838%2058.1841%2055.2151%2059.4896L53.682%2061.3632C51.0662%2064.5595%2047.3636%2066.6227%2043.3392%2067.1265L40.4908%2067.4833C38.8593%2067.6877%2038.2269%2069.7822%2039.4718%2070.8584L41.7738%2072.8486C44.7678%2075.4363%2046.6895%2079.0907%2047.1613%2083.0916L47.4263%2085.3357C47.6199%2086.9783%2049.6254%2087.5862%2050.6955%2086.3266Z%22%20fill%3D%22url%28%23paint0_linear_1975_81%29%22%2F%3E%0A%3Cdefs%3E%0A%3ClinearGradient%20id%3D%22paint0_linear_1975_81%22%20x1%3D%2247.8253%22%20y1%3D%2296.362%22%20x2%3D%2247.8253%22%20y2%3D%220%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%0A%3Cstop%20stop-color%3D%22%2300FF08%22%2F%3E%0A%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23121212%22%2F%3E%0A%3C%2FlinearGradient%3E%0A%3C%2Fdefs%3E%0A%3C%2Fsvg%3E") center / contain no-repeat;
+}
+.up .h {
+  display: flex; align-items: center;
+  padding: 0 48px 8px 0; border-bottom: 1px solid rgb(83 83 83 / 40%);
+}
+.up .h .amt { flex: 1; min-width: 0; }
+/* 延续已确认的 16px 字号;标签保持白色,金额用颜色区分余额状态。 */
+.up .h .amt .n {
+  display: block; font-size: var(--font-size-16); line-height: 1.5;
+  font-weight: 400; color: var(--upgrade-card-text);
+}
+.up .h .amt b {
+  font: inherit; font-size: var(--font-size-20); line-height: 1.2; color: #f49624;
+}
+.up .h .amt.is-out b { color: var(--red); }
+/* 下方说明与按钮并排;宽度不足时由内容自动换行,不绑定页面断点。 */
+.up .up-bottom {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  gap: 12px 16px; padding-top: 8px;
+}
+.up .why {
+  flex: 1 1 180px; min-width: 0; margin: 0;
+  font-size: var(--font-size-13); line-height: 1.5; font-weight: 400;
+  color: var(--upgrade-card-text);
+}
+.up .up-bottom .btn.mod-primary,
+.up .up-bottom .btn.mod-primary:hover {
+  background: var(--upgrade-surface); color: var(--upgrade-button-ink);
+}
+.up .up-bottom .btn {
+  flex: none; gap: 8px; min-height: 44px; padding: 12px 16px 12px 12px;
+  font-size: var(--font-size-14); line-height: 20px; font-weight: 400;
+}
+.up .up-bottom .btn svg { flex: none; width: 20px; height: 20px; }
+/* 保留旧刻度样式,当前额度卡不显示刻度。 */
 .up .meter {
   --tick: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px);
   height: 10px; margin: 10px 11px; background: var(--border-soft);
   -webkit-mask-image: var(--tick); mask-image: var(--tick);
 }
 .up .meter i { display: block; height: 100%; background: var(--amber); }
-/* 耗尽那一档收成中性灰,不是红。
-   ------------------------------------------------------------
-   红是"出事了,去处理";而额度用完不是故障,是一件正常会发生、也早就预告过的事
-   ——「额度不足」那一档已经用琥珀提前警告过一轮了。到这一步该说的是【这条已经
-   没有余量了】,一格不剩的刻度本身就把这句话说完了,再刷成红只是把音量拧大,
-   并不多给一个信息。
-   而且这一屏上红另有专职:19 · 报错、上传失败、步骤取消 —— 那几处是真的出了岔子。
-   额度耗尽跟着用红,红这个记号在这份稿子里就不再只有一个意思。
-   ------------------------------------------------------------
-   用 --border-strong 而不是刻度槽那档 --border-soft:两者一样色的话整条就
-   跟空槽没有区别,"满格但已耗尽"和"这里没有条"就分不出来了。深浅两套主题里
-   --border-strong 都比槽亮一档,这个分界不会因为换主题而消失。 */
 .up .meter i.is-out { background: var(--border-strong); }
-/* 底色不动(仍是 --text-strong 的黑),只换字和图标的颜色。
-   hover 也得写一遍:.btn.mod-primary:hover 会把 color 改回 --bg,
-   不覆盖的话鼠标一压上去绿就掉了。 */
-.up .h .btn.mod-primary,
-.up .h .btn.mod-primary:hover { color: var(--upgrade-ink); }
-/* 这一枚四边等距:上下左右统一 8px(mod-sm 原本是 4px 11px)。
-   ------------------------------------------------------------
-   胶囊按钮扁着放通常没问题 —— 它在一排按钮里,靠左右留白和邻居分开就够了。
-   但这一枚是【单独站在卡右侧】的一枚,左边是两行字(金额 + 后果),它是这张卡
-   唯一的出口。四边等距把它撑成一个方方正正的块,高度正好接近左边那两行的高度,
-   一整张卡就是"一段话 + 一个按钮"两块并排,而不是一段话旁边贴了一条细边。
-   只作用在 .up 的卡头里:别处的 mod-sm(弹窗里的「加入」、报错卡那几枚、
-   反馈弹窗的取消/提交)还是成排出现的,照旧用扁的那一档。 */
-.up .h .btn { padding: 8px; }
 .branch { border-top: 1px solid var(--border-soft); }
 .branch .r { display: flex; gap: 8px; padding: 6px 11px; border-top: 1px solid var(--border-soft); font-size: var(--t-cap); line-height: var(--lh-row); color: var(--text-muted); }
 .branch .r:first-child { border-top: none; }
@@ -2793,7 +3046,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    下一行的红标题已经说了。
    红最后只剩两处:那枚感叹号和「任务失败」四个字 —— 它们在内容里,不在外壳上,
    扫视时先看到的是一张卡,读进去才知道是失败,这个顺序才对。 */
-.errb { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); padding: 10px 11px; }
+.errb { border: 1px solid var(--border); border-radius: var(--radius-2xl); background: var(--bg); padding: 10px 11px; }
 /* 标题那一行底下压一条线,把「出了什么事」和「详情」分开。
    线【不贯穿】—— 它落在内容宽度上(卡的左右内距各 11px 天然把它收进来),
    而不是从卡的这一边拉到那一边:贯穿的线是把一张卡切成两张卡的画法,
@@ -3009,7 +3262,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 第几次 / 共几次:等宽数字,数字跳动时这一行不会跟着抖。
    字重跟前面那句话一样是 400 —— 这一行整句("正在重新连接 2/5")是一条状态,
    不是一条要你读重点的通知,把次数单独加粗等于在里面挑一个词喊出来。 */
-.tool .cnt { margin-inline-start: 6px; font-variant-numeric: tabular-nums; font-weight: 400; color: inherit; }
+.tool .cnt { margin-inline-start: 6px; font-variant-numeric: tabular-nums; font-weight: 500; color: inherit; }
 /* 这一行的字也走流光,和 3 · Thinking 那句同一条动画(15 秒扫一次)——
    两处说的是同一件事:「有个东西在自己跑,你不用管」。既然是同一句话,
    就该长同一个样,而不是一处在扫、一处干站着。

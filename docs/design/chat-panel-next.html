@@ -115,6 +115,7 @@
   --radius-medium: 4px;
   --radius-large: 8px;
   --radius-xlarge: 12px;
+  --radius-2xlarge: 16px;
   --radius-circular: 50%;
   --stroke-thin: 1px;
   --stroke-thick: 2px;
@@ -125,6 +126,7 @@
   --radius: var(--radius-large);
   --radius-md: var(--radius-large);
   --radius-lg: var(--radius-xlarge);
+  --radius-2xl: var(--radius-2xlarge);
   --radius-pill: 999px;
 
   --duration-ultra-fast: 50ms;
@@ -331,7 +333,7 @@
    产品指定 #353535(原来是 --brand-text 的深绿 #0d5400)。
    选中态现在的三处变化里,颜色这一处退回中性:控件填 --pick 的荧光绿已经
    把"选的是这条"说完了,字再跟着变绿,一行里就有两处在喊同一件事,而绿字
-   压在白底上比黑字难读。字重 600 保留 —— 那是这一行跟其余几行的分档。
+   压在白底上比黑字难读。选中文字用 500,与确认卡标题保持同一档强调。
    值跟 --anim-ink 一样是巧合(同为产品给的那档深灰),不合并:一个是动效的墨,
    一个是选中行的字,下次谁变都不该带着另一个一起变。 */
 :root { --select-ink: #353535; }
@@ -344,13 +346,12 @@
    真要读的是收起后那条 .think(结论),它仍走正文墨色,不受这条影响。 */
 :root { --stream-ink: #a3a3a3; }
 
-/* ── Upgrade 按钮的字和图标 ──────────────────────────────────
-   产品指定 #00FF08。它只用在 18 · 升级那颗黑按钮上:底仍是黑的,
-   绿只落在【字和那枚闪光】上 —— 一屏里唯一一处"往前一步"的动作,
-   黑底给它分量,绿给它一眼能认出来的记号,两者不抢。
+/* ── Upgrade 按钮的底色 ──────────────────────────────────────
+   升级卡改为深灰底后,原来的 #00FF08 绿色改用于按钮底色,
+   文字和闪光图标固定使用 #353535,独立于卡面背景。
    注意它跟 --brand-weak(#00FF04,那枚绿勾)差 4 —— 是两个被分别指定的
    色号,不是同一个,所以不合并:一个说"这件事过了",一个说"这里可以升级"。 */
-:root { --upgrade-ink: #00FF08; }
+:root { --upgrade-surface: #00FF08; }
 
 /* ── 「过了」那枚勾 ─────────────────────────────────────────
    产品给的整图标(源文件 src/tick.svg,内联成 data URI —— 稿子是单文件)。
@@ -648,7 +649,7 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
    要拿同一个色去盖住被截断的半个字(见 .bub.mod-clamp .more),
    而气泡 hover 时底色会变深 —— 两处必须永远同色,所以只留一个出处。 */
 .bub {
-  --bub-bg: var(--text-strong);
+  --bub-bg: #121212;
   max-width: min(84%, 380px); padding: 9px 13px;
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
   background: var(--bub-bg); color: var(--bg);
@@ -722,21 +723,22 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
    都靠外缘,扫一列就对得上"这句几点发的 / 那句几点答的"。
    时间不是动作,所以不给它按钮那套 30px 命中框和 hover 底色 —— 它只是一段
    可读的文字,做成能点的样子等于给一个按了没反应的东西。
-   字号取 caption、颜色取 --text-soft:这一行的主角是复制,时间是背景信息,
-   跟图标同一个视觉重量的话,人会先去读那串数字。 */
+   字号取 caption,时间和未选中的操作图标统一用 #A3A3A3。 */
+/* 消息辅助信息专用色,不联动全局次级文字或已选中的反馈状态。 */
+.msg-act, .fb, .fork-note { --message-muted-ink: #a3a3a3; }
 .msg-act {
   flex: none; display: flex; align-items: center;
 }
-.msg-act .tm { margin-inline-start: 2px; font-size: var(--t-cap); color: var(--text-soft); }
+.msg-act .tm { margin-inline-start: 2px; font-size: var(--t-cap); color: var(--message-muted-ink); }
 /* 消息旁的操作按钮跟着气泡的行高走,
    不自己定尺寸。原来用的是 .btn.mod-sm,图标只有 11px。 */
 .msg-act button {
   display: grid; place-items: center; width: 30px; height: 30px;
-  border-radius: var(--radius-sm); color: var(--text-soft);
+  border-radius: var(--radius-sm); color: var(--message-muted-ink);
   transition: background-color var(--duration-faster) var(--ease-out),
               color var(--duration-faster) var(--ease-out);
 }
-.msg-act button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
+.msg-act button:hover { background: var(--bg-fill-secondary); color: var(--message-muted-ink); }
 .msg-act button svg { width: 16px; height: 16px; }
 
 /* 【重试】带可见文字,跟失败行的那枚同一套外观。
@@ -1237,6 +1239,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    只染图标不染文字:文字要跟其它折叠行保持一致,绿的是那个标记,
    不是那句话。 */
 .fold > summary .memo-ic { color: #00ff04; }
+/* 记忆卡的外壳和标题悬停底共用 16px 圆角,展开、收起保持一致。 */
+.fold:has(> summary > .memo-ic),
+.fold > summary:has(> .memo-ic) { border-radius: 16px; }
 /* 箭头一律靠右。原来右对齐是靠耗时 .ms 的 auto 外边距撑出来的,
    于是没有耗时的那几条(执行计划、记忆组件)箭头就贴在文字后面。
    现在两个都能自己靠右,谁先出现谁吃掉空白:
@@ -1363,30 +1368,23 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat[open] > summary + .body.mod-stack { border-top: var(--stroke-thin) solid var(--border); padding-top: 6px; }
 /* 纯文字直接落在左边缘 —— 它是正文,不该比动作行更靠里。 */
 .fold.mod-flat > .body.mod-stack > .think { padding: 6px 0; }
+/* 留下供阅读的推理正文用 13px;滚动中的过程文字保留原有字号。 */
+.fold.mod-flat > .body.mod-stack:not(.mod-stream) > .think { font-size: var(--t-body); }
 /* 动作行:同一套负外边距,状态点和标题行的状态点连成一列。 */
 .fold.mod-flat > .body.mod-stack > .fold { margin-inline: -7px; }
 .fold.mod-flat > .body.mod-stack > .fold > summary { padding: 5px 7px; border-radius: var(--radius-sm); }
-/* 步骤名加粗到 600。
-   ------------------------------------------------------------
-   这一层原来是常规字重 —— 当时的理由是"同一个 rank 的折叠块标题不该比卡头
-   更重"。串上链之后前提变了:这几行不再是并列的几个折叠块,而是一条链上的
-   【节点】,链上其它东西(小结、子行、耗时)都是围着它们说的。节点比说明重
-   一档,眼睛顺着链往下扫时才有落点。
-   只加在步骤名上:耗时 .ms 收回 400 —— 它是等宽数字,600 的等宽在 12px 上
-   会糊成一团黑,而且它本来就是次要信息,跟着标题一起变重就分不出主次了。 */
-.fold.mod-flat > .body.mod-stack > .fold > summary { color: #A3A3A3; font-weight: 600; }
+.fold.mod-flat > .body.mod-stack .fold > summary:hover { border-radius: var(--radius); }
+/* 执行计划和步骤标题统一为 13px / 500,进行中、已完成及展开/收起共用。
+   标题文字也直接设置同一档,不只依赖继承。耗时保持独立规则,
+   不影响顶层状态标题和工具调用行。 */
+.fold.mod-flat > .body.mod-stack > .fold > summary,
+.fold.mod-flat > .body.mod-stack > .fold > summary > .mk + span { font-size: var(--t-body); font-weight: 500; }
 .fold.mod-flat > .body.mod-stack > .fold > summary .ms { color: #A3A3A3; font-weight: 500; }
-/* 步骤名之外的那几句话退成重灰。
-   ------------------------------------------------------------
-   步骤名刚加到 600,如果说明还跟它一样是 --text-strong,一块里就有两样东西
-   同时在喊 —— 加粗这件事只有在旁边有更轻的一档时才成立。
-   退到 --text-muted(#5c5c5c)这一档,不是最浅的 --text-soft:这几句是
-   Agent 说给你听的话,不是标注,得读得下来。白底上 7:1,一整段读着不费劲。
-   ------------------------------------------------------------
-   :has(> .fold) 圈的是【有步骤的那种块】—— 进行中 / 已完成。Thinking 那块
-   用的是同一副壳、里面也是 .think,但它整块就是一段推理,没有"标题 + 说明"
-   这层关系,轻重由它自己那套渐隐管,这里不去动它。 */
-.fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-muted); }
+/* 步骤小结与正常命令行使用独立的浅灰色,不联动 Thinking 滚动流。 */
+.fold.mod-flat { --progress-detail-ink: #a3a3a3; }
+/* 开头说明沿用正文深色:浅色主题 --text-strong 为 #202020。
+   进行中和已完成保持一致;步骤间的小结在下方单独使用浅灰色。 */
+.fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-strong); }
 /* 步骤之间穿一条竖线 —— chain-of-thought 的那根"链"。
    ------------------------------------------------------------
    参照 21st.dev @elements- 的 chain-of-thought:线是每一步自己画的一段
@@ -1433,7 +1431,11 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) {
   position: relative;
   padding-inline-start: 22px;
+  /* 步骤间的小结用 12px;开头说明保留 13px。 */
+  font-size: var(--t-mini);
+  color: var(--progress-detail-ink);
 }
+.fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) code { color: inherit; }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold)::before {
   /* 7.5 而不是 14.5:步骤那一层挂着 margin-inline:-7px,盒子比小结往左多探 7px,
      两边各自的 0 点差了这 7px。要的是【同一条竖线】,所以数字得各算各的。 */
@@ -1465,6 +1467,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 折叠行的缩进由它的 summary 承担,盒子本身不再吃一份 —— 否则 29 + 29,
    一条可折叠的命令行会比它旁边那几条工具行深一格,读起来像多了一层。 */
 .fold.mod-flat .body.mod-stack .body.mod-stack > .fold { padding-inline: 0; }
+/* 正常命令行的文字、耗时和标记同色;失败行保留原有状态色。 */
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) { color: var(--progress-detail-ink); }
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.ti, .ms),
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > .ti > svg { color: inherit; }
 /* 终端块同样把 7px 的负外边距补回来:左边跟着它上面那行命令,右边收回卡内。
    只改左右两边 —— 上下那份间距是 .code 自己的,写成 margin 简写会把它顶掉。 */
 .fold.mod-flat .body.mod-stack .code { margin-inline: 29px 18px; }
@@ -1674,6 +1680,8 @@ button.att-d:hover { border-color: var(--border-strong); }
    <b> 仍显式收回成 inherit:浏览器默认给它 700,留着就成了行内再上一档,
    同一行里两种字重。<b> 在标记里区分的是"标题"和旁边的计数 / 按钮,不是字重。 */
 .card > .h b { font-weight: 600; }
+/* 带选项的确认卡标题用 Medium;计划卡和其它状态卡仍沿用 600。 */
+.card:has(> .cbody > .opts) > .h > b { font-weight: 500; }
 /* 数字位用 tabular-nums,不用等宽字体。
    ------------------------------------------------------------
    这一格里的内容多半是中文夹数字(「已选 2」「4 步」「旧计划 4 步」),
@@ -1682,6 +1690,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    分数也一律写成 2/4 不写 2/4:等宽下每个空格都占满一个字宽,
    「2/5」会被撑成三段,散得像三个独立的数。 */
 .card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums; font-size: var(--t-cap); font-weight: 600; }
+/* 多选计数保留数字的原色,「已选」退后两档到 --text-soft。 */
+.card > .h .selection-count { color: var(--text-strong); }
+.card > .h .selection-count .count-label { color: var(--text-soft); }
 /* 卡头右上角直接放动作按钮,不再为它单开一行底栏。
    这张卡的正文已经是一份清单了,底下再挂一条只有一个按钮的横条,
    等于给两行东西撑出三行的高度 —— 而右上角本来就空着(原来放的是
@@ -1714,6 +1725,8 @@ button.att-d:hover { border-color: var(--border-strong); }
    它问你的话,同宽、一左一右,来回一目了然。 */
 .card:has(.q), .card:has(> .steps), .card:has(.foot), .errb { width: 380px; max-width: 100%; }
 .cbody > .q { padding: 10px 11px 8px; font-size: var(--t-mini); font-weight: 500; line-height: var(--lh-body); color: var(--text-strong); }
+/* 澄清问句使用 13px 正文档,与下面 12px 的选项区分。 */
+.card:has(> .cbody > .opts) > .cbody > .q { font-size: var(--t-body); }
 .cbody > .opts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 11px 10px; }
 
 /* ---- 答题选项:纵向一行一个(mod-stack) ----
@@ -1757,11 +1770,11 @@ button.att-d:hover { border-color: var(--border-strong); }
    "哪条选中"这一件事说两遍,而底色是三者里最吵的一遍:它改变的是行的
    面积,不是行里的那个点。「自己填」展开输入框时更明显 —— 整块底色
    会连着输入框糊成一片绿。
-   选中态因此只剩两处变化:前面的控件填实(--pick),文字加粗到 600
-   并换成 --brand-text。底色那一档还给 hover:现在只有指针底下那条有底,
+   选中态因此只剩两处变化:前面的控件填实(--pick),文字使用 500
+   并换成 --select-ink。底色那一档还给 hover:现在只有指针底下那条有底,
    "能点的是这条"和"选中的是这条"各说各的,不再抢同一种表达。 */
 .opt.is-on {
-  color: var(--select-ink); font-weight: 600;
+  color: var(--select-ink); font-weight: 500;
 }
 .opt .ic { flex: none; display: grid; place-items: center; height: calc(var(--t-mini) * var(--lh-row)); color: var(--text-soft); }
 .opt .ic svg { width: 13px; height: 13px; }
@@ -1839,7 +1852,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    继续置灰:选了「自己填」却一个字没写,和一项都没选是同一种"还没答"。 */
 .opt.is-open { cursor: default; }
 .opt .own { flex: 1; min-width: 0; display: block; }
-.opt .own-l { display: block; font-weight: 600; }
+.opt .own-l { display: block; font-weight: 500; }
 /* 只留一条底线,不围一圈框 —— 和反馈弹窗那个补充框(.rsn .ta)同一种写法。
    ------------------------------------------------------------
    一圈框是"这是一个独立的输入区";可这个框长在【某一个选项里面】,
@@ -1851,7 +1864,7 @@ button.att-d:hover { border-color: var(--border-strong); }
   display: block; width: 100%; margin-top: 6px; padding: 2px 0 5px;
   border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
   background: none; color: var(--text-strong);
-  font-family: inherit; font-size: var(--t-mini); line-height: var(--lh-row);
+  font-family: inherit; font-size: var(--t-mini); font-weight: 500; line-height: var(--lh-row);
   field-sizing: content; resize: none; outline: none;
 }
 .opt .own-ta::placeholder { color: var(--text-soft); }
@@ -1866,6 +1879,50 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 聚焦只把线压深一档,不染色:染色是"这里有状态",而这儿要说的只是
    "光标在这条线上",压深已经够了 —— 和 .rsn .ta 保持一致。 */
 .opt .own-ta:focus { border-bottom-color: var(--border-strong); }
+
+/* ---- 意图澄清:语言下拉选择 ----
+   常用语言先放在首屏,低频语言收到「更多语言」下面。展开后的额外列表固定
+   露出 6.5 行(32px × 6.5 = 208px),半行提示下面还能继续滚。 */
+.opts.mod-language { display: block; padding: 0 11px 10px; }
+.language-select { position: relative; }
+.language-menu,
+.language-more {
+  overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); box-shadow: var(--shadow-sm);
+}
+.language-more { margin-top: 8px; }
+.language-more-list[hidden] { display: none; }
+.language-group-label {
+  display: block; padding: 7px 10px 3px;
+  color: var(--text-muted); font-size: var(--t-cap); font-weight: 500;
+}
+.language-option,
+.language-more-toggle {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 32px; padding: 6px 10px;
+  color: var(--text-strong); font-size: var(--t-mini); text-align: left;
+}
+.language-option:hover,
+.language-more-toggle:hover { background: var(--bg-fill-secondary); }
+.language-option[aria-selected="true"] { background: var(--brand-soft); color: var(--select-ink); font-weight: 500; }
+.language-option .language-code {
+  margin-inline-start: auto;
+  color: var(--text-muted); font-size: var(--t-cap);
+  font-variant-numeric: tabular-nums;
+}
+.language-option .language-check { width: 14px; height: 14px; margin-inline-start: auto; opacity: 0; color: var(--brand-text); }
+.language-option .language-code + .language-check { margin-inline-start: 0; }
+.language-option[aria-selected="true"] .language-check { opacity: 1; }
+.language-more-toggle { color: var(--text-muted); font-weight: 500; }
+.language-more-toggle .sp { flex: 1; }
+.language-more-toggle svg { width: 14px; height: 14px; transition: transform var(--duration-faster) var(--ease-out); }
+.language-more-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.language-more-list {
+  max-height: 208px; overflow-y: auto; overscroll-behavior: contain;
+  border-top: 1px solid var(--border); scrollbar-width: thin;
+}
+
 
 /* ---- 颜色选择:预设色 + 自定义色值 + 实时预览 ---- */
 .opts.mod-color {
@@ -2003,6 +2060,78 @@ button.att-d:hover { border-color: var(--border-strong); }
 @media (prefers-reduced-motion: reduce) {
   .amount-grid::after { animation: none; }
   .amount-value-stack { transition: none !important; }
+}
+
+/* 预设颜色的分组标签与确认卡标题使用同一档字重。 */
+.opts.mod-color .color-field > legend { font-weight: 500; }
+/* 选中状态只改变外圈,保留色块本身所代表的真实颜色。 */
+.opts.mod-color .color-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px #00FF08;
+}
+/* 自定义取色器的外框与浏览器内部色块统一为圆形。 */
+.opts.mod-color .color-native,
+.opts.mod-color .color-native::-webkit-color-swatch,
+.opts.mod-color .color-native::-moz-color-swatch {
+  border-radius: var(--radius-circular);
+}
+
+/* Amount Slider:上方数字可直接编辑,并与滑杆双向同步。
+   轨道不再放刻度点;数值位置由滑块本身和进度色共同表达。 */
+.opts.mod-slider { display: block; padding: 0 11px 10px; }
+.amount-slider {
+  --range-pct: 25%;
+  --amount-track-height: 16px;
+  --amount-thumb-size: calc(var(--amount-track-height) - 2px);
+  --amount-active: #00FF08;
+  display: grid; gap: 7px;
+}
+.amount-readout {
+  min-height: 36px; display: flex; align-items: flex-start; justify-content: center; gap: 4px;
+  color: var(--text-strong); font-variant-numeric: tabular-nums;
+}
+.amount-value-input {
+  box-sizing: content-box; width: 1.2em; height: 34px; padding: 0 2px;
+  appearance: textfield; border: 0; border-radius: var(--radius-sm); outline: none;
+  background: transparent; color: inherit;
+  font-family: var(--sans); font-size: 32px; font-weight: 600; line-height: 34px; text-align: center;
+}
+.amount-value-input::-webkit-outer-spin-button,
+.amount-value-input::-webkit-inner-spin-button { margin: 0; appearance: none; }
+.amount-value-input:hover { background: var(--bg-fill-secondary); }
+.amount-value-input:focus-visible {
+  outline: 1px solid var(--selected); outline-offset: 2px;
+  background: var(--bg);
+}
+.amount-unit { margin-top: 3px; font-size: var(--t-cap); color: var(--text-muted); }
+.amount-rail {
+  position: relative; height: var(--amount-track-height); overflow: hidden;
+  border-radius: var(--radius-circular);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--amount-active) 22%, var(--bg-panel)) 0 var(--range-pct),
+    var(--bg-panel) var(--range-pct) 100%);
+}
+.amount-range {
+  position: absolute; inset: 0; z-index: 1;
+  appearance: none; width: 100%; height: var(--amount-track-height); margin: 0;
+  background: transparent; cursor: grab;
+}
+.amount-range:active { cursor: grabbing; }
+.amount-range:focus-visible { outline: 1px solid var(--selected); outline-offset: -1px; }
+.amount-range::-webkit-slider-runnable-track { height: var(--amount-track-height); background: transparent; }
+.amount-range::-webkit-slider-thumb {
+  appearance: none; width: var(--amount-thumb-size); height: var(--amount-thumb-size); margin-top: 1px;
+  border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
+  box-shadow: var(--shadow-sm);
+}
+.amount-range::-moz-range-track { height: var(--amount-track-height); border: 0; background: transparent; }
+.amount-range::-moz-range-thumb {
+  width: var(--amount-thumb-size); height: var(--amount-thumb-size);
+  border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
+  box-shadow: var(--shadow-sm);
+}
+.amount-limits {
+  display: flex; justify-content: space-between;
+  color: var(--text-muted); font-size: var(--t-cap); font-variant-numeric: tabular-nums;
 }
 
 /* ---- 视觉方向:看图选择 ----
@@ -2206,12 +2335,17 @@ button.att-d:hover { border-color: var(--border-strong); }
    不给它留出头顶那段高度,清单会被卡的上边缘切掉。真实场景里药丸钉在
    流水底部,上方本来就是空的,不需要这一层。 */
 .pdemo { padding-top: 136px; }
+/* Plan 的文字色只在本组件内使用;展开清单与收起浮层共用。 */
+.steps, .pmini {
+  --plan-current-text: #353535;
+  --plan-other-text: #848484;
+}
 .pmini { position: relative; display: inline-flex; }
 .pmini .pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 12px; border-radius: var(--radius-pill);
   border: 1px solid var(--border); background: var(--bg);
-  font-size: var(--t-mini); font-weight: 600; color: var(--text-strong); cursor: default;
+  font-size: var(--t-mini); font-weight: 600; color: var(--plan-current-text); cursor: default;
   transition: border-color var(--duration-faster) var(--ease-out);
 }
 .pmini:hover .pill, .pmini.is-hover .pill { border-color: var(--border-strong); }
@@ -2255,7 +2389,7 @@ button.att-d:hover { border-color: var(--border-strong); }
   background: var(--bg);
   border-start-start-radius: var(--radius); border-start-end-radius: var(--radius);
 }
-.steps li { display: flex; gap: 8px; padding: 5px 11px; font-size: var(--t-mini); line-height: var(--lh-row); color: var(--text); list-style: none; }
+.steps li { display: flex; gap: 8px; padding: 5px 11px; font-size: var(--t-mini); font-weight: 400; line-height: var(--lh-row); color: var(--plan-other-text); list-style: none; }
 /* 记号那一格现在是一枚四态图标,画法见 plan-todo.css。
    ------------------------------------------------------------
    这里原先记着三条演进:文字 ✓ 换成 SVG 勾、裸勾换成 .mk.is-ok 的绿底片、
@@ -2264,8 +2398,8 @@ button.att-d:hover { border-color: var(--border-strong); }
    未开始 / 进行中 / 做完了 / 取消了 全是同一个圆的四种画法,尺寸也统一了。
    .steps li .k(等宽序号)和 .steps li .mk(下移 1.5px 对齐首行)因此都退场,
    对齐改由 .steps li .tk 自己负责。 */
-.steps li.is-done { color: var(--text-muted); }
-.steps li.is-now { color: var(--text-strong); font-weight: 600; }
+.steps li.is-done { color: var(--plan-other-text); }
+.steps li.is-now { color: var(--plan-current-text); font-weight: 600; }
 
 /* ---- 答后陈述 ---- */
 /* 已回答:卡片收成一条陈述。三种问法收出来的形状不同,但壳是同一个。
@@ -2287,15 +2421,17 @@ button.att-d:hover { border-color: var(--border-strong); }
    大片空白 —— 那片空白不表示任何东西,只是让人以为还有内容没加载出来。
    写 width 而不是 align-self:flex-start,是为了在 block 和 flex 两种父容器里
    都成立(cross-size 不是 auto,flex 的 stretch 就不生效)。 */
-/* 【不套框、不铺底】。这几条是已经定下来的答案,它们是这段对话的一部分,
-   不是一块从流水里抠出来的独立面板 —— 上一条问题、下一条动作都是裸排的,
-   只有它套着一圈边和一层灰底,读起来像被谁装进了盒子。
-   「已确认」那个绿词已经把这段是什么说清楚了;真要分段,靠的是上面那条
-   状态标题和它自己的行距,不是一个框。
-   撤掉框之后左内边距也一起撤 —— 有框时那 11px 是把字从边上推开,
-   没框了它就成了一段无缘无故的缩进,答案该顶到跟旁边内容同一条左边缘。 */
-.answered { width: fit-content; max-width: 100%;
-  font-size: var(--t-mini); line-height: var(--lh-row); }
+/* 已确认结果统一加浅灰底,浅色主题复用 --bg-panel(#FAFAFA)。
+   16px 圆角只属于答案块,不改变其它卡片的圆角;12px 内边距让文字避开圆角。 */
+.answered {
+  --answered-radius: 16px;
+  --answered-padding: 12px;
+  width: fit-content; max-width: 100%; padding: var(--answered-padding);
+  background: var(--bg-panel); border-radius: var(--answered-radius);
+  font-size: var(--t-mini); line-height: var(--lh-row);
+}
+/* 视觉方向答案带缩略图,使用内容卡同档的 12px 圆角。 */
+.answered.mod-visual-answer { --answered-radius: var(--radius-lg); }
 /* 「已确认」用绿 —— 绿在这套系统里只有一个意思:这件事定了。
    之前它是灰的,和「执行计划」「读了 3 个文件」那些过程行同一档颜色,
    回看时一眼扫过去分不出哪条是【你做的决定】、哪条只是 agent 干过的活。
@@ -2306,6 +2442,10 @@ button.att-d:hover { border-color: var(--border-strong); }
    一个不带勾的绿词在一屏绿勾里反而更跳。 */
 .answered .k { margin-bottom: 3px; color: var(--brand-text); }
 .answered .ab { color: var(--text); }
+/* 颜色和数值的短答案行内部垂直居中;卡片位置及其它回答的排版不变。 */
+.answered .ab.mod-value { display: flex; align-items: center; }
+.answered .ab.mod-value > .ak { flex: none; }
+.answered .ab.mod-value > :last-child { min-width: 0; }
 /* 只用颜色分层,不再叠字重。答案是 --text-strong、旁边的关键词 .ak 是 --text-soft,
    两档颜色已经把"这是答案"和"这是问的哪件事"分开了;再加一档字重是同一件事
    说两遍。规则不能删 —— <b> 有浏览器默认的 700,删了反而更重。 */
@@ -2348,6 +2488,8 @@ button.att-d:hover { border-color: var(--border-strong); }
   padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg); font-size: var(--t-body); color: #A3A3A3; line-height: var(--lh-row);
 }
+/* 已完成的配套插图结果行更紧凑,圆角使用 4px 控件档。 */
+.tool.mod-image-result { border-radius: var(--radius-sm); }
 .tool + .tool { margin-top: 6px; }
 /* 折叠块一律满宽,卡片跟着内容。
    ------------------------------------------------------------
@@ -2391,7 +2533,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    点由 .ti:empty::before 画:标记里 .ti 留空就有,不必再挂一枚 svg。
    下面 .ti > svg 那两条留着 —— 哪天某一类真需要单独标一枚图标,塞进去即可用。 */
 .tool .ti { flex: none; width: 15px; height: 15px; display: grid; place-items: center; color: #A3A3A3; }
-.ti > svg { width: 14px; height: 14px; color: #A3A3A3; }
+.ti > svg { width: 16px; height: 16px; color: #A3A3A3; }
 .tool.is-fail .ti > svg,
 .fold.is-fail > summary .ti > svg { color: var(--red); }
 /* 计划里的序号占图标那一格 —— 计划的每一条还没跑,没有"哪类调用"可标,
@@ -2424,6 +2566,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    按钮做同一件事 —— 而且按钮嵌在 summary 里,点它会连带把折叠也切了。 */
 /* 折叠行里的那一格同理 —— 同一个动作行,收起和摊开不该长两个样。 */
 .fold > summary .ti { flex: none; width: 15px; height: 15px; display: grid; place-items: center; color: var(--text-strong); }
+/* 工具调用图标占 16px;没有图标的行首圆点和计划序号保持原尺寸。 */
+.tool .ti:has(> svg),
+.fold > summary .ti:has(> svg) { width: 16px; height: 16px; }
 .ti:empty::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .fold.is-fail > summary .ti { color: var(--red); }
 .fold > summary .why { flex: none; font-size: var(--t-cap); font-weight: 600; color: var(--red); }
@@ -2610,6 +2755,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    能滚,它是一张卡的体量,却顶着控件的圆角,看着就比同屏的卡"硬"。
    12px 和报错卡、Plan 卡、澄清卡是同一档 —— 同样体量的东西用同样的角。 */
 .fold .body.mod-stack .code {
+  --term-section-gap: 8px;
   padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--bg-panel); overflow: hidden;
 }
@@ -2646,6 +2792,9 @@ button.att-d:hover { border-color: var(--border-strong); }
   border-top: none; border-bottom: none; color: #A3A3A3;
 }
 .term.mod-cmd + .term { border-top: none; }
+/* 命令与输出之间总间距 8px,两块相接处各占一半;外侧留白保持不变。 */
+.fold .body.mod-stack .code > .term.mod-cmd:has(+ .term) { padding-bottom: calc(var(--term-section-gap) / 2); }
+.fold .body.mod-stack .code > .term.mod-cmd + .term { padding-top: calc(var(--term-section-gap) / 2); }
 .term.mod-cmd div { padding-inline-start: 13px; text-indent: -13px; }
 .term.mod-cmd div::before { content: "$ "; color: var(--text-faint); }
 .term .ok { color: var(--brand-text); }
@@ -2672,7 +2821,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .imgs { display: grid; grid-auto-flow: column; grid-auto-columns: 84px; gap: 6px; width: fit-content; max-width: 100%; }
 /* 独立出现时不带内边距;套进卡里就得跟卡的其他行一样留边,否则图贴着卡边。 */
 .card > .imgs { padding: 10px 11px; }
-.shot { position: relative; aspect-ratio: 3/4; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); background: var(--bg-subtle); }
+.shot { position: relative; aspect-ratio: 3/4; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: var(--bg-subtle); }
 /* 生图的占位跟附件缩略图共用 .mini —— 全站只有一种占位灰。
    ① 那是凭空发明的"四张图不一样"的效果,而占位图的职责只是压住范围,
       画出差异反而抢注意力(绿色那块尤其像个状态,不像一张图);
@@ -2690,7 +2839,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    信号交给内容本身:旁边三格都填着图,这一格是空的,中间还摆着
    「↻ 重试」—— 空 + 一个动作按钮,已经说完了"这张没成功、你可以再来一次"。
    红只留给「重试」两个字,那是要点的那一个点。 */
-.shot.is-fail { display: grid; place-items: center; }
+.shot.is-fail { display: grid; place-items: center; border-radius: var(--radius); }
 /* 跟附件托盘里那枚重试同一副样子:图标在上、文字在下,整格都是热区。
    两处是同一个动作(这一张没成,再来一次),不该有两种画法 ——
    原来这里是横排 inline-flex,而且标记里连图标都没有,只剩两个红字。 */
@@ -2772,33 +2921,36 @@ button.att-d:hover { border-color: var(--border-strong); }
    它们本来就该待在角上,不该横在画面中央。
    数量随产物类型变(HTML 两个、其余一个),所以用 flex 靠右而不是各自定位 ——
    少一个的时候整排自己往右收,右缘始终齐。
-   12px 的边距四角同一个数:图卡、视频卡并排时,贴边的距离对得上。 */
+   8px 的边距四角同一个数:图卡、视频卡并排时,贴边的距离对得上。 */
 .art .acts {
-  position: absolute; inset-inline-end: 12px; top: 12px; z-index: 2;
+  position: absolute; inset-inline-end: 8px; top: 8px; z-index: 2;
   display: flex; justify-content: flex-end; gap: 4px;
 }
 /* 一枚胶囊:压在产物图上的东西只有一类 —— "拿这份产物干什么"。
-   自带黑底而不是裸白字,底下是产物本身,可能是任何一张图。
+   深色半透明底保留白字对比,背景模糊让缩略图透出柔和的颜色。
    inline-flex + 6px 的缝是给「导出」前面那枚箭头留的:圈里一支向下的箭头,
    它说的是"落到本地",而「发布」说的是"送出去" —— 两个方向相反的动作并排,
    给其中一个加上方向,那一排就不必逐字读了。 */
 .art .acts button {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
-  padding: 2px 9px; border-radius: var(--radius-pill);
-  /* 产品指定 #353535 的实底(原来是 44% 的半透明黑)。
-     半透明的好处是"底下是什么颜色都能压得住",代价是【每张卡上的这枚都不一样】:
-     压在浅图上偏灰、压在深图上几乎看不见边,一排卡看过去按钮深浅不齐。
-     实底把这件事定死:它是一枚固定的控件,不随底下那张图漂移。 */
-  background: #353535; color: #fff;
-  font-size: var(--t-cap); font-weight: 600; cursor: pointer;
+  padding: 4px 8px; border-radius: var(--radius-pill);
+  /* 只虚化按钮背后的缩略图;内描边不占尺寸,文字与图标保持清晰。 */
+  background: rgb(18 18 18 / 60%); color: #fff;
+  -webkit-backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  box-shadow: inset 0 0 0 1px var(--overlay-glass-edge), 0 2px 8px rgb(0 0 0 / 12%);
+  font-size: var(--font-size-12); font-weight: 600; cursor: pointer;
   transition: background-color var(--duration-faster) var(--ease-out);
 }
-/* 12px:比 caption 的 12px 字号略大一点点会显得图标压着字,同号最稳。
-   -1px 的 margin 把 svg 自带的视觉留白吃掉,让圈和字看起来一样高。 */
+/* 图标保留 12px; -1px 的 margin 吃掉 svg 自带的视觉留白。 */
 .art .acts button svg { flex: none; width: 12px; height: 12px; margin-inline-start: -1px; }
-/* hover 往下压一档到 #202020(全稿"最深"那一档,勾的底片也是它):
-   实底之后不能再靠加深透明度了,得给一个实实在在的第二档。 */
-.art .acts button:hover { background: #202020; }
+/* 悬停加深半透明底,继续保留磨砂效果。 */
+.art .acts button:hover { background: rgb(18 18 18 / 72%); }
+/* 不支持背景模糊时保留原来的深色底,保证任意缩略图上的可读性。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .art .acts button { background: #353535; }
+  .art .acts button:hover { background: #202020; }
+}
 
 /* ---- 全局弹窗:联系支持 ---- */
 /* 求助不挂在报错卡里,单独开一个压在整个应用上的弹窗。
@@ -2808,7 +2960,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    会来点这里的人已经卡住了。 */
 .ovl { display: grid; place-items: center; padding: 18px; border-radius: var(--radius);
   background: color-mix(in srgb, var(--text-strong) 26%, transparent); }
-.modal { width: 100%; max-width: 316px; border-radius: var(--radius-lg); background: var(--bg); box-shadow: var(--shadow-lg); overflow: hidden; }
+.modal { width: 100%; max-width: 316px; border-radius: var(--radius-2xl); background: var(--bg); box-shadow: var(--shadow-lg); overflow: hidden; }
 /* 标题线不贯穿:左右各收 13px,跟正文的内边距对齐 —— 线的两端落在内容的
    左右边界上,而不是撞到弹窗的圆角边上。贯穿的线是"把这张卡切成两半",
    收进来的线才是"标题到这儿为止"。
@@ -2949,10 +3101,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fb .fin.mod-stop i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); }
 .fb button {
   display: grid; place-items: center; width: 26px; height: 26px;
-  border-radius: var(--radius-sm); color: var(--text-soft);
+  border-radius: var(--radius-sm); color: var(--message-muted-ink);
   transition: background-color var(--duration-faster) var(--ease-out), color var(--duration-faster) var(--ease-out);
 }
-.fb button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
+.fb button:hover { background: var(--bg-fill-secondary); color: var(--message-muted-ink); }
 /* 赞选中的底比「过了」那一档【浅一级】:同一个 #00FF04,掺 55% 白。
    ------------------------------------------------------------
    色号没换,换的是浓度 —— 这枚底是 26×26 的实心方块,而 .mk.is-ok 那枚
@@ -2997,12 +3149,12 @@ button.att-d:hover { border-color: var(--border-strong); }
   font-size: var(--t-cap); font-weight: 500; color: var(--brand-text);
 }
 /* 线底下那一句。新会话此刻只有上下文、还没有话 —— 所以这里不编一段对话出来,
-   只交代"带过来的是什么、接下来轮到谁"。它比标题还轻一档(--text-soft):
+   只交代"带过来的是什么、接下来轮到谁"。它比标题还轻一档(#A3A3A3):
    分界上的标题是这一段的名字,这句只是脚注。 */
 /* 跟着上面那条分界【居中】:它是这条线的脚注,不是新会话里的第一条消息 ——
    左对齐会让它读成"新会话已经开口说了一句",而这一刻新会话还没有内容。
    居中就还它一个附注的身份,和线、标题共用同一条中轴。 */
-.fork-note { display: flex; align-items: center; justify-content: center; gap: 6px; padding-bottom: 2px; font-size: var(--t-cap); color: var(--text-soft); }
+.fork-note { display: flex; align-items: center; justify-content: center; gap: 6px; padding-bottom: 2px; font-size: var(--t-cap); color: var(--message-muted-ink); }
 .fork-note svg { flex: none; width: 12px; height: 12px; }
 /* 点出来的那两块要"落"一下:静态稿里它们本来就在,分不出是点击的结果;
    落这一下(4px + 淡入)说的是"这是刚才那一下带来的"。
@@ -3127,109 +3279,73 @@ button.att-d:hover { border-color: var(--border-strong); }
   line-height: var(--lh-row);
 }
 /* 22px 的按钮盒对 18px 的首行,上移 2px 才与第一行同心 */
-.qops { display: flex; gap: 1px; margin-top: -2px; }
+.qops { flex: none; display: flex; gap: 1px; margin-top: -2px; }
 .qops button { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-sm); color: var(--text-soft); }
+.qops button.mod-steer {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  width: auto; padding: 0 4px; font-size: inherit; white-space: nowrap;
+}
 .qops button:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
-.qops button svg { width: 12px; height: 12px; }
+.qops button svg { width: 14px; height: 14px; }
 
 /* ---- 升级 ---- */
-/* 圆角走 --radius-lg(12px)而不是别处的 --radius(8px):这张卡里套着一排刻度,
-   刻度是齐边抵到卡的两侧的 —— 角越硬,那排小竖线越像被卡的边"切"了一下。
-   12 是这套 token 的最上一档,和音频条(.aud)同一档。 */
+/* 额度卡采用上下两区;身份说明表继续使用原有浅色外壳。 */
 .up { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); overflow: hidden; }
-/* 两行了(数字 + 后果),顶对齐,按钮跟第一行齐平 */
-/* 卡分两段:上段是「还剩多少、要不要充」(数字 + 后果 + Upgrade),
-   下段是那排刻度。中间加一条通栏分割线 —— 上段是话和动作,下段是量,
-   两件事挨着排就成了一坨;有条线,眼睛才知道读完上面可以停一下。
-   线走通栏(不跟着 11px 内边距缩)—— 它标的是卡内两段的边界,
-   边界该抵到卡的两边;缩进去就成了一段内容自己的装饰。 */
-.up .h { display: flex; align-items: center; gap: 8px; padding: 10px 11px 0; }
-.up .h .amt { flex: 1; min-width: 0; }
-/* 「剩余额度 $3.20」是这张卡的主句,按产品指定单独定了一档:
-   14px(--t-lead,和组件名/卡片标题同级)、600、#353535 —— 比正文大一号、
-   重一档,颜色比 --text-strong(#202020)退半档,免得整句压过后面那个数。
-   金额本身用产品指定的 #F8672F:同一支橙贯穿"额度"这件事,
-   数字是这张卡唯一要人一眼抓到的东西,颜色只给它。 */
-.up .h .amt .n { display: block; font-size: var(--t-lead); font-weight: 600; color: #353535; }
-/* 还有余额时是橙(#F8672F):同一支橙贯穿"额度"这件事,
-   数字是这张卡唯一要人一眼抓到的东西,颜色只给它。
-   ------------------------------------------------------------
-   归零【换红】:橙是"注意,快没了",红是"已经不能用了" —— 这两句话
-   分量不一样,同一支橙说两遍,人得读完下面那行字才知道自己在哪一档。
-   这张卡上红只此一处:刻度条归零后是灰的(那是"没有额度"的槽,不是告警),
-   「现在无法开始新任务」也不染色 —— 红只标那个数,眼睛才有落点。 */
-.up .h .amt b { font-family: var(--mono); font-weight: 700; color: #f8672f; }
-.up .h .amt.is-out b { color: var(--red); }
-/* 只报数字不报后果,人没有行动的理由 —— $3.20 是多是少他不知道。
-   这一行讲的是"不充会怎样",不是促销。刻意不写"还能跑 N 轮"之类的
-   估算:单轮消耗随任务浮动,给个数反而是承诺了做不到的精确。 */
-/* 后果说明用 --text-soft(次级文字档),比金额浅一档 ——
-   它是补充说明,不该和"剩余额度 $3.20"抢同一层。
-   耗尽态例外:那条不是补充说明而是硬结论(发不出去了),保持红色。 */
-/* 后果句【单独占一行】,不再挤在 Upgrade 按钮旁边。
-   在 .h 那一行里,它的可用宽度是卡宽减掉按钮 —— 二十来个字必然折行,
-   而且折下来的尾巴常常只剩一两个字(「上」),一行半的形状比两行还难看。
-   搬到按钮下面就是整卡宽,这句话一行放得下,金额和按钮那一行也干净了。
-   顺带把 .h 改成垂直居中:那一行现在只剩「剩余额度 $3.20」和按钮两样,
-   顶对齐是为了让按钮跟【第一行】文字齐平,一行的时候居中才是齐的。 */
-/* 说明句下面那条分割线跟着刻度条一起去掉了 —— 它当初是为了把这句话
-   和底下那排刻度分开,刻度没了,线下面就什么都没有,成了一条收尾的横杠。
-   (刻度条那段 .up .meter 的样式留着没删:标记里去掉了,哪天要回来就是
-   把 <div class="meter"> 加回去。) */
-.up .why {
-  margin: 6px 11px 10px;
-  font-size: var(--t-cap); line-height: var(--lh-row); color: var(--text-soft);
+.up:not(.branch) {
+  --upgrade-card-bg: #121212;
+  --upgrade-card-text: #ffffff;
+  --upgrade-button-ink: #121212;
+  position: relative; isolation: isolate;
+  padding: 16px; border: none; border-radius: 16px;
+  background: var(--upgrade-card-bg); color: var(--upgrade-card-text);
 }
-/* 说明句不跟着变色 —— 颜色只给那个数和进度条。
-   额度归零时该看的是「$0.00」和那条已经走到头的刻度,那是事实;
-   「现在无法开始新任务」是它的后果,跟着染色就成了三处告警,
-   一多,眼睛反而不知道该落在哪。灰字加橙数,层次才出来。 */
-/* 进度不是一条线,是一排刻度块。
-   ------------------------------------------------------------
-   一条连续的线只说"占了多长";切成一排等宽的小块,读出来的是【还剩几格】——
-   额度本来就是可数的东西(还能跑几轮),离散的记号比连续的长度更贴事实,
-   也更容易一眼估量:数格子比量长度快。
-   实现【不铺 N 个 <i>】:整块用一层 repeating-linear-gradient 当遮罩切开,
-   遮罩对元素和它的子元素同时生效 —— 底下那排灰刻度和上面那截彩色填充
-   被同一副齿切,天然对齐,而填充仍然只是一个百分比宽度的实心块,
-   16% / 100% 这些数照写不误,不用换算成"几格"。
-   3px 齿 + 3px 缝、10px 高:齿比缝略窄会显得散,等宽最稳;
-   高度给到宽的三倍多,才是参考里那种竖条的比例,4px 那种是线不是块。
-   左右收 11px 跟卡头的文字对齐 —— 原来它是通栏贴着卡底的一条线,
-   现在它是一排记号,得站在内容的左边缘上。 */
+/* 保留提供的 SVG,旋转后放在右上角:小星在上、大星在下。 */
+.up.mod-glow::after {
+  content: ''; position: absolute; inset-inline-end: 0; top: 0; z-index: -1;
+  width: 48px; height: 62px; pointer-events: none; transform: rotate(180deg);
+  background: url("data:image/svg+xml,%3Csvg%20width%3D%2267%22%20height%3D%2287%22%20viewBox%3D%220%200%2067%2087%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%0A%3Cpath%20opacity%3D%220.5%22%20d%3D%22M25.1408%2059.8603L30.3371%2053.7463C34.9617%2048.3057%2041.3853%2044.8059%2048.3422%2043.9371L57.9258%2042.7402C60.9727%2042.3598%2062.1548%2038.4443%2059.8294%2036.4355L52.7432%2030.3142C47.2969%2025.6094%2043.8543%2018.9176%2043.1264%2011.6212L42.2837%203.17174C41.9709%200.036192%2038.1292%20-1.12822%2036.1342%201.30788L30.7582%207.87237C26.1159%2013.5412%2019.5483%2017.199%2012.4125%2018.0902L3.12809%2019.2497C0.0811039%2019.6301%20-1.10108%2023.5456%201.22452%2025.5544L8.53913%2031.873C13.8488%2036.4597%2017.2591%2042.9402%2018.0982%2050.0367L19.041%2058.0115C19.4035%2061.0766%2023.1432%2062.2101%2025.1408%2059.8603ZM50.6955%2086.3266L52.1573%2084.6058C54.7633%2081.5378%2058.3849%2079.5636%2062.3081%2079.0724L65.3252%2078.6944C66.957%2078.4901%2067.5894%2076.3956%2066.3442%2075.3194L64.1711%2073.4405C61.1003%2070.7862%2059.1599%2067.0126%2058.7507%2062.8995L58.5112%2060.4887C58.3439%2058.8085%2056.2838%2058.1841%2055.2151%2059.4896L53.682%2061.3632C51.0662%2064.5595%2047.3636%2066.6227%2043.3392%2067.1265L40.4908%2067.4833C38.8593%2067.6877%2038.2269%2069.7822%2039.4718%2070.8584L41.7738%2072.8486C44.7678%2075.4363%2046.6895%2079.0907%2047.1613%2083.0916L47.4263%2085.3357C47.6199%2086.9783%2049.6254%2087.5862%2050.6955%2086.3266Z%22%20fill%3D%22url%28%23paint0_linear_1975_81%29%22%2F%3E%0A%3Cdefs%3E%0A%3ClinearGradient%20id%3D%22paint0_linear_1975_81%22%20x1%3D%2247.8253%22%20y1%3D%2296.362%22%20x2%3D%2247.8253%22%20y2%3D%220%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%0A%3Cstop%20stop-color%3D%22%2300FF08%22%2F%3E%0A%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23121212%22%2F%3E%0A%3C%2FlinearGradient%3E%0A%3C%2Fdefs%3E%0A%3C%2Fsvg%3E") center / contain no-repeat;
+}
+.up .h {
+  display: flex; align-items: center;
+  padding: 0 48px 8px 0; border-bottom: 1px solid rgb(83 83 83 / 40%);
+}
+.up .h .amt { flex: 1; min-width: 0; }
+/* 延续已确认的 16px 字号;标签保持白色,金额用颜色区分余额状态。 */
+.up .h .amt .n {
+  display: block; font-size: var(--font-size-16); line-height: 1.5;
+  font-weight: 400; color: var(--upgrade-card-text);
+}
+.up .h .amt b {
+  font: inherit; font-size: var(--font-size-20); line-height: 1.2; color: #f49624;
+}
+.up .h .amt.is-out b { color: var(--red); }
+/* 下方说明与按钮并排;宽度不足时由内容自动换行,不绑定页面断点。 */
+.up .up-bottom {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  gap: 12px 16px; padding-top: 8px;
+}
+.up .why {
+  flex: 1 1 180px; min-width: 0; margin: 0;
+  font-size: var(--font-size-13); line-height: 1.5; font-weight: 400;
+  color: var(--upgrade-card-text);
+}
+.up .up-bottom .btn.mod-primary,
+.up .up-bottom .btn.mod-primary:hover {
+  background: var(--upgrade-surface); color: var(--upgrade-button-ink);
+}
+.up .up-bottom .btn {
+  flex: none; gap: 8px; min-height: 44px; padding: 12px 16px 12px 12px;
+  font-size: var(--font-size-14); line-height: 20px; font-weight: 400;
+}
+.up .up-bottom .btn svg { flex: none; width: 20px; height: 20px; }
+/* 保留旧刻度样式,当前额度卡不显示刻度。 */
 .up .meter {
   --tick: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px);
   height: 10px; margin: 10px 11px; background: var(--border-soft);
   -webkit-mask-image: var(--tick); mask-image: var(--tick);
 }
 .up .meter i { display: block; height: 100%; background: var(--amber); }
-/* 耗尽那一档收成中性灰,不是红。
-   ------------------------------------------------------------
-   红是"出事了,去处理";而额度用完不是故障,是一件正常会发生、也早就预告过的事
-   ——「额度不足」那一档已经用琥珀提前警告过一轮了。到这一步该说的是【这条已经
-   没有余量了】,一格不剩的刻度本身就把这句话说完了,再刷成红只是把音量拧大,
-   并不多给一个信息。
-   而且这一屏上红另有专职:19 · 报错、上传失败、步骤取消 —— 那几处是真的出了岔子。
-   额度耗尽跟着用红,红这个记号在这份稿子里就不再只有一个意思。
-   ------------------------------------------------------------
-   用 --border-strong 而不是刻度槽那档 --border-soft:两者一样色的话整条就
-   跟空槽没有区别,"满格但已耗尽"和"这里没有条"就分不出来了。深浅两套主题里
-   --border-strong 都比槽亮一档,这个分界不会因为换主题而消失。 */
 .up .meter i.is-out { background: var(--border-strong); }
-/* 底色不动(仍是 --text-strong 的黑),只换字和图标的颜色。
-   hover 也得写一遍:.btn.mod-primary:hover 会把 color 改回 --bg,
-   不覆盖的话鼠标一压上去绿就掉了。 */
-.up .h .btn.mod-primary,
-.up .h .btn.mod-primary:hover { color: var(--upgrade-ink); }
-/* 这一枚四边等距:上下左右统一 8px(mod-sm 原本是 4px 11px)。
-   ------------------------------------------------------------
-   胶囊按钮扁着放通常没问题 —— 它在一排按钮里,靠左右留白和邻居分开就够了。
-   但这一枚是【单独站在卡右侧】的一枚,左边是两行字(金额 + 后果),它是这张卡
-   唯一的出口。四边等距把它撑成一个方方正正的块,高度正好接近左边那两行的高度,
-   一整张卡就是"一段话 + 一个按钮"两块并排,而不是一段话旁边贴了一条细边。
-   只作用在 .up 的卡头里:别处的 mod-sm(弹窗里的「加入」、报错卡那几枚、
-   反馈弹窗的取消/提交)还是成排出现的,照旧用扁的那一档。 */
-.up .h .btn { padding: 8px; }
 .branch { border-top: 1px solid var(--border-soft); }
 .branch .r { display: flex; gap: 8px; padding: 6px 11px; border-top: 1px solid var(--border-soft); font-size: var(--t-cap); line-height: var(--lh-row); color: var(--text-muted); }
 .branch .r:first-child { border-top: none; }
@@ -3249,7 +3365,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    下一行的红标题已经说了。
    红最后只剩两处:那枚感叹号和「任务失败」四个字 —— 它们在内容里,不在外壳上,
    扫视时先看到的是一张卡,读进去才知道是失败,这个顺序才对。 */
-.errb { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); padding: 10px 11px; }
+.errb { border: 1px solid var(--border); border-radius: var(--radius-2xl); background: var(--bg); padding: 10px 11px; }
 /* 标题那一行底下压一条线,把「出了什么事」和「详情」分开。
    线【不贯穿】—— 它落在内容宽度上(卡的左右内距各 11px 天然把它收进来),
    而不是从卡的这一边拉到那一边:贯穿的线是把一张卡切成两张卡的画法,
@@ -3716,7 +3832,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 }
 .steps li.is-done .tt::after,
 .steps li.is-skip .tt::after { transform: scaleX(1); opacity: 1; }
-.steps li.is-skip { color: var(--text-soft); }
+.steps li.is-skip { color: var(--plan-other-text); }
 
 /* ---- 卡头:图标在全部做完时换成绿勾,计数滚一格 ---- */
 /* 两枚图标叠在同一格里换,不是并排出现又消失 —— 换的是同一个位置上的同一件
@@ -3806,24 +3922,55 @@ button.att-d:hover { border-color: var(--border-strong); }
        落地为止,给一个马上要消失的状态配一个跳动的秒数,只会把注意力钉在一个
        从此不再相关的数字上。总耗时最后在回合状态行里有。
    ------------------------------------------------------------
-   不套框:上游是把滚动区放进一张 Card(圆角 + 描边 + 阴影)。这里不要 ——
-   它是这一轮流水的第一段,和后面的步骤、已完成同一列往下读,单给它画一圈边
-   等于把开场白做成一张卡。渐隐本身已经说清了「上下还有」,边框是重复的话。 */
+   只铺浅灰底、不加描边和阴影:16px 圆角把滚动区收成完整底卡,
+   上下各留 8px 与标题和下一段分开;渐隐只落在卡内文字上。 */
 .fold.mod-flat > .body.mod-stream {
   /* 96px ≈ 5 行,和折叠块里 .mod-scroll 用的是同一个高度,
      这一屏里所有"够看但不占屏"的窗口都是这一档。 */
   --stream-h: 96px;
   /* 渐隐带占上下各约三分之一,和上游 80/150 的比例一致。 */
   --stream-fade: 32px;
+  /* 固定底卡使用独立浅灰底,不改变 Thinking 标题行和外层卡片。 */
+  --stream-surface: #FAFAFA;
+  --stream-pad: 8px;
+  --stream-gap: 8px;
   height: var(--stream-h);
+  margin-block: var(--stream-gap);
+  position: relative;
+  isolation: isolate;
   overflow: hidden;
-  /* 上下留白一并去掉:窗口顶边贴着 Thinking 那一行,渐隐从第一像素就开始,
-     再垫内边距的话,渐隐会从一段空白里淡出来,看着像内容没对齐。 */
-  padding: 0;
-  /* 用 mask 而不是上游那两层渐变遮罩 div。
+  background: transparent;
+  border-radius: 16px;
+  opacity: 1;
+  -webkit-mask-image: none;
+  mask-image: none;
+  /* 浅灰底内四边统一留 8px,文字滚动与渐隐仍限制在这扇定高窗口里。 */
+  padding: var(--stream-pad);
+}
+/* 底卡单独铺在最下层,不参与滚动、透明度或渐隐计算。 */
+.fold.mod-flat > .body.mod-stream::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--stream-surface);
+  pointer-events: none;
+}
+/* 滚动文字单独在底卡上方成层,渐隐只作用在这个文字窗口。
+   用 mask 而不是上游那两层渐变遮罩 div。
      遮罩 div 的前提是"背景色等于某个已知值",它铺一层实底把两端盖住;
      可这一块在画廊里坐着 --bg-panel、在场景稿里坐着 --bg,两处不一样,
      盖上去必然有一处露色。mask 抠的是元素自己的 alpha,底下是什么颜色都对。 */
+.fold.mod-flat > .body.mod-stream > .stream-viewport {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  opacity: 1;
+  padding: 0;
   -webkit-mask-image: linear-gradient(to bottom,
     transparent 0, #000 var(--stream-fade),
     #000 calc(100% - var(--stream-fade)), transparent 100%);
@@ -3831,9 +3978,8 @@ button.att-d:hover { border-color: var(--border-strong); }
     transparent 0, #000 var(--stream-fade),
     #000 calc(100% - var(--stream-fade)), transparent 100%);
 }
-/* 头和内容之间那条分隔线也去掉。它原本是给「标题 + 一段正文」分层用的,
-   现在上边缘已经是一道渐隐 —— 线压在渐隐上,等于在同一个位置说两遍。 */
-.fold.mod-flat[open] > summary + .body.mod-stream { border-top: 0; padding-top: 0; }
+/* 标题和底卡之间由 8px 外间距分层,不再重复画一条发丝线。 */
+.fold.mod-flat[open] > summary + .body.mod-stream { border-top: 0; }
 /* 滚动流里的推理比普通的 .think 淡:--text-strong → --stream-ink(#bdbdbd,
    产品指定,定义在 components.css 顶部)。
    ------------------------------------------------------------
@@ -3841,9 +3987,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    过程,它的作用是"还在想"这件事本身,不是逐字读完 —— 跟正文同一档墨
    会把注意力钉在一段马上要滚走的字上。淡一档之后它退成背景里的动静,
    要看的时候仍然读得清。 */
-.fold.mod-flat > .body.mod-stream > .think { padding: 0; color: var(--stream-ink); }
+.fold.mod-flat > .body.mod-stream > .stream-viewport > .think { padding: 0; font-weight: 400; color: var(--stream-ink); }
 /* 段与段之间留一行的气口,不然滚起来是一堵字墙。 */
-.fold.mod-flat > .body.mod-stream > .think + .think { margin-top: 0.75em; }
+.fold.mod-flat > .body.mod-stream > .stream-viewport > .think + .think { margin-top: 0.75em; }
 
 /* 点开折叠不该留一圈蓝框。
    ------------------------------------------------------------
@@ -4182,8 +4328,6 @@ body { margin: 0; }
 .od-preview-root { min-height: 100vh; }
 </style>
 <div class="od-preview-root" data-theme="light">
-
-
 <header class="hd" data-od-id="page-header">
   <span class="mark" aria-hidden="true"><svg viewBox="0 0 82 82" fill="currentColor"><path d="M41 0C76.6 0 82 5.4 82 41S76.6 82 41 82 0 76.6 0 41 5.4 0 41 0Zm-.1 15.7C26.9 15.7 15.6 27 15.6 41v21.9c0 1.9 1.5 3.4 3.4 3.4h21.9c14 0 25.3-11.3 25.3-25.3s-11.3-25.3-25.3-25.3Zm0 5.1c11.2 0 20.2 9.1 20.2 20.2s-9 20.2-20.2 20.2S20.6 52.2 20.6 41s9.1-20.2 20.3-20.2Zm-8.3 10.8c-.6-.3-1.3.4-1 1l7.7 20.3c.3.8 1.6.6 1.6-.3V41h11.8c.9 0 1.1-1.2.3-1.6l-20.4-7.8Z"/></svg></span>
   <span class="tt">OpenDesign 的生成流程 · 组件全集</span>
@@ -4604,7 +4748,7 @@ body { margin: 0; }
         <div class="cmp-b">
           <div class="st">
             <div class="st-l mod-def"><span>进行中 · 推理在底下自己往上走,不想看点一下收走</span><i></i></div>
-            <div class="st-b"><details class="fold mod-flat" open data-od-id="thinking-live"><summary><span class="orb" data-orb-box="24" data-orb="composing" data-orb-label="思考中"></span><span class="shimmer">思考中<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack mod-stream"><p class="think">两张图的栅格看着是同一套 —— 先量一下列宽和沟槽,对得上就只复刻一次列表页,商品卡抽出来给设置页共用;对不上再分开做。</p><p class="think">规格那份 md 里写了断点,得先读完再定。要是断点和图里的列数对不上,以 md 为准 —— 图是某一个宽度下的截屏,md 才是规则。</p><p class="think">商品卡里有价格行。价格是数字,得走等宽,不然一列价格对不齐;但商品名是中文,跟着正文字体走。同一张卡里两种字,是有理由的,不是疏忽。</p><p class="think">设置页那张图里没有商品卡,只有列表行 —— 所以「共用商品卡」这句得往回收一点:共用的是间距和圆角这套壳,不是卡本身。</p><p class="think">先不动价格行的字号。图里那一档看着比正文小,但截图有缩放,量出来不一定准,等真做出来再对一次。</p><p class="think">顺序:列表页骨架 → 商品卡抽出来 → 设置页套同一套间距 → 最后接跳转。前两步做完就能看出栅格对不对,错了在这儿改代价最小。</p><p class="think">再看一眼沟槽。图一的卡间距目测 12,图二看着更松 —— 但图二那屏更窄,卡也更少,松是被拉开的,不是另一套间距。按 12 走。</p><p class="think">断点这件事得写进注释里。下一个人看到列表页在 880 换成两列,不写清楚就会以为是随手填的数。</p><p class="think">还有一处没想好:列表为空时长什么样。两张图里都没有空态。先按有数据做,空态留个 TODO,别现在编一个出来。</p><p class="think">设置页的行高比列表页矮一档。如果强行统一,列表页那边的商品名会挤;所以统一的是间距刻度,不是每一处的实际取值。</p><p class="think">跳转那一步放最后是对的 —— 两页都没搭起来之前,接跳转等于对着空页面调路由。</p><p class="think">最后确认一遍前提:这两张图确实是同一个产品的两屏。配色和圆角对得上,是。可以开始。</p></div></details></div>
+            <div class="st-b"><details class="fold mod-flat" open data-od-id="thinking-live"><summary><span class="orb" data-orb-box="24" data-orb="composing" data-orb-label="思考中"></span><span class="shimmer">思考中<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack mod-stream"><div class="stream-viewport"><p class="think">两张图的栅格看着是同一套 —— 先量一下列宽和沟槽,对得上就只复刻一次列表页,商品卡抽出来给设置页共用;对不上再分开做。</p><p class="think">规格那份 md 里写了断点,得先读完再定。要是断点和图里的列数对不上,以 md 为准 —— 图是某一个宽度下的截屏,md 才是规则。</p><p class="think">商品卡里有价格行。价格是数字,得走等宽,不然一列价格对不齐;但商品名是中文,跟着正文字体走。同一张卡里两种字,是有理由的,不是疏忽。</p><p class="think">设置页那张图里没有商品卡,只有列表行 —— 所以「共用商品卡」这句得往回收一点:共用的是间距和圆角这套壳,不是卡本身。</p><p class="think">先不动价格行的字号。图里那一档看着比正文小,但截图有缩放,量出来不一定准,等真做出来再对一次。</p><p class="think">顺序:列表页骨架 → 商品卡抽出来 → 设置页套同一套间距 → 最后接跳转。前两步做完就能看出栅格对不对,错了在这儿改代价最小。</p><p class="think">再看一眼沟槽。图一的卡间距目测 12,图二看着更松 —— 但图二那屏更窄,卡也更少,松是被拉开的,不是另一套间距。按 12 走。</p><p class="think">断点这件事得写进注释里。下一个人看到列表页在 880 换成两列,不写清楚就会以为是随手填的数。</p><p class="think">还有一处没想好:列表为空时长什么样。两张图里都没有空态。先按有数据做,空态留个 TODO,别现在编一个出来。</p><p class="think">设置页的行高比列表页矮一档。如果强行统一,列表页那边的商品名会挤;所以统一的是间距刻度,不是每一处的实际取值。</p><p class="think">跳转那一步放最后是对的 —— 两页都没搭起来之前,接跳转等于对着空页面调路由。</p><p class="think">最后确认一遍前提:这两张图确实是同一个产品的两屏。配色和圆角对得上,是。可以开始。</p></div></div></details></div>
           </div>
           <div class="st">
             <div class="st-l"><span>内容开始落地 · 这一行让位给开场白,不再占地方</span><i></i></div>
@@ -4670,6 +4814,50 @@ body { margin: 0; }
             </div>
           </div>
           <div class="st">
+            <div class="st-l"><span>下拉单选 · 常用语言先展示,点「更多语言」展开;超过 6.5 行可上下滚动</span><i></i></div>
+            <div class="st-b">
+              <div class="card">
+                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>还需要确认一件事</b></div>
+                <div class="cbody">
+                  <div class="q">这次对话使用哪种语言?</div>
+                  <div class="opts mod-language">
+                    <div class="language-select" data-language-select>
+                      <div class="language-menu" id="clarify-language-menu" role="listbox" aria-label="语言">
+                        <span class="language-group-label">常用语言</span>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="简体中文"><span>简体中文</span><span class="language-code">ZH-CN</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="English"><span>English</span><span class="language-code">EN</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="日本語"><span>日本語</span><span class="language-code">JA</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Español"><span>Español</span><span class="language-code">ES</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                      </div>
+                      <div class="language-more">
+                        <button class="language-more-toggle" type="button" aria-expanded="false" aria-controls="clarify-language-more"><span>更多语言</span><span class="sp"></span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m7 10 5 5 5-5Z"/></svg></button>
+                        <div class="language-more-list" id="clarify-language-more" role="group" aria-label="更多语言" hidden>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="繁體中文"><span>繁體中文</span><span class="language-code">ZH-TW</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Português"><span>Português</span><span class="language-code">PT</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Français"><span>Français</span><span class="language-code">FR</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Deutsch"><span>Deutsch</span><span class="language-code">DE</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Italiano"><span>Italiano</span><span class="language-code">IT</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="한국어"><span>한국어</span><span class="language-code">KO</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Русский"><span>Русский</span><span class="language-code">RU</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="العربية"><span>العربية</span><span class="language-code">AR</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="हिन्दी"><span>हिन्दी</span><span class="language-code">HI</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="ไทย"><span>ไทย</span><span class="language-code">TH</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Tiếng Việt"><span>Tiếng Việt</span><span class="language-code">VI</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                    <button class="language-option" type="button" role="option" aria-selected="false" data-language="Bahasa Indonesia"><span>Bahasa Indonesia</span><span class="language-code">ID</span><svg class="language-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z"/></svg></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="foot">
+                    <button class="btn mod-ghost mod-sm" type="button">跳过 · 你来判断</button>
+                    <span class="sp"></span>
+                    <button class="btn mod-primary mod-sm" type="button" disabled>下一步</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="st">
             <div class="st-l"><span>单选 · 选中一项,「下一步」才亮起 —— 点错了还能换</span><i></i></div>
             <div class="st-b">
               <div class="card">
@@ -4694,7 +4882,7 @@ body { margin: 0; }
             <div class="st-l"><span>多选 · 方钮,选完点「下一步」统一提交</span><i></i></div>
             <div class="st-b">
               <div class="card">
-                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>这几页都要跟着改吗</b><span class="n">已选 2</span></div>
+                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>这几页都要跟着改吗</b><span class="n selection-count"><span class="count-label">已选</span> <span class="count-value">2</span></span></div>
                 <div class="cbody">
                 <div class="q">除了设置页,还有哪几页要一起换成新的商品卡?</div>
                 <div class="opts mod-stack mod-multi">
@@ -4743,7 +4931,7 @@ body { margin: 0; }
             <div class="st-l"><span>多选勾上「自己填」· 是在已勾项之外再加一条</span><i></i></div>
             <div class="st-b">
               <div class="card">
-                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>这几页都要跟着改吗</b><span class="n">已选 3</span></div>
+                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>这几页都要跟着改吗</b><span class="n selection-count"><span class="count-label">已选</span> <span class="count-value">3</span></span></div>
                 <div class="cbody">
                 <div class="q">除了设置页,还有哪几页要一起换成新的商品卡?</div>
                 <div class="opts mod-stack mod-multi">
@@ -4807,7 +4995,7 @@ body { margin: 0; }
             </div>
           </div>
           <div class="st" id="clarify-density" data-od-id="clarify-density">
-            <div class="st-l"><span>Amount Slider · 滚动数值、光点矩阵与磁吸刻度</span><i></i></div>
+            <div class="st-l"><span>Amount Slider · 可编辑数值与滑动同步,无刻度点</span><i></i></div>
             <div class="st-b">
               <div class="card" data-number-slider>
                 <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>还需要确认一件事</b></div>
@@ -4815,20 +5003,11 @@ body { margin: 0; }
                   <div class="q">版面密度调到哪一档?</div>
                   <div class="opts mod-slider">
                     <div class="amount-slider">
-                      <output class="amount-readout" for="clarify-density-range" data-slider-readout aria-live="polite" aria-label="版面密度 2 档">
-                        <span class="amount-value-viewport" aria-hidden="true"><span class="amount-value-stack" data-slider-roll data-value="2"><span>2</span></span></span>
+                      <div class="amount-readout">
+                        <input class="amount-value-input" type="number" min="1" max="5" step="1" value="2" inputmode="numeric" data-slider-input aria-label="版面密度档位">
                         <span class="amount-unit" aria-hidden="true">档</span>
-                        <span class="amount-announcer" data-slider-output>2 档</span>
-                      </output>
+                      </div>
                       <div class="amount-rail">
-                        <span class="amount-grid" aria-hidden="true"></span>
-                        <span class="amount-stops" aria-hidden="true">
-                          <i class="amount-stop is-past"></i>
-                          <i class="amount-stop is-past"></i>
-                          <i class="amount-stop"></i>
-                          <i class="amount-stop"></i>
-                          <i class="amount-stop"></i>
-                        </span>
                         <input class="amount-range" id="clarify-density-range" type="range" min="1" max="5" step="1" value="2" aria-label="版面密度" aria-valuetext="2 档">
                       </div>
                       <div class="amount-limits" aria-hidden="true">
@@ -4946,7 +5125,7 @@ body { margin: 0; }
           <div class="st">
             <div class="st-l"><span>已回答 · 视觉方向,带上你选的那张图</span><i></i></div>
             <div class="st-b">
-              <div class="answered">
+              <div class="answered mod-visual-answer">
                 <div class="k">已确认</div>
                 <div class="ab"><span class="ak">视觉方向</span><b>编辑杂志</b></div>
                 <span class="av"><span class="mini"></span></span>
@@ -4958,7 +5137,7 @@ body { margin: 0; }
             <div class="st-b">
               <div class="answered">
                 <div class="k">已确认</div>
-                <div class="ab"><span class="ak">主题色</span><span class="color-answer" style="--answer-color:#3b82f6"><i aria-hidden="true"></i><b>#3b82f6</b></span></div>
+                <div class="ab mod-value"><span class="ak">主题色</span><span class="color-answer" style="--answer-color:#3b82f6"><i aria-hidden="true"></i><b>#3b82f6</b></span></div>
               </div>
             </div>
           </div>
@@ -4967,14 +5146,14 @@ body { margin: 0; }
             <div class="st-b">
               <div class="answered">
                 <div class="k">已确认</div>
-                <div class="ab"><span class="ak">版面密度</span><b>2 档</b></div>
+                <div class="ab mod-value"><span class="ak">版面密度</span><b>2 档</b></div>
               </div>
             </div>
           </div>
         </div>
         <div class="cmp-ops">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          <span><b>单选</b>(圆钮)/ <b>多选</b>(方钮)— 两种都是先选、再点底部「下一步」提交,一项没选时「下一步」置灰。<b>自己填</b> — 选项之一,选中后原地长出输入框。<b>跳过</b> — 交由 Agent 判断。<b>颜色选择</b> — 预设色、系统取色器和 Hex 输入三条路实时同步,预览跟着更新。<b>Amount Slider</b> — 大号滚动数值跟着拖动更新,轨道用光点矩阵标出已选区间,五个刻度磁吸到 1–5 档。<b>视觉方向</b>另走看图选择,3–5 个方向各给预览图 + 一个方向名(不配描述,图本身就是描述)。默认叠成一沓、右上角可切成网格铺开;底栏另给「换一批」和「随机」。<b>已回答</b>后收成一条陈述:单选一句话,多选逐条列出,颜色保留色块和 Hex,数值保留标签与档位,视觉方向带上选中的缩略图。</span>
+          <span><b>单选</b>(圆钮)/ <b>多选</b>(方钮)— 两种都是先选、再点底部「下一步」提交,一项没选时「下一步」置灰。<b>下拉单选</b> — 常用项先展示,点「更多语言」展开其余项;超过 6.5 行改为上下滚动。<b>自己填</b> — 选项之一,选中后原地长出输入框。<b>跳过</b> — 交由 Agent 判断。<b>颜色选择</b> — 预设色、系统取色器和 Hex 输入三条路实时同步,预览跟着更新。<b>Amount Slider</b> — 上方数字可直接编辑并与滑杆双向同步,不展示刻度点。<b>视觉方向</b>另走看图选择,3–5 个方向各给预览图 + 一个方向名(不配描述,图本身就是描述)。默认叠成一沓、右上角可切成网格铺开;底栏另给「换一批」和「随机」。<b>已回答</b>后收成一条陈述:单选一句话,多选逐条列出,颜色保留色块和 Hex,数值保留标签与档位,视觉方向带上选中的缩略图。</span>
         </div>
       </article>
 
@@ -5041,11 +5220,11 @@ body { margin: 0; }
         <div class="cmp-b">
           <div class="st">
             <div class="st-l mod-def"><span>进行中 · 秒数在走,跑完的收着、正在跑的开着</span><i></i></div>
-            <div class="st-b"><details class="fold mod-flat" open data-od-id="progress-running"><summary><span class="orb" data-orb-box="24" data-orb="connecting" data-orb-label="进行中"></span><span class="shimmer mod-head">进行中</span><span class="ms">31s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><p class="think">两张图是同一套栅格,先复刻列表页再拿它的商品卡去拼设置页,可以省一半工。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>执行计划 · 4 步</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="pk">1</span><span class="nm">复刻商品列表页</span></div><div class="tool"><span class="pk">2</span><span class="nm">抽出商品卡为共享组件</span></div><div class="tool"><span class="pk">3</span><span class="nm">按同一套间距做设置页</span></div><div class="tool"><span class="pk">4</span><span class="nm">接上两页之间的跳转</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>复刻商品列表页</span><span class="ms">18.2s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 首页.png"><code>首页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 tokens.css"><code>tokens.css</code></button></span><span class="ms">0.3s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+182</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.css"><code>product-list.css</code></button></span><span class="dst"><i>+96</i><i>-0</i></span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>抽出商品卡为共享组件</span><span class="ms">6.4s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-card.html"><code>product-card.html</code></button></span><span class="dst"><i>+64</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+6</i><i>-58</i></span></div></div></details><details class="fold" open><summary><span class="mk is-run"><i class="sheen"></i><i class="rim"></i></span><span>按同一套间距做设置页</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M20.5 20.5l-4.9-4.9"/></svg></span><span class="nm">搜索 <button class="fn" type="button" aria-label="查看搜索结果:商品卡"><code>商品卡</code></button></span><span class="ms mod-num">6 处</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 设置页.png"><code>设置页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 settings.html"><code>settings.html</code></button></span><span class="dst"><i>+140</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4.5 6.5l5 5.5-5 5.5"/><path d="M12.5 18h7"/></svg></span><span class="nm">执行 <button class="fn" type="button" aria-label="查看 npm run build 的输出"><code>npm run build</code></button></span><span class="ms">8.4s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.6" cy="10" r="1.4"/><path d="M21 15.5L16 10.5 7.5 19"/></svg></span><span class="nm">生成配套插图</span><span class="ms mod-num">2/4</span></div><div class="imgs"><span class="shot"><span class="mini mod-s1"></span></span><span class="shot"><span class="mini mod-s2"></span></span><span class="shot is-load"></span><span class="shot is-load"></span></div></div></details></div></details></div>
+            <div class="st-b"><details class="fold mod-flat" open data-od-id="progress-running"><summary><span class="orb" data-orb-box="24" data-orb="connecting" data-orb-label="进行中"></span><span class="shimmer mod-head">进行中</span><span class="ms">31s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><p class="think">两张图是同一套栅格,先复刻列表页再拿它的商品卡去拼设置页,可以省一半工。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>执行计划 · 4 步</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="pk">1</span><span class="nm">复刻商品列表页</span></div><div class="tool"><span class="pk">2</span><span class="nm">抽出商品卡为共享组件</span></div><div class="tool"><span class="pk">3</span><span class="nm">按同一套间距做设置页</span></div><div class="tool"><span class="pk">4</span><span class="nm">接上两页之间的跳转</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>复刻商品列表页</span><span class="ms">18.2s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 首页.png"><code>首页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 tokens.css"><code>tokens.css</code></button></span><span class="ms">0.3s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+182</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.css"><code>product-list.css</code></button></span><span class="dst"><i>+96</i><i>-0</i></span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>抽出商品卡为共享组件</span><span class="ms">6.4s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-card.html"><code>product-card.html</code></button></span><span class="dst"><i>+64</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+6</i><i>-58</i></span></div></div></details><details class="fold" open><summary><span class="mk is-run"><i class="sheen"></i><i class="rim"></i></span><span>按同一套间距做设置页</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="M20.5 20.5l-4.9-4.9"/></svg></span><span class="nm">搜索 <button class="fn" type="button" aria-label="查看搜索结果:商品卡"><code>商品卡</code></button></span><span class="ms mod-num">6 处</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2 12s3.6-6.4 10-6.4S22 12 22 12s-3.6 6.4-10 6.4S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 设置页.png"><code>设置页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.5 7C2.5 9.48528 4.51472 11.5 7 11.5C9.48528 11.5 11.5 9.48528 11.5 7C11.5 4.51472 9.48528 2.5 7 2.5C4.51472 2.5 2.5 4.51472 2.5 7ZM2.5 17C2.5 19.4853 4.51472 21.5 7 21.5C9.48528 21.5 11.5 19.4853 11.5 17C11.5 14.5147 9.48528 12.5 7 12.5C4.51472 12.5 2.5 14.5147 2.5 17ZM12.5 17C12.5 19.4853 14.5147 21.5 17 21.5C19.4853 21.5 21.5 19.4853 21.5 17C21.5 14.5147 19.4853 12.5 17 12.5C14.5147 12.5 12.5 14.5147 12.5 17ZM9.5 7C9.5 8.38071 8.38071 9.5 7 9.5C5.61929 9.5 4.5 8.38071 4.5 7C4.5 5.61929 5.61929 4.5 7 4.5C8.38071 4.5 9.5 5.61929 9.5 7ZM9.5 17C9.5 18.3807 8.38071 19.5 7 19.5C5.61929 19.5 4.5 18.3807 4.5 17C4.5 15.6193 5.61929 14.5 7 14.5C8.38071 14.5 9.5 15.6193 9.5 17ZM19.5 17C19.5 18.3807 18.3807 19.5 17 19.5C15.6193 19.5 14.5 18.3807 14.5 17C14.5 15.6193 15.6193 14.5 17 14.5C18.3807 14.5 19.5 15.6193 19.5 17ZM16 11V8H13V6H16V3H18V6H21V8H18V11H16Z"></path></svg></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 settings.html"><code>settings.html</code></button></span><span class="dst"><i>+140</i><i>-0</i></span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4.5 6.5l5 5.5-5 5.5"/><path d="M12.5 18h7"/></svg></span><span class="nm">执行 <button class="fn" type="button" aria-label="查看 npm run build 的输出"><code>npm run build</code></button></span><span class="ms">8.4s</span></div><div class="tool"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.6" cy="10" r="1.4"/><path d="M21 15.5L16 10.5 7.5 19"/></svg></span><span class="nm">生成配套插图</span><span class="ms mod-num">2/4</span></div><div class="imgs"><span class="shot"><span class="mini mod-s1"></span></span><span class="shot"><span class="mini mod-s2"></span></span><span class="shot is-load"></span><span class="shot is-load"></span></div></div></details></div></details></div>
           </div>
           <div class="st">
             <div class="st-l"><span>已完成 · 点开只摊一级,二三级还收着</span><i></i></div>
-            <div class="st-b"><details class="fold mod-flat" open data-od-id="progress-done"><summary><span>已完成</span><span class="ms">1m 12s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><p class="think">两张图是同一套栅格,先复刻列表页,再拿它的商品卡去拼设置页。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>执行计划 · 4 步</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="pk">1</span><span class="nm">复刻商品列表页</span></div><div class="tool"><span class="pk">2</span><span class="nm">抽出商品卡为共享组件</span></div><div class="tool"><span class="pk">3</span><span class="nm">按同一套间距做设置页</span></div><div class="tool"><span class="pk">4</span><span class="nm">接上两页之间的跳转</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>复刻商品列表页</span><span class="ms">18.2s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 首页.png"><code>首页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 tokens.css"><code>tokens.css</code></button></span><span class="ms">0.3s</span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+182</i><i>-0</i></span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.css"><code>product-list.css</code></button></span><span class="dst"><i>+96</i><i>-0</i></span></div></div></details><p class="think">截图是 4 列、24px 沟槽,和 <code>tokens.css</code> 里现成的栅格对得上,没另开一套。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>抽出商品卡为共享组件</span><span class="ms">6.4s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-card.html"><code>product-card.html</code></button></span><span class="dst"><i>+64</i><i>-0</i></span></div><div class="tool"><span class="ti"></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+6</i><i>-58</i></span></div></div></details><p class="think">价格和标签抽成参数,两页各留一处引用,之后改样式只改一个文件。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>按同一套间距做设置页</span><span class="ms">9.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 设置页.png"><code>设置页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 settings.html"><code>settings.html</code></button></span><span class="dst"><i>+140</i><i>-0</i></span></div><div class="tool"><span class="ti"></span><span class="nm">生成配套插图 · 4 张</span><span class="ms">2.6s</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>接上两页之间的跳转</span><span class="ms">4.1s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+4</i><i>-2</i></span></div><details class="fold"><summary><span class="ti"></span><span class="nm">跑一遍,看两页能不能通</span><span class="ms">2.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="code"><div class="term mod-cmd"><div>npm run build</div></div><div class="term"><div class="ok">✓ built in 2.14s (2 pages)</div></div></div></div></details></div></details></div></details></div>
+            <div class="st-b"><details class="fold mod-flat" open data-od-id="progress-done"><summary><span>已完成</span><span class="ms">1m 12s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><p class="think">两张图是同一套栅格,先复刻列表页,再拿它的商品卡去拼设置页。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>执行计划 · 4 步</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="pk">1</span><span class="nm">复刻商品列表页</span></div><div class="tool"><span class="pk">2</span><span class="nm">抽出商品卡为共享组件</span></div><div class="tool"><span class="pk">3</span><span class="nm">按同一套间距做设置页</span></div><div class="tool"><span class="pk">4</span><span class="nm">接上两页之间的跳转</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>复刻商品列表页</span><span class="ms">18.2s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 首页.png"><code>首页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 tokens.css"><code>tokens.css</code></button></span><span class="ms">0.3s</span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+182</i><i>-0</i></span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-list.css"><code>product-list.css</code></button></span><span class="dst"><i>+96</i><i>-0</i></span></div></div></details><p class="think">截图是 4 列、24px 沟槽,和 <code>tokens.css</code> 里现成的栅格对得上,没另开一套。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>抽出商品卡为共享组件</span><span class="ms">6.4s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 product-card.html"><code>product-card.html</code></button></span><span class="dst"><i>+64</i><i>-0</i></span></div><div class="tool"><span class="ti"></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+6</i><i>-58</i></span></div></div></details><p class="think">价格和标签抽成参数,两页各留一处引用,之后改样式只改一个文件。</p><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>按同一套间距做设置页</span><span class="ms">9.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">读取 <button class="fn" type="button" aria-label="打开 设置页.png"><code>设置页.png</code></button></span><span class="ms">0.4s</span></div><div class="tool"><span class="ti"></span><span class="nm">新建 <button class="fn" type="button" aria-label="打开 settings.html"><code>settings.html</code></button></span><span class="dst"><i>+140</i><i>-0</i></span></div><div class="tool mod-image-result"><span class="ti"></span><span class="nm">生成配套插图 · 4 张</span><span class="ms">2.6s</span></div></div></details><details class="fold"><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>接上两页之间的跳转</span><span class="ms">4.1s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">改写 <button class="fn" type="button" aria-label="打开 product-list.html"><code>product-list.html</code></button></span><span class="dst"><i>+4</i><i>-2</i></span></div><details class="fold"><summary><span class="ti"></span><span class="nm">跑一遍,看两页能不能通</span><span class="ms">2.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="code"><div class="term mod-cmd"><div>npm run build</div></div><div class="term"><div class="ok">✓ built in 2.14s (2 pages)</div></div></div></div></details></div></details></div></details></div>
           </div>
           <div class="st">
             <div class="st-l"><span>运行失败 · 默认收起,原因和动作由 19 · 报错给</span><i></i></div>
@@ -5173,7 +5352,7 @@ body { margin: 0; }
           </div>
           <div class="st">
             <div class="st-l"><span>成功 · 收成一行 + 缩略图条</span><i></i></div>
-            <div class="st-b"><div class="fold mod-flat"><div class="body mod-stack"><details class="fold" open><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>按同一套间距做设置页</span><span class="ms">9.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool"><span class="ti"></span><span class="nm">生成配套插图 · 4 张</span><span class="strip"><button class="th" type="button" aria-label="查看第 1 张大图" data-tip="查看大图"><span class="mini mod-s1"></span></button><button class="th" type="button" aria-label="查看第 2 张大图" data-tip="查看大图"><span class="mini mod-s2"></span></button><button class="th" type="button" aria-label="查看第 3 张大图" data-tip="查看大图"><span class="mini mod-s3"></span></button><button class="th" type="button" aria-label="查看第 4 张大图" data-tip="查看大图"><span class="mini mod-s4"></span></button></span><span class="ms">2.6s</span></div></div></details></div></div></div>
+            <div class="st-b"><div class="fold mod-flat"><div class="body mod-stack"><details class="fold" open><summary><span class="mk is-ok"><svg class="tick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22ZM17.4571 9.45711L11 15.9142L6.79289 11.7071L8.20711 10.2929L11 13.0858L16.0429 8.04289L17.4571 9.45711Z"/></svg></span><span>按同一套间距做设置页</span><span class="ms">9.6s</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="11" height="11"><path d="M6 9l6 6 6-6"/></svg></span></summary><div class="body mod-stack"><div class="tool mod-image-result"><span class="ti"></span><span class="nm">生成配套插图 · 4 张</span><span class="strip"><button class="th" type="button" aria-label="查看第 1 张大图" data-tip="查看大图"><span class="mini mod-s1"></span></button><button class="th" type="button" aria-label="查看第 2 张大图" data-tip="查看大图"><span class="mini mod-s2"></span></button><button class="th" type="button" aria-label="查看第 3 张大图" data-tip="查看大图"><span class="mini mod-s3"></span></button><button class="th" type="button" aria-label="查看第 4 张大图" data-tip="查看大图"><span class="mini mod-s4"></span></button></span><span class="ms">2.6s</span></div></div></details></div></div></div>
           </div>
           <div class="st">
             <div class="st-l"><span>部分失败 · 失败格留空,单独重试</span><i></i></div>
@@ -5474,7 +5653,7 @@ body { margin: 0; }
                   <span class="ix">1</span><span class="tx">设置页也加上深色模式开关</span>
                   <span class="qops">
                     <button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button>
-                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button>
+                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button>
                   </span>
                 </div>
                 <div class="q">
@@ -5482,7 +5661,7 @@ body { margin: 0; }
                   <span class="ix">2</span><span class="tx">商品卡换成两列</span>
                   <span class="qops">
                     <button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button>
-                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button>
+                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button>
                   </span>
                 </div>
                 <div class="q">
@@ -5490,7 +5669,7 @@ body { margin: 0; }
                   <span class="ix">3</span><span class="tx">结算页那张商品缩略图也一起换掉,顺便把价格行的字号调大一档 —— 现在两页放一起看着不像一套</span>
                   <span class="qops">
                     <button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button>
-                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button>
+                    <button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button>
                   </span>
                 </div>
               </div>
@@ -5500,7 +5679,7 @@ body { margin: 0; }
             <div class="st-l"><span>条数多 · 限高约三行半,其余滚动(不能把流水挤出屏幕)</span><i></i></div>
             <div class="st-b">
               <div class="queue">
-                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">1</span><span class="tx">设置页也加上深色模式开关</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">2</span><span class="tx">商品卡换成两列</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">3</span><span class="tx">结算页那张商品缩略图也一起换掉</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">4</span><span class="tx">搜索结果页里那张窄版卡同步改</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">5</span><span class="tx">价格行的字号调大一档</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">6</span><span class="tx">我的页面顶部加个头像区</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div>
+                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">1</span><span class="tx">设置页也加上深色模式开关</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">2</span><span class="tx">商品卡换成两列</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">3</span><span class="tx">结算页那张商品缩略图也一起换掉</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">4</span><span class="tx">搜索结果页里那张窄版卡同步改</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">5</span><span class="tx">价格行的字号调大一档</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div><div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">6</span><span class="tx">我的页面顶部加个头像区</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div>
               </div>
             </div>
           </div>
@@ -5509,8 +5688,8 @@ body { margin: 0; }
             <div class="st-b">
               <div class="msg-me"><div class="bub">设置页也加上深色模式开关</div></div>
               <div class="queue" style="margin-top:10px">
-                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">1</span><span class="tx">商品卡换成两列</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div>
-                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">2</span><span class="tx">结算页那张商品缩略图也一起换掉</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg></button></span></div>
+                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">1</span><span class="tx">商品卡换成两列</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div>
+                <div class="q"><span class="grip mod-tip-s" role="button" tabindex="0" aria-label="拖动排序" data-tip="拖动排序"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span><span class="ix">2</span><span class="tx">结算页那张商品缩略图也一起换掉</span><span class="qops"><button type="button" aria-label="编辑" data-tip="编辑"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.7134 7.12811L4.46682 7.69379C4.28637 8.10792 3.71357 8.10792 3.53312 7.69379L3.28656 7.12811C2.84706 6.11947 2.05545 5.31641 1.06767 4.87708L0.308047 4.53922C-0.102682 4.35653 -0.102682 3.75881 0.308047 3.57612L1.0252 3.25714C2.03838 2.80651 2.84417 1.97373 3.27612 0.930828L3.52932 0.319534C3.70578 -0.106511 4.29417 -0.106511 4.47063 0.319534L4.72382 0.930828C5.15577 1.97373 5.96158 2.80651 6.9748 3.25714L7.69188 3.57612C8.10271 3.75881 8.10271 4.35653 7.69188 4.53922L6.93228 4.87708C5.94451 5.31641 5.15288 6.11947 4.7134 7.12811ZM6.33421 15.8154C6.51032 15.233 6.7072 14.6562 6.93912 14.0327C8.99484 8.50636 12.4197 5.08172 18.0129 4.21479C17.5 5.35838 17.0151 6.15301 16.5858 6.58237C16.2521 6.91603 15.9185 7.24993 15.5848 7.58407L14.1721 8.99878L15.6279 10.4535C14.4976 12.5384 12.2652 14.1979 9.75193 14.512C8.43544 14.6766 7.29345 15.1188 6.33421 15.8154ZM18 9.99658L17 8.99728C17.3331 8.66372 17.6662 8.33039 18.0027 7.99391C19.0018 6.99303 20.0009 4.99392 21 1.99658C6.31105 1.99658 4.08854 15.422 3.06361 21.6132C3.0419 21.7443 3.02074 21.8722 3 21.9966H4.99824C5.66421 18.6635 7.33146 16.8301 10 16.4966C14 15.9966 17 12.9966 18 9.99658Z"/></svg></button><button type="button" aria-label="移除" data-tip="移除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3.5 6h17"/><path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6"/><path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><button type="button" class="mod-tip-e mod-steer" aria-label="引导对话" data-tip="引导对话"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.0001 10.0001L19.0003 19L17.0003 19L17.0002 12.0001L6.82833 12L10.7781 15.9498L9.36384 17.364L2.99988 11L9.36384 4.63605L10.7781 6.05026L6.82828 10L19.0001 10.0001Z"/></svg><span>引导对话</span></button></span></div>
               </div>
             </div>
           </div>
@@ -5531,16 +5710,24 @@ body { margin: 0; }
           <div class="st">
             <div class="st-l mod-def"><span>额度不足 · &lt; 5 美金</span><i></i></div>
             <div class="st-b">
-              <div class="up">
-                <div class="h"><span class="amt"><span class="n">剩余额度 <b>$3.20</b></span></span><button class="btn mod-primary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.6144 17.7956 11.492 15.7854C12.2731 13.9966 13.6789 12.5726 15.4325 11.7942L17.8482 10.7219C18.6162 10.381 18.6162 9.26368 17.8482 8.92277L15.5079 7.88394C13.7092 7.08552 12.2782 5.60881 11.5105 3.75894L10.6215 1.61673C10.2916.821765 9.19319.821767 8.8633 1.61673L7.97427 3.75892C7.20657 5.60881 5.77553 7.08552 3.97685 7.88394L1.63658 8.92277C.868537 9.26368.868536 10.381 1.63658 10.7219L4.0523 11.7942C5.80589 12.5726 7.21171 13.9966 7.99275 15.7854L8.8704 17.7956C9.20776 18.5682 10.277 18.5682 10.6144 17.7956ZM19.4014 22.6899 19.6482 22.1242C20.0882 21.1156 20.8807 20.3125 21.8695 19.8732L22.6299 19.5353C23.0412 19.3526 23.0412 18.7549 22.6299 18.5722L21.9121 18.2532C20.8978 17.8026 20.0911 16.9698 19.6586 15.9269L19.4052 15.3156C19.2285 14.8896 18.6395 14.8896 18.4628 15.3156L18.2094 15.9269C17.777 16.9698 16.9703 17.8026 15.956 18.2532L15.2381 18.5722C14.8269 18.7549 14.8269 19.3526 15.2381 19.5353L15.9985 19.8732C16.9874 20.3125 17.7798 21.1156 18.2198 22.1242L18.4667 22.6899C18.6473 23.104 19.2207 23.104 19.4014 22.6899Z"/></svg>Upgrade</button></div><p class="why">余额可能撑不完下一个任务 —— 中途用尽会停在半成品上</p>
+              <div class="up mod-glow">
+                <div class="h"><span class="amt"><span class="n">剩余额度 <b>$3.20</b></span></span></div>
+                <div class="up-bottom">
+                  <p class="why">余额可能撑不完下一个任务 —— 中途用尽会停在半成品上</p>
+                  <button class="btn mod-primary" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.6144 17.7956 11.492 15.7854C12.2731 13.9966 13.6789 12.5726 15.4325 11.7942L17.8482 10.7219C18.6162 10.381 18.6162 9.26368 17.8482 8.92277L15.5079 7.88394C13.7092 7.08552 12.2782 5.60881 11.5105 3.75894L10.6215 1.61673C10.2916.821765 9.19319.821767 8.8633 1.61673L7.97427 3.75892C7.20657 5.60881 5.77553 7.08552 3.97685 7.88394L1.63658 8.92277C.868537 9.26368.868536 10.381 1.63658 10.7219L4.0523 11.7942C5.80589 12.5726 7.21171 13.9966 7.99275 15.7854L8.8704 17.7956C9.20776 18.5682 10.277 18.5682 10.6144 17.7956ZM19.4014 22.6899 19.6482 22.1242C20.0882 21.1156 20.8807 20.3125 21.8695 19.8732L22.6299 19.5353C23.0412 19.3526 23.0412 18.7549 22.6299 18.5722L21.9121 18.2532C20.8978 17.8026 20.0911 16.9698 19.6586 15.9269L19.4052 15.3156C19.2285 14.8896 18.6395 14.8896 18.4628 15.3156L18.2094 15.9269C17.777 16.9698 16.9703 17.8026 15.956 18.2532L15.2381 18.5722C14.8269 18.7549 14.8269 19.3526 15.2381 19.5353L15.9985 19.8732C16.9874 20.3125 17.7798 21.1156 18.2198 22.1242L18.4667 22.6899C18.6473 23.104 19.2207 23.104 19.4014 22.6899Z"/></svg>Upgrade</button>
+                </div>
               </div>
             </div>
           </div>
           <div class="st">
             <div class="st-l"><span>额度耗尽 · = 0 美金</span><i></i></div>
             <div class="st-b">
-              <div class="up">
-                <div class="h"><span class="amt is-out"><span class="n">剩余额度 <b>$0.00</b></span></span><button class="btn mod-primary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.6144 17.7956 11.492 15.7854C12.2731 13.9966 13.6789 12.5726 15.4325 11.7942L17.8482 10.7219C18.6162 10.381 18.6162 9.26368 17.8482 8.92277L15.5079 7.88394C13.7092 7.08552 12.2782 5.60881 11.5105 3.75894L10.6215 1.61673C10.2916.821765 9.19319.821767 8.8633 1.61673L7.97427 3.75892C7.20657 5.60881 5.77553 7.08552 3.97685 7.88394L1.63658 8.92277C.868537 9.26368.868536 10.381 1.63658 10.7219L4.0523 11.7942C5.80589 12.5726 7.21171 13.9966 7.99275 15.7854L8.8704 17.7956C9.20776 18.5682 10.277 18.5682 10.6144 17.7956ZM19.4014 22.6899 19.6482 22.1242C20.0882 21.1156 20.8807 20.3125 21.8695 19.8732L22.6299 19.5353C23.0412 19.3526 23.0412 18.7549 22.6299 18.5722L21.9121 18.2532C20.8978 17.8026 20.0911 16.9698 19.6586 15.9269L19.4052 15.3156C19.2285 14.8896 18.6395 14.8896 18.4628 15.3156L18.2094 15.9269C17.777 16.9698 16.9703 17.8026 15.956 18.2532L15.2381 18.5722C14.8269 18.7549 14.8269 19.3526 15.2381 19.5353L15.9985 19.8732C16.9874 20.3125 17.7798 21.1156 18.2198 22.1242L18.4667 22.6899C18.6473 23.104 19.2207 23.104 19.4014 22.6899Z"/></svg>Upgrade</button></div><p class="why">现在无法开始新任务</p>
+              <div class="up mod-glow">
+                <div class="h"><span class="amt is-out"><span class="n">剩余额度 <b>$0.00</b></span></span></div>
+                <div class="up-bottom">
+                  <p class="why">现在无法开始新任务</p>
+                  <button class="btn mod-primary" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.6144 17.7956 11.492 15.7854C12.2731 13.9966 13.6789 12.5726 15.4325 11.7942L17.8482 10.7219C18.6162 10.381 18.6162 9.26368 17.8482 8.92277L15.5079 7.88394C13.7092 7.08552 12.2782 5.60881 11.5105 3.75894L10.6215 1.61673C10.2916.821765 9.19319.821767 8.8633 1.61673L7.97427 3.75892C7.20657 5.60881 5.77553 7.08552 3.97685 7.88394L1.63658 8.92277C.868537 9.26368.868536 10.381 1.63658 10.7219L4.0523 11.7942C5.80589 12.5726 7.21171 13.9966 7.99275 15.7854L8.8704 17.7956C9.20776 18.5682 10.277 18.5682 10.6144 17.7956ZM19.4014 22.6899 19.6482 22.1242C20.0882 21.1156 20.8807 20.3125 21.8695 19.8732L22.6299 19.5353C23.0412 19.3526 23.0412 18.7549 22.6299 18.5722L21.9121 18.2532C20.8978 17.8026 20.0911 16.9698 19.6586 15.9269L19.4052 15.3156C19.2285 14.8896 18.6395 14.8896 18.4628 15.3156L18.2094 15.9269C17.777 16.9698 16.9703 17.8026 15.956 18.2532L15.2381 18.5722C14.8269 18.7549 14.8269 19.3526 15.2381 19.5353L15.9985 19.8732C16.9874 20.3125 17.7798 21.1156 18.2198 22.1242L18.4667 22.6899C18.6473 23.104 19.2207 23.104 19.4014 22.6899Z"/></svg>Upgrade</button>
+                </div>
               </div>
             </div>
           </div>
@@ -5576,9 +5763,9 @@ body { margin: 0; }
                 <div class="t"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.5 2.5L23 12L17.5 21.5H6.5L1 12L6.5 2.5H17.5ZM11 15V17H13V15H11ZM11 7V13H13V7H11Z"/></svg>任务失败</div>
                 <div class="d">构建到设置页时找不到商品卡组件 —— 前面抽组件那一步没落盘成功。已生成的列表页不受影响。</div>
                 <div class="ops">
-                  <button class="btn mod-secondary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.9381 8H21C22.1046 8 23 8.89543 23 10V14C23 15.1046 22.1046 16 21 16H19.9381C19.446 19.9463 16.0796 23 12 23V21C15.3137 21 18 18.3137 18 15V9C18 5.68629 15.3137 3 12 3C8.68629 3 6 5.68629 6 9V16H3C1.89543 16 1 15.1046 1 14V10C1 8.89543 1.89543 8 3 8H4.06189C4.55399 4.05369 7.92038 1 12 1C16.0796 1 19.446 4.05369 19.9381 8ZM3 10V14H4V10H3ZM20 10V14H21V10H20ZM7.75944 15.7849L8.81958 14.0887C9.74161 14.6662 10.8318 15 12 15C13.1682 15 14.2584 14.6662 15.1804 14.0887L16.2406 15.7849C15.0112 16.5549 13.5576 17 12 17C10.4424 17 8.98882 16.5549 7.75944 15.7849Z"/></svg>联系支持</button>
+                  <button class="btn mod-secondary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.9381 8H21C22.1046 8 23 8.89543 23 10V14C23 15.1046 22.1046 16 21 16H19.9381C19.446 19.9463 16.0796 23 12 23V21C15.3137 21 18 18.3137 18 15V9C18 5.68629 15.3137 3 12 3C8.68629 3 6 5.68629 6 9V16H3C1.89543 16 1 15.1046 1 14V10C1 8.89543 1.89543 8 3 8H4.06189C4.55399 4.05369 7.92038 1 12 1C16.0796 1 19.446 4.05369 19.9381 8ZM3 10V14H4V10H3ZM20 10V14H21V10H20ZM7.75944 15.7849L8.81958 14.0887C9.74161 14.6662 10.8318 15 12 15C13.1682 15 14.2584 14.6662 15.1804 14.0887L16.2406 15.7849C15.0112 16.5549 13.5576 17 12 17C10.4424 17 8.98882 16.5549 7.75944 15.7849Z"/></svg>联系</button>
                   <button class="btn mod-secondary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19ZM13 9V16H11V9H6L12 3L18 9H13Z"/></svg>导出日志</button>
-                  <button class="btn mod-primary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg>从失败处重试</button>
+                  <button class="btn mod-primary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"/></svg>重试</button>
                 </div>
               </div>
             </div>
@@ -5591,7 +5778,7 @@ body { margin: 0; }
                 <div class="d">当前运行在 CLI / BYOK 环境,这一步需要云端算力。切到 Cloud 可以接着跑,已完成的部分会带过去。</div>
                 <div class="ops">
                   <button class="btn mod-secondary mod-sm" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19ZM13 9V16H11V9H6L12 3L18 9H13Z"/></svg>导出日志</button>
-                  <button class="btn mod-primary mod-sm" type="button">切换到 Cloud</button>
+                  <button class="btn mod-primary mod-sm" type="button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 20V21.9324C8 22.2086 7.77614 22.4324 7.5 22.4324C7.38303 22.4324 7.26977 22.3914 7.17991 22.3165L3.06093 18.8841C2.84879 18.7073 2.82013 18.392 2.99691 18.1799C3.09191 18.0659 3.23264 18 3.38103 18L18 18C19.1046 18 20 17.1045 20 16V7.99997H22V16C22 18.2091 20.2091 20 18 20H8ZM16 3.99997V2.0675C16 1.79136 16.2239 1.5675 16.5 1.5675C16.617 1.5675 16.7302 1.60851 16.8201 1.68339L20.9391 5.11587C21.1512 5.29266 21.1799 5.60794 21.0031 5.82008C20.9081 5.93407 20.7674 5.99998 20.619 5.99998L6 5.99997C4.89543 5.99997 4 6.8954 4 7.99997V16H2V7.99997C2 5.79083 3.79086 3.99997 6 3.99997H16Z"></path></svg>切换到 Cloud</button>
                 </div>
               </div>
             </div>
@@ -5629,7 +5816,6 @@ body { margin: 0; }
   </section>
 
 </div>
-
 
 </div>
 <script type="module">/* Thinking 那一行前面那颗球:thinking-orbs 的 `connecting` 态。
@@ -6607,6 +6793,100 @@ if (names.length) {
   document.fonts?.ready.then(run);
   run();
 }
+
+// 意图澄清里的颜色选择。
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+for (const picker of document.querySelectorAll('[data-color-picker]')) {
+  const native = picker.querySelector('.color-native');
+  const hex = picker.querySelector('.color-hex');
+  const next = picker.querySelector('[data-color-next]');
+  const swatches = [...picker.querySelectorAll('.color-swatch')];
+  let current = native.value.toLowerCase();
+
+  const paint = (value, syncText = true) => {
+    current = value.toLowerCase();
+    picker.style.setProperty('--choice-color', current);
+    native.value = current;
+    if (syncText) hex.value = current;
+    hex.setAttribute('aria-invalid', 'false');
+    next.disabled = false;
+    for (const swatch of swatches) {
+      swatch.setAttribute('aria-pressed', String(swatch.dataset.color.toLowerCase() === current));
+    }
+  };
+
+  for (const swatch of swatches) {
+    swatch.addEventListener('click', () => paint(swatch.dataset.color));
+  }
+
+  native.addEventListener('input', () => paint(native.value));
+  hex.addEventListener('input', () => {
+    const value = hex.value.trim();
+    if (HEX_COLOR.test(value)) {
+      paint(value, false);
+      return;
+    }
+    hex.setAttribute('aria-invalid', 'true');
+    next.disabled = true;
+  });
+  hex.addEventListener('blur', () => {
+    if (!HEX_COLOR.test(hex.value.trim())) paint(current);
+  });
+}
+
+// 意图澄清里的语言下拉:常用语言直接展示,低频语言由「更多语言」展开。
+// 更多列表的可见高度由 CSS 固定为 6.5 行;这里只管开合与单选状态。
+document.addEventListener('click', (event) => {
+  const more = event.target.closest?.('[data-language-select] .language-more-toggle');
+  if (more) {
+    const list = more.nextElementSibling;
+    const open = list.hidden;
+    list.hidden = !open;
+    more.setAttribute('aria-expanded', String(open));
+    return;
+  }
+
+  const option = event.target.closest?.('[data-language-select] .language-option');
+  if (!option) return;
+  const picker = option.closest('[data-language-select]');
+  for (const item of picker.querySelectorAll('.language-option')) item.setAttribute('aria-selected', String(item === option));
+  const next = picker.closest('.cbody')?.querySelector('.foot .mod-primary');
+  if (next) next.disabled = false;
+});
+
+// 意图澄清里的版面密度:数字输入与滑杆共用同一个值。
+// 直接输入超出范围的数字时收进 1–5 档;拖动时上方数字实时跟随。
+for (const field of document.querySelectorAll('[data-number-slider]')) {
+  const slider = field.querySelector('.amount-slider');
+  const range = field.querySelector('.amount-range');
+  const input = field.querySelector('[data-slider-input]');
+  if (!slider || !range || !input) continue;
+
+  const min = Number(range.min);
+  const max = Number(range.max);
+  const step = Number(range.step) || 1;
+  let current = Number(range.value);
+
+  const normalize = (raw) => {
+    const snapped = min + Math.round((Number(raw) - min) / step) * step;
+    return Math.min(max, Math.max(min, snapped));
+  };
+
+  const paint = (raw) => {
+    if (String(raw).trim() === '' || !Number.isFinite(Number(raw))) return;
+    current = normalize(raw);
+    range.value = String(current);
+    input.value = String(current);
+    slider.style.setProperty('--range-pct', `${((current - min) / (max - min)) * 100}%`);
+    range.setAttribute('aria-valuetext', `${current} 档`);
+  };
+
+  range.addEventListener('input', () => paint(range.value));
+  input.addEventListener('input', () => paint(input.value));
+  input.addEventListener('blur', () => paint(input.value || current));
+  paint(current);
+}
 </script>
 <script type="module">// Plan 卡的进度演示。
 // ------------------------------------------------------------
@@ -6806,7 +7086,7 @@ function stream(box) {
   if (REDUCE) REDUCE.addEventListener('change', () => { stop(); sync(); });
 }
 
-for (const box of document.querySelectorAll('.body.mod-stream')) stream(box);
+for (const box of document.querySelectorAll('.body.mod-stream > .stream-viewport')) stream(box);
 
 // 「刚才按过 Tab」的标记 —— 折叠标题的焦点框只在这个标记在的时候出。
 // 为什么不用 :focus-visible 自己判断:Chrome 把 <summary> 的鼠标点击也算成
@@ -6817,107 +7097,6 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Tab') root.dataset.kb = '1';
 }, true);
 addEventListener('pointerdown', () => { delete root.dataset.kb; }, true);
-</script>
-<script type="module">// 意图澄清里的颜色选择。
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-for (const picker of document.querySelectorAll('[data-color-picker]')) {
-  const native = picker.querySelector('.color-native');
-  const hex = picker.querySelector('.color-hex');
-  const next = picker.querySelector('[data-color-next]');
-  const swatches = [...picker.querySelectorAll('.color-swatch')];
-  let current = native.value.toLowerCase();
-
-  const paint = (value, syncText = true) => {
-    current = value.toLowerCase();
-    picker.style.setProperty('--choice-color', current);
-    native.value = current;
-    if (syncText) hex.value = current;
-    hex.setAttribute('aria-invalid', 'false');
-    next.disabled = false;
-    for (const swatch of swatches) {
-      swatch.setAttribute('aria-pressed', String(swatch.dataset.color.toLowerCase() === current));
-    }
-  };
-
-  for (const swatch of swatches) {
-    swatch.addEventListener('click', () => paint(swatch.dataset.color));
-  }
-
-  native.addEventListener('input', () => paint(native.value));
-  hex.addEventListener('input', () => {
-    const value = hex.value.trim();
-    if (HEX_COLOR.test(value)) {
-      paint(value, false);
-      return;
-    }
-    hex.setAttribute('aria-invalid', 'true');
-    next.disabled = true;
-  });
-  hex.addEventListener('blur', () => {
-    if (!HEX_COLOR.test(hex.value.trim())) paint(current);
-  });
-}
-</script>
-<script type="module">// 意图澄清里的 Amount Slider。
-for (const field of document.querySelectorAll('[data-number-slider]')) {
-  const slider = field.querySelector('.amount-slider');
-  const range = field.querySelector('.amount-range');
-  const readout = field.querySelector('[data-slider-readout]');
-  const output = field.querySelector('[data-slider-output]');
-  const roll = field.querySelector('[data-slider-roll]');
-  const stops = [...field.querySelectorAll('.amount-stop')];
-  const min = Number(range.min);
-  const max = Number(range.max);
-  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  let current = Number(range.value);
-  let rollToken = 0;
-
-  const rollTo = (value, animate) => {
-    if (value === current || !animate || reducedMotion.matches) {
-      roll.replaceChildren(Object.assign(document.createElement('span'), { textContent: String(value) }));
-      roll.style.transition = 'none';
-      roll.style.transform = 'translateY(0)';
-      roll.dataset.value = String(value);
-      current = value;
-      return;
-    }
-
-    const token = ++rollToken;
-    const rising = value > current;
-    const oldDigit = Object.assign(document.createElement('span'), { textContent: String(current) });
-    const newDigit = Object.assign(document.createElement('span'), { textContent: String(value) });
-    roll.replaceChildren(...(rising ? [oldDigit, newDigit] : [newDigit, oldDigit]));
-    roll.style.transition = 'none';
-    roll.style.transform = rising ? 'translateY(0)' : 'translateY(-50%)';
-    void roll.offsetHeight;
-    roll.style.transition = `transform ${getComputedStyle(document.documentElement).getPropertyValue('--duration-normal')} ${getComputedStyle(document.documentElement).getPropertyValue('--ease-out')}`;
-    roll.style.transform = rising ? 'translateY(-50%)' : 'translateY(0)';
-    roll.dataset.value = String(value);
-    current = value;
-
-    setTimeout(() => {
-      if (token !== rollToken) return;
-      roll.replaceChildren(Object.assign(document.createElement('span'), { textContent: String(value) }));
-      roll.style.transition = 'none';
-      roll.style.transform = 'translateY(0)';
-    }, 220);
-  };
-
-  const paint = (next, animate = true) => {
-    const value = Math.min(max, Math.max(min, next));
-    range.value = String(value);
-    slider.style.setProperty('--range-pct', `${((value - min) / (max - min)) * 100}%`);
-    range.setAttribute('aria-valuetext', `${value} 档`);
-    readout.setAttribute('aria-label', `版面密度 ${value} 档`);
-    output.textContent = `${value} 档`;
-    stops.forEach((stop, index) => stop.classList.toggle('is-past', index + min <= value));
-    rollTo(value, animate);
-  };
-
-  range.addEventListener('input', () => paint(Number(range.value)));
-  paint(Number(range.value), false);
-}
 </script>
 <script type="module">// 视觉方向卡右上角那个排布切换。
 // 叠放 ⇄ 网格。这一条必须真的能点 —— 稿子里"默认叠着"成立的前提就是

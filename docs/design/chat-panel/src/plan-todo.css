@@ -114,7 +114,7 @@
 }
 .steps li.is-done .tt::after,
 .steps li.is-skip .tt::after { transform: scaleX(1); opacity: 1; }
-.steps li.is-skip { color: var(--text-soft); }
+.steps li.is-skip { color: var(--plan-other-text); }
 
 /* ---- 卡头:图标在全部做完时换成绿勾,计数滚一格 ---- */
 /* 两枚图标叠在同一格里换,不是并排出现又消失 —— 换的是同一个位置上的同一件

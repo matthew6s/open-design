@@ -89,7 +89,7 @@ function stream(box) {
   if (REDUCE) REDUCE.addEventListener('change', () => { stop(); sync(); });
 }
 
-for (const box of document.querySelectorAll('.body.mod-stream')) stream(box);
+for (const box of document.querySelectorAll('.body.mod-stream > .stream-viewport')) stream(box);
 
 // 「刚才按过 Tab」的标记 —— 折叠标题的焦点框只在这个标记在的时候出。
 // 为什么不用 :focus-visible 自己判断:Chrome 把 <summary> 的鼠标点击也算成

@@ -257,3 +257,97 @@ if (names.length) {
   document.fonts?.ready.then(run);
   run();
 }
+
+// 意图澄清里的颜色选择。
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+for (const picker of document.querySelectorAll('[data-color-picker]')) {
+  const native = picker.querySelector('.color-native');
+  const hex = picker.querySelector('.color-hex');
+  const next = picker.querySelector('[data-color-next]');
+  const swatches = [...picker.querySelectorAll('.color-swatch')];
+  let current = native.value.toLowerCase();
+
+  const paint = (value, syncText = true) => {
+    current = value.toLowerCase();
+    picker.style.setProperty('--choice-color', current);
+    native.value = current;
+    if (syncText) hex.value = current;
+    hex.setAttribute('aria-invalid', 'false');
+    next.disabled = false;
+    for (const swatch of swatches) {
+      swatch.setAttribute('aria-pressed', String(swatch.dataset.color.toLowerCase() === current));
+    }
+  };
+
+  for (const swatch of swatches) {
+    swatch.addEventListener('click', () => paint(swatch.dataset.color));
+  }
+
+  native.addEventListener('input', () => paint(native.value));
+  hex.addEventListener('input', () => {
+    const value = hex.value.trim();
+    if (HEX_COLOR.test(value)) {
+      paint(value, false);
+      return;
+    }
+    hex.setAttribute('aria-invalid', 'true');
+    next.disabled = true;
+  });
+  hex.addEventListener('blur', () => {
+    if (!HEX_COLOR.test(hex.value.trim())) paint(current);
+  });
+}
+
+// 意图澄清里的语言下拉:常用语言直接展示,低频语言由「更多语言」展开。
+// 更多列表的可见高度由 CSS 固定为 6.5 行;这里只管开合与单选状态。
+document.addEventListener('click', (event) => {
+  const more = event.target.closest?.('[data-language-select] .language-more-toggle');
+  if (more) {
+    const list = more.nextElementSibling;
+    const open = list.hidden;
+    list.hidden = !open;
+    more.setAttribute('aria-expanded', String(open));
+    return;
+  }
+
+  const option = event.target.closest?.('[data-language-select] .language-option');
+  if (!option) return;
+  const picker = option.closest('[data-language-select]');
+  for (const item of picker.querySelectorAll('.language-option')) item.setAttribute('aria-selected', String(item === option));
+  const next = picker.closest('.cbody')?.querySelector('.foot .mod-primary');
+  if (next) next.disabled = false;
+});
+
+// 意图澄清里的版面密度:数字输入与滑杆共用同一个值。
+// 直接输入超出范围的数字时收进 1–5 档;拖动时上方数字实时跟随。
+for (const field of document.querySelectorAll('[data-number-slider]')) {
+  const slider = field.querySelector('.amount-slider');
+  const range = field.querySelector('.amount-range');
+  const input = field.querySelector('[data-slider-input]');
+  if (!slider || !range || !input) continue;
+
+  const min = Number(range.min);
+  const max = Number(range.max);
+  const step = Number(range.step) || 1;
+  let current = Number(range.value);
+
+  const normalize = (raw) => {
+    const snapped = min + Math.round((Number(raw) - min) / step) * step;
+    return Math.min(max, Math.max(min, snapped));
+  };
+
+  const paint = (raw) => {
+    if (String(raw).trim() === '' || !Number.isFinite(Number(raw))) return;
+    current = normalize(raw);
+    range.value = String(current);
+    input.value = String(current);
+    slider.style.setProperty('--range-pct', `${((current - min) / (max - min)) * 100}%`);
+    range.setAttribute('aria-valuetext', `${current} 档`);
+  };
+
+  range.addEventListener('input', () => paint(range.value));
+  input.addEventListener('input', () => paint(input.value));
+  input.addEventListener('blur', () => paint(input.value || current));
+  paint(current);
+}

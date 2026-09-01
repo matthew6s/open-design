@@ -13,24 +13,55 @@
        落地为止,给一个马上要消失的状态配一个跳动的秒数,只会把注意力钉在一个
        从此不再相关的数字上。总耗时最后在回合状态行里有。
    ------------------------------------------------------------
-   不套框:上游是把滚动区放进一张 Card(圆角 + 描边 + 阴影)。这里不要 ——
-   它是这一轮流水的第一段,和后面的步骤、已完成同一列往下读,单给它画一圈边
-   等于把开场白做成一张卡。渐隐本身已经说清了「上下还有」,边框是重复的话。 */
+   只铺浅灰底、不加描边和阴影:16px 圆角把滚动区收成完整底卡,
+   上下各留 8px 与标题和下一段分开;渐隐只落在卡内文字上。 */
 .fold.mod-flat > .body.mod-stream {
   /* 96px ≈ 5 行,和折叠块里 .mod-scroll 用的是同一个高度,
      这一屏里所有"够看但不占屏"的窗口都是这一档。 */
   --stream-h: 96px;
   /* 渐隐带占上下各约三分之一,和上游 80/150 的比例一致。 */
   --stream-fade: 32px;
+  /* 固定底卡使用独立浅灰底,不改变 Thinking 标题行和外层卡片。 */
+  --stream-surface: #FAFAFA;
+  --stream-pad: 8px;
+  --stream-gap: 8px;
   height: var(--stream-h);
+  margin-block: var(--stream-gap);
+  position: relative;
+  isolation: isolate;
   overflow: hidden;
-  /* 上下留白一并去掉:窗口顶边贴着 Thinking 那一行,渐隐从第一像素就开始,
-     再垫内边距的话,渐隐会从一段空白里淡出来,看着像内容没对齐。 */
-  padding: 0;
-  /* 用 mask 而不是上游那两层渐变遮罩 div。
+  background: transparent;
+  border-radius: 16px;
+  opacity: 1;
+  -webkit-mask-image: none;
+  mask-image: none;
+  /* 浅灰底内四边统一留 8px,文字滚动与渐隐仍限制在这扇定高窗口里。 */
+  padding: var(--stream-pad);
+}
+/* 底卡单独铺在最下层,不参与滚动、透明度或渐隐计算。 */
+.fold.mod-flat > .body.mod-stream::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--stream-surface);
+  pointer-events: none;
+}
+/* 滚动文字单独在底卡上方成层,渐隐只作用在这个文字窗口。
+   用 mask 而不是上游那两层渐变遮罩 div。
      遮罩 div 的前提是"背景色等于某个已知值",它铺一层实底把两端盖住;
      可这一块在画廊里坐着 --bg-panel、在场景稿里坐着 --bg,两处不一样,
      盖上去必然有一处露色。mask 抠的是元素自己的 alpha,底下是什么颜色都对。 */
+.fold.mod-flat > .body.mod-stream > .stream-viewport {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  opacity: 1;
+  padding: 0;
   -webkit-mask-image: linear-gradient(to bottom,
     transparent 0, #000 var(--stream-fade),
     #000 calc(100% - var(--stream-fade)), transparent 100%);
@@ -38,9 +69,8 @@
     transparent 0, #000 var(--stream-fade),
     #000 calc(100% - var(--stream-fade)), transparent 100%);
 }
-/* 头和内容之间那条分隔线也去掉。它原本是给「标题 + 一段正文」分层用的,
-   现在上边缘已经是一道渐隐 —— 线压在渐隐上,等于在同一个位置说两遍。 */
-.fold.mod-flat[open] > summary + .body.mod-stream { border-top: 0; padding-top: 0; }
+/* 标题和底卡之间由 8px 外间距分层,不再重复画一条发丝线。 */
+.fold.mod-flat[open] > summary + .body.mod-stream { border-top: 0; }
 /* 滚动流里的推理比普通的 .think 淡:--text-strong → --stream-ink(#bdbdbd,
    产品指定,定义在 components.css 顶部)。
    ------------------------------------------------------------
@@ -48,9 +78,9 @@
    过程,它的作用是"还在想"这件事本身,不是逐字读完 —— 跟正文同一档墨
    会把注意力钉在一段马上要滚走的字上。淡一档之后它退成背景里的动静,
    要看的时候仍然读得清。 */
-.fold.mod-flat > .body.mod-stream > .think { padding: 0; color: var(--stream-ink); }
+.fold.mod-flat > .body.mod-stream > .stream-viewport > .think { padding: 0; font-weight: 400; color: var(--stream-ink); }
 /* 段与段之间留一行的气口,不然滚起来是一堵字墙。 */
-.fold.mod-flat > .body.mod-stream > .think + .think { margin-top: 0.75em; }
+.fold.mod-flat > .body.mod-stream > .stream-viewport > .think + .think { margin-top: 0.75em; }
 
 /* 点开折叠不该留一圈蓝框。
    ------------------------------------------------------------
