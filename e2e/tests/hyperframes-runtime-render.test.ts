@@ -21,7 +21,7 @@ import { describe, expect, test } from 'vitest';
 import { createSmokeSuite } from '@/vitest/suite';
 
 const odBin = fileURLToPath(new URL('../../apps/daemon/bin/od.mjs', import.meta.url));
-const desktopFixture = fileURLToPath(new URL('./fixtures/hyperframes-desktop-sidecar.ts', import.meta.url));
+const desktopFixture = fileURLToPath(new URL('../lib/desktop/hyperframes-sidecar.ts', import.meta.url));
 
 describe('HyperFrames bundled runtime end-to-end', () => {
   test('[P0] real od media generate renders MP4 through the daemon-owned HyperFrames runtime', async () => {
