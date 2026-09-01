@@ -1029,33 +1029,6 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .model-findings b { color: var(--model-ink); font-size: 13px; font-weight: 700; line-height: 1.45; }
 .model-findings span { color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
 
-/* 全维度总表：一行看完一个模型的效果、性能与成本 */
-.overview-table-wrap { margin-top: 26px; overflow-x: auto; border: 1px solid var(--model-line); border-radius: 10px; background: var(--model-surface); }
-.overview-table { width: 100%; min-width: 940px; border-collapse: collapse; font-size: 13.5px; }
-.overview-table th,
-.overview-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--model-line); white-space: nowrap; }
-.overview-table thead th { position: sticky; top: 0; z-index: 1; padding: 0; background: var(--model-soft); font-weight: 620; }
-.overview-table thead th button { width: 100%; padding: 9px 12px; display: flex; align-items: center; gap: 4px; color: var(--ink-mute); font-size: 12.5px; font-weight: 700; letter-spacing: .03em; text-align: inherit; background: none; cursor: pointer; }
-.overview-table thead th.is-num button { justify-content: flex-end; }
-.overview-table thead th button i { width: 0; height: 0; border-right: 3px solid transparent; border-left: 3px solid transparent; opacity: 0; }
-.overview-table thead th[aria-sort='descending'] button i { border-top: 4px solid currentColor; opacity: 1; }
-.overview-table thead th[aria-sort='ascending'] button i { border-bottom: 4px solid currentColor; opacity: 1; }
-.overview-table thead th[aria-sort]:not([aria-sort='none']) button { color: var(--model-ink); }
-.overview-table tbody th { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-.overview-table tbody th span:last-child { display: flex; flex-direction: column; line-height: 1.3; }
-.overview-table tbody th b { font-size: 13.5px; font-weight: 650; }
-.overview-table tbody th small { color: var(--ink-faint); font-size: 12.5px; }
-.overview-table .model-icon { flex: none; width: 20px; height: 20px; }
-.overview-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
-.overview-table td.is-strong { font-weight: 680; }
-.overview-table td i { margin-left: 3px; color: var(--ink-faint); font-size: 11.5px; font-style: normal; }
-.overview-table tbody tr:last-child th,
-.overview-table tbody tr:last-child td { border-bottom: 0; }
-.overview-table tbody tr:hover th,
-.overview-table tbody tr:hover td { background: var(--model-soft); }
-.overview-note { margin: 10px 0 0; color: var(--ink-faint); font-size: 12.5px; line-height: 1.65; }
-
-
 /* 大标题保留站点主字体，维持和官网其它页面的品牌一致 */
 .model-index-page h1,
 .model-index-page h2,
@@ -1064,19 +1037,9 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   font-family: var(--body);
 }
 
-/* 表格头部与展开控制 */
-.overview-head { margin-top: 26px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.overview-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
-.overview-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--model-line); border-radius: 999px; background: var(--model-surface); color: var(--ink-mute); font-size: 12px; font-weight: 620; cursor: pointer; transition: border-color .18s ease, color .18s ease; }
-.overview-toggle:hover { border-color: var(--model-ink); color: var(--model-ink); }
-.overview-toggle i { width: 0; height: 0; border-top: 4px solid currentColor; border-right: 3.5px solid transparent; border-left: 3.5px solid transparent; transition: transform .18s ease; }
-.overview-toggle[aria-expanded='true'] i { transform: rotate(180deg); }
-.overview-table-wrap { margin-top: 12px; }
 /* 默认只留五列：模型 / 总分 / 可交付率 / 单份成本 / 分每美元 */
-.overview-table-wrap.is-compact [data-extra] { display: none; }
-.overview-table-wrap.is-compact .overview-table { min-width: 620px; }
-.overview-table sup { margin-left: 2px; color: var(--model-accent-ink); font-size: 10px; cursor: help; }
-.overview-footnotes { margin: 10px 0 0; padding: 0; display: grid; gap: 4px; list-style: none; }
-.overview-footnotes li { color: var(--ink-faint); font-size: 11.5px; line-height: 1.6; }
-.overview-footnotes sup { margin-right: 4px; color: var(--model-accent-ink); }
-.overview-footnotes b { margin-right: 5px; color: var(--model-muted); font-weight: 650; }
+
+/* 榜单下方的执行说明：模型仍在榜上，但读者需要知道分数是怎么来的 */
+.leaderboard-notes { margin: 14px 0 0; padding: 0; display: grid; gap: 5px; list-style: none; }
+.leaderboard-notes li { color: var(--ink-faint); font-size: 11.5px; line-height: 1.65; }
+.leaderboard-notes b { margin-right: 6px; color: var(--model-muted); font-weight: 650; }
