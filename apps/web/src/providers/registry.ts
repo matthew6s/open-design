@@ -2505,16 +2505,20 @@ export interface ProjectScopedPreviewNavigation {
   normalUrl: string;
   poweredUrl: string;
   documentVersion: string;
+  /**
+   * `universal` is the versioned Preview Runtime served by current daemons.
+   * `legacy-url` is the rolling-upgrade compatibility document: it remains a
+   * single real URL and deliberately does not pretend to expose interactive
+   * runtime capabilities.
+   */
+  runtimeProtocol: 'universal' | 'legacy-url';
   /** Absent only when paired with an older daemon during rolling upgrades. */
   previewPolicy?: ProjectPreviewPolicy;
   renewalScope: ProjectPreviewBaseScope;
 }
 
-/** Rolling-upgrade signal: the daemon can serve legacy preview URLs but does not support scoped origins. */
-export const PROJECT_SCOPED_PREVIEW_UNSUPPORTED = Symbol('project-scoped-preview-unsupported');
 export type ProjectScopedPreviewNavigationResult =
   | ProjectScopedPreviewNavigation
-  | typeof PROJECT_SCOPED_PREVIEW_UNSUPPORTED
   | null;
 
 // Newer daemons return the authoritative scope expiry. During a rolling
@@ -2567,9 +2571,11 @@ export async function fetchProjectPreviewBaseHref(
 }
 
 /**
- * Resolve the converged real-URL preview capability when the daemon advertises
- * it. A dedicated unsupported result selects the legacy transport during a
- * rolling upgrade; null is reserved for a real mint or validation failure.
+ * Resolve one real-URL preview capability. Current daemons advertise the
+ * versioned scoped-origin runtime. During a rolling upgrade, an older daemon's
+ * legacy preview URL remains usable as a single non-interactive document; the
+ * Web client must never answer that protocol gap by mounting srcdoc/Blob as a
+ * second browsing context.
  */
 export async function fetchProjectScopedPreviewNavigation(
   projectId: string,
@@ -2590,7 +2596,25 @@ export async function fetchProjectScopedPreviewNavigation(
     if (!legacy.pathname.startsWith(expectedPrefix)) return null;
     const directoryEnd = legacy.pathname.lastIndexOf('/') + 1;
     if (directoryEnd <= expectedPrefix.length) return null;
-    if (!body.scopedOrigin) return PROJECT_SCOPED_PREVIEW_UNSUPPORTED;
+    if (!body.scopedOrigin) {
+      const scope = legacy.pathname.slice(expectedPrefix.length).split('/')[0];
+      if (!scope) return null;
+      const href = previewCapabilityHref(`${legacy.pathname}${legacy.search}${legacy.hash}`);
+      const expiresAt = typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
+        ? body.expiresAt
+        : Date.now() + LEGACY_PREVIEW_SCOPE_REFRESH_MS;
+      return {
+        sessionId: `legacy-${scope}`,
+        normalUrl: href,
+        poweredUrl: href,
+        documentVersion: `legacy:${name}`,
+        runtimeProtocol: 'legacy-url',
+        renewalScope: {
+          href: previewCapabilityHref(legacy.pathname.slice(0, directoryEnd)),
+          expiresAt,
+        },
+      };
+    }
 
     const normal = new URL(body.scopedOrigin.normalUrl);
     const powered = new URL(body.scopedOrigin.poweredUrl);
@@ -2633,6 +2657,7 @@ export async function fetchProjectScopedPreviewNavigation(
       normalUrl: normal.href,
       poweredUrl: powered.href,
       documentVersion: body.scopedOrigin.documentVersion,
+      runtimeProtocol: 'universal',
       ...(previewPolicy ? { previewPolicy } : {}),
       renewalScope: {
         href: previewCapabilityHref(legacy.pathname.slice(0, directoryEnd)),

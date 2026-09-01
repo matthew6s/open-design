@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  PROJECT_SCOPED_PREVIEW_UNSUPPORTED,
   type ProjectScopedPreviewNavigation,
   type ProjectScopedPreviewNavigationResult,
 } from '../providers/registry';
@@ -41,7 +40,6 @@ export interface ProjectScopedPreviewNavigationState {
   scoped: ProjectScopedPreviewNavigation | null;
   loading: boolean;
   unavailable: boolean;
-  unsupported: boolean;
   expiresAt: number | null;
 }
 
@@ -49,7 +47,6 @@ export interface ProjectPreviewSessionNavigationState {
   navigation: PreviewSessionNavigation | null;
   loading: boolean;
   unavailable: boolean;
-  unsupported: boolean;
   expiresAt: number | null;
 }
 
@@ -73,7 +70,6 @@ const EMPTY_SCOPED_STATE: LoadedScopedNavigationState = {
   lastGoodScoped: null,
   loading: false,
   unavailable: false,
-  unsupported: false,
   expiresAt: null,
   renewalFailures: 0,
 };
@@ -92,6 +88,7 @@ function sameNavigation(
   return left?.sessionId === right.sessionId
     && left.documentVersion === right.documentVersion
     && left.url === right.url
+    && left.runtimeProtocol === right.runtimeProtocol
     && left.sandboxProfile === right.sandboxProfile
     && left.deck === right.deck;
 }
@@ -136,7 +133,6 @@ export function useProjectScopedPreviewNavigation({
             scoped: null,
             loading: false,
             unavailable: false,
-            unsupported: false,
             renewalFailures: 0,
           }
         : { ...EMPTY_SCOPED_STATE, ownerKey });
@@ -150,7 +146,6 @@ export function useProjectScopedPreviewNavigation({
           scoped: null,
           loading: true,
           unavailable: false,
-          unsupported: false,
           expiresAt: null,
           renewalFailures: 0,
         }
@@ -158,20 +153,6 @@ export function useProjectScopedPreviewNavigation({
 
     void cache.get(request).then((result) => {
       if (requestGenerationRef.current !== generation) return;
-      if (result === PROJECT_SCOPED_PREVIEW_UNSUPPORTED) {
-        setState((previous) => ({
-          ...previous,
-          ownerKey,
-          loadKey,
-          scoped: null,
-          loading: false,
-          unavailable: false,
-          unsupported: true,
-          expiresAt: null,
-          renewalFailures: 0,
-        }));
-        return;
-      }
       if (!result) {
         setState((previous) => ({
           ...previous,
@@ -180,7 +161,6 @@ export function useProjectScopedPreviewNavigation({
           scoped: null,
           loading: false,
           unavailable: true,
-          unsupported: false,
           expiresAt: null,
           renewalFailures: 0,
         }));
@@ -194,7 +174,6 @@ export function useProjectScopedPreviewNavigation({
         lastGoodScoped: scoped,
         loading: false,
         unavailable: false,
-        unsupported: false,
         expiresAt: scoped.renewalScope.expiresAt,
         renewalFailures: 0,
       }));
@@ -207,7 +186,6 @@ export function useProjectScopedPreviewNavigation({
         scoped: null,
         loading: false,
         unavailable: true,
-        unsupported: false,
         expiresAt: null,
         renewalFailures: 0,
       }));
@@ -240,13 +218,6 @@ export function useProjectScopedPreviewNavigation({
     const timer = window.setTimeout(() => {
       void cache.get(request).then((result) => {
         if (requestGenerationRef.current !== generation) return;
-        if (result === PROJECT_SCOPED_PREVIEW_UNSUPPORTED) {
-          setState((previous) => previous.ownerKey === ownerKey
-            && previous.loadKey === loadKey
-            ? { ...previous, unsupported: true, unavailable: false, loading: false }
-            : previous);
-          return;
-        }
         if (!result) {
           setState((previous) => previous.ownerKey === ownerKey
             && previous.loadKey === loadKey
@@ -268,7 +239,6 @@ export function useProjectScopedPreviewNavigation({
             scoped,
             lastGoodScoped: scoped,
             unavailable: false,
-            unsupported: false,
             expiresAt: scoped.renewalScope.expiresAt,
             renewalFailures: needsAnotherAttempt ? previous.renewalFailures + 1 : 0,
           };
@@ -294,7 +264,6 @@ export function useProjectScopedPreviewNavigation({
         scoped: state.lastGoodScoped,
         loading: false,
         unavailable: false,
-        unsupported: false,
         expiresAt: state.expiresAt,
       };
     }
@@ -302,7 +271,6 @@ export function useProjectScopedPreviewNavigation({
       scoped: null,
       loading: false,
       unavailable: false,
-      unsupported: false,
       expiresAt: null,
     };
   }
@@ -311,7 +279,6 @@ export function useProjectScopedPreviewNavigation({
       scoped: null,
       loading: true,
       unavailable: false,
-      unsupported: false,
       expiresAt: null,
     };
   }
@@ -319,7 +286,6 @@ export function useProjectScopedPreviewNavigation({
     scoped: state.lastGoodScoped,
     loading: state.loading,
     unavailable: state.unavailable,
-    unsupported: state.unsupported,
     expiresAt: state.expiresAt,
   };
 }
@@ -377,7 +343,6 @@ export function usePreviewSessionNavigationFromScope({
     loading: scopedState.loading
       || (scopedState.scoped !== null && !scopedState.scoped.previewPolicy && policy === null),
     unavailable: scopedState.unavailable,
-    unsupported: scopedState.unsupported,
     expiresAt: scopedState.expiresAt,
   };
 }

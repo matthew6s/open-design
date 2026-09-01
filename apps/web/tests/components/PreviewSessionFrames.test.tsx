@@ -28,6 +28,7 @@ function navigation(
     sessionId: 'scope-0001',
     documentVersion: version,
     url: `http://${sandboxProfile === 'powered' ? 'p' : 'n'}-scope-0001.localhost:17456/index.html?v=${version}`,
+    runtimeProtocol: 'universal',
     sandboxProfile,
     deck: false,
   };
@@ -451,5 +452,38 @@ describe('PreviewSessionFrames', () => {
     signal(frame, first, 'od:preview:capabilities-applied', ['scroll']);
     expect(onCapabilitiesApplied).toHaveBeenLastCalledWith(frame, ['scroll']);
     expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+  });
+
+  it('keeps an old-daemon preview on one real URL without mounting a srcdoc runtime', () => {
+    const legacy: PreviewSessionNavigation = {
+      ...navigation('legacy-v1'),
+      runtimeProtocol: 'legacy-url',
+      url: 'http://localhost/api/projects/project-1/preview/legacy-scope/index.html',
+    };
+    const onPromoted = vi.fn();
+    render(
+      <IframeKeepAliveProvider>
+        <PreviewSessionFrames
+          projectId="project-1"
+          fileName="index.html"
+          navigation={legacy}
+          enabledCapabilities={['edit']}
+          active
+          onPromoted={onPromoted}
+        />
+      </IframeKeepAliveProvider>,
+    );
+
+    const standby = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    expect(standby).toHaveAttribute('src', legacy.url);
+    expect(standby).not.toHaveAttribute('srcdoc');
+    expect(standby).toHaveAttribute('data-od-capabilities', 'unavailable');
+    expect(document.querySelectorAll('iframe')).toHaveLength(1);
+
+    act(() => standby.dispatchEvent(new Event('load')));
+
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(standby);
+    expect(document.querySelectorAll('iframe')).toHaveLength(1);
+    expect(onPromoted).toHaveBeenCalledWith(legacy, null);
   });
 });

@@ -11809,7 +11809,6 @@ export function ProjectView({
         ) : null}
         <FileWorkspace
           projectId={project.id}
-          previewRuntimeConvergence
           projectName={currentProject.name}
           viewerOnly={projectMutationReadOnly}
           materializationPending={projectCollab.materializationPending}

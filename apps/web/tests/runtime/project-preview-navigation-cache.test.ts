@@ -18,6 +18,7 @@ function navigation(sessionId: string, expiresAt: number): ProjectScopedPreviewN
     normalUrl: `http://n-${sessionId}.localhost:17456/pages/index.html`,
     poweredUrl: `http://p-${sessionId}.localhost:17456/pages/index.html`,
     documentVersion: '10:20',
+    runtimeProtocol: 'universal',
     renewalScope: {
       href: `http://host/api/projects/project-1/preview/${sessionId}/pages/`,
       expiresAt,

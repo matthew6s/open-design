@@ -18,6 +18,7 @@ const navigation: PreviewSessionNavigation = {
   sessionId: 'scope-0001',
   documentVersion: 'v1',
   url: 'http://n-scope-0001.localhost:17456/index.html?v=v1',
+  runtimeProtocol: 'universal',
   sandboxProfile: 'normal',
   deck: false,
 };

@@ -361,8 +361,6 @@ interface Props {
   viewerOnly?: boolean;
   /** First-open placeholder: do not mount cached/write-capable workspace tabs. */
   materializationPending?: boolean;
-  /** Internal terminal-runtime acceptance harness; defaults from the build flag. */
-  previewRuntimeConvergence?: boolean;
   /** Optional override for the read-only notice text. */
   readonlyNotice?: string;
   /**
@@ -1374,10 +1372,6 @@ export function FileWorkspace({
   headerActions,
   viewerOnly = false,
   materializationPending = false,
-  // Product entry points opt into the converged real-URL runtime explicitly.
-  // Keep the component default on the legacy comparator until Phase 4 deletes
-  // that implementation and its focused parity tests together.
-  previewRuntimeConvergence = false,
   readonlyNotice,
   fileSyncBadge = null,
 }: Props) {
@@ -3282,7 +3276,7 @@ export function FileWorkspace({
   }, [projectId]);
   useLayoutEffect(() => {
     const activeName = activeHtmlViewerFile?.name ?? null;
-    if (!previewRuntimeConvergence || !activeName) {
+    if (!activeName) {
       setPresentedHtmlViewerName(null);
       return;
     }
@@ -3297,9 +3291,8 @@ export function FileWorkspace({
       // target's localized loading/error state as before.
       return activeName;
     });
-  }, [activeHtmlViewerFile?.name, mountedHtmlViewerNames.join('\0'), previewRuntimeConvergence, projectId]);
-  const effectivePresentedHtmlViewerName = previewRuntimeConvergence
-    && presentedHtmlViewerName
+  }, [activeHtmlViewerFile?.name, mountedHtmlViewerNames.join('\0'), projectId]);
+  const effectivePresentedHtmlViewerName = presentedHtmlViewerName
     && mountedHtmlViewerNames.includes(presentedHtmlViewerName)
     ? presentedHtmlViewerName
     : activeHtmlViewerFile?.name ?? null;
@@ -3448,7 +3441,6 @@ export function FileWorkspace({
       manualEditEntryAllowed={
         protectedHtmlViewerFileNames.size === 0 || protectedHtmlViewerFileNames.has(file.name)
       }
-      previewRuntimeConvergence={previewRuntimeConvergence}
     />
   );
 

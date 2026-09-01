@@ -10,6 +10,7 @@ const scoped: ProjectScopedPreviewNavigation = {
   normalUrl: 'http://n-scope-0001.localhost:17456/nested/My%20Deck.html',
   poweredUrl: 'http://p-scope-0001.localhost:17456/nested/My%20Deck.html',
   documentVersion: '10:20',
+  runtimeProtocol: 'universal',
   renewalScope: {
     href: 'http://host/api/projects/project-1/preview/scope-0001/nested/',
     expiresAt: 20_000,
@@ -33,6 +34,7 @@ describe('buildPreviewSessionNavigation', () => {
       sessionId: 'scope-0001',
       documentVersion: '10:20',
       url: scoped.normalUrl,
+      runtimeProtocol: 'universal',
       sandboxProfile: 'normal',
       deck: false,
     });

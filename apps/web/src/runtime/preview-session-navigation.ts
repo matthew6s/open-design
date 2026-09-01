@@ -3,6 +3,7 @@ import type { ProjectScopedPreviewNavigation } from '../providers/registry';
 
 export interface PreviewSessionNavigation extends PreviewRuntimeDocumentIdentity {
   url: string;
+  runtimeProtocol: ProjectScopedPreviewNavigation['runtimeProtocol'];
   sandboxProfile: 'normal' | 'powered';
   deck: boolean;
 }
@@ -72,6 +73,7 @@ export function buildPreviewSessionNavigation(
     sessionId: scoped.sessionId,
     documentVersion: scoped.documentVersion,
     url: url.href,
+    runtimeProtocol: scoped.runtimeProtocol,
     sandboxProfile,
     deck,
   };

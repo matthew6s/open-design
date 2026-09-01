@@ -58,7 +58,8 @@ export interface PreviewSessionFramesProps extends Omit<
   standbyTimeoutMs?: number;
 }
 
-interface RenderedPreviewDocument extends PreviewSessionNavigation {
+interface RenderedPreviewDocument extends Omit<PreviewSessionNavigation, 'runtimeProtocol'> {
+  runtimeProtocol: 'universal';
   frame: HTMLIFrameElement;
   target: PreviewRuntimeMessageTarget;
   navigationAttempt: number;
@@ -96,15 +97,25 @@ function documentKeepAliveKey(
  * paints in a transparent, inert standby iframe. The component never assigns
  * about:blank and never mutates the URL of an existing browsing context.
  *
- * FileViewer consumes this adapter through its internal convergence harness,
- * while the default path stays unchanged until the legacy URL/srcDoc stack can
- * be replaced atomically.
+ * FileViewer uses this as its only settled-file document transport. Version
+ * replacement may briefly stage one transparent candidate beside last-good,
+ * but there is never a parallel srcdoc/Blob runtime.
  */
 export function PreviewSessionFrames({
   projectId,
   fileName,
   ...props
 }: PreviewSessionFramesProps) {
+  if (props.navigation.runtimeProtocol === 'legacy-url') {
+    return (
+      <LegacyPreviewSessionFramesForFile
+        key={`${projectId}\0${fileName}`}
+        projectId={projectId}
+        fileName={fileName}
+        {...props}
+      />
+    );
+  }
   return (
     <PreviewSessionFramesForFile
       key={`${projectId}\0${fileName}`}
@@ -112,6 +123,124 @@ export function PreviewSessionFrames({
       fileName={fileName}
       {...props}
     />
+  );
+}
+
+interface LegacyRenderedPreviewDocument {
+  navigation: PreviewSessionNavigation;
+  navigationAttempt: number;
+  frame: HTMLIFrameElement;
+}
+
+/**
+ * Rolling-upgrade adapter for daemons that predate the universal Preview
+ * Runtime. It still renders exactly one real-URL document transport. Because
+ * the old document has no runtime handshake, browser load is the strongest
+ * available promotion signal; interactive capabilities remain unavailable
+ * instead of falling back to srcdoc/Blob.
+ */
+function LegacyPreviewSessionFramesForFile({
+  projectId,
+  fileName,
+  navigation,
+  enabledCapabilities = EMPTY_CAPABILITIES,
+  active,
+  presented = active,
+  navigationRetryToken = 0,
+  onCurrentFrameChange,
+  onStandbyFrameChange,
+  onPromoted,
+  title = fileName,
+  ...iframeProps
+}: PreviewSessionFramesProps) {
+  const pool = useIframeKeepAlivePool();
+  const [current, setCurrent] = useState<LegacyRenderedPreviewDocument | null>(null);
+  const requestedIsCurrent = current !== null
+    && sameIdentity(current.navigation, navigation)
+    && current.navigation.url === navigation.url
+    && current.navigationAttempt === navigationRetryToken;
+  const standby = requestedIsCurrent ? null : navigation;
+
+  useEffect(() => {
+    onCurrentFrameChange?.(active ? current?.frame ?? null : null);
+  }, [active, current, onCurrentFrameChange]);
+
+  useEffect(() => () => {
+    onCurrentFrameChange?.(null);
+    onStandbyFrameChange?.(null);
+  }, [onCurrentFrameChange, onStandbyFrameChange]);
+
+  const promote = useCallback((frame: HTMLIFrameElement) => {
+    if (!standby) return;
+    const previous = current;
+    setCurrent({
+      navigation: standby,
+      navigationAttempt: navigationRetryToken,
+      frame,
+    });
+    onPromoted?.(standby, previous?.navigation ?? null);
+    if (previous) {
+      pool.evict(documentKeepAliveKey(
+        projectId,
+        fileName,
+        previous.navigation,
+        previous.navigationAttempt,
+      ));
+    }
+  }, [current, fileName, navigationRetryToken, onPromoted, pool, projectId, standby]);
+
+  const commonProps = {
+    ...iframeProps,
+    title,
+    'data-od-render-mode': 'runtime-url',
+    'data-od-runtime-protocol': 'legacy-url',
+    'data-od-capabilities': enabledCapabilities.length > 0 ? 'unavailable' : 'none-requested',
+  };
+
+  return (
+    <>
+      {current ? (
+        <PooledIframe
+          key={documentKeepAliveKey(
+            projectId,
+            fileName,
+            current.navigation,
+            current.navigationAttempt,
+          )}
+          {...commonProps}
+          cacheKey={documentKeepAliveKey(
+            projectId,
+            fileName,
+            current.navigation,
+            current.navigationAttempt,
+          )}
+          src={current.navigation.url}
+          sandbox={previewSessionFramePolicy(current.navigation.sandboxProfile).sandbox}
+          allow={previewSessionFramePolicy(current.navigation.sandboxProfile).allow}
+          data-testid="preview-runtime-frame-current"
+          data-od-active={presented ? 'true' : 'false'}
+          aria-hidden={presented ? undefined : 'true'}
+          tabIndex={active && presented ? 0 : -1}
+        />
+      ) : null}
+      {standby ? (
+        <PooledIframe
+          key={documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)}
+          {...commonProps}
+          ref={onStandbyFrameChange}
+          cacheKey={documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken)}
+          src={standby.url}
+          sandbox={previewSessionFramePolicy(standby.sandboxProfile).sandbox}
+          allow={previewSessionFramePolicy(standby.sandboxProfile).allow}
+          data-testid="preview-runtime-frame-standby"
+          data-od-active="false"
+          data-od-standby="true"
+          aria-hidden="true"
+          tabIndex={-1}
+          onLoad={(event) => promote(event.currentTarget)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -276,7 +405,7 @@ function PreviewSessionFramesForFile({
     standbyTargetRef.current = target;
     frameByTargetRef.current.set(target, frame);
     attemptByTargetRef.current.set(target, navigationRetryToken);
-    session.stageDocument({ ...standby, target });
+    session.stageDocument({ ...standby, runtimeProtocol: 'universal', target });
     callbacksRef.current.onStandbyFrameChange?.(frame);
   }, [navigationRetryToken, session, standby]);
 
@@ -299,6 +428,9 @@ function PreviewSessionFramesForFile({
     ...iframeProps,
     title,
     'data-od-render-mode': 'runtime-url',
+    'data-od-runtime-protocol': 'universal',
+    'data-od-session-id': navigation.sessionId,
+    'data-od-document-version': navigation.documentVersion,
   };
 
   return (
@@ -359,6 +491,7 @@ function navigationOf(document: PreviewSessionDocument): PreviewSessionNavigatio
     sessionId: document.sessionId,
     documentVersion: document.documentVersion,
     url: document.url,
+    runtimeProtocol: document.runtimeProtocol,
     sandboxProfile: document.sandboxProfile,
     deck: document.deck,
   };

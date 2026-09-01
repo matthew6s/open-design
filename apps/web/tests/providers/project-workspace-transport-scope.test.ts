@@ -162,6 +162,20 @@ describe('persisted project Workspace transport scope', () => {
       href: 'od://app/api/projects/project-1/preview/legacy-scope/pages/',
       expiresAt: Date.now() + 45 * 60 * 1000,
     });
+    await expect(fetchProjectScopedPreviewNavigation(
+      'project-1',
+      'pages/brand.html',
+    )).resolves.toEqual({
+      sessionId: 'legacy-legacy-scope',
+      normalUrl: 'od://app/api/projects/project-1/preview/legacy-scope/pages/brand.html',
+      poweredUrl: 'od://app/api/projects/project-1/preview/legacy-scope/pages/brand.html',
+      documentVersion: 'legacy:pages/brand.html',
+      runtimeProtocol: 'legacy-url',
+      renewalScope: {
+        href: 'od://app/api/projects/project-1/preview/legacy-scope/pages/',
+        expiresAt: Date.now() + 45 * 60 * 1000,
+      },
+    });
     vi.useRealTimers();
   });
 
@@ -194,6 +208,7 @@ describe('persisted project Workspace transport scope', () => {
       normalUrl: 'http://n-scope-0001.localhost:17456/pages/brand.html',
       poweredUrl: 'http://p-scope-0001.localhost:17456/pages/brand.html',
       documentVersion: '120:456.5',
+      runtimeProtocol: 'universal',
       previewPolicy: {
         sandboxProfile: 'powered',
         guards: { storage: false, focus: false, redirect: false },

@@ -5622,7 +5622,6 @@ describe('FileViewer SVG artifacts', () => {
         file={file}
         isDeck
         liveHtml={'<html><body><section class="slide">one</section><section class="slide">two</section></body></html>'}
-        previewRuntimeConvergence
       />,
     );
 
@@ -8981,7 +8980,6 @@ describe('FileViewer tweaks toolbar', () => {
         file={file}
         liveHtml={liveHtml}
         workspaceActive={workspaceActive}
-        previewRuntimeConvergence
       />
     );
     const { rerender } = render(renderViewer());
@@ -9382,7 +9380,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -9509,7 +9506,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -9645,7 +9641,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -9740,7 +9735,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -9766,7 +9760,7 @@ describe('FileViewer tweaks toolbar', () => {
     expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
   });
 
-  it('falls back to the legacy URL transport when an old daemon does not advertise scoped origins', async () => {
+  it('keeps an old-daemon document on its single legacy real URL', async () => {
     const file = htmlPreviewFile({ name: 'legacy-only.html', path: 'legacy-only.html' });
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string'
@@ -9799,15 +9793,21 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
-    const legacyFrame = await screen.findByTestId('artifact-preview-frame');
-    expect(legacyFrame.getAttribute('data-od-render-mode')).toBe('url-load');
+    const legacyFrame = await screen.findByTestId('preview-runtime-frame-standby');
+    expect(legacyFrame.getAttribute('data-od-render-mode')).toBe('runtime-url');
+    expect(legacyFrame.getAttribute('data-od-runtime-protocol')).toBe('legacy-url');
+    expect(legacyFrame.getAttribute('data-od-capabilities')).toBe('unavailable');
     expect(legacyFrame.getAttribute('src')).toContain(
-      '/api/projects/project-1/raw/legacy-only.html',
+      '/api/projects/project-1/preview/legacy-scope/legacy-only.html',
     );
+    expect(legacyFrame).not.toHaveAttribute('srcdoc');
+    expect(document.querySelectorAll('iframe')).toHaveLength(1);
+    act(() => legacyFrame.dispatchEvent(new Event('load')));
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(legacyFrame);
+    expect(document.querySelectorAll('iframe')).toHaveLength(1);
     expect(screen.queryByTestId('preview-runtime-navigation-error')).toBeNull();
   });
 
@@ -9856,7 +9856,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -9918,7 +9917,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectKind="prototype"
         file={file}
         workspaceActive={workspaceActive}
-        previewRuntimeConvergence
       />
     );
     const { rerender } = render(view(false));
@@ -10030,7 +10028,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectId="project-1"
         projectKind="prototype"
         file={file}
-        previewRuntimeConvergence
       />,
     );
 
@@ -10092,7 +10089,6 @@ describe('FileViewer tweaks toolbar', () => {
           projectId="project-1"
           projectKind="prototype"
           file={file}
-          previewRuntimeConvergence
         />
       </CollabProvider>
     );
@@ -10194,7 +10190,6 @@ describe('FileViewer tweaks toolbar', () => {
             projectId="project-1"
             projectKind="prototype"
             file={file}
-            previewRuntimeConvergence
           />
         </IframeKeepAliveProvider>,
       );
@@ -10350,7 +10345,6 @@ describe('FileViewer tweaks toolbar', () => {
           projectKind="prototype"
           file={file}
           filesRefreshKey={filesRefreshKey}
-          previewRuntimeConvergence
         />
       </IframeKeepAliveProvider>
     );
@@ -10431,7 +10425,6 @@ describe('FileViewer tweaks toolbar', () => {
           projectKind="prototype"
           file={file}
           filesRefreshKey={filesRefreshKey}
-          previewRuntimeConvergence
         />
       </IframeKeepAliveProvider>
     );
@@ -10548,7 +10541,6 @@ describe('FileViewer tweaks toolbar', () => {
         projectKind="slide_deck"
         file={file}
         isDeck
-        previewRuntimeConvergence
       />,
     );
 

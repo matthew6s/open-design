@@ -1,6 +1,5 @@
 import {
   fetchProjectScopedPreviewNavigation,
-  PROJECT_SCOPED_PREVIEW_UNSUPPORTED,
   renewProjectPreviewBaseScope,
   type ProjectScopedPreviewNavigation,
   type ProjectScopedPreviewNavigationResult,
@@ -110,7 +109,7 @@ export class ProjectPreviewNavigationCache {
     }
 
     const minted = await this.#mint(request.projectId, request.fileName);
-    if (minted === PROJECT_SCOPED_PREVIEW_UNSUPPORTED || !minted) return minted;
+    if (!minted) return minted;
     if (minted.renewalScope.expiresAt <= this.#now()) return null;
     if (epoch === this.#epoch) this.#touch(key, minted);
     return minted;

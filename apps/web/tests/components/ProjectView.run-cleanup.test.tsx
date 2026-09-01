@@ -553,9 +553,9 @@ describe('ProjectView daemon cleanup', () => {
     );
 
     await waitFor(() => expect(fileWorkspaceSpy).toHaveBeenCalled());
-    expect(fileWorkspaceSpy).toHaveBeenLastCalledWith(expect.objectContaining({
-      previewRuntimeConvergence: true,
-    }));
+    expect(fileWorkspaceSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty(
+      'previewRuntimeConvergence',
+    );
     const onSavePreviewComment = fileWorkspaceSpy.mock.calls.at(-1)?.[0]
       ?.onSavePreviewComment as (
         target: { kind: 'point'; x: number; y: number },

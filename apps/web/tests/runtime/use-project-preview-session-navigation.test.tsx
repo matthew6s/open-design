@@ -19,6 +19,7 @@ function navigation(sessionId: string, version: string, expiresAt = 20_000) {
     normalUrl: `http://n-${sessionId}.localhost:17456/index.html`,
     poweredUrl: `http://p-${sessionId}.localhost:17456/index.html`,
     documentVersion: version,
+    runtimeProtocol: 'universal',
     renewalScope: {
       href: `http://host/api/projects/project-1/preview/${sessionId}/`,
       expiresAt,

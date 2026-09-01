@@ -51,9 +51,8 @@ interface PreviewBridgeSemanticState {
  * any matching mode payload is replayed; later mode changes only post messages
  * to the retained current frame and never mutate its URL.
  *
- * FileViewer consumes this boundary through its internal convergence harness.
- * The default product path remains legacy until terminal feature parity is
- * proven and the URL/srcDoc stack can be removed in one cutover.
+ * FileViewer consumes this boundary for every settled HTML file. The loaded
+ * document remains the same real-URL browsing context while UI modes change.
  */
 export function PreviewRuntimeTransport({
   viewerState,
