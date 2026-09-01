@@ -102,7 +102,7 @@ describe('PreviewSessionFrames', () => {
     expect(onCurrentFrameChange.mock.calls.filter(([frame]) => frame === standby)).toHaveLength(1);
   });
 
-  it('retains last-good until a replacement paints and then evicts the old version', () => {
+  it('retains same-file last-good until a replacement settles and then evicts the old version', () => {
     const first = navigation('v1');
     const second = navigation('v2');
     const view = (next: PreviewSessionNavigation) => (
@@ -259,7 +259,7 @@ describe('PreviewSessionFrames', () => {
     expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
   });
 
-  it('ends an initial unpainted attempt and allows an explicit same-URL retry', () => {
+  it('ends an unsettled initial attempt and allows an explicit same-URL retry', () => {
     vi.useFakeTimers();
     const first = navigation('v1');
     const onStandbyTimedOut = vi.fn();

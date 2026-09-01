@@ -9502,7 +9502,7 @@ describe('FileViewer tweaks toolbar', () => {
     ))).toHaveLength(1);
   });
 
-  it('paints converged daemon-policy navigation before loading non-critical source text', async () => {
+  it('promotes converged daemon-policy navigation before loading non-critical source text', async () => {
     const file = htmlPreviewFile({ name: 'gated.html', path: 'gated.html' });
     const sourceResponse = deferredResponse();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -9921,7 +9921,7 @@ describe('FileViewer tweaks toolbar', () => {
     expect(screen.queryByText(/Preview unavailable/)).toBeNull();
   });
 
-  it('bounds an unpainted converged frame and retries it without reminting the scope', async () => {
+  it('bounds an unsettled converged frame and retries it without reminting the scope', async () => {
     const file = htmlPreviewFile({ name: 'paint-timeout.html', path: 'paint-timeout.html' });
     const sessionId = 'scope-paint-timeout';
     const documentVersion = 'paint-timeout-v1';
@@ -10195,7 +10195,7 @@ describe('FileViewer tweaks toolbar', () => {
     expect(previewMints).toHaveLength(1);
   });
 
-  it('retries an exact aborted converged standby once without touching a painted frame', async () => {
+  it('retries an exact aborted converged standby once without touching the current frame', async () => {
     const file = htmlPreviewFile({ name: 'retry.html', path: 'retry.html' });
     let navigationFailureListener: OpenDesignHostPreviewNavigationFailureListener | null = null;
     const restoreHost = installMockOpenDesignHost({

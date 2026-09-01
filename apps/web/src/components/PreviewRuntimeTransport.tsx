@@ -120,7 +120,7 @@ export function PreviewRuntimeTransport({
     if (frame) {
       retainedCurrentFrameRef.current = frame;
       // Capability acknowledgement restores the complete host state before a
-      // standby is allowed to paint and promote. Do not replay navigation or
+      // standby is allowed to become current. Do not replay navigation or
       // edit/comment work here: that could double-drive authored runtimes.
     } else if (active) {
       retainedCurrentFrameRef.current = null;
