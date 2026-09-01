@@ -26,68 +26,157 @@ export type PackagedHomeFirstRunResult = {
   workspaceTabClicksBeforeOutput: number;
 };
 
-export type PackagedHomeFirstRunExpressionOptions = {
-  readinessPollIntervalMs?: number;
-  readinessTimeoutMs?: number;
+export type PackagedHomeFirstRunReadiness = {
+  composerContentEditable: boolean;
+  composerFound: boolean;
+  composerVisible: boolean;
+  loadingVisible: boolean;
+  onboardingVisible: boolean;
+  pathname: string;
 };
 
+export type PackagedHomeFirstRunSetupResult = {
+  hrefBefore: string;
+  inputTextBeforeSubmit: string;
+  instrumented: true;
+  navigationEntryCountBefore: number;
+  performanceTimeOriginBefore: number;
+  readiness: PackagedHomeFirstRunReadiness;
+  submitClicked: boolean;
+};
+
+export type PackagedHomeFirstRunWaitOptions = {
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+};
+
+export async function waitForPackagedHomeFirstRunSetup(
+  inspect: () => Promise<unknown>,
+  options: PackagedHomeFirstRunWaitOptions = {},
+): Promise<PackagedHomeFirstRunSetupResult> {
+  const pollIntervalMs = options.pollIntervalMs ?? 100;
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const startedAt = Date.now();
+  let lastObservation: unknown = null;
+
+  do {
+    try {
+      lastObservation = await inspect();
+      const setup = asPackagedHomeFirstRunSetupResult(lastObservation);
+      if (setup != null) return setup;
+    } catch (error) {
+      lastObservation = {
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      };
+    }
+
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, remainingMs)));
+  } while (Date.now() - startedAt < timeoutMs);
+
+  throw new Error(
+    `packaged first Home run composer did not become ready: ${formatSetupObservation(lastObservation)}`,
+  );
+}
+
+function asPackagedHomeFirstRunSetupResult(
+  value: unknown,
+): PackagedHomeFirstRunSetupResult | null {
+  if (typeof value !== 'object' || value == null || Array.isArray(value)) return null;
+  const candidate = value as Partial<PackagedHomeFirstRunSetupResult>;
+  if (
+    candidate.instrumented !== true
+    || typeof candidate.hrefBefore !== 'string'
+    || typeof candidate.inputTextBeforeSubmit !== 'string'
+    || typeof candidate.navigationEntryCountBefore !== 'number'
+    || typeof candidate.performanceTimeOriginBefore !== 'number'
+    || !isPackagedHomeFirstRunReadiness(candidate.readiness)
+    || typeof candidate.submitClicked !== 'boolean'
+  ) {
+    return null;
+  }
+  return candidate as PackagedHomeFirstRunSetupResult;
+}
+
+function isPackagedHomeFirstRunReadiness(
+  value: unknown,
+): value is PackagedHomeFirstRunReadiness {
+  if (typeof value !== 'object' || value == null || Array.isArray(value)) return false;
+  const candidate = value as Partial<PackagedHomeFirstRunReadiness>;
+  return (
+    typeof candidate.composerContentEditable === 'boolean'
+    && typeof candidate.composerFound === 'boolean'
+    && typeof candidate.composerVisible === 'boolean'
+    && typeof candidate.loadingVisible === 'boolean'
+    && typeof candidate.onboardingVisible === 'boolean'
+    && typeof candidate.pathname === 'string'
+  );
+}
+
+function formatSetupObservation(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /**
- * Waits for the ready Home composer, then instruments the first packaged send
- * without recovering the renderer.
+ * Probes the Home composer and instruments the first packaged send atomically
+ * once it is ready, without recovering the renderer.
  * Output observation is polled through a separate expression, so this setup
  * never reloads the page or clicks a workspace tab after submission.
  */
-export function packagedHomeFirstRunExpression(
-  options: PackagedHomeFirstRunExpressionOptions = {},
-): string {
-  const readinessPollIntervalMs = options.readinessPollIntervalMs ?? 100;
-  const readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
+export function packagedHomeFirstRunExpression(): string {
   return `
     (async () => {
       const prompt = ${JSON.stringify(PACKAGED_HOME_FIRST_RUN_PROMPT)};
-      const readinessStartedAt = Date.now();
-      let input = null;
-      let readiness = null;
-      while (input == null) {
-        const candidate = document.querySelector('[data-testid="home-hero-input"]');
-        const loadingSurface = document.querySelector('.od-loading-shell, .centered-loader');
-        const onboardingSurface = document.querySelector(
-          '.entry-shell--onboarding, .entry-onboarding-modal',
-        );
-        const composerVisible =
-          candidate instanceof HTMLElement && candidate.getClientRects().length > 0;
-        const composerContentEditable =
-          candidate instanceof HTMLElement && candidate.isContentEditable;
-        readiness = {
-          pathname: location.pathname,
-          loadingVisible:
-            loadingSurface instanceof HTMLElement && loadingSurface.getClientRects().length > 0,
-          onboardingVisible:
-            onboardingSurface instanceof HTMLElement && onboardingSurface.getClientRects().length > 0,
-          composerFound: candidate != null,
-          composerVisible,
-          composerContentEditable,
+      const stateKey = '__odPackagedHomeFirstRun';
+      const existingState = globalThis[stateKey];
+      if (existingState?.instrumented === true) {
+        return {
+          hrefBefore: existingState.hrefBefore,
+          inputTextBeforeSubmit: existingState.inputTextBeforeSubmit,
+          instrumented: true,
+          navigationEntryCountBefore: existingState.navigationEntryCountBefore,
+          performanceTimeOriginBefore: existingState.performanceTimeOriginBefore,
+          readiness: existingState.readiness,
+          submitClicked: existingState.submitClicked,
         };
-        if (composerVisible && composerContentEditable) {
-          input = candidate;
-          break;
-        }
-        if (Date.now() - readinessStartedAt >= ${JSON.stringify(readinessTimeoutMs)}) {
-          throw new Error(
-            'packaged first Home run composer did not become ready: '
-              + JSON.stringify(readiness),
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, ${JSON.stringify(readinessPollIntervalMs)}));
       }
 
-      const stateKey = '__odPackagedHomeFirstRun';
+      const input = document.querySelector('[data-testid="home-hero-input"]');
+      const loadingSurface = document.querySelector('.od-loading-shell, .centered-loader');
+      const onboardingSurface = document.querySelector(
+        '.entry-shell--onboarding, .entry-onboarding-modal',
+      );
+      const composerVisible =
+        input instanceof HTMLElement && input.getClientRects().length > 0;
+      const composerContentEditable =
+        input instanceof HTMLElement && input.isContentEditable;
+      const readiness = {
+        pathname: location.pathname,
+        loadingVisible:
+          loadingSurface instanceof HTMLElement && loadingSurface.getClientRects().length > 0,
+        onboardingVisible:
+          onboardingSurface instanceof HTMLElement && onboardingSurface.getClientRects().length > 0,
+        composerFound: input != null,
+        composerVisible,
+        composerContentEditable,
+      };
+      if (!composerVisible || !composerContentEditable) {
+        return { instrumented: false, readiness };
+      }
+
       const state = {
         hrefBefore: location.href,
         inputTextBeforeSubmit: '',
+        instrumented: true,
         injectedAuthorityOutageCount: 0,
         navigationEntryCountBefore: performance.getEntriesByType('navigation').length,
         performanceTimeOriginBefore: performance.timeOrigin,
+        readiness,
         createRunRequestCount: 0,
         createRunResponseStatuses: [],
         runEventRequestCount: 0,
@@ -191,8 +280,10 @@ export function packagedHomeFirstRunExpression(
       return {
         hrefBefore: state.hrefBefore,
         inputTextBeforeSubmit: state.inputTextBeforeSubmit,
+        instrumented: true,
         navigationEntryCountBefore: state.navigationEntryCountBefore,
         performanceTimeOriginBefore: state.performanceTimeOriginBefore,
+        readiness,
         submitClicked: state.submitClicked,
       };
     })()

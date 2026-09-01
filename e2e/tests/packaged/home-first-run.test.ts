@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PACKAGED_HOME_FIRST_RUN_PROMPT,
   packagedHomeFirstRunExpression,
+  waitForPackagedHomeFirstRunSetup,
 } from '@/vitest/packaged-home-first-run';
 
 class FixtureElement {
@@ -92,33 +93,93 @@ async function evaluateExpression(
 }
 
 describe('packaged Home first-run readiness', () => {
-  it('waits for the visible editable composer before installing first-run instrumentation', async () => {
+  it('returns quickly until a later inspection can instrument the ready composer', async () => {
     const fixture = renderFixture({ composerAfterQueries: 2, loadingVisible: true });
 
-    const value = await evaluateExpression(packagedHomeFirstRunExpression(), fixture);
+    const first = await evaluateExpression(packagedHomeFirstRunExpression(), fixture);
+    const second = await evaluateExpression(packagedHomeFirstRunExpression(), fixture);
+    const ready = await evaluateExpression(packagedHomeFirstRunExpression(), fixture);
 
-    expect(fixture.composerQueries()).toBeGreaterThanOrEqual(3);
+    expect(first).toMatchObject({
+      instrumented: false,
+      readiness: { composerFound: false, composerVisible: false },
+    });
+    expect(second).toMatchObject({
+      instrumented: false,
+      readiness: { composerFound: false, composerVisible: false },
+    });
+    expect(fixture.composerQueries()).toBe(3);
     expect(fixture.input.textContent).toBe(PACKAGED_HOME_FIRST_RUN_PROMPT);
-    expect(value).toMatchObject({
+    expect(ready).toMatchObject({
+      instrumented: true,
       inputTextBeforeSubmit: PACKAGED_HOME_FIRST_RUN_PROMPT,
       submitClicked: false,
     });
   });
 
-  it('diagnoses a composer that never becomes ready', async () => {
+  it('polls through separate inspections until the composer can be instrumented', async () => {
+    const fixture = renderFixture({ composerAfterQueries: 2, loadingVisible: true });
+    let inspectionCount = 0;
+
+    const setup = await waitForPackagedHomeFirstRunSetup(async () => {
+      inspectionCount += 1;
+      return await evaluateExpression(packagedHomeFirstRunExpression(), fixture);
+    }, { pollIntervalMs: 0, timeoutMs: 100 });
+
+    expect(inspectionCount).toBe(3);
+    expect(setup).toMatchObject({
+      instrumented: true,
+      inputTextBeforeSubmit: PACKAGED_HOME_FIRST_RUN_PROMPT,
+    });
+  });
+
+  it('reports why the current composer is not ready without blocking the inspection', async () => {
     const fixture = renderFixture({
       composerContentEditable: false,
       composerVisible: false,
       loadingVisible: true,
       onboardingVisible: true,
     });
-    const expression = packagedHomeFirstRunExpression({
-      readinessPollIntervalMs: 1,
-      readinessTimeoutMs: 10,
-    });
-
-    await expect(evaluateExpression(expression, fixture, '/onboarding')).rejects.toThrow(
-      /pathname.*\/onboarding.*loadingVisible.*true.*onboardingVisible.*true.*composerFound.*true.*composerVisible.*false.*composerContentEditable.*false/,
+    const value = await evaluateExpression(
+      packagedHomeFirstRunExpression(),
+      fixture,
+      '/onboarding',
     );
+
+    expect(value).toMatchObject({
+      instrumented: false,
+      readiness: {
+        pathname: '/onboarding',
+        loadingVisible: true,
+        onboardingVisible: true,
+        composerFound: true,
+        composerVisible: false,
+        composerContentEditable: false,
+      },
+    });
+  });
+
+  it('times out with the final readiness snapshot when no inspection can instrument', async () => {
+    const fixture = renderFixture({
+      composerContentEditable: false,
+      composerVisible: false,
+      loadingVisible: true,
+      onboardingVisible: true,
+    });
+    let inspectionCount = 0;
+
+    const setup = waitForPackagedHomeFirstRunSetup(async () => {
+      inspectionCount += 1;
+      return await evaluateExpression(
+        packagedHomeFirstRunExpression(),
+        fixture,
+        '/onboarding',
+      );
+    }, { pollIntervalMs: 1, timeoutMs: 10 });
+
+    await expect(setup).rejects.toThrow(
+      /pathname.*\/onboarding.*loadingVisible.*true.*onboardingVisible.*true.*composerFound.*true.*composerVisible.*false.*composerContentEditable.*false/s,
+    );
+    expect(inspectionCount).toBeGreaterThan(1);
   });
 });
