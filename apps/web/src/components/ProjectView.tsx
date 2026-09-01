@@ -7361,7 +7361,15 @@ export function ProjectView({
             ? pendingBlockedTask.taskAnalytics
           : buildInitialTaskAnalytics(randomUUID()));
       const runContext = meta?.context ?? retryTarget?.userMsg.runContext;
-      const historyBase = retryTarget ? retryTarget.priorMessages : baseMessages ?? messages;
+      const unclaimedHistoryBase = retryTarget
+        ? retryTarget.priorMessages
+        : baseMessages ?? messages;
+      // Stable user ids are also used by retries and durable queue drains. If
+      // the row is already visible, replace its position below instead of
+      // appending a second copy of the same logical user turn.
+      const historyBase = meta?.userMessageId
+        ? unclaimedHistoryBase.filter((message) => message.id !== meta.userMessageId)
+        : unclaimedHistoryBase;
       if (
         !retryTarget &&
         !prompt.trim() &&
@@ -7649,11 +7657,17 @@ export function ProjectView({
       const runConversationId = activeConversationId;
       setError(null);
       const startedAt = Date.now();
+      const previousConversation = conversationsRef.current.find(
+        (conversation) => conversation.id === runConversationId,
+      );
+      const previousConversationUpdatedAt = previousConversation?.updatedAt;
+      const previousConversationLatestRun = previousConversation?.latestRun;
       const userMsg: ChatMessage = retryTarget?.userMsg ?? {
         id: meta?.userMessageId ?? randomUUID(),
         role: 'user',
         content: prompt,
         createdAt: startedAt,
+        clientRequestId,
         sessionMode: runSessionMode,
         taskAnalytics,
         ...(meta?.appliedPluginSnapshot
@@ -8561,6 +8575,53 @@ export function ProjectView({
           textBuffer.flush();
           textBuffer.cancel();
           cancelSendTextBuffer();
+          // POST /api/runs can fail before it yields a run id. That is a failed
+          // user send, not a failed assistant run: no assistant process ever
+          // existed, so keeping the optimistic placeholder would fabricate a
+          // run and route the user to the wrong recovery action.
+          if (config.mode === 'daemon' && !currentRunId) {
+            if (runMayFinalize) {
+              setError(null);
+              activeCompletionNotificationRunsRef.current.delete(assistantId);
+              setConversations((current) =>
+                current.map((conversation) => {
+                  if (
+                    conversation.id !== runConversationId
+                    || conversation.latestRun?.startedAt !== startedAt
+                  ) {
+                    return conversation;
+                  }
+                  return {
+                    ...conversation,
+                    ...(previousConversationUpdatedAt === undefined
+                      ? {}
+                      : { updatedAt: previousConversationUpdatedAt }),
+                    latestRun: previousConversationLatestRun,
+                  };
+                }),
+              );
+              setMessages((current) => {
+                let failedUser: ChatMessage | null = null;
+                const next = current.flatMap((message) => {
+                  if (message.id === assistantId) return [];
+                  if (message.id !== userMsg.id) return [message];
+                  failedUser = { ...message, sendFailed: true };
+                  return [failedUser];
+                });
+                if (failedUser) persistMessage(failedUser);
+                return next;
+              });
+              if (runCommentAttachments.length > 0) {
+                void patchAttachedStatuses(runCommentAttachments, 'failed');
+              }
+            }
+            clearCurrentRunStreamingMarker(
+              runConversationId,
+              controller,
+              cancelController,
+            );
+            return;
+          }
           // The daemon refused a duplicate design-system enrichment because the
           // conversation already runs one (HTTP 409
           // DESIGN_SYSTEM_ENRICHMENT_IN_PROGRESS). The surviving run is the one
@@ -8968,6 +9029,11 @@ export function ProjectView({
             authoritativeArtifactPaths = paths;
           },
           onRunStatus: (runStatus) => {
+            // streamViaDaemon reports `failed` before onError when POST
+            // /api/runs itself fails. Until onRunCreated supplies an id there is
+            // no assistant run to finalize or persist; onError moves the failure
+            // to the user row instead.
+            if (!currentRunId && runStatus === 'failed') return;
             const endedAt = isTerminalRunStatus(runStatus) ? Date.now() : undefined;
             const runMayFinalize =
               !supersededRunsRef.current.has(controller);
@@ -9274,6 +9340,56 @@ export function ProjectView({
       projectMutationReadOnly,
       projectWorkspaceScopeState.scope,
     ],
+  );
+
+  const handleResendUserMessage = useCallback(
+    (failedMessage: ChatMessage) => {
+      if (failedMessage.role !== 'user' || !failedMessage.sendFailed) return;
+      const currentMessages = messagesRef.current;
+      const currentMessage = currentMessages.find((message) => message.id === failedMessage.id);
+      if (currentMessage?.role !== 'user' || !currentMessage.sendFailed) return;
+
+      const retryMessage: ChatMessage = { ...currentMessage, sendFailed: undefined };
+      function restoreFailedState() {
+        updateMessageById(
+          retryMessage.id,
+          (message) => ({ ...message, sendFailed: true }),
+          true,
+        );
+      }
+
+      // Clear the persistent failure state before the canonical send path runs
+      // its preflight checks. A rejected preflight restores the retry action.
+      updateMessageById(currentMessage.id, () => retryMessage, true);
+
+      void handleSend(
+        retryMessage.content,
+        retryMessage.attachments ?? [],
+        retryMessage.commentAttachments ?? [],
+        {
+          clientRequestId: retryMessage.clientRequestId ?? retryMessage.id,
+          userMessageId: retryMessage.id,
+          acceptDurableQueue: true,
+          ...(retryMessage.sessionMode ? { sessionMode: retryMessage.sessionMode } : {}),
+          ...(retryMessage.runContext
+            ? {
+                context: retryMessage.runContext,
+                skillIds: retryMessage.runContext.skillIds,
+              }
+            : {}),
+          ...(retryMessage.appliedPluginSnapshot
+            ? { appliedPluginSnapshot: retryMessage.appliedPluginSnapshot }
+            : {}),
+          ...(retryMessage.taskAnalytics ? { taskAnalytics: retryMessage.taskAnalytics } : {}),
+        },
+      ).then(
+        (started) => {
+          if (!started) restoreFailedState();
+        },
+        restoreFailedState,
+      );
+    },
+    [handleSend, updateMessageById],
   );
 
   const handleComposerSend = useCallback(
@@ -12253,6 +12369,7 @@ export function ProjectView({
               onDetachComment={detachPreviewComment}
               onDeleteComment={(commentId) => void removePreviewComment(commentId)}
               onSend={handleComposerSend}
+              onResendUserMessage={handleResendUserMessage}
               onRetry={handleRetry}
               onSwitchModel={handleSwitchModel}
               amrAuthRetryContinuation={amrAuthRetryContinuation}

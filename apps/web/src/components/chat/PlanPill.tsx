@@ -16,7 +16,7 @@
  *
  * 展开态那张独立卡(第 70 格)**拍板不做**(D33 / S9),这里不要顺手补。
  */
-import type { ReactElement } from 'react';
+import { useLayoutEffect, useRef, type ReactElement } from 'react';
 import { useT } from '../../i18n';
 import { planPillState, type PlanPillTodo } from '../../runtime/chat/plan-pill';
 import { Orb } from './primitives/Orb';
@@ -31,9 +31,63 @@ export interface PlanPillProps {
   running: boolean;
 }
 
+// Must stay aligned with PlanPill.module.css: the popover sits 8px above the
+// pill and contributes 6px padding on both block edges. The list receives the
+// remaining distance to the chat viewport's top edge.
+const POPOVER_GAP_PX = 8;
+const POPOVER_BLOCK_PADDING_PX = 12;
+
+function useAvailableStepsHeight(visible: boolean) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const stepsRef = useRef<HTMLOListElement>(null);
+
+  useLayoutEffect(() => {
+    if (!visible) return undefined;
+    const wrap = wrapRef.current;
+    const steps = stepsRef.current;
+    const viewport = wrap?.closest<HTMLElement>('.chat-log-viewport');
+    if (!wrap || !steps || !viewport) return undefined;
+
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const available = Math.max(
+        0,
+        Math.floor(
+          wrap.getBoundingClientRect().top
+          - viewport.getBoundingClientRect().top
+          - POPOVER_GAP_PX
+          - POPOVER_BLOCK_PADDING_PX,
+        ),
+      );
+      steps.style.maxHeight = `${available}px`;
+    };
+    const scheduleMeasure = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(measure);
+    };
+
+    measure();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(scheduleMeasure);
+    observer?.observe(viewport);
+    observer?.observe(wrap);
+    window.addEventListener('resize', scheduleMeasure);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', scheduleMeasure);
+    };
+  }, [visible]);
+
+  return { wrapRef, stepsRef };
+}
+
 export function PlanPill({ todos, running }: PlanPillProps): ReactElement | null {
   const t = useT();
   const state = planPillState(todos, running);
+  const { wrapRef, stepsRef } = useAvailableStepsHeight(state !== null);
   // 出没判据全在纯函数里,这里只认 null(chat/AGENTS.md §3:数据缺席时不占位)
   if (!state) return null;
 
@@ -44,9 +98,16 @@ export function PlanPill({ todos, running }: PlanPillProps): ReactElement | null
          触发悬停,也不会挡住下面的消息。 */
       className={styles.wrap}
       data-testid="chat-plan-pill"
+      ref={wrapRef}
     >
       <div className={styles.pop}>
-        <ol className={styles.steps} data-testid="chat-plan-pill-steps">
+        <ol
+          className={styles.steps}
+          data-testid="chat-plan-pill-steps"
+          ref={stepsRef}
+          tabIndex={0}
+          aria-label={t('chat.record.planStep', { current: state.current, total: state.total })}
+        >
           {state.steps.map((step, index) => (
             <li
               key={`${step.content}-${index}`}

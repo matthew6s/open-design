@@ -18,8 +18,12 @@
 - [x] PlanPill：已确认当前 HEAD 使用聊天 viewport 内真悬浮层，不参与 chat-log 高度；胶囊保持设计稿规定的底部位置，出现时只增加 chat-log 末尾安全留白，Queue / Composer / tray 保持 viewport 外布局。
 - [x] Question Form：Next / Back / 非末步 Skip / “自己填”高度变化已加入 DOM element anchor，恢复 footer / own-row 的 viewport offset。
 - [x] 长历史虚拟列表：大于 80 条时已用 first-visible key + offset 补偿估算高度到实测高度的变化，会话切换会废弃旧锚点。
+- [x] 队列就地编辑：保存后若宿主只更新队列、没有真正出队，不再误把 chat 重新挂回流式追尾；用户停留位置在随后内容增长时保持不变。
+- [x] 正文取词：只有 chat viewport / Range 真正位移才隐藏 QuoteBar；nested/no-op scroll 保留操作条，Queue / Composer 改变可用高度会重新翻面；有效选区暂停流式追尾，清空选区仅恢复原本就在跟随的会话。
+- [x] 长 Todo：PlanPill 浮层按药丸到 chat viewport 顶部的实时空间限高，清单内部滚动且阻断 overscroll；键盘可进入清单，常见 4 / 5 步布局不变。
+- [x] daemon 建 Run 前发送失败：撤掉虚假的 assistant 占位，将原用户消息持久化为 `sendFailed`；重试复用原消息 ID、上下文和附件，已有 `runId` 的失败路径不变。
 
-聚焦验证：上述滚动收尾共 8 个 Web 测试文件 89 / 89 通过，Web typecheck 与 `git diff --check` 通过；仍需在合并 main 和新 beta 后做一次真机手势复验。
+聚焦验证：最新整合批次共 6 个 Web 测试文件 136 / 136 通过，另有各子项红测；Web typecheck、仓库 `guard`、根 typecheck 与 `git diff --check` 通过。仍需在新 beta 后做一次真机手势复验。
 
 ### B. 立即复验
 

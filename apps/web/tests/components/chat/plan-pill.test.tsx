@@ -88,6 +88,32 @@ function pane(
 }
 
 describe('Plan 药丸 · 收起态(第 71 格)', () => {
+  it('12 步窄高场景按 viewport 顶部限高,清单可滚且键盘可进入', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('chat-log-viewport')) {
+        return { top: 100, bottom: 500, left: 0, right: 320, width: 320, height: 400 } as DOMRect;
+      }
+      if (this.dataset.testid === 'chat-plan-pill') {
+        return { top: 260, bottom: 290, left: 100, right: 220, width: 120, height: 30 } as DOMRect;
+      }
+      return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 } as DOMRect;
+    });
+    const twelve = Array.from({ length: 12 }, (_, index) => ({
+      content: `第 ${index + 1} 步`,
+      status: index < 2 ? 'completed' : index === 2 ? 'in_progress' : 'pending',
+    }));
+
+    render(pane(messagesWithTodos(twelve)));
+
+    const steps = screen.getByTestId('chat-plan-pill-steps') as HTMLOListElement;
+    expect(within(steps).getAllByRole('listitem')).toHaveLength(12);
+    // pill top 260 - viewport top 100 - 8px gap - pop 12px block padding.
+    expect(steps.style.maxHeight).toBe('140px');
+    expect(steps.tabIndex).toBe(0);
+    steps.focus();
+    expect(document.activeElement).toBe(steps);
+  });
+
   it('运行中且清单还没干完 —— 钉出「第 N / M 步」', () => {
     render(pane(messagesWithTodos(FOUR)));
     // 无 provider 时 i18n 落回 en(FALLBACK_I18N),所以这里比的是英文那一版;

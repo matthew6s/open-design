@@ -211,6 +211,52 @@ function chatLog(): HTMLElement {
   return screen.getByTestId('chat-log');
 }
 
+function rect(values: Partial<DOMRect>): DOMRect {
+  return {
+    x: 0,
+    y: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+    toJSON: () => ({}),
+    ...values,
+  };
+}
+
+function selectStreamingReply(): { clear: () => void } {
+  const assistantMessages = chatLog().querySelectorAll<HTMLElement>('.msg.assistant');
+  const message = assistantMessages[assistantMessages.length - 1];
+  if (!message) throw new Error('no streaming assistant message rendered');
+  const range = document.createRange();
+  range.selectNodeContents(message);
+  vi.spyOn(range, 'getBoundingClientRect').mockReturnValue(
+    rect({ left: 80, right: 220, top: 120, bottom: 144, width: 140, height: 24 }),
+  );
+  let collapsed = false;
+  const selection = {
+    get isCollapsed() {
+      return collapsed;
+    },
+    rangeCount: 1,
+    getRangeAt: () => range,
+    toString: () => (collapsed ? '' : 'chunk'),
+    removeAllRanges: () => {
+      collapsed = true;
+    },
+  } as unknown as Selection;
+  vi.spyOn(window, 'getSelection').mockReturnValue(selection);
+  fireEvent(document, new Event('selectionchange'));
+  return {
+    clear: () => {
+      collapsed = true;
+      fireEvent(document, new Event('selectionchange'));
+    },
+  };
+}
+
 /** 用户真的用滚轮/触控板滚了一下:位置变了,然后浏览器发 scroll。 */
 async function userScrollTo(top: number) {
   await act(async () => {
@@ -259,6 +305,7 @@ function chatPaneEl(
   overrides: {
     streaming?: boolean;
     queuedItems?: Array<{ id: string; prompt: string }>;
+    onUpdateQueuedSend?: Parameters<typeof ChatPane>[0]['onUpdateQueuedSend'];
   } = {},
 ) {
   return (
@@ -266,6 +313,7 @@ function chatPaneEl(
       messages={messages}
       streaming={overrides.streaming ?? false}
       queuedItems={overrides.queuedItems}
+      onUpdateQueuedSend={overrides.onUpdateQueuedSend}
       error={null}
       projectId="project-1"
       projectFiles={[]}
@@ -383,6 +431,78 @@ describe('流式输出时的滚动跟随(用户 2026-08-27)', () => {
     // 5 * 120 = 600 的增长,视图必须一路跟到新的底。
     expect(geom.scrollTop).toBe(maxScrollTop());
     expect(geom.scrollTop).toBe(5200);
+  });
+
+  it('助手正文有有效选区时暂停流式追尾，清除选区后恢复原有跟随意图', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    let text = 'chunk';
+    const { rerender } = render(chatPaneEl(longConversation(text), { streaming: true }));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4600);
+
+    const selection = selectStreamingReply();
+    expect(screen.getByTestId('chat-quote-bar')).toBeTruthy();
+
+    text += ' more';
+    geom.contentHeight += 120;
+    await act(async () => {
+      rerender(chatPaneEl(longConversation(text), { streaming: true }));
+    });
+    await triggerResize();
+    await flushFrames();
+
+    // 新 token 到来时保持用户正在读的选区，不得把 viewport 拉到新底部 4720。
+    expect(geom.scrollTop).toBe(4600);
+
+    selection.clear();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(maxScrollTop());
+    expect(geom.scrollTop).toBe(4720);
+  });
+
+  it('手动上滚后建立并清除选区，不得把已经挣脱的视图重新挂回追尾', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    let text = 'chunk';
+    const { rerender } = render(chatPaneEl(longConversation(text), { streaming: true }));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4600);
+
+    await userScrollTo(4300);
+    const selection = selectStreamingReply();
+    selection.clear();
+
+    text += ' more';
+    geom.contentHeight += 120;
+    await act(async () => {
+      rerender(chatPaneEl(longConversation(text), { streaming: true }));
+    });
+    await triggerResize();
+    await flushFrames();
+
+    expect(geom.scrollTop).toBe(4300);
+  });
+
+  it('有效选区暂停追尾后，显式点「回到最新」会清选区并恢复跟随', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    render(chatPaneEl(longConversation('chunk'), { streaming: true }));
+    await flushFrames();
+    selectStreamingReply();
+
+    // 模拟流式内容一次长高到足以显示回到最新入口；暂停期间 viewport 不动。
+    geom.contentHeight += 400;
+    await triggerResize();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4600);
+    expect(jumpBtnShown()).toBe(true);
+
+    fireEvent.click(screen.getByTestId('chat-jump-btn'));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(maxScrollTop());
+
+    geom.contentHeight += 120;
+    await triggerResize();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(maxScrollTop());
   });
 
   it('滚轮往上拨一下就停手 —— 哪怕浏览器把这一格滚动整个吃掉', async () => {
@@ -532,6 +652,31 @@ describe('流式输出时的滚动跟随(用户 2026-08-27)', () => {
     await triggerResize();
     await flushFrames();
     expect(geom.scrollTop).toBe(maxScrollTop());
+  });
+
+  it('保存无法出队的就地编辑只更新队列，不得重新接上流式跟随', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    const onUpdateQueuedSend = vi.fn();
+    render(chatPaneEl(longConversation('chunk'), {
+      streaming: true,
+      queuedItems: [{ id: 'queued-1', prompt: '编辑后仍留在队列' }],
+      onUpdateQueuedSend,
+    }));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4600);
+
+    await userScrollTo(3000);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await pressEnter();
+    expect(onUpdateQueuedSend).toHaveBeenCalledWith(
+      'queued-1',
+      expect.objectContaining({ prompt: '编辑后仍留在队列' }),
+    );
+
+    geom.contentHeight += 120;
+    await triggerResize();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(3000);
   });
 
   it.each(['client-height-growth', 'content-height-shrink'] as const)(

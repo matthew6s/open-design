@@ -74,21 +74,16 @@
 .wrap:hover .pop,
 .wrap:focus-within .pop {
   opacity: 1;
+  pointer-events: auto;
 }
 
-/* 稿子 `.steps` 的底子(展开态那张卡限高约 5 步、其余滚动)。
-   #70 展开态**拍板不做**(D33 / S9),所以这一档在产品里没有第二个消费者;
-   照抄它是为了让下面那条覆盖保持和稿子同一种层叠关系,不是留着当死码。 */
-.steps {
-  padding: 4px 0;
+/* 常见的 4 / 5 步仍按内容自然高度完整展示。长清单由组件按「药丸顶部到
+   chat viewport 顶部」的实时距离写入 inline max-height;148px 只是在镜像陈列页
+   等没有宿主 viewport 的环境里的安全回退。 */
+.wrap .pop .steps {
   max-height: 148px;
   overflow-y: auto;
-}
-/* 浮层里的清单不限高:一共就几步,收起态本来就是为了省地方,
-   到了要看的这一下,就该一次看全。(稿子 `.pmini .pop .steps`) */
-.wrap .pop .steps {
-  max-height: none;
-  overflow: visible;
+  overscroll-behavior: contain;
   padding: 0;
   margin: 0;
 }

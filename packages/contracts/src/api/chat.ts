@@ -1063,6 +1063,12 @@ export interface ChatMessage {
    *  resumes and clarification answers survive reloads without splitting one
    *  user intent into unrelated failures. */
   taskAnalytics?: ChatTaskExecutionAnalytics;
+  /**
+   * Stable daemon run-create identity for this user turn. A retry after an
+   * ambiguous transport failure must reuse it so createOrReuse can return the
+   * Run that may already have been accepted instead of starting a duplicate.
+   */
+  clientRequestId?: string;
   appliedPluginSnapshot?: AppliedPluginSnapshot;
   attachments?: ChatAttachment[];
   commentAttachments?: ChatCommentAttachment[];

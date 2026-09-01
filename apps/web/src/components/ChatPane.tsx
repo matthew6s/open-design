@@ -618,6 +618,8 @@ interface Props {
     assistantMessage: ChatMessage,
     recoveryActionType?: TrackingRunRecoveryActionType,
   ) => void;
+  /** Retry a user message whose daemon run was never created. */
+  onResendUserMessage?: (message: ChatMessage) => void;
   amrAuthRetryContinuation?: AmrAuthRetryContinuation | null;
   amrAuthRetryMountId?: string;
   amrAuthRetryWorkspaceIdentityKey?: string;
@@ -1114,6 +1116,7 @@ export function ChatPane({
   onDeleteComment,
   onSend,
   onRetry,
+  onResendUserMessage,
   amrAuthRetryContinuation = null,
   amrAuthRetryMountId,
   amrAuthRetryWorkspaceIdentityKey,
@@ -1307,6 +1310,10 @@ export function ChatPane({
    * 布尔量(浮标显不显示)才是 state。
    */
   const followIntentRef = useRef<FollowIntent>({ following: true, escaped: false });
+  // A live DOM selection is a transient pause layered over the user's durable
+  // follow intent. Keeping these separate lets clearing the selection resume a
+  // previously-following stream without overriding a genuine manual scroll.
+  const selectionFollowPausedRef = useRef(false);
   const lastScrollSampleRef = useRef<ScrollSample>({
     scrollTop: 0,
     scrollHeight: 0,
@@ -2791,7 +2798,11 @@ export function ChatPane({
 
   /** 此刻是不是真的在跟着最新输出跑。anchor-to-top 期间不是:那时用户消息钉在顶端,回复在下面长。 */
   function isFollowingTail(): boolean {
-    return followIntentRef.current.following && !anchorActiveRef.current;
+    return (
+      followIntentRef.current.following &&
+      !anchorActiveRef.current &&
+      !selectionFollowPausedRef.current
+    );
   }
 
   /**
@@ -2838,9 +2849,24 @@ export function ChatPane({
     });
   }
 
+  function handleQuoteSelectionActivityChange(active: boolean) {
+    if (active) {
+      // Only pause an intent that was actually following. A selection made
+      // after the user scrolled away must not turn into an implicit resume.
+      if (followIntentRef.current.following && !anchorActiveRef.current) {
+        selectionFollowPausedRef.current = true;
+      }
+      return;
+    }
+    if (!selectionFollowPausedRef.current) return;
+    selectionFollowPausedRef.current = false;
+    syncFollowState();
+  }
+
   /** 显式动作(点「回到最新」、发消息、切会话)重新挂上跟随。 */
   function armFollow() {
     followIntentRef.current = { following: true, escaped: false };
+    selectionFollowPausedRef.current = false;
   }
 
   /**
@@ -2949,6 +2975,7 @@ export function ChatPane({
     if (!el) return;
     anchorActiveRef.current = false;
     armFollow();
+    window.getSelection()?.removeAllRanges();
     resetTailSpacer();
     // 这一下用平滑滚动是刻意的:它是用户点出来的一次大跳,平滑更好读。
     // 中间那串 scroll 事件方向都是**向下**,按 `stick-to-bottom.ts` 的判据
@@ -3073,7 +3100,6 @@ export function ChatPane({
       commentAttachments={commentsToAttachments(attachedComments)}
       onRemoveCommentAttachment={onDetachComment}
       onSend={(prompt, attachments, commentAttachments, meta) => {
-        armFollow();
         scrolledToFormRef.current = new Set();
         if (editingQueuedSendId && onUpdateQueuedSend) {
           const original = queuedItems.find((item) => item.id === editingQueuedSendId);
@@ -3088,6 +3114,7 @@ export function ChatPane({
           setEditingQueuedSendId(null);
           return;
         }
+        armFollow();
         // Arm "anchor to top": the messages effect promotes this once
         // the new user turn renders, pinning it to the top of the view.
         // Clear any stale reserve from the previous turn first so a resend
@@ -3418,6 +3445,7 @@ export function ChatPane({
                 <ChatRows
                   messages={displayMessages}
                   streaming={streaming}
+                  onResendUserMessage={onResendUserMessage}
                   onRetryImage={handleRetryImage}
                   projectId={projectId}
                   projectKindForTracking={projectKindForTracking}
@@ -3799,7 +3827,11 @@ export function ChatPane({
                     the viewport, then shrinks as the reply streams in below. */}
                 <div className="chat-log-tail-spacer" ref={tailSpacerRef} aria-hidden />
                 {/* 正文取词的浮条:只认 chat-log 里的选区(输入框、侧栏的选中不该弹它) */}
-                <QuoteBar scopeRef={logRef} onQuote={handleQuote} />
+                <QuoteBar
+                  scopeRef={logRef}
+                  onQuote={handleQuote}
+                  onSelectionActivityChange={handleQuoteSelectionActivityChange}
+                />
                 </div>
                 {/* 底部只有这一个浮层位:宿主统一负责水平中线与 bottom,两个胶囊
                     只负责自己的外观。Plan 出现时直接不挂 Jump,而不是只摘 active
@@ -4276,6 +4308,7 @@ function ChatConversationLoading({ t }: { t: TranslateFn }) {
 function ChatRows({
   messages,
   streaming,
+  onResendUserMessage,
   onRetryImage,
   projectId,
   projectKindForTracking,
@@ -4333,6 +4366,7 @@ function ChatRows({
   highlightedUserMessageId,
 }: {
   messages: ChatMessage[];
+  onResendUserMessage?: (message: ChatMessage) => void;
   /** 生图失败格的「重试」—— 见 ChatPane 的 handleRetryImage(D59) */
   onRetryImage?: (row: { total: number; done: number; failed: number }, index: number) => void;
   streaming: boolean;
@@ -4461,6 +4495,7 @@ function ChatRows({
           onRequestOpenFile={onRequestOpenFile}
           t={t}
           highlighted={highlightedUserMessageId === m.id}
+          onResend={onResendUserMessage}
         />
       );
     }
