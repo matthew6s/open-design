@@ -48,8 +48,9 @@
     "scenario": "documents",
     "surface": "web",
     "preview": {
-      "type": "image",
-      "poster": "./example.webp"
+      "type": "html",
+      "entry": "./example.html",
+      "motion": "scroll"
     },
     "useCase": {
       "query": {
@@ -58,7 +59,7 @@
       },
       "exampleOutputs": [
         {
-          "path": "./example.webp",
+          "path": "./example.html",
           "title": "Decision Memo",
           "title_i18n": {
             "en": "Decision Memo",
@@ -75,6 +76,7 @@
       ],
       "assets": [
         "./template.json",
+        "./example.html",
         "./example.webp"
       ]
     },
