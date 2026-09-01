@@ -6,7 +6,6 @@ import {
 } from '@open-design/contracts/runtime/preview-runtime';
 
 export const PREVIEW_RUNTIME_BOOTSTRAP_MARKER = 'data-od-preview-runtime';
-const PREVIEW_RUNTIME_PAINT_FALLBACK_MS = 250;
 
 export interface PreviewRuntimeModuleSource {
   capabilities: readonly PreviewRuntimeCapability[];
@@ -91,9 +90,6 @@ var modules=Object.create(null);
 var activeSet=new Set();
 var readySent=false;
 var visiblePaintSent=false;
-var scheduleFrame=typeof window.requestAnimationFrame==='function'?window.requestAnimationFrame.bind(window):null;
-var scheduleTimer=typeof window.setTimeout==='function'?window.setTimeout.bind(window):null;
-var cancelTimer=typeof window.clearTimeout==='function'?window.clearTimeout.bind(window):null;
 function send(type,extra){parent.postMessage(Object.assign({type:type},identity,extra||{}),'*');}
 function announce(){send('od:preview:hello',{availableCapabilities:available});}
 function normalize(input){if(!Array.isArray(input))return [];return available.filter(function(capability){return input.indexOf(capability)!==-1&&availableSet.has(capability);});}
@@ -117,9 +113,10 @@ function applyCapabilities(input){
   });
   return available.filter(function(capability){return activeSet.has(capability);});
 }
+// The observability module captures this closure-local hook before authored
+// startup. Do not expose it on window: a page must not promote itself.
 function reportVisiblePaint(){
   if(visiblePaintSent)return;
-  try { if(document.documentElement)document.documentElement.getBoundingClientRect(); } catch (_) {}
   visiblePaintSent=true;
   send('od:preview:visible-paint');
 }
@@ -140,16 +137,6 @@ announce();
 function ready(){
   readySent=true;
   send('od:preview:ready');
-  // Background Electron windows can pause child-frame animation callbacks
-  // indefinitely even when the iframe has a non-zero visible viewport. Keep
-  // the foreground two-frame proof, but bound it with a forced-layout signal
-  // so a ready real-URL document can be promoted before the host timeout.
-  var fallbackTimer=scheduleTimer?scheduleTimer(reportVisiblePaint,${PREVIEW_RUNTIME_PAINT_FALLBACK_MS}):0;
-  if(!scheduleFrame){reportVisiblePaint();return;}
-  scheduleFrame(function(){scheduleFrame(function(){
-    if(fallbackTimer&&cancelTimer)cancelTimer(fallbackTimer);
-    reportVisiblePaint();
-  });});
 }
 if(document.readyState==='loading')window.addEventListener('DOMContentLoaded',ready,{once:true});else queueMicrotask(ready);
 })();</script>`;

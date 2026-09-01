@@ -1,6 +1,11 @@
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import {
+  PREVIEW_OBSERVABILITY_BRIDGE_MARKER,
+  buildPreviewObservabilityBridge,
+} from '@open-design/contracts/runtime/preview-observability';
+import { parsePreviewRuntimeMessage } from '@open-design/contracts/runtime/preview-runtime';
 import { buildPreviewRuntimeBootstrap } from '../../src/http/preview-runtime-bootstrap.js';
 import {
   buildInstalledScriptRuntimeModule,
@@ -18,7 +23,123 @@ const { JSDOM } = require('jsdom') as {
   JSDOM: new (html: string, options: Record<string, unknown>) => any;
 };
 
+function createObservabilityRuntimeHarness(options: {
+  bodyHtml?: string;
+  bodyStyle?: string;
+} = {}) {
+  const dom = new JSDOM(
+    `<!doctype html><html><head></head><body style="${options.bodyStyle ?? ''}">${options.bodyHtml ?? ''}</body></html>`,
+    { runScripts: 'outside-only', url: 'http://n-scope.localhost/index.html' },
+  );
+  const posted: unknown[] = [];
+  const scheduled: Array<{
+    callback: () => void;
+    cancelled: boolean;
+    delay: number;
+    id: number;
+  }> = [];
+  const context = dom.getInternalVMContext() as vm.Context & Record<string, any>;
+  context.parent = { postMessage: (message: unknown) => posted.push(message) };
+  context.setTimeout = (callback: () => void, delay = 0) => {
+    const id = scheduled.length + 1;
+    scheduled.push({ callback, cancelled: false, delay: Number(delay) || 0, id });
+    return id;
+  };
+  context.clearTimeout = (id: number) => {
+    const timer = scheduled.find((candidate) => candidate.id === id);
+    if (timer) timer.cancelled = true;
+  };
+  dom.window.Element.prototype.getBoundingClientRect = () => ({
+    bottom: 300,
+    height: 300,
+    left: 0,
+    right: 800,
+    top: 0,
+    width: 800,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+  const source = buildPreviewRuntimeBootstrap({
+    sessionId: 'session-1',
+    documentVersion: 'version-1',
+    availableCapabilities: ['observability'],
+    modules: [buildInstalledScriptRuntimeModule(
+      'observability',
+      buildPreviewObservabilityBridge(),
+      PREVIEW_OBSERVABILITY_BRIDGE_MARKER,
+    )],
+  }).replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
+  vm.runInContext(source, context);
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+
+  return {
+    dom,
+    posted,
+    flushImmediateTimers() {
+      for (let index = 0; index < scheduled.length; index += 1) {
+        const timer = scheduled[index];
+        if (timer && !timer.cancelled && timer.delay === 0) {
+          timer.cancelled = true;
+          timer.callback();
+        }
+      }
+    },
+  };
+}
+
+function runtimeVisiblePaintCount(messages: readonly unknown[]): number {
+  return messages.filter((message) => (
+    parsePreviewRuntimeMessage(message)?.type === 'od:preview:visible-paint'
+  )).length;
+}
+
 describe('preview runtime modules', () => {
+  it('keeps a delayed renderer blank until the observability detector finds positive paint', async () => {
+    const harness = createObservabilityRuntimeHarness();
+    harness.flushImmediateTimers();
+    expect(runtimeVisiblePaintCount(harness.posted)).toBe(0);
+
+    const mutationObserved = new Promise<void>((resolve) => {
+      const observer = new harness.dom.window.MutationObserver(() => {
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(harness.dom.window.document.body, { childList: true });
+    });
+    const rendered = harness.dom.window.document.createElement('main');
+    rendered.textContent = 'Rendered asynchronously';
+    harness.dom.window.document.body.appendChild(rendered);
+    await mutationObserved;
+    harness.flushImmediateTimers();
+
+    expect(runtimeVisiblePaintCount(harness.posted)).toBe(1);
+    harness.dom.window.close();
+  });
+
+  it.each([
+    ['canvas', '<canvas width="800" height="600"></canvas>', ''],
+    ['svg', '<svg width="800" height="600"><rect width="800" height="600" /></svg>', ''],
+    ['authored background', '', 'background-color:rgb(20,30,40)'],
+  ])('accepts a visible %s as positive paint evidence', (_name, bodyHtml, bodyStyle) => {
+    const harness = createObservabilityRuntimeHarness({ bodyHtml, bodyStyle });
+    harness.flushImmediateTimers();
+
+    expect(runtimeVisiblePaintCount(harness.posted)).toBe(1);
+    harness.dom.window.close();
+  });
+
+  it('keeps an empty white document and hidden canvas unpainted', () => {
+    const harness = createObservabilityRuntimeHarness({
+      bodyHtml: '<canvas style="display:none" width="800" height="600"></canvas>',
+      bodyStyle: 'background-color:white',
+    });
+    harness.flushImmediateTimers();
+
+    expect(runtimeVisiblePaintCount(harness.posted)).toBe(0);
+    harness.dom.window.close();
+  });
+
   it('builds the same Deck runtime from streamed source facts and installs the stage fallback early', () => {
     const dom = new JSDOM(
       '<!doctype html><html><head></head><body><deck-stage><section class="slide">One</section></deck-stage></body></html>',

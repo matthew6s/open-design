@@ -52,7 +52,6 @@ describe('preview runtime bootstrap', () => {
       document: { readyState: 'complete' },
       parent,
       queueMicrotask: (callback: () => void) => callback(),
-      requestAnimationFrame: (callback: () => void) => callback(),
       Set,
     };
     context.window = context;
@@ -71,7 +70,6 @@ describe('preview runtime bootstrap', () => {
         availableCapabilities: ['snapshot', 'deck'],
       },
       { type: 'od:preview:ready', protocolVersion: 1, ...identity },
-      { type: 'od:preview:visible-paint', protocolVersion: 1, ...identity },
     ]);
 
     const probe = (overrides: Record<string, unknown> = {}) => {
@@ -88,9 +86,9 @@ describe('preview runtime bootstrap', () => {
       }
     };
     probe({ sessionId: 'stale' });
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(2);
     probe();
-    expect(messages.slice(-3).map(parsePreviewRuntimeMessage)).toEqual([
+    expect(messages.slice(-2).map(parsePreviewRuntimeMessage)).toEqual([
       {
         type: 'od:preview:hello',
         protocolVersion: 1,
@@ -98,7 +96,6 @@ describe('preview runtime bootstrap', () => {
         availableCapabilities: ['snapshot', 'deck'],
       },
       { type: 'od:preview:ready', protocolVersion: 1, ...identity },
-      { type: 'od:preview:visible-paint', protocolVersion: 1, ...identity },
     ]);
 
     const sendCommand = (overrides: Record<string, unknown> = {}) => {
@@ -116,7 +113,7 @@ describe('preview runtime bootstrap', () => {
       }
     };
     sendCommand({ documentVersion: 'stale' });
-    expect(messages).toHaveLength(6);
+    expect(messages).toHaveLength(4);
     sendCommand();
     expect(parsePreviewRuntimeMessage(messages.at(-1))).toEqual({
       type: 'od:preview:capabilities-applied',
@@ -126,34 +123,67 @@ describe('preview runtime bootstrap', () => {
     });
   });
 
-  it('falls back when background Chromium pauses animation frames', () => {
+  it('replays visible paint only after a runtime module provides the private witness', () => {
+    const bootstrap = buildPreviewRuntimeBootstrap({
+      ...identity,
+      availableCapabilities: ['observability'],
+      modules: [{
+        capabilities: ['observability'],
+        source: "window.__testReportVisiblePaint=reportVisiblePaint;register('observability',function(){return {};});",
+      }],
+    });
+    const source = bootstrap.replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
+    const messages: unknown[] = [];
+    const listeners = new Map<string, Array<(event: any) => void>>();
+    const parent = { postMessage: (message: unknown) => messages.push(message) };
+    const context: Record<string, any> = {
+      document: { readyState: 'complete' },
+      parent,
+      queueMicrotask: (callback: () => void) => callback(),
+      Set,
+    };
+    context.window = context;
+    context.addEventListener = (type: string, listener: (event: any) => void) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    };
+    const probe = () => {
+      for (const listener of listeners.get('message') ?? []) {
+        listener({
+          source: parent,
+          data: { type: 'od:preview:probe', protocolVersion: 1, ...identity },
+        });
+      }
+    };
+
+    vm.runInNewContext(source, context);
+    expect(context.reportVisiblePaint).toBeUndefined();
+    probe();
+    expect(messages.some((message) => (
+      parsePreviewRuntimeMessage(message)?.type === 'od:preview:visible-paint'
+    ))).toBe(false);
+
+    context.__testReportVisiblePaint();
+    probe();
+    expect(messages.slice(-3).map(parsePreviewRuntimeMessage)).toEqual([
+      {
+        type: 'od:preview:hello',
+        protocolVersion: 1,
+        ...identity,
+        availableCapabilities: ['observability'],
+      },
+      { type: 'od:preview:ready', protocolVersion: 1, ...identity },
+      { type: 'od:preview:visible-paint', protocolVersion: 1, ...identity },
+    ]);
+  });
+
+  it('does not infer visible paint from DOM readiness or elapsed time', () => {
     const bootstrap = buildPreviewRuntimeBootstrap(identity);
     const source = bootstrap.replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
     const messages: unknown[] = [];
-    const animationFrames: Array<() => void> = [];
-    const timers: Array<() => void> = [];
-    let layoutReads = 0;
     const context: Record<string, any> = {
-      document: {
-        readyState: 'complete',
-        documentElement: {
-          getBoundingClientRect: () => {
-            layoutReads += 1;
-            return { width: 800, height: 600 };
-          },
-        },
-      },
+      document: { readyState: 'complete' },
       parent: { postMessage: (message: unknown) => messages.push(message) },
       queueMicrotask: (callback: () => void) => callback(),
-      requestAnimationFrame: (callback: () => void) => {
-        animationFrames.push(callback);
-        return animationFrames.length;
-      },
-      setTimeout: (callback: () => void) => {
-        timers.push(callback);
-        return timers.length;
-      },
-      clearTimeout: () => {},
       Set,
     };
     context.window = context;
@@ -170,60 +200,6 @@ describe('preview runtime bootstrap', () => {
       },
       { type: 'od:preview:ready', protocolVersion: 1, ...identity },
     ]);
-    expect(animationFrames).toHaveLength(1);
-    expect(timers).toHaveLength(1);
-
-    timers[0]?.();
-    expect(layoutReads).toBe(1);
-    expect(messages.map(parsePreviewRuntimeMessage).at(-1)).toEqual({
-      type: 'od:preview:visible-paint',
-      protocolVersion: 1,
-      ...identity,
-    });
-
-    animationFrames.shift()?.();
-    animationFrames.shift()?.();
-    expect(messages.filter((message) => (
-      parsePreviewRuntimeMessage(message)?.type === 'od:preview:visible-paint'
-    ))).toHaveLength(1);
-  });
-
-  it('captures native schedulers before authored scripts can replace them', () => {
-    const bootstrap = buildPreviewRuntimeBootstrap(identity);
-    const source = bootstrap.replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
-    const listeners = new Map<string, Array<() => void>>();
-    const animationFrames: Array<() => void> = [];
-    const timers: Array<() => void> = [];
-    const context: Record<string, any> = {
-      document: { readyState: 'loading', documentElement: null },
-      parent: { postMessage: () => {} },
-      requestAnimationFrame: (callback: () => void) => {
-        animationFrames.push(callback);
-        return animationFrames.length;
-      },
-      setTimeout: (callback: () => void) => {
-        timers.push(callback);
-        return timers.length;
-      },
-      clearTimeout: () => {},
-      Set,
-    };
-    context.window = context;
-    context.addEventListener = (type: string, listener: () => void) => {
-      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
-    };
-
-    vm.runInNewContext(source, context);
-    context.requestAnimationFrame = () => {
-      throw new Error('authored requestAnimationFrame replacement');
-    };
-    context.setTimeout = () => {
-      throw new Error('authored setTimeout replacement');
-    };
-
-    expect(() => listeners.get('DOMContentLoaded')?.[0]?.()).not.toThrow();
-    expect(animationFrames).toHaveLength(1);
-    expect(timers).toHaveLength(1);
   });
 
   it('installs capability modules once and applies idempotent enable/disable transitions', () => {
