@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(here, "../..");
 
 function source(relativePath: string): string {
-  return readFileSync(join(desktopRoot, relativePath), "utf8");
+  return readFileSync(join(desktopRoot, relativePath), "utf8").replace(/\r\n?/g, "\n");
 }
 
 describe("desktop updater host boundary", () => {
