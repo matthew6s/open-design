@@ -47,7 +47,16 @@ const yMin = Math.floor((rawMin - span * 0.18) / 2) * 2;
 const yMax = Math.ceil((rawMax + span * 0.18) / 2) * 2;
 const plotY = (score: number) => Number(Math.max(6, Math.min(94, ((score - yMin) / (yMax - yMin)) * 88 + 6)).toFixed(2));
 const yTicks = [0, 1, 2, 3].map((step) => Math.round(yMax - ((yMax - yMin) / 3) * step));
-const chartHeight = (value: number) => Math.max(12, Math.min(84, ((value - yMin) / (yMax - yMin)) * 72 + 12));
+// 柱子按本组数据的真实区间铺满绘图区：最高的柱子到 92%（顶上留给分数标签），
+// 最矮的仍占 34% 以便看清颜色和图标。原来固定映射到 12–84%，实际只用到
+// 24–70%，上方白掉一大片。
+const BAR_MIN = 34;
+const BAR_MAX = 92;
+const chartHeight = (value: number) => {
+  const range = rawMax - rawMin;
+  if (range <= 0) return BAR_MAX;
+  return Number((BAR_MIN + ((value - rawMin) / range) * (BAR_MAX - BAR_MIN)).toFixed(2));
+};
 
 // 两条中位参考线。有了它们，读者不用心算就知道每个点落在平均线的哪一侧，
 // 四个象限也自然有了含义；绿区就是参考线切出来的左上象限，不必再单独推锚点。
@@ -77,11 +86,11 @@ const bandSummary = bands.map((band) => {
 
 // 每个点都常驻一个纯文字标签，所以 12 个标签必须逐个避让：
 // 标签宽度按名字长度估算（绘图区百分比），依次放置时同时避开其它点和已放好的标签。
-// 以下常数按浏览器里量出来的真实几何标定（绘图区约 358×372，标签 8px 字）：
-// 宽度 ≈ 1.1 × 字符数 + 2，高度恒为 2.2，圆点半径 4.5px、间距 5px。
-// 估算偏大会让求解器误判成"到处都撞"，反而选不出好方向。
-const labelWidth = (name: string) => Math.min(46, 2 + name.length * 1.1);
-const LABEL_H = 3;    // 单行文字高（实测 2.2，留一点余量）
+// 以下常数按浏览器里量出来的真实几何标定（绘图区约 358×372，标签 11.5px 字）：
+// 宽度 ≈ 1.62 × 字符数 + 2，高度实测 3.09。字号调整后必须重新标定，
+// 否则求解器会按旧尺寸判断，误判成"到处都撞"或"哪都放得下"。
+const labelWidth = (name: string) => Math.min(58, 2 + name.length * 1.62);
+const LABEL_H = 3.6;  // 单行文字高（实测 3.09，留一点余量）
 const GAP_X = 2.9;    // 圆点半径 + 间距，换算成 x 百分比
 const GAP_Y = 2.8;    // 同上，y 百分比
 const DOT_X = 1.5;    // 圆点半宽
@@ -94,6 +103,9 @@ const labelRect = (input: RankingRow, dir: string): Box => {
   switch (dir) {
     case 'up': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y, y1: row.y + GAP_Y + LABEL_H };
     case 'down': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H, y1: row.y - GAP_Y };
+    // 两点几乎重合时，八个近距离方向可能全被占满，再给一档远距离出路。
+    case 'up-far': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y + GAP_Y + LABEL_H, y1: row.y + GAP_Y + LABEL_H * 2.1 };
+    case 'down-far': return { x0: row.x - w / 2, x1: row.x + w / 2, y0: row.y - GAP_Y - LABEL_H * 2.1, y1: row.y - GAP_Y - LABEL_H };
     case 'left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y - half, y1: row.y + half };
     case 'right': return { x0: row.x + GAP_X, x1: row.x + GAP_X + w, y0: row.y - half, y1: row.y + half };
     case 'up-left': return { x0: row.x - GAP_X - w, x1: row.x - GAP_X, y0: row.y + GAP_Y - half, y1: row.y + GAP_Y + half };
@@ -103,7 +115,7 @@ const labelRect = (input: RankingRow, dir: string): Box => {
   }
 };
 const overlaps = (a: Box, b: Box) => a.x1 > b.x0 && a.x0 < b.x1 && a.y1 > b.y0 && a.y0 < b.y1;
-const DIRECTIONS = ['right', 'left', 'up', 'down', 'up-right', 'up-left', 'down-right', 'down-left'];
+const DIRECTIONS = ['right', 'left', 'up', 'down', 'up-right', 'up-left', 'down-right', 'down-left', 'up-far', 'down-far'];
 const labelDirs = new Map<string, string>();
 const boxes = new Map<string, Box>();
 
