@@ -131,6 +131,37 @@ test('[P0] real daemon run streams, persists, and previews an artifact', async (
   await expectProjectFileToContain(page, projectId, GENERATED_FILE, GENERATED_HEADING);
 });
 
+test('[P1] execution plan connector stops before completed status markers', async ({ page }) => {
+  await createProject(page, 'Execution plan connector geometry', 'claude');
+  await expectWorkspaceReady(page);
+
+  await sendPrompt(page, 'Emit an unfinished-todo run');
+
+  const completedSummary = page.locator('summary').filter({ hasText: 'Draft layout' });
+  await expect(completedSummary).toBeVisible({ timeout: 15_000 });
+  await expect(completedSummary.getByRole('img', { name: 'Done' })).toBeVisible();
+
+  const geometry = await completedSummary.evaluate((summary) => {
+    const row = summary.parentElement;
+    const marker = summary.querySelector<HTMLElement>('[role="img"]');
+    if (!row || !marker) throw new Error('execution-plan row or marker is missing');
+
+    const rowRect = row.getBoundingClientRect();
+    const markerRect = marker.getBoundingClientRect();
+    const connector = window.getComputedStyle(row, '::before');
+    const connectorTop = Number.parseFloat(connector.top);
+
+    return {
+      connectorContent: connector.content,
+      connectorStart: rowRect.top + connectorTop,
+      markerBottom: markerRect.bottom,
+    };
+  });
+
+  expect(geometry.connectorContent).not.toBe('none');
+  expect(geometry.connectorStart).toBeGreaterThanOrEqual(geometry.markerBottom);
+});
+
 test('[P0] local OD Next active canary follows one public task across physical runs', async ({ page }) => {
   test.skip(
     process.env.OD_NEXT_STRATEGY_ROLLOUT !== 'active'
