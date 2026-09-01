@@ -913,11 +913,17 @@ describe('OD Next planning coordinator', () => {
       activeRunId: 'run-production',
     });
     expect(production.runs.map(({ finalText: _finalText, ...run }) => run)).toEqual([
-      { runId: 'run-request', inputStage: 'request', taskRunIndex: 0 },
+      {
+        runId: 'run-request',
+        inputStage: 'request',
+        taskRunIndex: 0,
+        runPurpose: 'user_request',
+      },
       {
         runId: 'run-production',
         inputStage: 'production',
         taskRunIndex: 1,
+        runPurpose: 'strategy_continuation',
         sourceRunId: 'run-request',
       },
     ]);

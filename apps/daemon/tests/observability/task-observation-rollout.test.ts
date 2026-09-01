@@ -317,10 +317,13 @@ describe('task observation rollout', () => {
     });
     db.prepare(`
       INSERT INTO strategy_task_runs (
-        task_execution_id, run_id, input_stage, task_run_index, source_run_id,
+        task_execution_id, run_id, input_stage, run_purpose, task_run_index, source_run_id,
         final_text_kind, final_text_schema, final_text, final_text_utf8_bytes,
         final_text_sha256, created_at
-      ) VALUES ('task-1', 'run-2', 'clarification', 1, 'run-1', ?, ?, ?, ?, ?, 1001)
+      ) VALUES (
+        'task-1', 'run-2', 'clarification', 'strategy_continuation',
+        1, 'run-1', ?, ?, ?, ?, ?, 1001
+      )
     `).run(
       'turn',
       OD_NEXT_REQUEST_TURN_SCHEMA_V1,
@@ -972,6 +975,7 @@ describe('task observation rollout', () => {
       nextRun: {
         runId: 'run-clarification',
         sourceRunId: 'run-1',
+        runPurpose: 'strategy_continuation',
         finalText: strategyTaskTurnText({
           taskExecutionId: 'task-1', inputStage: 'clarification', taskRunIndex: 1,
         }),
@@ -1001,6 +1005,7 @@ describe('task observation rollout', () => {
       nextRun: {
         runId: 'run-repair',
         sourceRunId: 'run-clarification',
+        runPurpose: 'strategy_continuation',
         finalText: strategyTaskTurnText({
           taskExecutionId: 'task-1', inputStage: 'contract_repair', taskRunIndex: 2,
         }),
@@ -1019,6 +1024,7 @@ describe('task observation rollout', () => {
       nextRun: {
         runId: 'run-production',
         sourceRunId: 'run-repair',
+        runPurpose: 'strategy_continuation',
         finalText: strategyTaskTurnText({
           taskExecutionId: 'task-1', inputStage: 'production', taskRunIndex: 3,
         }),

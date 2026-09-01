@@ -510,8 +510,10 @@ function atomicWriteJson(filePath, value) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(tempPath, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tempPath, filePath);
+    return true;
   } catch {
     try { fs.unlinkSync(tempPath); } catch { /* best-effort cleanup */ }
+    return false;
   }
 }
 
@@ -527,6 +529,7 @@ function durableRunState(run) {
     ...(run.strategyRolloutDecision
       ? { strategyRolloutDecision: run.strategyRolloutDecision }
       : {}),
+    ...(typeof run.runPurpose === 'string' ? { runPurpose: run.runPurpose } : {}),
     agentId: run.agentId,
     ...(run.appVersionInfo ? { appVersionInfo: run.appVersionInfo } : {}),
     status: run.status,
@@ -595,6 +598,22 @@ function durableRunState(run) {
       ? { deliverableArtifactKind: run.deliverableArtifactKind }
       : {}),
     ...(run.strategyTask ? { strategyTask: run.strategyTask } : {}),
+    ...(typeof run.changeDetectionState === 'string'
+      ? { changeDetectionState: run.changeDetectionState }
+      : {}),
+    ...(run.syntaxCheck ? { syntaxCheck: run.syntaxCheck } : {}),
+    ...(typeof run.syntaxRepairTriggered === 'boolean'
+      ? { syntaxRepairTriggered: run.syntaxRepairTriggered }
+      : {}),
+    ...(typeof run.syntaxRepairSourceRunId === 'string'
+      ? { syntaxRepairSourceRunId: run.syntaxRepairSourceRunId }
+      : {}),
+    ...(typeof run.syntaxRepairCompletionReady === 'boolean'
+      ? { syntaxRepairCompletionReady: run.syntaxRepairCompletionReady }
+      : {}),
+    ...(typeof run.deliverySyntaxState === 'string'
+      ? { deliverySyntaxState: run.deliverySyntaxState }
+      : {}),
     ...(run.odNextTaskInputSnapshot
       ? { odNextTaskInputSnapshot: run.odNextTaskInputSnapshot }
       : {}),
@@ -741,6 +760,15 @@ export function createChatRunService({
     const statePath = path.join(runsLogDir, id, 'state.json');
     const state = readDurableRunState(statePath);
     if (!state || state.id !== id) return null;
+    // The global startup reconciler owns this narrow success-intent marker
+    // because it can verify the active syntax_auto_repair mapping in SQLite.
+    // A status GET may race that reconciliation; fail closed by exposing no
+    // hydrated Run yet, never by locally converting the trusted intent to the
+    // generic DAEMON_RESTARTED failure.
+    if (
+      !TERMINAL_RUN_STATUSES.has(state.status)
+      && state.syntaxRepairCompletionReady === true
+    ) return null;
     const interruptedAfterRestart =
       interruptDurableRunAfterDaemonRestart(state);
     if (interruptedAfterRestart) atomicWriteJson(statePath, state);
@@ -750,7 +778,10 @@ export function createChatRunService({
     const events = readDurableRunEvents(eventsLogPath);
     if (
       interruptedAfterRestart
-      || state.terminalRecoveryReason === 'daemon_restart'
+      || (
+        state.terminalRecoveryReason === 'daemon_restart'
+        && state.status === 'failed'
+      )
     ) {
       const timestamp = state.terminalAt ?? state.updatedAt;
       const nextEventId =
@@ -782,6 +813,27 @@ export function createChatRunService({
           timestamp,
         },
       );
+    } else if (
+      state.terminalRecoveryReason === 'daemon_restart'
+      && state.status === 'succeeded'
+      && state.syntaxRepairCompletionReady === true
+    ) {
+      const timestamp = state.terminalAt ?? state.updatedAt;
+      const nextEventId =
+        events.reduce((max, record) => Math.max(max, record.id), 0) + 1;
+      events.push({
+        id: nextEventId,
+        event: 'end',
+        data: {
+          code: state.exitCode ?? 0,
+          signal: null,
+          status: 'succeeded',
+          terminalAt: timestamp,
+          resumable: false,
+          endedWithUnfinishedWork: false,
+        },
+        timestamp,
+      });
     }
     const run = {
       ...state,
@@ -1009,7 +1061,19 @@ export function createChatRunService({
   };
 
   const persistState = (run) => {
-    if (run?.statePath) atomicWriteJson(run.statePath, durableRunState(run));
+    return Boolean(run?.statePath && atomicWriteJson(run.statePath, durableRunState(run)));
+  };
+
+  const persistSyntaxRepairCompletionReady = (run) => {
+    run.syntaxRepairCompletionReady = true;
+    if (persistState(run)) return true;
+
+    // The finalizer emits a durable lifecycle error after this strict
+    // checkpoint fails. Clear the in-memory marker first so a later write
+    // cannot turn a one-shot filesystem failure into false success intent on
+    // restart.
+    run.syntaxRepairCompletionReady = false;
+    return false;
   };
 
   const setAnalyticsRecovery = (run, recovery) => {
@@ -1924,6 +1988,7 @@ export function createChatRunService({
     wait,
     emit,
     persistState,
+    persistSyntaxRepairCompletionReady,
     setAnalyticsRecovery,
     markAnalyticsCompleted,
     beginTelemetryDelivery,

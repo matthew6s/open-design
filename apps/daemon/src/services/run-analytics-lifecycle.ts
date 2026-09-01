@@ -1000,6 +1000,31 @@ export function createRunAnalyticsLifecycle(
               asked_user_question: clarificationRequested,
               retry_attempt_count: run.retryAttemptCount ?? 0,
               retry_final_result: run.retryFinalResult ?? 'not_attempted',
+              ...(run.runPurpose
+                ? {
+                    run_purpose: run.runPurpose,
+                    syntax_repair_triggered: run.syntaxRepairTriggered === true,
+                  }
+                : {}),
+              ...(run.changeDetectionState
+                ? { change_detection_state: run.changeDetectionState }
+                : {}),
+              ...(run.syntaxCheck
+                ? {
+                    syntax_check_state: run.syntaxCheck.state,
+                    syntax_check_skip_reason: run.syntaxCheck.skipReason,
+                    syntax_check_duration_ms: run.syntaxCheck.durationMs,
+                    syntax_error_count: run.syntaxCheck.errorCount,
+                    syntax_error_file_count: run.syntaxCheck.errorFileCount,
+                    syntax_checked_file_count: run.syntaxCheck.checkedFileCount,
+                  }
+                : {}),
+              ...(run.syntaxRepairSourceRunId
+                ? { syntax_repair_source_run_id: run.syntaxRepairSourceRunId }
+                : {}),
+              ...(run.deliverySyntaxState
+                ? { delivery_syntax_state: run.deliverySyntaxState }
+                : {}),
               ...(agentCliVersion
                 ? { agent_cli_version: agentCliVersion }
                 : {}),

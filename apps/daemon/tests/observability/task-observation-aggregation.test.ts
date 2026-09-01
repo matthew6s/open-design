@@ -73,12 +73,17 @@ function task(
     planContractHash: 'sha256:plan',
     clarificationCount: 1,
     planContractRepairAttempts: 1,
+    syntaxRepairAttempts: 0,
+    deliverySyntaxState: 'not_checked',
     initialRunId: 'run-request',
     latestRunId: 'run-production',
     activeRunId: outcome === 'running' ? 'run-production' : null,
     terminalRunId: outcome === 'running' ? null : 'run-production',
     runs: RUNS.map((run) => ({
       ...run,
+      runPurpose: run.taskRunIndex === 0
+        ? 'user_request' as const
+        : 'strategy_continuation' as const,
       finalText: finalText(run.taskRunIndex === 0 ? 'bundle' : 'turn'),
     })),
     frozenSkillPackage: createEmptyFrozenSkillPackage(),

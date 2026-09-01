@@ -70,6 +70,11 @@ export function projectStrategyTask(
     activeRunId: task.activeRunId ?? task.terminalRunId ?? task.latestRunId,
     ...(!terminal && nextRunId ? { nextRunId } : {}),
     terminal,
+    deliverySyntaxState: task.deliverySyntaxState,
+    syntaxRepairAttempts: task.syntaxRepairAttempts,
+    ...(task.syntaxRepairSourceRunId
+      ? { syntaxRepairSourceRunId: task.syntaxRepairSourceRunId }
+      : {}),
     // A blocked outcome is a sticky terminal verdict: project its persisted
     // attribution so clients can terminate form interaction and explain why,
     // instead of letting the next clarification submit 409 blindly.
@@ -140,6 +145,7 @@ export function beginAutomaticSimpleProduction(db: SqliteDb, input: {
       runId: input.nextRunId,
       sourceRunId: input.sourceRunId,
       finalText: input.finalText,
+      runPurpose: 'strategy_continuation',
     },
     ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
   });
@@ -199,6 +205,7 @@ export function beginAutomaticComplexProduction(db: SqliteDb, input: {
       runId: input.nextRunId,
       sourceRunId: input.sourceRunId,
       finalText: input.finalText,
+      runPurpose: 'strategy_continuation',
     },
     ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
   });
@@ -272,6 +279,35 @@ export interface PreparedAutomaticStrategyContinuation<TRun> {
   stage?: 'contract_repair' | 'production';
 }
 
+/** Host-owned complex-production checks that must pass before a completion is
+ * a real delivery candidate. Exported for the pre-terminal syntax gate; the
+ * automatic continuation finalizer consumes the exact same reason codes. */
+export function odNextCompletionEnforcementReasonCodes(input: {
+  task: StrategyTaskExecutionRecord;
+  parsed: ReturnType<OdNextMachineProtocolStream['finish']>;
+  complexRuntimeEvidence?: OdNextComplexRuntimeEvidence;
+}): string[] {
+  if (
+    input.task.inputStage !== 'production'
+    || input.task.executionMode !== 'complex'
+    || input.parsed.runtimeState?.outcome !== 'completed'
+    || !input.task.planContract
+  ) return [];
+  const mapping = input.task.runs.find((candidate) => (
+    candidate.runId === input.task.latestRunId
+  ));
+  return evaluateOdNextComplexProduction({
+    plan: input.task.planContract,
+    selectedAgentId: input.task.selectedAgentId,
+    taskExecutionId: input.task.taskExecutionId,
+    runId: input.task.latestRunId,
+    taskRunIndex: mapping?.taskRunIndex ?? input.task.runs.length - 1,
+    ...(input.complexRuntimeEvidence
+      ? { evidence: input.complexRuntimeEvidence }
+      : {}),
+  }).reasonCodes;
+}
+
 /**
  * Accept one successful strategy Run and, when it yields a repairable contract
  * or a simple plan, claim the next physical Run in the same transaction as the
@@ -313,27 +349,13 @@ export function prepareAutomaticStrategyContinuation<
       capabilitySnapshot: input.complexRuntimeEvidence?.capabilitySnapshot,
     }).reasonCodes;
   })();
-  const complexCompletionReasonCodes = (() => {
-    if (
-      input.task.inputStage !== 'production'
-      || input.task.executionMode !== 'complex'
-      || input.parsed.runtimeState?.outcome !== 'completed'
-      || !input.task.planContract
-    ) return [];
-    const mapping = input.task.runs.find((candidate) => (
-      candidate.runId === input.task.latestRunId
-    ));
-    return evaluateOdNextComplexProduction({
-      plan: input.task.planContract,
-      selectedAgentId: input.task.selectedAgentId,
-      taskExecutionId: input.task.taskExecutionId,
-      runId: input.task.latestRunId,
-      taskRunIndex: mapping?.taskRunIndex ?? input.task.runs.length - 1,
-      ...(input.complexRuntimeEvidence
-        ? { evidence: input.complexRuntimeEvidence }
-        : {}),
-    }).reasonCodes;
-  })();
+  const complexCompletionReasonCodes = odNextCompletionEnforcementReasonCodes({
+    task: input.task,
+    parsed: input.parsed,
+    ...(input.complexRuntimeEvidence
+      ? { complexRuntimeEvidence: input.complexRuntimeEvidence }
+      : {}),
+  });
   const finalize = (repairRun?: {
     runId: string;
     sourceRunId: string;

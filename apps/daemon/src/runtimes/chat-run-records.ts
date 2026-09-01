@@ -26,6 +26,12 @@ import type { RunEventForFailureClassification } from '../run-failure-classifica
 import type { RunWorkspaceScope } from './project-amr-trace-env.js';
 import type { OdNextRolloutDecision } from '../strategies/od-next/rollout.js';
 import type { OdNextTaskInputSnapshotDescriptor } from '../strategies/od-next/task-input-snapshot.js';
+import type {
+  StrategyChangeDetectionState,
+  StrategyDeliverySyntaxState,
+  StrategyRunPurpose,
+  StrategySyntaxCheckState,
+} from '../strategies/task-store.js';
 
 import { getProject } from '../db.js';
 import {
@@ -222,6 +228,20 @@ export interface ChatRun {
   };
   strategyTask?: StrategyTaskProjectionV2;
   odNextTaskInputSnapshot?: OdNextTaskInputSnapshotDescriptor | null;
+  /** Server-owned OD Next physical-Run role. Never inferred from prompt text. */
+  runPurpose?: StrategyRunPurpose;
+  changeDetectionState?: StrategyChangeDetectionState;
+  syntaxCheck?: {
+    state: StrategySyntaxCheckState;
+    skipReason?: string;
+    durationMs: number;
+    errorCount: number;
+    errorFileCount: number;
+    checkedFileCount: number;
+  };
+  syntaxRepairTriggered?: boolean;
+  syntaxRepairSourceRunId?: string;
+  deliverySyntaxState?: StrategyDeliverySyntaxState;
 }
 
 /** Design-system selection provenance recorded on `run_created`. */

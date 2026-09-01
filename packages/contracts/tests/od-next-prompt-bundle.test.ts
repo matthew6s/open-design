@@ -90,7 +90,7 @@ describe('OD Next canonical Prompt Bundle v1', () => {
 });
 
 describe('OD Next canonical request Turn v1', () => {
-  it.each(['clarification', 'contract_repair', 'production'] as const)(
+  it.each(['clarification', 'contract_repair', 'production', 'syntax_repair'] as const)(
     'round-trips the existing %s stage with versioned identity attributes',
     (stage) => {
       const input = {

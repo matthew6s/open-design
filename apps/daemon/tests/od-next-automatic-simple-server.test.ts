@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { execFile } from 'node:child_process';
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2104,6 +2104,178 @@ describe('OD Next automatic production through the real server', () => {
     });
   });
 
+  it('continues the same native Agent once for a confirmed syntax_error and finishes repaired_unverified', async () => {
+    const fixture = await createFixture('syntax');
+    const body = createRunRequest(fixture, 'Build a prototype with working JavaScript.');
+
+    queueFixtureIds(fixture);
+    const created = await postRun(started!.url, body);
+    expect(created).toMatchObject({
+      runId: fixture.initialRunId,
+      taskExecutionId: fixture.taskExecutionId,
+    });
+    const terminal = await waitForTask(fixture.taskExecutionId, 'completed');
+    expect(terminal.runs.map((mapping) => mapping.inputStage)).toEqual([
+      'request',
+      'production',
+      'syntax_repair',
+    ]);
+    expect(terminal.runs.map((mapping) => mapping.runPurpose)).toEqual([
+      'user_request',
+      'strategy_continuation',
+      'syntax_auto_repair',
+    ]);
+    expect(terminal.syntaxRepairAttempts).toBe(1);
+    expect(terminal.syntaxRepairSourceRunId).toBe(terminal.runs[1]?.runId);
+    expect(terminal.deliverySyntaxState).toBe('repaired_unverified');
+    expect(terminal.terminalRunId).toBe(terminal.runs[2]?.runId);
+
+    const invocations = await readProjectInvocations(fixture.logPath, fixture.projectId);
+    expect(invocations).toHaveLength(3);
+    expect(invocations.slice(1).map(({ argv }) => argv.slice(0, 2))).toEqual([
+      ['exec', 'resume'],
+      ['exec', 'resume'],
+    ]);
+    expect(invocations.slice(1).every(({ argv }) => argv.includes(THREAD_ID))).toBe(true);
+    expect(new Set(invocations.map(({ cwd }) => cwd)).size).toBe(1);
+    expect(invocations[2]?.stdin).toContain('OD Next native continuation — syntax repair');
+    expect(invocations[2]?.stdin).toContain(
+      '"source_excerpt": "const OD_PRIVATE_SYNTAX_SENTINEL = ;"',
+    );
+    expect(invocations[2]?.stdin).toContain('Do not run a syntax checker');
+    expect(invocations[2]?.stdin).toContain('repaired_unverified');
+    expect(invocations[2]?.stdin).not.toContain('<open-design-runtime-state>');
+
+    const sourceRunId = terminal.runs[1]!.runId;
+    const repairRunId = terminal.runs[2]!.runId;
+    const sourceState = await readDurableRunState(sourceRunId);
+    const repairState = await readDurableRunState(repairRunId);
+    expect(sourceState).toMatchObject({
+      runPurpose: 'strategy_continuation',
+      syntaxRepairTriggered: true,
+      syntaxRepairSourceRunId: sourceRunId,
+      syntaxCheck: { state: 'syntax_error', errorCount: 1, errorFileCount: 1 },
+    });
+    expect(repairState).toMatchObject({
+      status: 'succeeded',
+      runPurpose: 'syntax_auto_repair',
+      syntaxRepairCompletionReady: true,
+      syntaxRepairSourceRunId: sourceRunId,
+      deliverySyntaxState: 'repaired_unverified',
+      syntaxCheck: { state: 'skipped', skipReason: 'syntax_repair_run' },
+    });
+    expect(repairState.promptTelemetry).toBeUndefined();
+    expect(JSON.stringify(repairState)).not.toContain('OD_PRIVATE_SYNTAX_SENTINEL');
+    expect(terminal.runs[2]!.finalText.text).toContain(
+      '[redacted from persisted task state]',
+    );
+    expect(terminal.runs[2]!.finalText.text).not.toContain('OD_PRIVATE_SYNTAX_SENTINEL');
+    expect(JSON.stringify(terminal.syntaxValidation)).not.toContain('sourceExcerpt');
+    const persistedRepairMessage = database().prepare(`
+      SELECT content, events_json AS eventsJson, task_analytics_json AS taskAnalyticsJson
+        FROM messages
+       WHERE run_id = ?
+    `).get(repairRunId) as {
+      content?: string;
+      eventsJson?: string | null;
+      taskAnalyticsJson?: string | null;
+    } | undefined;
+    expect(JSON.stringify(persistedRepairMessage)).not.toContain('OD_PRIVATE_SYNTAX_SENTINEL');
+    expect(await readFile((await getRun(started!.url, repairRunId)).eventsLogPath, 'utf8'))
+      .not.toContain('OD_PRIVATE_SYNTAX_SENTINEL');
+    expect(await readFile(path.join(
+      process.env.OD_DATA_DIR!,
+      'projects',
+      fixture.projectId,
+      'index.html',
+    ), 'utf8')).toContain('const OD_PRIVATE_SYNTAX_SENTINEL = true;');
+  }, 90_000);
+
+  it('blocks a syntax repair before touching a project rebound to a different cwd', async () => {
+    const fixture = await createFixture('syntax');
+    const pauseTrigger = `${fixture.logPath}.pause-after-syntax-write`;
+    const syntaxWritten = `${fixture.logPath}.syntax-written`;
+    const releaseProduction = `${fixture.logPath}.release-syntax-production`;
+    await writeFile(pauseTrigger, 'pause', 'utf8');
+
+    queueFixtureIds(fixture);
+    await postRun(
+      started!.url,
+      createRunRequest(fixture, 'Build a prototype with working JavaScript.'),
+    );
+    await waitForReadableFile(syntaxWritten);
+
+    const reboundCwd = path.join(binDir!, `rebound-${fixture.projectId}`);
+    await mkdir(reboundCwd, { recursive: true });
+    const projectRow = database().prepare(`
+      SELECT metadata_json AS metadataJson
+        FROM projects
+       WHERE id = ?
+    `).get(fixture.projectId) as { metadataJson: string | null };
+    const metadata = projectRow.metadataJson ? JSON.parse(projectRow.metadataJson) : {};
+    database().prepare(`
+      UPDATE projects
+         SET metadata_json = ?, updated_at = ?
+       WHERE id = ?
+    `).run(JSON.stringify({ ...metadata, baseDir: reboundCwd }), Date.now(), fixture.projectId);
+    await writeFile(releaseProduction, 'continue', 'utf8');
+
+    const blocked = await waitForTask(fixture.taskExecutionId, 'blocked');
+    expect(blocked.runs.map((mapping) => mapping.inputStage)).toEqual([
+      'request',
+      'production',
+      'syntax_repair',
+    ]);
+    expect(await readProjectInvocations(fixture.logPath, fixture.projectId)).toHaveLength(2);
+    expect(await readdir(reboundCwd)).toEqual([]);
+  }, 90_000);
+
+  it('pins the source session handle even when the mutable session row changes before repair', async () => {
+    const fixture = await createFixture('syntax');
+    const pauseTrigger = `${fixture.logPath}.pause-after-syntax-write`;
+    const syntaxWritten = `${fixture.logPath}.syntax-written`;
+    const releaseProduction = `${fixture.logPath}.release-syntax-production`;
+    const mutableSessionId = 'mutable-session-row-was-rebound';
+    await writeFile(pauseTrigger, 'pause', 'utf8');
+
+    queueFixtureIds(fixture);
+    await postRun(
+      started!.url,
+      createRunRequest(fixture, 'Build a prototype with working JavaScript.'),
+    );
+    await waitForReadableFile(syntaxWritten);
+
+    // The production Run already resumed THREAD_ID. Rewrite only later session
+    // upserts, so its own delivered-session checkpoint leaves the shared row at
+    // a competing value before the repair Run resolves continuation inputs.
+    database().exec(`
+      CREATE TRIGGER syntax_session_row_drift_${sequence}
+      AFTER UPDATE OF session_id ON agent_sessions
+      WHEN NEW.conversation_id = '${fixture.conversationId}'
+       AND NEW.agent_id = 'codex'
+       AND NEW.session_id != '${mutableSessionId}'
+      BEGIN
+        UPDATE agent_sessions
+           SET session_id = '${mutableSessionId}'
+         WHERE conversation_id = NEW.conversation_id
+           AND agent_id = NEW.agent_id;
+      END
+    `);
+    await writeFile(releaseProduction, 'continue', 'utf8');
+
+    await waitForTask(fixture.taskExecutionId, 'completed');
+    const mutableRow = database().prepare(`
+      SELECT session_id AS sessionId
+        FROM agent_sessions
+       WHERE conversation_id = ? AND agent_id = ?
+    `).get(fixture.conversationId, 'codex') as { sessionId: string };
+    expect(mutableRow.sessionId).toBe(mutableSessionId);
+    const invocations = await readProjectInvocations(fixture.logPath, fixture.projectId);
+    expect(invocations).toHaveLength(3);
+    expect(invocations[2]?.argv).toContain(THREAD_ID);
+    expect(invocations[2]?.argv).not.toContain(mutableSessionId);
+  }, 90_000);
+
   it('uses the canonical Web current turn as the implicit research query', async () => {
     const fixture = await createFixture('repair');
     const repeatedQuery = 'REPEATED_CURRENT_QUERY_TOKEN';
@@ -2423,7 +2595,7 @@ describe('OD Next automatic production through the real server', () => {
   });
 
   async function createFixture(
-    mode: 'repair' | 'direct' | 'complex',
+    mode: 'repair' | 'direct' | 'complex' | 'syntax',
     {
       selectedAgentId = 'codex',
       capability,
@@ -2780,6 +2952,19 @@ async function readDurableRunState(runId: string): Promise<Record<string, unknow
   )) as Record<string, unknown>;
 }
 
+async function waitForReadableFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(filePath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error(`file did not become readable: ${filePath}`);
+}
+
 async function startDaemon(
   resolver: NonNullable<StartServerOptions['odNextExecutionPreflightResolver']> =
     () => EXECUTION_PREFLIGHT,
@@ -2871,7 +3056,7 @@ async function createStrategyTemplate() {
 function planContract(
   snapshotId: string,
   strategy: AppliedStrategyBindingV2,
-  mode: 'repair' | 'direct' | 'complex' = 'repair',
+  mode: 'repair' | 'direct' | 'complex' | 'syntax' = 'repair',
   capability = complexCapabilitySnapshot(),
 ): OpenDesignPlanContractV2 {
   return {
@@ -2969,7 +3154,7 @@ function machineBlock(tag: string, value: unknown, fenced = false): string {
 
 async function writeStrategyCodex(
   dir: string,
-  mode: 'repair' | 'direct' | 'complex',
+  mode: 'repair' | 'direct' | 'complex' | 'syntax',
   plan: OpenDesignPlanContractV2,
 ): Promise<{ bin: string; logPath: string }> {
   const bin = path.join(dir, `codex-${mode}`);
@@ -3004,6 +3189,10 @@ async function writeStrategyCodex(
   const complexProduction = machineBlock('open-design-runtime-state', runtimeState({
     inputStage: 'production', outcome: 'completed', executionMode: 'complex',
   }));
+  const syntaxPlan = [
+    machineBlock('open-design-plan-contract', plan),
+    machineBlock('open-design-runtime-state', runtimeState({ outcome: 'plan_ready' })),
+  ].join('\n');
 
   await writeFile(bin, `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -3040,6 +3229,26 @@ function finish() {
   if (mode === 'direct') {
     fs.writeFileSync(path.join(process.cwd(), 'index.html'), '<!doctype html><title>Direct</title>');
     text = ${JSON.stringify(direct)};
+  } else if (mode === 'syntax' && stdin.includes('native continuation — syntax repair')) {
+    fs.writeFileSync(path.join(process.cwd(), 'index.html'), '<!doctype html><script>const OD_PRIVATE_SYNTAX_SENTINEL = true;</script>');
+    text = 'repaired_unverified';
+  } else if (mode === 'syntax' && stdin.includes('native continuation — production')) {
+    fs.writeFileSync(path.join(process.cwd(), 'index.html'), '<!doctype html><script>const OD_PRIVATE_SYNTAX_SENTINEL = ;</script>');
+    if (fs.existsSync(logPath + '.pause-after-syntax-write')) {
+      fs.writeFileSync(logPath + '.syntax-written', 'ready');
+      const deadline = Date.now() + 10000;
+      const sleeper = new Int32Array(new SharedArrayBuffer(4));
+      while (!fs.existsSync(logPath + '.release-syntax-production') && Date.now() < deadline) {
+        Atomics.wait(sleeper, 0, 0, 20);
+      }
+      if (!fs.existsSync(logPath + '.release-syntax-production')) {
+        process.stderr.write('fixture: syntax production release timed out\\n');
+        process.exit(3);
+      }
+    }
+    text = ${JSON.stringify(production)};
+  } else if (mode === 'syntax') {
+    text = ${JSON.stringify(syntaxPlan)};
   } else if (mode === 'complex' && stdin.includes('native continuation — production')) {
     fs.writeFileSync(path.join(process.cwd(), 'index.html'), '<!doctype html><title>Complex</title>');
     text = ${JSON.stringify(complexProduction)};

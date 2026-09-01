@@ -52,6 +52,7 @@ export const StrategyInputStageV2Schema = z.enum([
   'clarification',
   'contract_repair',
   'production',
+  'syntax_repair',
 ]);
 export type StrategyInputStageV2 = z.infer<typeof StrategyInputStageV2Schema>;
 
@@ -487,11 +488,11 @@ export const StrategyRuntimeStateV2Schema = z.object({
   rejectForbiddenStrategySemantics(value, context);
 
   if (value.route === 'direct_edit') {
-    if (value.inputStage !== 'request') {
+    if (!['request', 'syntax_repair'].includes(value.inputStage)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['inputStage'],
-        message: 'Direct Edit is confined to the request stage.',
+        message: 'Direct Edit is confined to request and its one syntax-repair stage.',
       });
     }
     if (value.executionMode !== 'simple') {
@@ -505,25 +506,25 @@ export const StrategyRuntimeStateV2Schema = z.object({
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['outcome'],
-        message: 'Direct Edit must finish in the request stage.',
+        message: 'Direct Edit must finish in request or syntax repair.',
       });
     }
     return;
   }
 
-  if (value.inputStage === 'production') {
+  if (value.inputStage === 'production' || value.inputStage === 'syntax_repair') {
     if (value.executionMode === null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['executionMode'],
-        message: 'Production requires a locked execution mode.',
+        message: 'Production and syntax repair require a locked execution mode.',
       });
     }
     if (!['completed', 'blocked', 'canceled'].includes(value.outcome)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['outcome'],
-        message: 'Production must report a task-chain terminal outcome.',
+        message: 'Production and syntax repair must report a task-chain terminal outcome.',
       });
     }
   } else if (value.inputStage === 'clarification') {
@@ -586,9 +587,11 @@ const allowedStageTransitions = new Set([
   'request:clarification',
   'request:contract_repair',
   'request:production',
+  'request:syntax_repair',
   'clarification:contract_repair',
   'clarification:production',
   'contract_repair:production',
+  'production:syntax_repair',
 ]);
 
 export const StrategyRuntimeTransitionV2Schema = z.object({
@@ -602,11 +605,28 @@ export const StrategyRuntimeTransitionV2Schema = z.object({
       message: 'Strategy route is locked for the task chain.',
     });
   }
-  if (value.from.route === 'direct_edit') {
+  if (
+    value.from.route === 'direct_edit'
+    && !(
+      value.from.inputStage === 'request'
+      && value.to.inputStage === 'syntax_repair'
+    )
+  ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['to', 'inputStage'],
-      message: 'Direct Edit does not continue into another physical stage.',
+      message: 'Direct Edit only continues into its one syntax-repair stage.',
+    });
+  }
+  if (
+    value.from.route === 'full_plan'
+    && value.to.inputStage === 'syntax_repair'
+    && value.from.inputStage !== 'production'
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['to', 'inputStage'],
+      message: 'Full Plan syntax repair may follow only Production.',
     });
   }
   if (!allowedStageTransitions.has(`${value.from.inputStage}:${value.to.inputStage}`)) {
@@ -749,6 +769,14 @@ export const StrategyTaskProjectionV2Schema = z.object({
   nextRunId: z.string().min(1).optional(),
   terminal: z.boolean(),
   blockedContext: StrategyTaskBlockedContextV2Schema.optional(),
+  deliverySyntaxState: z.enum([
+    'syntax_checked',
+    'repaired_unverified',
+    'check_incomplete',
+    'not_checked',
+  ]).optional(),
+  syntaxRepairAttempts: z.union([z.literal(0), z.literal(1)]).optional(),
+  syntaxRepairSourceRunId: z.string().min(1).optional(),
 }).strict().superRefine((value, context) => {
   const isTerminalOutcome = ['completed', 'blocked', 'canceled'].includes(value.outcome);
   if (value.terminal !== isTerminalOutcome) {
@@ -777,6 +805,20 @@ export const StrategyTaskProjectionV2Schema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['executionMode'],
       message: 'Contract-repair projections preserve a locked execution mode.',
+    });
+  }
+  if (value.inputStage === 'syntax_repair' && value.executionMode === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['executionMode'],
+      message: 'Syntax-repair projections preserve a locked execution mode.',
+    });
+  }
+  if (value.syntaxRepairSourceRunId && value.syntaxRepairAttempts !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['syntaxRepairSourceRunId'],
+      message: 'A syntax repair source requires one claimed repair attempt.',
     });
   }
   if (value.route === null) {
@@ -811,11 +853,11 @@ export const StrategyTaskProjectionV2Schema = z.object({
     }
   }
   if (value.route === 'direct_edit') {
-    if (value.inputStage !== 'request') {
+    if (!['request', 'syntax_repair'].includes(value.inputStage)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['inputStage'],
-        message: 'Direct Edit projections are confined to the request stage.',
+        message: 'Direct Edit projections are confined to request and syntax repair.',
       });
     }
     return;

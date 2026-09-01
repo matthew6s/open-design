@@ -11,7 +11,15 @@ import {
 } from '@open-design/contracts/analytics';
 
 import { appendMessageStatusEvent } from '../db.js';
-import { reconcileStrategyTaskRunTerminal } from '../strategies/task-store.js';
+import {
+  reconcileStrategyTaskRunTerminal,
+  recoverStrategyTaskSyntaxRepairCompletion,
+  type StrategyChangeDetectionState,
+  type StrategyDeliverySyntaxState,
+  type StrategyRunPurpose,
+  type StrategyTaskExecutionRecord,
+} from '../strategies/task-store.js';
+import { projectStrategyTask } from '../strategies/od-next/automatic-simple-production.js';
 import { classifyRunFailure } from '../run-failure-classification.js';
 import { deriveRunErrorCode, runResultFromStatus } from '../run-result.js';
 import { runAskedUserQuestion } from './run-artifacts.js';
@@ -87,6 +95,21 @@ interface DurableRunState extends RestartRecoverableDurableRunState {
   analyticsRecovery?: AnalyticsRecovery;
   langfuseCompletedAt?: number;
   telemetryDelivery?: RunTelemetryDeliveryStateV1;
+  runPurpose?: StrategyRunPurpose;
+  changeDetectionState?: StrategyChangeDetectionState;
+  syntaxCheck?: {
+    state: string;
+    skipReason?: string;
+    durationMs: number;
+    errorCount: number;
+    errorFileCount: number;
+    checkedFileCount: number;
+  };
+  syntaxRepairTriggered?: boolean;
+  syntaxRepairCompletionReady?: boolean;
+  syntaxRepairSourceRunId?: string;
+  deliverySyntaxState?: StrategyDeliverySyntaxState;
+  strategyTask?: ReturnType<typeof projectStrategyTask>;
 }
 
 interface AnalyticsLike {
@@ -226,6 +249,20 @@ function hydrateRun(state: DurableRunState, events: ReturnType<typeof readEvents
     ...(state.clientType !== undefined ? { clientType: state.clientType } : {}),
     ...(state.promptTelemetry !== undefined ? { promptTelemetry: state.promptTelemetry } : {}),
     ...(state.promptCache !== undefined ? { promptCache: state.promptCache } : {}),
+    ...(state.runPurpose !== undefined ? { runPurpose: state.runPurpose } : {}),
+    ...(state.changeDetectionState !== undefined
+      ? { changeDetectionState: state.changeDetectionState }
+      : {}),
+    ...(state.syntaxCheck !== undefined ? { syntaxCheck: state.syntaxCheck } : {}),
+    ...(state.syntaxRepairTriggered !== undefined
+      ? { syntaxRepairTriggered: state.syntaxRepairTriggered }
+      : {}),
+    ...(state.syntaxRepairSourceRunId !== undefined
+      ? { syntaxRepairSourceRunId: state.syntaxRepairSourceRunId }
+      : {}),
+    ...(state.deliverySyntaxState !== undefined
+      ? { deliverySyntaxState: state.deliverySyntaxState }
+      : {}),
   };
 }
 
@@ -290,6 +327,42 @@ function reconcileStrategyTaskRunTerminalIsolated(
   }
 }
 
+function recoverSyntaxRepairCompletionIsolated(
+  db: Database.Database,
+  runId: string,
+  updatedAt: number,
+) {
+  try {
+    return recoverStrategyTaskSyntaxRepairCompletion(db, { runId, updatedAt });
+  } catch (error) {
+    console.warn('[runs] syntax repair completion recovery skipped', runId, error);
+    return null;
+  }
+}
+
+function promoteRecoveredSyntaxRepairRun(
+  state: DurableRunState,
+  task: StrategyTaskExecutionRecord,
+  now: number,
+): void {
+  state.status = 'succeeded';
+  state.updatedAt = Math.max(state.updatedAt, now);
+  state.terminalAt = state.updatedAt;
+  state.exitCode = 0;
+  state.signal = null;
+  state.error = null;
+  state.errorCode = null;
+  state.terminalTrigger = 'daemon_restart';
+  state.terminalRecoveryReason = 'daemon_restart';
+  state.runPurpose = 'syntax_auto_repair';
+  state.deliverySyntaxState = 'repaired_unverified';
+  if (task.syntaxRepairSourceRunId) {
+    state.syntaxRepairSourceRunId = task.syntaxRepairSourceRunId;
+  }
+  state.strategyTask = projectStrategyTask(task, state.id);
+  state.endedWithUnfinishedWork = false;
+}
+
 export async function reconcileDurableRunTerminals(
   options: ReconciliationOptions,
 ): Promise<RunTerminalReconciliationResult> {
@@ -331,6 +404,23 @@ export async function reconcileDurableRunTerminals(
   }
 
   for (const entry of states) {
+    if (
+      !TERMINAL_STATUSES.has(entry.state.status)
+      && entry.state.syntaxRepairCompletionReady === true
+    ) {
+      const recovered = recoverSyntaxRepairCompletionIsolated(
+        options.db,
+        entry.state.id,
+        now,
+      );
+      if (recovered) {
+        promoteRecoveredSyntaxRepairRun(entry.state, recovered.task, now);
+        writeState(entry.filePath, entry.state);
+        interruptedRunIds.add(entry.state.id);
+        if (recovered.completedNow) result.strategyTasksReconciled += 1;
+        continue;
+      }
+    }
     if (!interruptDurableRunAfterDaemonRestart(entry.state, now)) continue;
     writeState(entry.filePath, entry.state);
     interruptedRunIds.add(entry.state.id);
@@ -340,7 +430,15 @@ export async function reconcileDurableRunTerminals(
   // Repair both newly interrupted Runs and terminal state snapshots that may
   // have survived a crash before their local terminal outbox write.
   for (const { state } of states) {
-    if (state.status !== 'failed' && state.status !== 'canceled') continue;
+    const recoveredSyntaxRepairSuccess =
+      state.status === 'succeeded'
+      && state.syntaxRepairCompletionReady === true
+      && state.terminalRecoveryReason === 'daemon_restart';
+    if (
+      state.status !== 'failed'
+      && state.status !== 'canceled'
+      && !recoveredSyntaxRepairSuccess
+    ) continue;
     try {
       options.finalizeTerminalLocally?.(
         state,
@@ -467,6 +565,31 @@ export async function reconcileDurableRunTerminals(
           state.analyticsRecovery.properties.terminal_integrity,
         ),
         terminal_recovery_reason: recoveryReason,
+        ...(state.runPurpose
+          ? {
+              run_purpose: state.runPurpose,
+              syntax_repair_triggered: state.syntaxRepairTriggered === true,
+            }
+          : {}),
+        ...(state.changeDetectionState
+          ? { change_detection_state: state.changeDetectionState }
+          : {}),
+        ...(state.syntaxCheck
+          ? {
+              syntax_check_state: state.syntaxCheck.state,
+              syntax_check_skip_reason: state.syntaxCheck.skipReason,
+              syntax_check_duration_ms: state.syntaxCheck.durationMs,
+              syntax_error_count: state.syntaxCheck.errorCount,
+              syntax_error_file_count: state.syntaxCheck.errorFileCount,
+              syntax_checked_file_count: state.syntaxCheck.checkedFileCount,
+            }
+          : {}),
+        ...(state.syntaxRepairSourceRunId
+          ? { syntax_repair_source_run_id: state.syntaxRepairSourceRunId }
+          : {}),
+        ...(state.deliverySyntaxState
+          ? { delivery_syntax_state: state.deliverySyntaxState }
+          : {}),
         ...(errorCode ? { error_code: errorCode } : {}),
         ...(failure ?? {}),
       };

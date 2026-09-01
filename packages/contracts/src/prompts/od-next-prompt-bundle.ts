@@ -31,6 +31,7 @@ const TURN_STAGES = new Set<OdNextRequestTurnStageV1>([
   'clarification',
   'contract_repair',
   'production',
+  'syntax_repair',
 ]);
 const XML_ATTRIBUTE_ENTITIES: Readonly<Record<string, string>> = {
   amp: '&',

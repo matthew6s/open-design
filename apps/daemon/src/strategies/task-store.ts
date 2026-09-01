@@ -63,9 +63,65 @@ const ACCEPTED_FINAL_TEXT_SCHEMAS = {
 
 export type StrategyTaskOutcome = 'running' | StrategyOutcomeV2;
 
+export type StrategyRunPurpose =
+  | 'user_request'
+  | 'strategy_continuation'
+  | 'syntax_auto_repair';
+
+export type StrategySyntaxCheckState =
+  | 'skipped'
+  | 'no_syntax_error_found'
+  | 'syntax_error'
+  | 'check_incomplete';
+
+export type StrategyChangeDetectionState =
+  | 'complete'
+  | 'contended'
+  | 'truncated'
+  | 'snapshot_failed';
+
+export type StrategyDeliverySyntaxState =
+  | 'syntax_checked'
+  | 'repaired_unverified'
+  | 'check_incomplete'
+  | 'not_checked';
+
+export interface StrategyDeliverableCodeChange {
+  path: string;
+  change: 'created' | 'modified';
+  role: 'entry_html' | 'render_dependency';
+}
+
+export interface StrategySyntaxDiagnosticSummary {
+  file: string;
+  scriptKind: 'classic' | 'module' | 'event_handler';
+  line: number;
+  column: number;
+  errorType: 'SyntaxError';
+  message: string;
+}
+
+export interface StrategySyntaxCheckRecord {
+  state: StrategySyntaxCheckState;
+  checkerVersion: string;
+  checkerHash: string;
+  durationMs: number;
+  errorCount: number;
+  errorFileCount: number;
+  diagnosticSummary: StrategySyntaxDiagnosticSummary[];
+  skipReason?: 'no_relevant_change' | 'non_delivery_stage' | 'syntax_repair_run';
+}
+
+export interface StrategySyntaxValidationRecord {
+  changeDetectionState: StrategyChangeDetectionState;
+  deliverableCodeChanges: StrategyDeliverableCodeChange[];
+  syntaxCheck: StrategySyntaxCheckRecord;
+}
+
 export interface StrategyTaskRunMapping {
   runId: string;
   inputStage: StrategyInputStageV2;
+  runPurpose: StrategyRunPurpose;
   taskRunIndex: number;
   sourceRunId?: string;
   finalText: StrategyTaskFinalTextIdentity;
@@ -119,6 +175,10 @@ export interface StrategyTaskExecutionRecord {
   planContractHash?: string;
   clarificationCount: 0 | 1;
   planContractRepairAttempts: 0 | 1;
+  syntaxRepairAttempts: 0 | 1;
+  syntaxRepairSourceRunId?: string;
+  syntaxValidation?: StrategySyntaxValidationRecord;
+  deliverySyntaxState: StrategyDeliverySyntaxState;
   initialRunId: string;
   latestRunId: string;
   activeRunId: string | null;
@@ -169,7 +229,10 @@ export interface CompareAndTransitionStrategyTaskInput {
     runId: string;
     sourceRunId: string;
     finalText: string;
+    runPurpose: StrategyRunPurpose;
   };
+  syntaxValidation?: StrategySyntaxValidationRecord;
+  deliverySyntaxState?: StrategyDeliverySyntaxState;
   planContract?: OpenDesignPlanContractV2;
   blockedContext?: {
     reasonCodes: readonly string[];
@@ -214,7 +277,9 @@ export function migrateStrategyTaskStore(db: SqliteDb): void {
       selected_agent_id TEXT NOT NULL,
       route TEXT CHECK (route IN ('direct_edit', 'full_plan')),
       input_stage TEXT NOT NULL CHECK (
-        input_stage IN ('request', 'clarification', 'contract_repair', 'production')
+        input_stage IN (
+          'request', 'clarification', 'contract_repair', 'production', 'syntax_repair'
+        )
       ),
       outcome TEXT NOT NULL CHECK (
         outcome IN (
@@ -228,6 +293,20 @@ export function migrateStrategyTaskStore(db: SqliteDb): void {
       clarification_count INTEGER NOT NULL DEFAULT 0 CHECK (clarification_count BETWEEN 0 AND 1),
       plan_contract_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (
         plan_contract_repair_attempts BETWEEN 0 AND 1
+      ),
+      syntax_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (
+        syntax_repair_attempts BETWEEN 0 AND 1
+      ),
+      syntax_repair_source_run_id TEXT,
+      change_detection_state TEXT CHECK (
+        change_detection_state IN ('complete', 'contended', 'truncated', 'snapshot_failed')
+      ),
+      deliverable_code_changes_json TEXT,
+      syntax_check_json TEXT,
+      delivery_syntax_state TEXT NOT NULL DEFAULT 'not_checked' CHECK (
+        delivery_syntax_state IN (
+          'syntax_checked', 'repaired_unverified', 'check_incomplete', 'not_checked'
+        )
       ),
       initial_run_id TEXT NOT NULL,
       latest_run_id TEXT NOT NULL,
@@ -252,7 +331,12 @@ export function migrateStrategyTaskStore(db: SqliteDb): void {
       task_execution_id TEXT NOT NULL,
       run_id TEXT NOT NULL UNIQUE,
       input_stage TEXT NOT NULL CHECK (
-        input_stage IN ('request', 'clarification', 'contract_repair', 'production')
+        input_stage IN (
+          'request', 'clarification', 'contract_repair', 'production', 'syntax_repair'
+        )
+      ),
+      run_purpose TEXT NOT NULL CHECK (
+        run_purpose IN ('user_request', 'strategy_continuation', 'syntax_auto_repair')
       ),
       task_run_index INTEGER NOT NULL CHECK (task_run_index >= 0),
       source_run_id TEXT,
@@ -274,11 +358,35 @@ export function migrateStrategyTaskStore(db: SqliteDb): void {
   addColumnIfMissing(db, 'strategy_task_executions', 'frozen_input_identity_json TEXT');
   addColumnIfMissing(db, 'strategy_task_executions', 'blocked_reason_codes_json TEXT');
   addColumnIfMissing(db, 'strategy_task_executions', 'blocked_visible_text TEXT');
+  addColumnIfMissing(
+    db,
+    'strategy_task_executions',
+    'syntax_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (syntax_repair_attempts BETWEEN 0 AND 1)',
+  );
+  addColumnIfMissing(db, 'strategy_task_executions', 'syntax_repair_source_run_id TEXT');
+  addColumnIfMissing(db, 'strategy_task_executions', 'change_detection_state TEXT');
+  addColumnIfMissing(db, 'strategy_task_executions', 'deliverable_code_changes_json TEXT');
+  addColumnIfMissing(db, 'strategy_task_executions', 'syntax_check_json TEXT');
+  addColumnIfMissing(
+    db,
+    'strategy_task_executions',
+    "delivery_syntax_state TEXT NOT NULL DEFAULT 'not_checked'",
+  );
   addColumnIfMissing(db, 'strategy_task_runs', 'final_text_kind TEXT');
   addColumnIfMissing(db, 'strategy_task_runs', 'final_text_schema TEXT');
   addColumnIfMissing(db, 'strategy_task_runs', 'final_text TEXT');
   addColumnIfMissing(db, 'strategy_task_runs', 'final_text_utf8_bytes INTEGER');
   addColumnIfMissing(db, 'strategy_task_runs', 'final_text_sha256 TEXT');
+  addColumnIfMissing(db, 'strategy_task_runs', 'run_purpose TEXT');
+  db.exec(`
+    UPDATE strategy_task_runs
+       SET run_purpose = CASE
+         WHEN task_run_index = 0 THEN 'user_request'
+         ELSE 'strategy_continuation'
+       END
+     WHERE run_purpose IS NULL
+  `);
+  migrateStrategyTaskSyntaxStageChecks(db);
   migrateFrozenSkillPackageStore(db);
 }
 
@@ -343,13 +451,13 @@ export function createStrategyTaskExecution(
           strategy_id, strategy_version, strategy_package_hash, selected_agent_id,
           route, input_stage, outcome, execution_mode,
           plan_contract_json, plan_contract_hash,
-          clarification_count, plan_contract_repair_attempts,
+          clarification_count, plan_contract_repair_attempts, syntax_repair_attempts,
           initial_run_id, latest_run_id,
           prompt_bundle_schema, prompt_bundle_text,
           prompt_bundle_utf8_bytes, prompt_bundle_sha256,
           frozen_input_identity_json, created_at, updated_at
         ) VALUES (?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NULL, 'request', 'running', NULL,
-                  NULL, NULL, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  NULL, NULL, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         taskExecutionId,
         projectId,
@@ -371,10 +479,11 @@ export function createStrategyTaskExecution(
       );
       db.prepare(`
         INSERT INTO strategy_task_runs (
-          task_execution_id, run_id, input_stage, task_run_index, source_run_id,
+          task_execution_id, run_id, input_stage, run_purpose,
+          task_run_index, source_run_id,
           final_text_kind, final_text_schema, final_text,
           final_text_utf8_bytes, final_text_sha256, created_at
-        ) VALUES (?, ?, 'request', 0, NULL, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, 'request', 'user_request', 0, NULL, ?, ?, ?, ?, ?, ?)
       `).run(
         taskExecutionId,
         initialRunId,
@@ -566,6 +675,8 @@ export function compareAndTransitionStrategyTaskExecution(
       + (next.inputStage === 'clarification' && current.inputStage !== 'clarification' ? 1 : 0);
     const repairAttempts = current.planContractRepairAttempts
       + (next.inputStage === 'contract_repair' && current.inputStage !== 'contract_repair' ? 1 : 0);
+    const syntaxRepairAttempts = current.syntaxRepairAttempts
+      + (next.inputStage === 'syntax_repair' && current.inputStage !== 'syntax_repair' ? 1 : 0);
     if (clarificationCount > 1) {
       throw new InvalidStrategyTaskTransitionError(
         'Strategy tasks allow exactly one clarification stage at most.',
@@ -574,6 +685,40 @@ export function compareAndTransitionStrategyTaskExecution(
     if (repairAttempts > 1) {
       throw new InvalidStrategyTaskTransitionError(
         'Strategy tasks allow exactly one Plan Contract repair stage at most.',
+      );
+    }
+    if (syntaxRepairAttempts > 1) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Strategy tasks allow exactly one syntax-repair stage at most.',
+      );
+    }
+    const syntaxValidation = input.syntaxValidation
+      ? normalizeSyntaxValidation(input.syntaxValidation)
+      : current.syntaxValidation;
+    const deliverySyntaxState = input.deliverySyntaxState
+      ?? current.deliverySyntaxState;
+    if (input.syntaxValidation) {
+      validateSyntaxDeliveryPair(
+        syntaxValidation!.syntaxCheck.state,
+        deliverySyntaxState,
+      );
+    }
+    if (
+      next.inputStage === 'syntax_repair'
+      && next.outcome === 'completed'
+      && deliverySyntaxState !== 'repaired_unverified'
+    ) {
+      throw new InvalidStrategyTaskTransitionError(
+        'A successful syntax-repair stage must be delivered as repaired_unverified.',
+      );
+    }
+    if (
+      next.inputStage === 'syntax_repair'
+      && current.inputStage !== 'syntax_repair'
+      && input.syntaxValidation?.syntaxCheck.state !== 'syntax_error'
+    ) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Only a confirmed syntax_error may enter syntax repair.',
       );
     }
 
@@ -593,6 +738,9 @@ export function compareAndTransitionStrategyTaskExecution(
              plan_contract_json = ?, plan_contract_hash = ?,
              blocked_reason_codes_json = ?, blocked_visible_text = ?,
              clarification_count = ?, plan_contract_repair_attempts = ?,
+             syntax_repair_attempts = ?, syntax_repair_source_run_id = ?,
+             change_detection_state = ?, deliverable_code_changes_json = ?,
+             syntax_check_json = ?, delivery_syntax_state = ?,
              latest_run_id = ?, updated_at = ?
        WHERE task_execution_id = ? AND revision = ?
     `).run(
@@ -606,6 +754,18 @@ export function compareAndTransitionStrategyTaskExecution(
       blockedContext ? blockedContext.visibleText : null,
       clarificationCount,
       repairAttempts,
+      syntaxRepairAttempts,
+      next.inputStage === 'syntax_repair' && current.inputStage !== 'syntax_repair'
+        ? current.latestRunId
+        : current.syntaxRepairSourceRunId ?? null,
+      syntaxValidation?.changeDetectionState ?? null,
+      syntaxValidation
+        ? JSON.stringify(canonicalJsonValue(syntaxValidation.deliverableCodeChanges))
+        : null,
+      syntaxValidation
+        ? JSON.stringify(canonicalJsonValue(syntaxValidation.syntaxCheck))
+        : null,
+      deliverySyntaxState,
       nextRunId,
       updatedAt,
       current.taskExecutionId,
@@ -621,14 +781,16 @@ export function compareAndTransitionStrategyTaskExecution(
       try {
         db.prepare(`
           INSERT INTO strategy_task_runs (
-            task_execution_id, run_id, input_stage, task_run_index, source_run_id,
+            task_execution_id, run_id, input_stage, run_purpose,
+            task_run_index, source_run_id,
             final_text_kind, final_text_schema, final_text,
             final_text_utf8_bytes, final_text_sha256, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           current.taskExecutionId,
           requireNonEmpty(input.nextRun.runId, 'nextRun.runId'),
           next.inputStage,
+          parseRunPurpose(input.nextRun.runPurpose),
           nextRunIndex,
           requireNonEmpty(input.nextRun.sourceRunId, 'nextRun.sourceRunId'),
           nextRunFinalText!.kind,
@@ -647,6 +809,141 @@ export function compareAndTransitionStrategyTaskExecution(
   });
   transition.immediate();
   return requireTask(db, input.taskExecutionId);
+}
+
+export function recordStrategyTaskSyntaxValidation(
+  db: SqliteDb,
+  input: {
+    taskExecutionId: string;
+    expectedRevision: number;
+    sourceRunId: string;
+    validation: StrategySyntaxValidationRecord;
+    deliverySyntaxState: StrategyDeliverySyntaxState;
+    updatedAt?: number;
+  },
+): StrategyTaskExecutionRecord {
+  const validation = normalizeSyntaxValidation(input.validation);
+  validateSyntaxDeliveryPair(validation.syntaxCheck.state, input.deliverySyntaxState);
+  const updatedAt = normalizeTimestamp(input.updatedAt ?? Date.now(), 'updatedAt');
+  const record = db.transaction(() => {
+    const current = requireTask(db, input.taskExecutionId);
+    if (
+      current.revision !== input.expectedRevision
+      || current.latestRunId !== input.sourceRunId
+      || current.outcome !== 'running'
+    ) {
+      throw new StrategyTaskTransitionConflictError(
+        'Syntax validation no longer owns the active strategy task Run.',
+      );
+    }
+    if (updatedAt < current.updatedAt) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Strategy task updatedAt cannot move backward.',
+      );
+    }
+    const result = db.prepare(`
+      UPDATE strategy_task_executions
+         SET revision = revision + 1,
+             change_detection_state = ?, deliverable_code_changes_json = ?,
+             syntax_check_json = ?, delivery_syntax_state = ?, updated_at = ?
+       WHERE task_execution_id = ? AND revision = ?
+         AND latest_run_id = ? AND outcome = 'running'
+    `).run(
+      validation.changeDetectionState,
+      JSON.stringify(canonicalJsonValue(validation.deliverableCodeChanges)),
+      JSON.stringify(canonicalJsonValue(validation.syntaxCheck)),
+      input.deliverySyntaxState,
+      updatedAt,
+      current.taskExecutionId,
+      current.revision,
+      input.sourceRunId,
+    );
+    if (result.changes !== 1) {
+      throw new StrategyTaskTransitionConflictError(
+        'Strategy task changed while recording syntax validation.',
+      );
+    }
+  });
+  record.immediate();
+  return requireTask(db, input.taskExecutionId);
+}
+
+export function completeStrategyTaskSyntaxRepair(
+  db: SqliteDb,
+  input: { runId: string; updatedAt?: number },
+): StrategyTaskExecutionRecord | null {
+  const current = getStrategyTaskExecutionByRunId(db, input.runId);
+  if (!current) return null;
+  const mapping = current.runs.find(({ runId }) => runId === input.runId);
+  if (
+    current.latestRunId !== input.runId
+    || current.inputStage !== 'syntax_repair'
+    || current.outcome !== 'running'
+    || current.syntaxRepairAttempts !== 1
+    || mapping?.runPurpose !== 'syntax_auto_repair'
+  ) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Only the active syntax_auto_repair Run may complete repaired_unverified.',
+    );
+  }
+  return compareAndTransitionStrategyTaskExecution(db, {
+    taskExecutionId: current.taskExecutionId,
+    expectedRevision: current.revision,
+    to: {
+      route: current.route ?? 'full_plan',
+      inputStage: 'syntax_repair',
+      outcome: 'completed',
+      executionMode: current.executionMode,
+    },
+    deliverySyntaxState: 'repaired_unverified',
+    ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
+  });
+}
+
+export interface RecoveredStrategyTaskSyntaxRepairCompletion {
+  task: StrategyTaskExecutionRecord;
+  completedNow: boolean;
+}
+
+/**
+ * Complete, or confirm, the one trusted syntax-repair Task whose Physical Run
+ * persisted its success intent immediately before a daemon crash.
+ *
+ * The caller still owns validation of the durable Run marker. This helper owns
+ * the SQLite half of recovery and deliberately returns null for every mapping
+ * except the task's latest server-owned syntax_auto_repair Run.
+ */
+export function recoverStrategyTaskSyntaxRepairCompletion(
+  db: SqliteDb,
+  input: { runId: string; updatedAt?: number },
+): RecoveredStrategyTaskSyntaxRepairCompletion | null {
+  const current = getStrategyTaskExecutionByRunId(db, input.runId);
+  if (!current) return null;
+  const mapping = current.runs.find(({ runId }) => runId === input.runId);
+  const isLatestTrustedRepair =
+    current.latestRunId === input.runId
+    && current.inputStage === 'syntax_repair'
+    && current.syntaxRepairAttempts === 1
+    && current.syntaxValidation?.syntaxCheck.state === 'syntax_error'
+    && mapping?.inputStage === 'syntax_repair'
+    && mapping.runPurpose === 'syntax_auto_repair';
+  if (!isLatestTrustedRepair) return null;
+
+  if (current.outcome === 'running' && current.activeRunId === input.runId) {
+    const task = completeStrategyTaskSyntaxRepair(db, {
+      runId: input.runId,
+      updatedAt: Math.max(current.updatedAt, input.updatedAt ?? Date.now()),
+    });
+    return task ? { task, completedNow: true } : null;
+  }
+  if (
+    current.outcome === 'completed'
+    && current.terminalRunId === input.runId
+    && current.deliverySyntaxState === 'repaired_unverified'
+  ) {
+    return { task: current, completedNow: false };
+  }
+  return null;
 }
 
 export function cancelStrategyTaskExecution(
@@ -715,6 +1012,7 @@ export function reconcileStrategyTaskRunTerminal(
       ) {
         return false;
       }
+      const mapping = current.runs.find(({ runId }) => runId === input.runId);
       const result = db.prepare(`
         UPDATE strategy_task_executions
            SET revision = revision + 1, outcome = ?, updated_at = ?,
@@ -729,7 +1027,11 @@ export function reconcileStrategyTaskRunTerminal(
         ),
         input.status === 'canceled'
           ? null
-          : JSON.stringify(['od_next_physical_run_interrupted']),
+          : JSON.stringify([
+              mapping?.runPurpose === 'syntax_auto_repair'
+                ? 'od_next_syntax_repair_run_failed'
+                : 'od_next_physical_run_interrupted',
+            ]),
         current.taskExecutionId,
         current.revision,
         input.runId,
@@ -805,7 +1107,11 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
   );
   const plan = parseStoredPlanContract(row['plan_contract_json'], row['plan_contract_hash']);
   if (
-    (inputStage === 'production' || outcome === 'plan_ready')
+    (
+      inputStage === 'production'
+      || (inputStage === 'syntax_repair' && route === 'full_plan')
+      || outcome === 'plan_ready'
+    )
     && (!plan.contract || !plan.hash)
   ) {
     throw new InvalidStrategyTaskRecordError(
@@ -826,7 +1132,7 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
   }
 
   const runs = db.prepare(`
-    SELECT run_id AS runId, input_stage AS inputStage,
+    SELECT run_id AS runId, input_stage AS inputStage, run_purpose AS runPurpose,
            task_run_index AS taskRunIndex, source_run_id AS sourceRunId,
            final_text_kind AS finalTextKind,
            final_text_schema AS finalTextSchema,
@@ -840,6 +1146,7 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
   `).all(taskExecutionId) as Array<{
     runId: unknown;
     inputStage: unknown;
+    runPurpose: unknown;
     taskRunIndex: unknown;
     sourceRunId: unknown;
     finalTextKind: unknown;
@@ -886,6 +1193,7 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
     return {
       runId: requireStoredString(mapping.runId, 'run_id'),
       inputStage: parseStage(mapping.inputStage),
+      runPurpose: parseRunPurpose(mapping.runPurpose),
       taskRunIndex,
       ...(mapping.sourceRunId == null
         ? {}
@@ -914,13 +1222,47 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
     row['plan_contract_repair_attempts'],
     'plan_contract_repair_attempts',
   );
+  const syntaxRepairAttempts = requireBoundedCount(
+    row['syntax_repair_attempts'],
+    'syntax_repair_attempts',
+  );
+  const syntaxRepairSourceRunId = row['syntax_repair_source_run_id'] == null
+    ? undefined
+    : requireStoredString(
+        row['syntax_repair_source_run_id'],
+        'syntax_repair_source_run_id',
+      );
+  const syntaxValidation = parseStoredSyntaxValidation({
+    changeDetectionState: row['change_detection_state'],
+    deliverableCodeChangesJson: row['deliverable_code_changes_json'],
+    syntaxCheckJson: row['syntax_check_json'],
+    deliverySyntaxState: row['delivery_syntax_state'],
+  });
   validateRunChain(
     mappings,
     route,
     inputStage,
     clarificationCount,
     planContractRepairAttempts,
+    syntaxRepairAttempts,
   );
+  const syntaxRepairMapping = mappings.find(
+    (mapping) => mapping.inputStage === 'syntax_repair',
+  );
+  if (
+    (syntaxRepairAttempts === 0 && syntaxRepairSourceRunId !== undefined)
+    || (
+      syntaxRepairAttempts === 1
+      && (
+        !syntaxRepairSourceRunId
+        || syntaxRepairMapping?.sourceRunId !== syntaxRepairSourceRunId
+      )
+    )
+  ) {
+    throw new InvalidStrategyTaskRecordError(
+      'Syntax-repair attempt and source Run identity must match its physical mapping.',
+    );
+  }
   const frozenSkillPackage = getFrozenSkillPackage(db, taskExecutionId);
   const promptBundle = parseStoredFinalText({
     kind: 'bundle',
@@ -963,6 +1305,10 @@ function rowToTask(db: SqliteDb, row: DbRow): StrategyTaskExecutionRecord {
     ...(plan.hash ? { planContractHash: plan.hash } : {}),
     clarificationCount,
     planContractRepairAttempts,
+    syntaxRepairAttempts,
+    ...(syntaxRepairSourceRunId ? { syntaxRepairSourceRunId } : {}),
+    ...(syntaxValidation ? { syntaxValidation } : {}),
+    deliverySyntaxState: parseDeliverySyntaxState(row['delivery_syntax_state']),
     initialRunId,
     latestRunId,
     activeRunId: outcome === 'running' ? latestRunId : null,
@@ -1027,11 +1373,415 @@ function parseStoredBlockedContext(
   };
 }
 
+function normalizeSyntaxValidation(
+  input: StrategySyntaxValidationRecord,
+): StrategySyntaxValidationRecord {
+  const changeDetectionState = parseChangeDetectionState(input.changeDetectionState);
+  if (!Array.isArray(input.deliverableCodeChanges) || input.deliverableCodeChanges.length > 10_000) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Deliverable code changes must be a bounded array.',
+    );
+  }
+  const deliverableCodeChanges = input.deliverableCodeChanges.map((change, index) => {
+    const relativePath = requireRelativeStoredPath(
+      change?.path,
+      `deliverableCodeChanges[${index}].path`,
+    );
+    if (change.change !== 'created' && change.change !== 'modified') {
+      throw new InvalidStrategyTaskTransitionError(
+        `deliverableCodeChanges[${index}].change is invalid.`,
+      );
+    }
+    if (change.role !== 'entry_html' && change.role !== 'render_dependency') {
+      throw new InvalidStrategyTaskTransitionError(
+        `deliverableCodeChanges[${index}].role is invalid.`,
+      );
+    }
+    return { path: relativePath, change: change.change, role: change.role };
+  });
+  const syntaxCheck = normalizeSyntaxCheck(input.syntaxCheck);
+  return {
+    changeDetectionState,
+    deliverableCodeChanges,
+    syntaxCheck,
+  };
+}
+
+function validateSyntaxDeliveryPair(
+  checkState: StrategySyntaxCheckState,
+  deliveryState: StrategyDeliverySyntaxState,
+): void {
+  const expectedDeliveryState: Record<
+    StrategySyntaxCheckState,
+    StrategyDeliverySyntaxState
+  > = {
+    skipped: 'not_checked',
+    no_syntax_error_found: 'syntax_checked',
+    syntax_error: 'not_checked',
+    check_incomplete: 'check_incomplete',
+  };
+  if (deliveryState !== expectedDeliveryState[checkState]) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Syntax check state and delivery syntax state are inconsistent.',
+    );
+  }
+}
+
+function normalizeSyntaxCheck(input: StrategySyntaxCheckRecord): StrategySyntaxCheckRecord {
+  if (!input || typeof input !== 'object') {
+    throw new InvalidStrategyTaskTransitionError('Syntax check record is required.');
+  }
+  const state = parseSyntaxCheckState(input.state);
+  const checkerVersion = requireBoundedStoredText(
+    input.checkerVersion,
+    'syntaxCheck.checkerVersion',
+    128,
+  );
+  const checkerHash = requireSha256(input.checkerHash, 'syntaxCheck.checkerHash');
+  const durationMs = requireNonNegativeInteger(input.durationMs, 'syntaxCheck.durationMs');
+  const errorCount = requireNonNegativeInteger(input.errorCount, 'syntaxCheck.errorCount');
+  const errorFileCount = requireNonNegativeInteger(
+    input.errorFileCount,
+    'syntaxCheck.errorFileCount',
+  );
+  if (!Array.isArray(input.diagnosticSummary) || input.diagnosticSummary.length > 50) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Syntax diagnostic summary must be a bounded array.',
+    );
+  }
+  const diagnosticSummary = input.diagnosticSummary.map((diagnostic, index) => {
+    if (Object.prototype.hasOwnProperty.call(diagnostic ?? {}, 'sourceExcerpt')) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Persisted syntax diagnostics may not contain source excerpts.',
+      );
+    }
+    const file = requireRelativeStoredPath(
+      diagnostic?.file,
+      `syntaxCheck.diagnosticSummary[${index}].file`,
+    );
+    if (!['classic', 'module', 'event_handler'].includes(diagnostic.scriptKind)) {
+      throw new InvalidStrategyTaskTransitionError(
+        `syntaxCheck.diagnosticSummary[${index}].scriptKind is invalid.`,
+      );
+    }
+    const line = requirePositiveInteger(
+      diagnostic.line,
+      `syntaxCheck.diagnosticSummary[${index}].line`,
+    );
+    const column = requirePositiveInteger(
+      diagnostic.column,
+      `syntaxCheck.diagnosticSummary[${index}].column`,
+    );
+    if (diagnostic.errorType !== 'SyntaxError') {
+      throw new InvalidStrategyTaskTransitionError(
+        `syntaxCheck.diagnosticSummary[${index}].errorType must be SyntaxError.`,
+      );
+    }
+    const message = requireBoundedStoredText(
+      diagnostic.message,
+      `syntaxCheck.diagnosticSummary[${index}].message`,
+      1_000,
+    );
+    return {
+      file,
+      scriptKind: diagnostic.scriptKind,
+      line,
+      column,
+      errorType: 'SyntaxError' as const,
+      message,
+    };
+  });
+  const uniqueFiles = new Set(diagnosticSummary.map(({ file }) => file)).size;
+  if (
+    errorCount !== diagnosticSummary.length
+    || errorFileCount !== uniqueFiles
+    || (state === 'syntax_error' ? errorCount === 0 : errorCount !== 0)
+  ) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Syntax check counts must exactly match confirmed diagnostics.',
+    );
+  }
+  const skipReason = input.skipReason;
+  if (
+    state === 'skipped'
+    && !['no_relevant_change', 'non_delivery_stage', 'syntax_repair_run'].includes(skipReason ?? '')
+  ) {
+    throw new InvalidStrategyTaskTransitionError('Skipped syntax checks require a reason.');
+  }
+  if (state !== 'skipped' && skipReason !== undefined) {
+    throw new InvalidStrategyTaskTransitionError(
+      'Only skipped syntax checks may carry a skip reason.',
+    );
+  }
+  return {
+    state,
+    checkerVersion,
+    checkerHash,
+    durationMs,
+    errorCount,
+    errorFileCount,
+    diagnosticSummary,
+    ...(skipReason ? { skipReason } : {}),
+  };
+}
+
+function parseStoredSyntaxValidation(input: {
+  changeDetectionState: unknown;
+  deliverableCodeChangesJson: unknown;
+  syntaxCheckJson: unknown;
+  deliverySyntaxState: unknown;
+}): StrategySyntaxValidationRecord | undefined {
+  const deliverySyntaxState = parseDeliverySyntaxState(input.deliverySyntaxState);
+  if (
+    input.changeDetectionState == null
+    && input.deliverableCodeChangesJson == null
+    && input.syntaxCheckJson == null
+  ) {
+    if (deliverySyntaxState !== 'not_checked') {
+      throw new InvalidStrategyTaskRecordError(
+        'A delivery syntax verdict requires its persisted validation record.',
+      );
+    }
+    return undefined;
+  }
+  if (
+    typeof input.deliverableCodeChangesJson !== 'string'
+    || typeof input.syntaxCheckJson !== 'string'
+  ) {
+    throw new InvalidStrategyTaskRecordError(
+      'Persisted syntax validation fields must be present together.',
+    );
+  }
+  try {
+    return normalizeSyntaxValidation({
+      changeDetectionState: parseChangeDetectionState(input.changeDetectionState),
+      deliverableCodeChanges: JSON.parse(input.deliverableCodeChangesJson),
+      syntaxCheck: JSON.parse(input.syntaxCheckJson),
+    });
+  } catch (error) {
+    if (error instanceof InvalidStrategyTaskRecordError) throw error;
+    throw new InvalidStrategyTaskRecordError(
+      `Persisted syntax validation is invalid: ${errorMessage(error)}`,
+    );
+  }
+}
+
+function requireRelativeStoredPath(value: unknown, field: string): string {
+  const normalized = requireBoundedStoredText(value, field, 512).replaceAll('\\', '/');
+  if (
+    normalized.startsWith('/')
+    || normalized === '..'
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+  ) {
+    throw new InvalidStrategyTaskTransitionError(`${field} must be a relative path.`);
+  }
+  return normalized;
+}
+
+function requireBoundedStoredText(
+  value: unknown,
+  field: string,
+  maxLength: number,
+): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > maxLength) {
+    throw new InvalidStrategyTaskTransitionError(`${field} must be bounded non-empty text.`);
+  }
+  return value.trim();
+}
+
+function requirePositiveInteger(value: unknown, field: string): number {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value;
+  throw new InvalidStrategyTaskTransitionError(`${field} must be a positive safe integer.`);
+}
+
 function addColumnIfMissing(db: SqliteDb, table: string, definition: string): void {
   const column = definition.split(/\s+/u)[0];
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as DbRow[];
   if (!columns.some((entry) => entry['name'] === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
+/**
+ * SQLite cannot widen a CHECK constraint in place. Rebuild both task tables
+ * once so persisted databases can represent the host-owned syntax-repair
+ * stage and explicit Run purpose; changing CREATE TABLE alone would leave
+ * upgraded daemons unable to insert the repair mapping.
+ */
+function migrateStrategyTaskSyntaxStageChecks(db: SqliteDb): void {
+  const executionSql = db.prepare(`
+    SELECT sql FROM sqlite_master
+     WHERE type = 'table' AND name = 'strategy_task_executions'
+  `).get() as { sql?: string } | undefined;
+  const runSql = db.prepare(`
+    SELECT sql FROM sqlite_master
+     WHERE type = 'table' AND name = 'strategy_task_runs'
+  `).get() as { sql?: string } | undefined;
+  if (
+    executionSql?.sql?.includes("'syntax_repair'")
+    && runSql?.sql?.includes("'syntax_repair'")
+    && runSql.sql.includes('run_purpose')
+  ) return;
+
+  const foreignKeysEnabled = Number(db.pragma('foreign_keys', { simple: true })) === 1;
+  if (foreignKeysEnabled) db.pragma('foreign_keys = OFF');
+  try {
+    const rebuild = db.transaction(() => {
+      db.exec(`
+        DROP TABLE IF EXISTS strategy_task_runs_syntax_v2;
+        DROP TABLE IF EXISTS strategy_task_executions_syntax_v2;
+
+        CREATE TABLE strategy_task_executions_syntax_v2 (
+          task_execution_id TEXT PRIMARY KEY,
+          schema_version INTEGER NOT NULL DEFAULT 1,
+          revision INTEGER NOT NULL DEFAULT 0,
+          project_id TEXT NOT NULL,
+          conversation_id TEXT NOT NULL,
+          snapshot_id TEXT NOT NULL,
+          strategy_id TEXT NOT NULL,
+          strategy_version TEXT NOT NULL,
+          strategy_package_hash TEXT NOT NULL,
+          selected_agent_id TEXT NOT NULL,
+          route TEXT CHECK (route IN ('direct_edit', 'full_plan')),
+          input_stage TEXT NOT NULL CHECK (
+            input_stage IN (
+              'request', 'clarification', 'contract_repair', 'production', 'syntax_repair'
+            )
+          ),
+          outcome TEXT NOT NULL CHECK (
+            outcome IN (
+              'running', 'clarification_required', 'plan_ready',
+              'completed', 'blocked', 'canceled'
+            )
+          ),
+          execution_mode TEXT CHECK (execution_mode IN ('simple', 'complex')),
+          plan_contract_json TEXT,
+          plan_contract_hash TEXT,
+          clarification_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            clarification_count BETWEEN 0 AND 1
+          ),
+          plan_contract_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (
+            plan_contract_repair_attempts BETWEEN 0 AND 1
+          ),
+          syntax_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (
+            syntax_repair_attempts BETWEEN 0 AND 1
+          ),
+          syntax_repair_source_run_id TEXT,
+          change_detection_state TEXT CHECK (
+            change_detection_state IN ('complete', 'contended', 'truncated', 'snapshot_failed')
+          ),
+          deliverable_code_changes_json TEXT,
+          syntax_check_json TEXT,
+          delivery_syntax_state TEXT NOT NULL DEFAULT 'not_checked' CHECK (
+            delivery_syntax_state IN (
+              'syntax_checked', 'repaired_unverified', 'check_incomplete', 'not_checked'
+            )
+          ),
+          initial_run_id TEXT NOT NULL,
+          latest_run_id TEXT NOT NULL,
+          prompt_bundle_schema TEXT,
+          prompt_bundle_text TEXT,
+          prompt_bundle_utf8_bytes INTEGER,
+          prompt_bundle_sha256 TEXT,
+          frozen_input_identity_json TEXT,
+          blocked_reason_codes_json TEXT,
+          blocked_visible_text TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+          FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+          FOREIGN KEY(snapshot_id) REFERENCES applied_plugin_snapshots(id)
+        );
+
+        INSERT INTO strategy_task_executions_syntax_v2 (
+          task_execution_id, schema_version, revision,
+          project_id, conversation_id, snapshot_id,
+          strategy_id, strategy_version, strategy_package_hash, selected_agent_id,
+          route, input_stage, outcome, execution_mode,
+          plan_contract_json, plan_contract_hash,
+          clarification_count, plan_contract_repair_attempts,
+          syntax_repair_attempts, syntax_repair_source_run_id,
+          change_detection_state, deliverable_code_changes_json,
+          syntax_check_json, delivery_syntax_state,
+          initial_run_id, latest_run_id,
+          prompt_bundle_schema, prompt_bundle_text,
+          prompt_bundle_utf8_bytes, prompt_bundle_sha256,
+          frozen_input_identity_json, blocked_reason_codes_json, blocked_visible_text,
+          created_at, updated_at
+        )
+        SELECT task_execution_id, schema_version, revision,
+               project_id, conversation_id, snapshot_id,
+               strategy_id, strategy_version, strategy_package_hash, selected_agent_id,
+               route, input_stage, outcome, execution_mode,
+               plan_contract_json, plan_contract_hash,
+               clarification_count, plan_contract_repair_attempts,
+               syntax_repair_attempts, syntax_repair_source_run_id,
+               change_detection_state, deliverable_code_changes_json,
+               syntax_check_json, delivery_syntax_state,
+               initial_run_id, latest_run_id,
+               prompt_bundle_schema, prompt_bundle_text,
+               prompt_bundle_utf8_bytes, prompt_bundle_sha256,
+               frozen_input_identity_json, blocked_reason_codes_json, blocked_visible_text,
+               created_at, updated_at
+          FROM strategy_task_executions;
+
+        CREATE TABLE strategy_task_runs_syntax_v2 (
+          task_execution_id TEXT NOT NULL,
+          run_id TEXT NOT NULL UNIQUE,
+          input_stage TEXT NOT NULL CHECK (
+            input_stage IN (
+              'request', 'clarification', 'contract_repair', 'production', 'syntax_repair'
+            )
+          ),
+          run_purpose TEXT NOT NULL CHECK (
+            run_purpose IN ('user_request', 'strategy_continuation', 'syntax_auto_repair')
+          ),
+          task_run_index INTEGER NOT NULL CHECK (task_run_index >= 0),
+          source_run_id TEXT,
+          final_text_kind TEXT,
+          final_text_schema TEXT,
+          final_text TEXT,
+          final_text_utf8_bytes INTEGER,
+          final_text_sha256 TEXT,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(task_execution_id, task_run_index),
+          FOREIGN KEY(task_execution_id)
+            REFERENCES strategy_task_executions_syntax_v2(task_execution_id)
+            ON DELETE CASCADE
+        );
+
+        INSERT INTO strategy_task_runs_syntax_v2 (
+          task_execution_id, run_id, input_stage, run_purpose,
+          task_run_index, source_run_id,
+          final_text_kind, final_text_schema, final_text,
+          final_text_utf8_bytes, final_text_sha256, created_at
+        )
+        SELECT task_execution_id, run_id, input_stage, run_purpose,
+               task_run_index, source_run_id,
+               final_text_kind, final_text_schema, final_text,
+               final_text_utf8_bytes, final_text_sha256, created_at
+          FROM strategy_task_runs;
+
+        DROP TABLE strategy_task_runs;
+        DROP TABLE strategy_task_executions;
+        ALTER TABLE strategy_task_executions_syntax_v2
+          RENAME TO strategy_task_executions;
+        ALTER TABLE strategy_task_runs_syntax_v2
+          RENAME TO strategy_task_runs;
+        CREATE INDEX idx_strategy_task_executions_project_conversation
+          ON strategy_task_executions(project_id, conversation_id, updated_at DESC);
+      `);
+    });
+    rebuild.immediate();
+  } finally {
+    if (foreignKeysEnabled) db.pragma('foreign_keys = ON');
+  }
+  const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>;
+  if (violations.length > 0) {
+    throw new InvalidStrategyTaskRecordError(
+      'Strategy task syntax-stage migration violated a foreign-key contract.',
+    );
   }
 }
 
@@ -1306,6 +2056,7 @@ function validateRunChain(
   currentStage: StrategyInputStageV2,
   clarificationCount: 0 | 1,
   repairCount: 0 | 1,
+  syntaxRepairCount: 0 | 1,
 ): void {
   if (mappings.length === 0 || mappings[0]?.inputStage !== 'request') {
     throw new InvalidStrategyTaskRecordError(
@@ -1317,13 +2068,20 @@ function validateRunChain(
       'The initial strategy task Run cannot have a source Run.',
     );
   }
+  if (mappings[0]?.runPurpose !== 'user_request') {
+    throw new InvalidStrategyTaskRecordError(
+      'The initial strategy task Run must be server-owned as user_request.',
+    );
+  }
   const allowed = new Set([
     'request:clarification',
     'request:contract_repair',
     'request:production',
+    'request:syntax_repair',
     'clarification:contract_repair',
     'clarification:production',
     'contract_repair:production',
+    'production:syntax_repair',
   ]);
   for (let index = 1; index < mappings.length; index += 1) {
     const previous = mappings[index - 1];
@@ -1341,6 +2099,14 @@ function validateRunChain(
         'Strategy task Run stages must be ordered and cannot repeat or move backward.',
       );
     }
+    const expectedPurpose = current.inputStage === 'syntax_repair'
+      ? 'syntax_auto_repair'
+      : 'strategy_continuation';
+    if (current.runPurpose !== expectedPurpose) {
+      throw new InvalidStrategyTaskRecordError(
+        'Strategy task Run purpose must match its server-created continuation role.',
+      );
+    }
   }
   const clarificationMappings = mappings.filter(
     (mapping) => mapping.inputStage === 'clarification',
@@ -1348,9 +2114,13 @@ function validateRunChain(
   const repairMappings = mappings.filter(
     (mapping) => mapping.inputStage === 'contract_repair',
   ).length;
+  const syntaxRepairMappings = mappings.filter(
+    (mapping) => mapping.inputStage === 'syntax_repair',
+  ).length;
   if (
     clarificationMappings !== clarificationCount
     || repairMappings !== repairCount
+    || syntaxRepairMappings !== syntaxRepairCount
   ) {
     throw new InvalidStrategyTaskRecordError(
       'Strategy task clarification/repair counts must match the physical Run chain.',
@@ -1362,11 +2132,21 @@ function validateRunChain(
     );
   }
   if (route === 'direct_edit' && (
-    mappings.length !== 1
-    || mappings[0]?.inputStage !== 'request'
+    mappings[0]?.inputStage !== 'request'
+    || mappings.length > 2
+    || (mappings.length === 2 && mappings[1]?.inputStage !== 'syntax_repair')
   )) {
     throw new InvalidStrategyTaskRecordError(
-      'Direct Edit can only own its single request Run.',
+      'Direct Edit may own only request and its one syntax-repair Run.',
+    );
+  }
+  if (
+    route === 'full_plan'
+    && syntaxRepairMappings === 1
+    && mappings.at(-2)?.inputStage !== 'production'
+  ) {
+    throw new InvalidStrategyTaskRecordError(
+      'Full Plan syntax repair may follow only its Production Run.',
     );
   }
   if (route === null && mappings.length !== 1) {
@@ -1394,12 +2174,12 @@ function validateTransition(
   }
   if (next.route === 'direct_edit') {
     if (
-      next.inputStage !== 'request'
+      !['request', 'syntax_repair'].includes(next.inputStage)
       || next.executionMode !== 'simple'
-      || input.nextRun
+      || (next.inputStage === 'request' && input.nextRun)
     ) {
       throw new InvalidStrategyTaskTransitionError(
-        'Direct Edit is request-only, simple, and cannot create a next Run.',
+        'Direct Edit is simple and may continue only once into syntax repair.',
       );
     }
   }
@@ -1413,7 +2193,11 @@ function validateTransition(
     );
   }
   if (
-    (next.inputStage === 'contract_repair' || next.inputStage === 'production')
+    (
+      next.inputStage === 'contract_repair'
+      || next.inputStage === 'production'
+      || next.inputStage === 'syntax_repair'
+    )
     && next.executionMode === null
   ) {
     throw new InvalidStrategyTaskTransitionError(
@@ -1431,6 +2215,22 @@ function validateTransition(
     if (input.nextRun.sourceRunId !== current.latestRunId) {
       throw new InvalidStrategyTaskTransitionError(
         'The next Run source must be the task chain latest Run.',
+      );
+    }
+    if (
+      next.inputStage === 'syntax_repair'
+      && input.nextRun.runPurpose !== 'syntax_auto_repair'
+    ) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Syntax repair requires the server-owned syntax_auto_repair Run purpose.',
+      );
+    }
+    if (
+      next.inputStage !== 'syntax_repair'
+      && input.nextRun.runPurpose !== 'strategy_continuation'
+    ) {
+      throw new InvalidStrategyTaskTransitionError(
+        'Strategy continuations require the server-owned strategy_continuation purpose.',
       );
     }
     const transition = StrategyRuntimeTransitionV2Schema.safeParse({
@@ -1608,13 +2408,20 @@ function validateStoredState(state: {
   }
   if (state.outcome === 'running') {
     if (state.route === 'direct_edit') {
-      if (state.inputStage !== 'request' || state.executionMode !== 'simple') {
+      if (
+        !['request', 'syntax_repair'].includes(state.inputStage)
+        || state.executionMode !== 'simple'
+      ) {
         throw new InvalidStrategyTaskRecordError(
-          'A running Direct Edit must remain request/simple.',
+          'A running Direct Edit must remain request or syntax_repair/simple.',
         );
       }
     } else if (
-      (state.inputStage === 'contract_repair' || state.inputStage === 'production')
+      (
+        state.inputStage === 'contract_repair'
+        || state.inputStage === 'production'
+        || state.inputStage === 'syntax_repair'
+      )
       && state.executionMode === null
     ) {
       throw new InvalidStrategyTaskRecordError(
@@ -1650,8 +2457,48 @@ function parseStage(value: unknown): StrategyInputStageV2 {
     || value === 'clarification'
     || value === 'contract_repair'
     || value === 'production'
+    || value === 'syntax_repair'
   ) return value;
   throw new InvalidStrategyTaskRecordError('Stored strategy input stage is invalid.');
+}
+
+function parseRunPurpose(value: unknown): StrategyRunPurpose {
+  if (
+    value === 'user_request'
+    || value === 'strategy_continuation'
+    || value === 'syntax_auto_repair'
+  ) return value;
+  throw new InvalidStrategyTaskRecordError('Stored strategy Run purpose is invalid.');
+}
+
+function parseSyntaxCheckState(value: unknown): StrategySyntaxCheckState {
+  if (
+    value === 'skipped'
+    || value === 'no_syntax_error_found'
+    || value === 'syntax_error'
+    || value === 'check_incomplete'
+  ) return value;
+  throw new InvalidStrategyTaskRecordError('Stored syntax check state is invalid.');
+}
+
+function parseChangeDetectionState(value: unknown): StrategyChangeDetectionState {
+  if (
+    value === 'complete'
+    || value === 'contended'
+    || value === 'truncated'
+    || value === 'snapshot_failed'
+  ) return value;
+  throw new InvalidStrategyTaskRecordError('Stored change detection state is invalid.');
+}
+
+function parseDeliverySyntaxState(value: unknown): StrategyDeliverySyntaxState {
+  if (
+    value === 'syntax_checked'
+    || value === 'repaired_unverified'
+    || value === 'check_incomplete'
+    || value === 'not_checked'
+  ) return value;
+  throw new InvalidStrategyTaskRecordError('Stored delivery syntax state is invalid.');
 }
 
 function parseOutcome(value: unknown): StrategyTaskOutcome {

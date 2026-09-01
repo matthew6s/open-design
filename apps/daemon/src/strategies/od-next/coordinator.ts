@@ -265,6 +265,7 @@ export function beginStrategyClarification(db: SqliteDb, input: {
       runId: input.nextRunId,
       sourceRunId: input.sourceRunId,
       finalText,
+      runPurpose: 'strategy_continuation',
     },
     ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
   });
@@ -295,6 +296,104 @@ export function finalizeStrategyPlanningTurn(db: SqliteDb, input: {
     ...input,
     parsed: input.protocol.finish(),
   });
+}
+
+export interface OdNextCompletionCandidateAssessment {
+  /** The turn attempted to finish this logical task, explicitly or by the
+   * narrow host-owned completion inference. */
+  candidate: boolean;
+  /** True only when the same coordinator checks used by finalization would
+   * accept the completion. Callers may run delivery gates only in this state. */
+  ready: boolean;
+  state?: StrategyRuntimeStateV2;
+  reasonCodes: string[];
+}
+
+/**
+ * Assess a delivery candidate without committing the terminal Task state.
+ *
+ * The JavaScript syntax gate must run after protocol/deliverable/complex-child
+ * validation, but before `completed` is persisted. Keeping this read-only seam
+ * beside the coordinator's own validators prevents the Run lifecycle from
+ * inventing a second, weaker definition of "ready to deliver".
+ */
+export function assessOdNextCompletionCandidate(db: SqliteDb, input: {
+  taskExecutionId: string;
+  runId: string;
+  parsed: ReturnType<OdNextMachineProtocolStream['finish']>;
+  toolUseCount?: number;
+  executionPreflight?: OdNextExecutionPreflightInput;
+  completionEvidence: {
+    physicalStatus: 'succeeded' | 'failed' | 'canceled';
+    deliverableValid: boolean;
+  };
+  productionEnforcementReasonCodes?: readonly string[];
+}): OdNextCompletionCandidateAssessment {
+  const current = requireTask(db, input.taskExecutionId);
+  if (current.outcome !== 'running') {
+    return {
+      candidate: false,
+      ready: false,
+      reasonCodes: ['od_next_task_not_running'],
+    };
+  }
+  if (current.latestRunId !== input.runId) {
+    return {
+      candidate: false,
+      ready: false,
+      reasonCodes: ['od_next_task_run_mismatch'],
+    };
+  }
+
+  const protocolCodes = uniqueReasonCodes(
+    input.parsed.issues.map((issue) => issue.code),
+  );
+  let state = input.parsed.runtimeState;
+  if (protocolCodes.length > 0) {
+    state = inferDirectEditCompletionRuntimeState(
+      current,
+      input.parsed,
+      input.completionEvidence,
+    ) ?? inferProductionCompletionRuntimeState(
+      current,
+      input.parsed,
+      input.completionEvidence,
+    ) ?? undefined;
+    if (!state) {
+      return {
+        candidate: input.parsed.runtimeState?.outcome === 'completed',
+        ready: false,
+        reasonCodes: protocolCodes,
+      };
+    }
+  }
+  if (!state || state.outcome !== 'completed') {
+    return { candidate: false, ready: false, reasonCodes: [] };
+  }
+
+  const reasonCodes = validateAcceptedTurn(
+    db,
+    current,
+    state,
+    input.parsed.planContract,
+    input.parsed.visibleText,
+    {
+      toolUseCount: input.toolUseCount ?? 0,
+      ...(input.executionPreflight
+        ? { executionPreflight: input.executionPreflight }
+        : {}),
+      completionEvidence: input.completionEvidence,
+      ...(input.productionEnforcementReasonCodes
+        ? { productionEnforcementReasonCodes: input.productionEnforcementReasonCodes }
+        : {}),
+    },
+  );
+  return {
+    candidate: true,
+    ready: reasonCodes.length === 0,
+    state,
+    reasonCodes,
+  };
 }
 
 export function finalizeStrategyPlanningResult(db: SqliteDb, input: {
@@ -851,7 +950,10 @@ function tryBeginSerializationRepair(
         outcome: 'running',
         executionMode: plan.fullPlan.executionMode,
       },
-      nextRun: repairRun,
+      nextRun: {
+        ...repairRun,
+        runPurpose: 'strategy_continuation',
+      },
       ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
     });
   });

@@ -22,12 +22,15 @@ import { reconcileDurableRunTerminals } from '../../src/runtimes/run-terminal-re
 import {
   StrategyTaskTransitionConflictError,
   type CompareAndTransitionStrategyTaskInput,
+  type StrategySyntaxValidationRecord,
   cancelStrategyTaskExecution,
   compareAndTransitionStrategyTaskExecution as compareAndTransitionStrategyTaskExecutionRaw,
+  completeStrategyTaskSyntaxRepair,
   createStrategyTaskExecution,
   getStrategyTaskExecution,
   getStrategyTaskExecutionByRunId,
   migrateStrategyTaskStore,
+  reconcileStrategyTaskRunTerminal,
 } from '../../src/strategies/task-store.js';
 import {
   TEST_PROMPT_BUNDLE,
@@ -96,8 +99,12 @@ function persistBundleAs(
 }
 
 type TestTransitionInput = Omit<CompareAndTransitionStrategyTaskInput, 'nextRun'> & {
-  nextRun?: Omit<NonNullable<CompareAndTransitionStrategyTaskInput['nextRun']>, 'finalText'> & {
+  nextRun?: Omit<
+    NonNullable<CompareAndTransitionStrategyTaskInput['nextRun']>,
+    'finalText' | 'runPurpose'
+  > & {
     finalText?: string;
+    runPurpose?: NonNullable<CompareAndTransitionStrategyTaskInput['nextRun']>['runPurpose'];
   };
 };
 
@@ -110,6 +117,10 @@ function compareAndTransitionStrategyTaskExecution(
   const nextRun = input.nextRun
     ? {
         ...input.nextRun,
+        runPurpose: input.nextRun.runPurpose
+          ?? (input.to.inputStage === 'syntax_repair'
+            ? 'syntax_auto_repair'
+            : 'strategy_continuation'),
         finalText: input.nextRun.finalText ?? strategyTaskTurnText({
           taskExecutionId: input.taskExecutionId,
           inputStage: input.to.inputStage as Exclude<typeof input.to.inputStage, 'request'>,
@@ -123,6 +134,31 @@ function compareAndTransitionStrategyTaskExecution(
     ...rest,
     ...(nextRun ? { nextRun } : {}),
   });
+}
+
+function syntaxErrorValidation(): StrategySyntaxValidationRecord {
+  return {
+    changeDetectionState: 'complete',
+    deliverableCodeChanges: [
+      { path: 'index.html', change: 'modified', role: 'entry_html' },
+    ],
+    syntaxCheck: {
+      state: 'syntax_error',
+      checkerVersion: 'test-checker-v1',
+      checkerHash: 'e'.repeat(64),
+      durationMs: 5,
+      errorCount: 1,
+      errorFileCount: 1,
+      diagnosticSummary: [{
+        file: 'index.html',
+        scriptKind: 'classic',
+        line: 4,
+        column: 3,
+        errorType: 'SyntaxError',
+        message: 'Unexpected token',
+      }],
+    },
+  };
 }
 
 function strategyBinding() {
@@ -251,6 +287,65 @@ function createTask(
   });
 }
 
+function beginDirectSyntaxRepair(
+  db: Database.Database,
+  snapshot: AppliedPluginSnapshot,
+  input: { taskExecutionId: string; requestRunId: string; repairRunId: string },
+) {
+  const task = createTask(
+    db,
+    snapshot,
+    input.requestRunId,
+    input.taskExecutionId,
+  );
+  return compareAndTransitionStrategyTaskExecution(db, {
+    taskExecutionId: task.taskExecutionId,
+    expectedRevision: task.revision,
+    to: {
+      route: 'direct_edit',
+      inputStage: 'syntax_repair',
+      outcome: 'running',
+      executionMode: 'simple',
+    },
+    nextRun: {
+      runId: input.repairRunId,
+      sourceRunId: input.requestRunId,
+      runPurpose: 'syntax_auto_repair',
+    },
+    syntaxValidation: syntaxErrorValidation(),
+    deliverySyntaxState: 'not_checked',
+  });
+}
+
+function writeSyntaxRepairCompletionReadyRunState(
+  tempDir: string,
+  input: {
+    runId: string;
+    sourceRunId: string;
+    updatedAt: number;
+  },
+): string {
+  const runDir = path.join(tempDir, 'runs', input.runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  const statePath = path.join(runDir, 'state.json');
+  fs.writeFileSync(statePath, JSON.stringify({
+    schemaVersion: 1,
+    id: input.runId,
+    projectId: 'project-1',
+    conversationId: 'conversation-1',
+    agentId: AGENT_ID,
+    runPurpose: 'syntax_auto_repair',
+    status: 'running',
+    createdAt: 100,
+    updatedAt: input.updatedAt,
+    syntaxRepairCompletionReady: true,
+    syntaxRepairSourceRunId: input.sourceRunId,
+    deliverySyntaxState: 'repaired_unverified',
+    langfuseCompletedAt: input.updatedAt,
+  }));
+  return statePath;
+}
+
 describe('durable strategy task store', () => {
   let tempDir: string;
   let db: Database.Database;
@@ -279,6 +374,8 @@ describe('durable strategy task store', () => {
       expect.objectContaining({ name: 'execution_mode', notnull: 0 }),
       expect.objectContaining({ name: 'plan_contract_json', notnull: 0 }),
       expect.objectContaining({ name: 'plan_contract_hash', notnull: 0 }),
+      expect.objectContaining({ name: 'syntax_repair_attempts', notnull: 1 }),
+      expect.objectContaining({ name: 'delivery_syntax_state', notnull: 1 }),
     ]));
     expect(getStrategyTaskExecution(db, 'ordinary-run')).toBeNull();
     expect(getStrategyTaskExecutionByRunId(db, 'ordinary-run')).toBeNull();
@@ -293,6 +390,128 @@ describe('durable strategy task store', () => {
     expect(() => migrateStrategyTaskStore(legacy)).not.toThrow();
     expect(getStrategyTaskExecutionByRunId(legacy, 'legacy-run')).toBeNull();
     legacy.close();
+  });
+
+  it('widens a pre-syntax task store and backfills trusted Run purposes', () => {
+    const legacy = new Database(':memory:');
+    legacy.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE conversations (id TEXT PRIMARY KEY, project_id TEXT);
+      CREATE TABLE applied_plugin_snapshots (id TEXT PRIMARY KEY);
+      INSERT INTO projects (id) VALUES ('legacy-project');
+      INSERT INTO conversations (id, project_id)
+        VALUES ('legacy-conversation', 'legacy-project');
+      INSERT INTO applied_plugin_snapshots (id) VALUES ('legacy-snapshot');
+
+      CREATE TABLE strategy_task_executions (
+        task_execution_id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        revision INTEGER NOT NULL DEFAULT 0,
+        project_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        snapshot_id TEXT NOT NULL,
+        strategy_id TEXT NOT NULL,
+        strategy_version TEXT NOT NULL,
+        strategy_package_hash TEXT NOT NULL,
+        selected_agent_id TEXT NOT NULL,
+        route TEXT CHECK (route IN ('direct_edit', 'full_plan')),
+        input_stage TEXT NOT NULL CHECK (
+          input_stage IN ('request', 'clarification', 'contract_repair', 'production')
+        ),
+        outcome TEXT NOT NULL CHECK (
+          outcome IN (
+            'running', 'clarification_required', 'plan_ready',
+            'completed', 'blocked', 'canceled'
+          )
+        ),
+        execution_mode TEXT CHECK (execution_mode IN ('simple', 'complex')),
+        plan_contract_json TEXT,
+        plan_contract_hash TEXT,
+        clarification_count INTEGER NOT NULL DEFAULT 0 CHECK (
+          clarification_count BETWEEN 0 AND 1
+        ),
+        plan_contract_repair_attempts INTEGER NOT NULL DEFAULT 0 CHECK (
+          plan_contract_repair_attempts BETWEEN 0 AND 1
+        ),
+        initial_run_id TEXT NOT NULL,
+        latest_run_id TEXT NOT NULL,
+        prompt_bundle_schema TEXT,
+        prompt_bundle_text TEXT,
+        prompt_bundle_utf8_bytes INTEGER,
+        prompt_bundle_sha256 TEXT,
+        frozen_input_identity_json TEXT,
+        blocked_reason_codes_json TEXT,
+        blocked_visible_text TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE strategy_task_runs (
+        task_execution_id TEXT NOT NULL,
+        run_id TEXT NOT NULL UNIQUE,
+        input_stage TEXT NOT NULL CHECK (
+          input_stage IN ('request', 'clarification', 'contract_repair', 'production')
+        ),
+        task_run_index INTEGER NOT NULL CHECK (task_run_index >= 0),
+        source_run_id TEXT,
+        final_text_kind TEXT,
+        final_text_schema TEXT,
+        final_text TEXT,
+        final_text_utf8_bytes INTEGER,
+        final_text_sha256 TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(task_execution_id, task_run_index)
+      );
+      INSERT INTO strategy_task_executions (
+        task_execution_id, project_id, conversation_id, snapshot_id,
+        strategy_id, strategy_version, strategy_package_hash, selected_agent_id,
+        route, input_stage, outcome, execution_mode,
+        initial_run_id, latest_run_id, created_at, updated_at
+      ) VALUES (
+        'legacy-task', 'legacy-project', 'legacy-conversation', 'legacy-snapshot',
+        'od-next-strategy', '2.0.0', '${'a'.repeat(64)}', 'codex',
+        'full_plan', 'production', 'running', 'simple',
+        'legacy-request', 'legacy-production', 1, 2
+      );
+      INSERT INTO strategy_task_runs (
+        task_execution_id, run_id, input_stage, task_run_index, source_run_id, created_at
+      ) VALUES
+        ('legacy-task', 'legacy-request', 'request', 0, NULL, 1),
+        ('legacy-task', 'legacy-production', 'production', 1, 'legacy-request', 2);
+    `);
+
+    try {
+      expect(() => migrateStrategyTaskStore(legacy)).not.toThrow();
+      expect(legacy.prepare(`
+        SELECT run_id AS runId, run_purpose AS runPurpose
+          FROM strategy_task_runs ORDER BY task_run_index
+      `).all()).toEqual([
+        { runId: 'legacy-request', runPurpose: 'user_request' },
+        { runId: 'legacy-production', runPurpose: 'strategy_continuation' },
+      ]);
+      expect(legacy.prepare(`
+        SELECT syntax_repair_attempts AS attempts,
+               delivery_syntax_state AS deliveryState
+          FROM strategy_task_executions WHERE task_execution_id = 'legacy-task'
+      `).get()).toEqual({ attempts: 0, deliveryState: 'not_checked' });
+      expect(() => legacy.prepare(`
+        INSERT INTO strategy_task_runs (
+          task_execution_id, run_id, input_stage, run_purpose,
+          task_run_index, source_run_id, created_at
+        ) VALUES (
+          'legacy-task', 'legacy-syntax-repair', 'syntax_repair', 'syntax_auto_repair',
+          2, 'legacy-production', 3
+        )
+      `).run()).not.toThrow();
+      expect(() => legacy.prepare(`
+        UPDATE strategy_task_executions
+           SET input_stage = 'syntax_repair', latest_run_id = 'legacy-syntax-repair',
+               syntax_repair_attempts = 1,
+               syntax_repair_source_run_id = 'legacy-production'
+         WHERE task_execution_id = 'legacy-task'
+      `).run()).not.toThrow();
+    } finally {
+      legacy.close();
+    }
   });
 
   it('persists the canonical Unicode Bundle and all frozen input identities exactly', () => {
@@ -335,6 +554,7 @@ describe('durable strategy task store', () => {
       nextRun: {
         runId: 'run-restart-clarification',
         sourceRunId: initial.latestRunId,
+        runPurpose: 'strategy_continuation',
         finalText: clarificationText,
       },
     });
@@ -669,6 +889,217 @@ describe('durable strategy task store', () => {
     expect(task.runs.map((run) => run.inputStage)).toEqual(['request', 'production']);
   });
 
+  it('admits one trusted syntax-repair Run after Direct Edit or Full Plan production', () => {
+    const direct = beginDirectSyntaxRepair(db, snapshot, {
+      taskExecutionId: 'task-direct-syntax',
+      requestRunId: 'run-direct-syntax-request',
+      repairRunId: 'run-direct-syntax-repair',
+    });
+    expect(direct).toMatchObject({
+      route: 'direct_edit',
+      inputStage: 'syntax_repair',
+      outcome: 'running',
+      syntaxRepairAttempts: 1,
+      syntaxRepairSourceRunId: 'run-direct-syntax-request',
+      deliverySyntaxState: 'not_checked',
+      syntaxValidation: {
+        syntaxCheck: { state: 'syntax_error' },
+      },
+    });
+    expect(direct.runs.map(({ runId, inputStage, runPurpose }) => ({
+      runId,
+      inputStage,
+      runPurpose,
+    }))).toEqual([
+      {
+        runId: 'run-direct-syntax-request',
+        inputStage: 'request',
+        runPurpose: 'user_request',
+      },
+      {
+        runId: 'run-direct-syntax-repair',
+        inputStage: 'syntax_repair',
+        runPurpose: 'syntax_auto_repair',
+      },
+    ]);
+
+    let fullPlan = createTask(
+      db,
+      snapshot,
+      'run-full-syntax-request',
+      'task-full-syntax',
+    );
+    fullPlan = compareAndTransitionStrategyTaskExecution(db, {
+      taskExecutionId: fullPlan.taskExecutionId,
+      expectedRevision: fullPlan.revision,
+      to: {
+        route: 'full_plan',
+        inputStage: 'production',
+        outcome: 'running',
+        executionMode: 'simple',
+      },
+      nextRun: {
+        runId: 'run-full-syntax-production',
+        sourceRunId: 'run-full-syntax-request',
+      },
+      planContract: planContract(snapshot),
+    });
+    fullPlan = compareAndTransitionStrategyTaskExecution(db, {
+      taskExecutionId: fullPlan.taskExecutionId,
+      expectedRevision: fullPlan.revision,
+      to: {
+        route: 'full_plan',
+        inputStage: 'syntax_repair',
+        outcome: 'running',
+        executionMode: 'simple',
+      },
+      nextRun: {
+        runId: 'run-full-syntax-repair',
+        sourceRunId: 'run-full-syntax-production',
+        runPurpose: 'syntax_auto_repair',
+      },
+      syntaxValidation: syntaxErrorValidation(),
+      deliverySyntaxState: 'not_checked',
+    });
+    expect(fullPlan).toMatchObject({
+      inputStage: 'syntax_repair',
+      syntaxRepairAttempts: 1,
+      syntaxRepairSourceRunId: 'run-full-syntax-production',
+      latestRunId: 'run-full-syntax-repair',
+    });
+    expect(fullPlan.runs.map(({ inputStage, runPurpose }) => ({
+      inputStage,
+      runPurpose,
+    }))).toEqual([
+      { inputStage: 'request', runPurpose: 'user_request' },
+      { inputStage: 'production', runPurpose: 'strategy_continuation' },
+      { inputStage: 'syntax_repair', runPurpose: 'syntax_auto_repair' },
+    ]);
+  });
+
+  it('claims the syntax-repair quota once and rejects duplicate or forged purposes', () => {
+    const task = createTask(
+      db,
+      snapshot,
+      'run-syntax-once-request',
+      'task-syntax-once',
+    );
+    const claim = {
+      taskExecutionId: task.taskExecutionId,
+      expectedRevision: task.revision,
+      to: {
+        route: 'direct_edit' as const,
+        inputStage: 'syntax_repair' as const,
+        outcome: 'running' as const,
+        executionMode: 'simple' as const,
+      },
+      nextRun: {
+        runId: 'run-syntax-once-repair',
+        sourceRunId: task.initialRunId,
+        runPurpose: 'syntax_auto_repair' as const,
+      },
+      syntaxValidation: syntaxErrorValidation(),
+      deliverySyntaxState: 'not_checked' as const,
+    };
+    const claimed = compareAndTransitionStrategyTaskExecution(db, claim);
+    expect(() => compareAndTransitionStrategyTaskExecution(db, claim))
+      .toThrow(StrategyTaskTransitionConflictError);
+    expect(() => compareAndTransitionStrategyTaskExecution(db, {
+      ...claim,
+      expectedRevision: claimed.revision,
+      nextRun: {
+        runId: 'run-syntax-once-repair-2',
+        sourceRunId: claimed.latestRunId,
+        runPurpose: 'syntax_auto_repair',
+      },
+    })).toThrow(/different physical stage/i);
+    expect(getStrategyTaskExecution(db, task.taskExecutionId)).toMatchObject({
+      syntaxRepairAttempts: 1,
+      runs: [
+        { runPurpose: 'user_request' },
+        { runPurpose: 'syntax_auto_repair' },
+      ],
+    });
+
+    const forged = createTask(
+      db,
+      snapshot,
+      'run-forged-purpose-request',
+      'task-forged-purpose',
+    );
+    expect(() => compareAndTransitionStrategyTaskExecution(db, {
+      taskExecutionId: forged.taskExecutionId,
+      expectedRevision: forged.revision,
+      to: claim.to,
+      nextRun: {
+        runId: 'run-forged-purpose-repair',
+        sourceRunId: forged.latestRunId,
+        runPurpose: 'strategy_continuation',
+      },
+      syntaxValidation: syntaxErrorValidation(),
+      deliverySyntaxState: 'not_checked',
+    })).toThrow(/syntax_auto_repair|purpose/i);
+  });
+
+  it('completes a successful repair as repaired_unverified without replacing its syntax error', () => {
+    const repairing = beginDirectSyntaxRepair(db, snapshot, {
+      taskExecutionId: 'task-syntax-success',
+      requestRunId: 'run-syntax-success-request',
+      repairRunId: 'run-syntax-success-repair',
+    });
+    const completed = completeStrategyTaskSyntaxRepair(db, {
+      runId: repairing.latestRunId,
+      updatedAt: repairing.updatedAt + 1,
+    });
+    expect(completed).toMatchObject({
+      outcome: 'completed',
+      inputStage: 'syntax_repair',
+      terminalRunId: 'run-syntax-success-repair',
+      syntaxRepairAttempts: 1,
+      deliverySyntaxState: 'repaired_unverified',
+      syntaxValidation: {
+        syntaxCheck: { state: 'syntax_error' },
+      },
+    });
+  });
+
+  it('maps a failed syntax-repair Run to blocked without opening a second repair', () => {
+    const repairing = beginDirectSyntaxRepair(db, snapshot, {
+      taskExecutionId: 'task-syntax-failed',
+      requestRunId: 'run-syntax-failed-request',
+      repairRunId: 'run-syntax-failed-repair',
+    });
+    expect(reconcileStrategyTaskRunTerminal(db, {
+      runId: repairing.latestRunId,
+      status: 'failed',
+      updatedAt: repairing.updatedAt + 1,
+    })).toBe(true);
+    const blocked = getStrategyTaskExecution(db, repairing.taskExecutionId);
+    expect(blocked).toMatchObject({
+      outcome: 'blocked',
+      terminalRunId: 'run-syntax-failed-repair',
+      syntaxRepairAttempts: 1,
+      deliverySyntaxState: 'not_checked',
+      blockedContext: {
+        reasonCodes: ['od_next_syntax_repair_run_failed'],
+        visibleText: null,
+      },
+    });
+    expect(() => completeStrategyTaskSyntaxRepair(db, {
+      runId: repairing.latestRunId,
+    })).toThrow(/active syntax_auto_repair/i);
+    expect(() => compareAndTransitionStrategyTaskExecution(db, {
+      taskExecutionId: blocked!.taskExecutionId,
+      expectedRevision: blocked!.revision,
+      to: {
+        route: 'direct_edit',
+        inputStage: 'syntax_repair',
+        outcome: 'running',
+        executionMode: 'simple',
+      },
+    })).toThrow(/terminal/i);
+  });
+
   it('maps all four physical stages and persists a versioned/hash-bound Plan Contract', () => {
     let task = createTask(db, snapshot);
     task = compareAndTransitionStrategyTaskExecution(db, {
@@ -743,22 +1174,30 @@ describe('durable strategy task store', () => {
       planContractHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(task.runs.map(({ finalText: _finalText, ...run }) => run)).toEqual([
-      { runId: 'run-request', inputStage: 'request', taskRunIndex: 0 },
+      {
+        runId: 'run-request',
+        inputStage: 'request',
+        runPurpose: 'user_request',
+        taskRunIndex: 0,
+      },
       {
         runId: 'run-clarification',
         inputStage: 'clarification',
+        runPurpose: 'strategy_continuation',
         taskRunIndex: 1,
         sourceRunId: 'run-request',
       },
       {
         runId: 'run-contract-repair',
         inputStage: 'contract_repair',
+        runPurpose: 'strategy_continuation',
         taskRunIndex: 2,
         sourceRunId: 'run-clarification',
       },
       {
         runId: 'run-production',
         inputStage: 'production',
+        runPurpose: 'strategy_continuation',
         taskRunIndex: 3,
         sourceRunId: 'run-contract-repair',
       },
@@ -1176,6 +1615,183 @@ describe('durable strategy task store', () => {
       },
       nextRun: { runId: 'resurrected-run', sourceRunId: 'run-request' },
     })).toThrow(/terminal/i);
+  });
+
+  it('recovers marked syntax repair when the daemon crashes before the Task commit', async () => {
+    const repairing = beginDirectSyntaxRepair(db, snapshot, {
+      taskExecutionId: 'task-syntax-crash-before-commit',
+      requestRunId: 'run-syntax-crash-before-commit-request',
+      repairRunId: 'run-syntax-crash-before-commit-repair',
+    });
+    const statePath = writeSyntaxRepairCompletionReadyRunState(tempDir, {
+      runId: repairing.latestRunId,
+      sourceRunId: repairing.initialRunId,
+      updatedAt: repairing.updatedAt,
+    });
+    const readyState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    fs.writeFileSync(statePath, JSON.stringify({
+      ...readyState,
+      changeDetectionState: 'complete',
+      syntaxCheck: {
+        state: 'skipped',
+        skipReason: 'syntax_repair_run',
+        durationMs: 0,
+        errorCount: 0,
+        errorFileCount: 0,
+        checkedFileCount: 0,
+      },
+      syntaxRepairTriggered: false,
+      analyticsRecovery: {
+        context: {},
+        properties: { run_id: repairing.latestRunId },
+        insertId: 'syntax-repair-crash-recovery',
+      },
+    }));
+    closeDatabase();
+
+    db = openDatabase(tempDir, { dataDir: tempDir });
+    const capture = vi.fn();
+    const result = await reconcileDurableRunTerminals({
+      analytics: { capture },
+      appVersion: '0.18.2',
+      db,
+      reportLangfuse: vi.fn(),
+      runsLogDir: path.join(tempDir, 'runs'),
+    });
+
+    expect(result).toMatchObject({ interrupted: 0, strategyTasksReconciled: 1 });
+    expect(getStrategyTaskExecution(db, repairing.taskExecutionId)).toMatchObject({
+      outcome: 'completed',
+      inputStage: 'syntax_repair',
+      terminalRunId: repairing.latestRunId,
+      deliverySyntaxState: 'repaired_unverified',
+      syntaxRepairAttempts: 1,
+      syntaxValidation: { syntaxCheck: { state: 'syntax_error' } },
+    });
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+      status: 'succeeded',
+      exitCode: 0,
+      signal: null,
+      error: null,
+      errorCode: null,
+      terminalTrigger: 'daemon_restart',
+      terminalRecoveryReason: 'daemon_restart',
+      runPurpose: 'syntax_auto_repair',
+      syntaxRepairCompletionReady: true,
+      deliverySyntaxState: 'repaired_unverified',
+      strategyTask: {
+        outcome: 'completed',
+        terminal: true,
+        deliverySyntaxState: 'repaired_unverified',
+      },
+    });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      eventName: 'run_finished',
+      properties: expect.objectContaining({
+        run_purpose: 'syntax_auto_repair',
+        change_detection_state: 'complete',
+        syntax_check_state: 'skipped',
+        syntax_check_skip_reason: 'syntax_repair_run',
+        syntax_error_count: 0,
+        syntax_error_file_count: 0,
+        syntax_checked_file_count: 0,
+        syntax_repair_source_run_id: repairing.initialRunId,
+        delivery_syntax_state: 'repaired_unverified',
+      }),
+    }));
+  });
+
+  it('confirms marked syntax repair when the daemon crashes after the Task commit', async () => {
+    const repairing = beginDirectSyntaxRepair(db, snapshot, {
+      taskExecutionId: 'task-syntax-crash-after-commit',
+      requestRunId: 'run-syntax-crash-after-commit-request',
+      repairRunId: 'run-syntax-crash-after-commit-repair',
+    });
+    const statePath = writeSyntaxRepairCompletionReadyRunState(tempDir, {
+      runId: repairing.latestRunId,
+      sourceRunId: repairing.initialRunId,
+      updatedAt: repairing.updatedAt,
+    });
+    const committed = completeStrategyTaskSyntaxRepair(db, {
+      runId: repairing.latestRunId,
+      updatedAt: repairing.updatedAt + 1,
+    });
+    closeDatabase();
+
+    db = openDatabase(tempDir, { dataDir: tempDir });
+    const result = await reconcileDurableRunTerminals({
+      analytics: { capture: vi.fn() },
+      appVersion: '0.18.2',
+      db,
+      reportLangfuse: vi.fn(),
+      runsLogDir: path.join(tempDir, 'runs'),
+    });
+
+    expect(result).toMatchObject({ interrupted: 0, strategyTasksReconciled: 0 });
+    expect(getStrategyTaskExecution(db, repairing.taskExecutionId)).toMatchObject({
+      revision: committed?.revision,
+      outcome: 'completed',
+      terminalRunId: repairing.latestRunId,
+      deliverySyntaxState: 'repaired_unverified',
+    });
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+      status: 'succeeded',
+      exitCode: 0,
+      terminalRecoveryReason: 'daemon_restart',
+      strategyTask: {
+        outcome: 'completed',
+        terminal: true,
+        deliverySyntaxState: 'repaired_unverified',
+      },
+    });
+
+    const repeated = await reconcileDurableRunTerminals({
+      analytics: { capture: vi.fn() },
+      appVersion: '0.18.2',
+      db,
+      reportLangfuse: vi.fn(),
+      runsLogDir: path.join(tempDir, 'runs'),
+    });
+    expect(repeated).toMatchObject({ interrupted: 0, strategyTasksReconciled: 0 });
+    expect(getStrategyTaskExecution(db, repairing.taskExecutionId)?.revision)
+      .toBe(committed?.revision);
+  });
+
+  it('fails and blocks a forged completion marker outside the active syntax repair mapping', async () => {
+    const task = createTask(
+      db,
+      snapshot,
+      'run-forged-syntax-completion-marker',
+      'task-forged-syntax-completion-marker',
+    );
+    const statePath = writeSyntaxRepairCompletionReadyRunState(tempDir, {
+      runId: task.latestRunId,
+      sourceRunId: task.latestRunId,
+      updatedAt: task.updatedAt,
+    });
+    closeDatabase();
+
+    db = openDatabase(tempDir, { dataDir: tempDir });
+    const result = await reconcileDurableRunTerminals({
+      analytics: { capture: vi.fn() },
+      appVersion: '0.18.2',
+      db,
+      reportLangfuse: vi.fn(),
+      runsLogDir: path.join(tempDir, 'runs'),
+    });
+
+    expect(result).toMatchObject({ interrupted: 1, strategyTasksReconciled: 1 });
+    expect(getStrategyTaskExecution(db, task.taskExecutionId)).toMatchObject({
+      outcome: 'blocked',
+      terminalRunId: task.latestRunId,
+      blockedContext: {
+        reasonCodes: ['od_next_physical_run_interrupted'],
+      },
+    });
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+      status: 'failed',
+      errorCode: 'DAEMON_RESTARTED',
+    });
   });
 
   it('leaves an unmapped ordinary physical Run untouched during startup reconciliation', async () => {

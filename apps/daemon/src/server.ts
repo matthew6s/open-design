@@ -523,11 +523,19 @@ import {
 import { OdNextMachineProtocolStream } from './strategies/od-next/protocol.js';
 import {
   blockAutomaticContinuation,
+  odNextCompletionEnforcementReasonCodes,
   prepareAutomaticStrategyContinuation,
   projectStrategyTask,
   odNextTurnMayInferDirectEditCompletion,
   odNextTurnMayInferProductionCompletion,
 } from './strategies/od-next/automatic-simple-production.js';
+import { assessOdNextCompletionCandidate } from './strategies/od-next/coordinator.js';
+import {
+  OD_NEXT_JAVASCRIPT_SYNTAX_CHECKER_HASH,
+  OD_NEXT_JAVASCRIPT_SYNTAX_CHECKER_VERSION,
+} from './strategies/od-next/javascript-syntax-check.js';
+import { evaluateOdNextSyntaxDeliveryGate } from './strategies/od-next/syntax-delivery-gate.js';
+import { prepareOdNextSyntaxRepairRun } from './strategies/od-next/syntax-repair-service.js';
 import {
   odNextRolloutSignalForRun,
   readOdNextRolloutPolicy,
@@ -535,7 +543,9 @@ import {
 } from './strategies/od-next/rollout.js';
 import { latchOdNextRolloutStopOperationally } from './strategies/od-next/rollout-control-telemetry.js';
 import {
+  completeStrategyTaskSyntaxRepair,
   getStrategyTaskExecutionByRunId,
+  recordStrategyTaskSyntaxValidation,
   reconcileStrategyTaskRunTerminal,
 } from './strategies/task-store.js';
 import {
@@ -563,6 +573,7 @@ import {
   scanRunEventsForUsageAnalytics,
 } from './run-analytics-observability.js';
 import {
+  artifactSnapshotWasTruncated,
   createRunArtifactBaselines,
   diffRunArtifacts,
   snapshotProjectArtifacts,
@@ -7684,6 +7695,41 @@ export async function startServer({
       pinAssistantMessageOnRunCreate(db, run, options),
     analyticsLifecycle: runAnalyticsLifecycle,
   });
+  // Source excerpts are required for the one repair request but forbidden from
+  // task/message persistence and telemetry. Hold the complete prompt only
+  // until its already-claimed physical Run starts; the durable request-turn
+  // contains the same diagnostics with a redacted excerpt.
+  const transientOdNextSyntaxRepairPrompts = new Map<string, {
+    prompt: string;
+    generation: number;
+    expiry: ReturnType<typeof setTimeout>;
+  }>();
+  let transientOdNextSyntaxRepairPromptGeneration = 0;
+  const rememberTransientOdNextSyntaxRepairPrompt = (runId: string, prompt: string) => {
+    const previous = transientOdNextSyntaxRepairPrompts.get(runId);
+    if (previous) clearTimeout(previous.expiry);
+    const generation = ++transientOdNextSyntaxRepairPromptGeneration;
+    const expiry = setTimeout(() => {
+      if (transientOdNextSyntaxRepairPrompts.get(runId)?.generation === generation) {
+        transientOdNextSyntaxRepairPrompts.delete(runId);
+      }
+    }, 5 * 60_000);
+    expiry.unref?.();
+    transientOdNextSyntaxRepairPrompts.set(runId, { prompt, generation, expiry });
+  };
+  const takeTransientOdNextSyntaxRepairPrompt = (runId: string) => {
+    const entry = transientOdNextSyntaxRepairPrompts.get(runId);
+    if (!entry) return null;
+    transientOdNextSyntaxRepairPrompts.delete(runId);
+    clearTimeout(entry.expiry);
+    return entry.prompt;
+  };
+  const discardTransientOdNextSyntaxRepairPrompt = (runId: string) => {
+    const entry = transientOdNextSyntaxRepairPrompts.get(runId);
+    if (!entry) return;
+    transientOdNextSyntaxRepairPrompts.delete(runId);
+    clearTimeout(entry.expiry);
+  };
   const reportFeedback = telemetry.reportFeedback;
 
   // DNS-aware wrapper. The sync `validateBaseUrl` only inspects the literal
@@ -10367,19 +10413,26 @@ export async function startServer({
         'OD Next Run, request, immutable input owner, and persisted task mapping are not one exact scope.',
       );
     }
+    if (strategyRunMapping) {
+      run.runPurpose = strategyRunMapping.runPurpose;
+      design.runs.persistState(run);
+    }
     const persistedStrategyFinalText = strategyRunMapping?.finalText.text ?? null;
+    let strategyFinalTextForExecution = persistedStrategyFinalText;
     const isOdNextRequestStage = strategyRunMapping?.inputStage === 'request';
     const hasExplicitCurrentPrompt = Object.prototype.hasOwnProperty.call(
       chatBody,
       'currentPrompt',
     );
     const strategyProtocol = strategyTaskAtStart
+      && strategyRunMapping?.runPurpose !== 'syntax_auto_repair'
       ? new OdNextMachineProtocolStream()
       : null;
     let strategyVisibleEmitted = '';
     let strategyProtocolResult = null;
     let strategyToolUseCount = 0;
     let pendingStrategyContinuation = null;
+    let processTreeQuiescentForDelivery = true;
     const {
       agentId,
       message,
@@ -10483,6 +10536,28 @@ export async function startServer({
       );
     if (!def.bin)
       return failRun('AGENT_UNAVAILABLE', 'agent has no binary');
+    if (strategyRunMapping?.runPurpose === 'syntax_auto_repair') {
+      if (def.promptViaFile) {
+        // Prompt-file runtimes cannot satisfy both required boundaries: the
+        // repair Agent must receive the real excerpt, while source bytes must
+        // never be staged on disk. Fail closed instead of silently sending a
+        // fake/redacted diagnostic as though the repair contract were met.
+        discardTransientOdNextSyntaxRepairPrompt(run.id);
+        return failRun(
+          'OD_NEXT_SYNTAX_REPAIR_MEMORY_TRANSPORT_UNAVAILABLE',
+          'The selected Agent requires prompt-file transport, so the source excerpt could not be delivered without persisting it. The task was blocked without a repair attempt.',
+        );
+      } else {
+        const transientSyntaxRepairPrompt = takeTransientOdNextSyntaxRepairPrompt(run.id);
+        if (!transientSyntaxRepairPrompt) {
+          return failRun(
+            'OD_NEXT_SYNTAX_REPAIR_PROMPT_UNAVAILABLE',
+            'The one-shot syntax repair prompt was unavailable; the task was blocked without a blind retry.',
+          );
+        }
+        strategyFinalTextForExecution = transientSyntaxRepairPrompt;
+      }
+    }
     const byokOpenCodeProvider = def.id === 'byok-opencode'
       ? buildOpenCodeByokProviderConfig(
           byokProvider,
@@ -10571,10 +10646,10 @@ export async function startServer({
     // Project directory resolution lives in projects.ts so sandbox mode can
     // consistently reject imported-folder metadata that has no managed copy.
     let cwd = null;
+    let chatMeta = null;
     let existingProjectFiles = [];
     let existingProjectFolders = [];
     if (typeof projectId === 'string' && projectId) {
-      let chatMeta = null;
       try {
         const chatProject = getProject(db, projectId);
         chatMeta = chatProject?.metadata ?? null;
@@ -10583,13 +10658,39 @@ export async function startServer({
         // folders with no managed copy in sandbox mode), so we pass chatMeta
         // through instead of branching on baseDir here.
         assertSandboxProjectRootAvailable(chatMeta);
-        cwd = await ensureProject(PROJECTS_DIR, projectId, chatMeta);
+        // Pure path resolution comes first. Exact native continuations compare
+        // this path before ensureProject(), inventory reads, frozen Skill
+        // staging, or device-frame materialization can touch a rebound folder.
+        cwd = resolveProjectDir(PROJECTS_DIR, projectId, chatMeta);
       } catch (err) {
         if (err instanceof SandboxImportedProjectError) {
           return failRun('BAD_REQUEST', err.message);
         }
         cwd = null;
       }
+    }
+    const blockPendingContinuationForWorkspaceDrift = (candidateCwd) => {
+      if (
+        typeof pendingNativeSessionContinue?.cwd !== 'string'
+        || path.resolve(pendingNativeSessionContinue.cwd) === path.resolve(candidateCwd)
+      ) return;
+      const blocked = strategyTaskAtStart
+        ? blockAutomaticContinuation(db, { runId: run.id })
+        : null;
+      if (blocked) run.strategyTask = projectStrategyTask(blocked, run.id);
+      throw new Error(
+        'OD Next continuation requires the exact source workspace; the task was blocked before launch.',
+      );
+    };
+    blockPendingContinuationForWorkspaceDrift(cwd ?? PROJECT_ROOT);
+    if (typeof projectId === 'string' && projectId && cwd) {
+      try {
+        cwd = await ensureProject(PROJECTS_DIR, projectId, chatMeta);
+      } catch {
+        cwd = null;
+      }
+      // A failed ensure must not silently move a continuation to PROJECT_ROOT.
+      blockPendingContinuationForWorkspaceDrift(cwd ?? PROJECT_ROOT);
       if (cwd) {
         try {
           existingProjectFiles = await listFiles(PROJECTS_DIR, projectId, { metadata: chatMeta });
@@ -11064,12 +11165,21 @@ export async function startServer({
       });
       let outcome;
       if (!artifactBaseline || artifactBaseline.contended) {
+        run.changeDetectionState = artifactBaseline?.contended
+          ? 'contended'
+          : 'snapshot_failed';
         outcome = fallbackOutcome();
       } else {
         try {
+          const resolvedAfter = afterSnapshot ?? snapshotProjectArtifacts(artifactBaseline.cwd);
+          run.changeDetectionState =
+            artifactSnapshotWasTruncated(artifactBaseline.before)
+            || artifactSnapshotWasTruncated(resolvedAfter)
+              ? 'truncated'
+              : 'complete';
           const diff = diffRunArtifacts(
             artifactBaseline.before,
-            afterSnapshot ?? snapshotProjectArtifacts(artifactBaseline.cwd),
+            resolvedAfter,
           );
           outcome = {
             artifactCount: diff.touched,
@@ -11091,6 +11201,7 @@ export async function startServer({
               !path.isAbsolute(filePath),
             );
         } catch {
+          run.changeDetectionState = 'snapshot_failed';
           outcome = fallbackOutcome();
         }
       }
@@ -11320,7 +11431,7 @@ export async function startServer({
     // directly. Public chat requests cannot reach this branch.
     const forceInternalResume =
       pendingNativeSessionContinue != null &&
-      runtimeResumesSessionById(def) &&
+      agentSupportsSessionResume &&
       pendingNativeSessionContinue.sessionId.length > 0;
     const agentResumeCtx = forceInternalResume
       ? {
@@ -11495,7 +11606,7 @@ export async function startServer({
       : '';
     const composedResult = strategyTaskAtStart
       ? {
-          composedPrompt: persistedStrategyFinalText!,
+          composedPrompt: strategyFinalTextForExecution!,
           clientInstructionPrompt: '',
           instructionPrompt: '',
         }
@@ -11547,11 +11658,17 @@ export async function startServer({
         image_attachment_selection: promptImagePaths,
       });
     }
-    const promptTelemetry = buildPromptStackTelemetry({
-      composedPrompt: composed,
-      sections: strategyRunMapping
-        ? [{ kind: 'odNextExactFinalText', content: composed }]
-        : [
+    if (strategyRunMapping?.runPurpose === 'syntax_auto_repair') {
+      // The actual repair request can carry a minimal source excerpt. Do not
+      // fingerprint, redact, persist, or export that prompt through the normal
+      // prompt-telemetry path: secret/path redaction is not source redaction.
+      run.promptTelemetry = undefined;
+    } else {
+      const promptTelemetry = buildPromptStackTelemetry({
+        composedPrompt: composed,
+        sections: strategyRunMapping
+          ? [{ kind: 'odNextExactFinalText', content: composed }]
+          : [
             { kind: 'formOverride', content: agentFormOverride },
             // Phase 1 explicitly needs redactedContent for these aggregate prompts:
             // they are the quickest way to inspect the system context sent to the
@@ -11594,23 +11711,24 @@ export async function startServer({
               content: promptImagePaths.join('\n'),
               metadata: promptImagePaths,
             },
-          ],
-    });
-    try {
-      run.promptTelemetry = strategyRunMapping
-        ? bindOdNextExactSendPromptEvidence({
-            telemetry: promptTelemetry,
-            finalText: composed,
-            persisted: strategyRunMapping.finalText,
-            stage: strategyRunMapping.inputStage,
-          })
-        : promptTelemetry;
-    } catch (error) {
-      if (!(error instanceof InvalidOdNextExactSendPromptError)) throw error;
-      return failRun(
-        'OD_NEXT_TASK_STATE_INVALID',
-        error.message,
-      );
+            ],
+      });
+      try {
+        run.promptTelemetry = strategyRunMapping
+          ? bindOdNextExactSendPromptEvidence({
+              telemetry: promptTelemetry,
+              finalText: composed,
+              persisted: strategyRunMapping.finalText,
+              stage: strategyRunMapping.inputStage,
+            })
+          : promptTelemetry;
+      } catch (error) {
+        if (!(error instanceof InvalidOdNextExactSendPromptError)) throw error;
+        return failRun(
+          'OD_NEXT_TASK_STATE_INVALID',
+          error.message,
+        );
+      }
     }
     lifecycle.mark('prompt_build_end');
     lifecycle.mark('launch_preflight_start');
@@ -12038,6 +12156,7 @@ export async function startServer({
       signal = null,
       { allowRetry = true } = {},
     ) => {
+      const retryAllowed = allowRetry && run.runPurpose !== 'syntax_auto_repair';
       lifecycle.mark('finalize_start');
       flushRunMessageEvents(run);
       // Persist the transport-level close mechanism before classifying this
@@ -12114,7 +12233,7 @@ export async function startServer({
         hasNativeSession: !!run.conversationId && !!liveSessionId,
       });
       if (
-        allowRetry &&
+        retryAllowed &&
         postToolResumeDecision?.shouldRetry &&
         !design.runs.isTerminal(run.status) &&
         run.conversationId &&
@@ -12171,7 +12290,7 @@ export async function startServer({
         attemptCount: run.retryAttemptCount ?? 0,
         sideEffects,
       });
-      if (allowRetry && decision.shouldRetry && !design.runs.isTerminal(run.status)) {
+      if (retryAllowed && decision.shouldRetry && !design.runs.isTerminal(run.status)) {
         run.retryOriginalFailure ??= failure ?? undefined;
         if ((run.retryAttemptCount ?? 0) === 0) {
           run.retryOriginFailure = failure ? { ...failure } : null;
@@ -15523,6 +15642,46 @@ export async function startServer({
             strategyVisibleEmitted += tail;
           }
         }
+        const strategyMayEnterDeliveryGate = Boolean(
+          strategyTaskAtStart
+          && (
+            strategyRunMapping?.runPurpose === 'syntax_auto_repair'
+            || strategyProtocolResult?.runtimeState?.outcome === 'completed'
+            || odNextTurnMayInferDirectEditCompletion(
+              strategyTaskAtStart,
+              strategyProtocolResult,
+            )
+            || odNextTurnMayInferProductionCompletion(
+              strategyTaskAtStart,
+              strategyProtocolResult,
+            )
+          ),
+        );
+        if (strategyMayEnterDeliveryGate) {
+          const termination = await design.runs.terminateProcessTree(
+            run,
+            child,
+            run.processGroupId,
+            {
+              termGraceMs: 250,
+              killGraceMs: 500,
+              reason: 'candidate_validation',
+            },
+          );
+          processTreeQuiescentForDelivery = termination?.quiescent === true;
+          if (
+            strategyRunMapping?.runPurpose === 'syntax_auto_repair'
+            && !processTreeQuiescentForDelivery
+          ) {
+            send('error', createSseErrorPayload(
+              'OD_NEXT_SYNTAX_REPAIR_NOT_QUIESCENT',
+              'The syntax repair process tree did not become quiet; the task was blocked without delivery.',
+              { retryable: false },
+            ));
+            finishStrategyAwarePhysicalRun('failed', 1, signal);
+            return;
+          }
+        }
         try {
           await snapshotAiHtmlVersionsBeforeSuccess();
         } catch (err) {
@@ -15545,6 +15704,43 @@ export async function startServer({
           persistDeliveredAgentSessionState();
         } catch (err) {
           console.warn('[sessions] delivered session persistence failed', err);
+        }
+        if (strategyRunMapping?.runPurpose === 'syntax_auto_repair') {
+          try {
+            run.syntaxCheck = {
+              state: 'skipped',
+              skipReason: 'syntax_repair_run',
+              durationMs: 0,
+              errorCount: 0,
+              errorFileCount: 0,
+              checkedFileCount: 0,
+            };
+            run.syntaxRepairSourceRunId = strategyTaskAtStart?.syntaxRepairSourceRunId;
+            run.deliverySyntaxState = 'repaired_unverified';
+            // This durable intent closes the cross-store crash window between
+            // the SQLite task transition and the physical Run terminal state.
+            // Restart reconciliation may promote only this already-validated,
+            // quiet, snapshotted repair Run to succeeded.
+            if (design.runs.persistSyntaxRepairCompletionReady(run) !== true) {
+              throw new Error(
+                'The syntax repair completion marker could not be persisted durably.',
+              );
+            }
+            const repairedTask = completeStrategyTaskSyntaxRepair(db, { runId: run.id });
+            if (!repairedTask) {
+              throw new Error('The active syntax repair task mapping was unavailable.');
+            }
+            run.syntaxRepairSourceRunId = repairedTask.syntaxRepairSourceRunId;
+            run.strategyTask = projectStrategyTask(repairedTask, run.id);
+          } catch (error) {
+            send('error', createSseErrorPayload(
+              'OD_NEXT_SYNTAX_REPAIR_FINALIZATION_FAILED',
+              error instanceof Error ? error.message : String(error),
+              { retryable: false },
+            ));
+            finishStrategyAwarePhysicalRun('failed', 1, signal);
+            return;
+          }
         }
         let deliverableValid = false;
         // A turn that emitted no Runtime State can still have delivered. The
@@ -15672,9 +15868,249 @@ export async function startServer({
           // host facts. Never let the stale continuation allocate a new Run or
           // mutate the already-terminal task after that boundary.
           if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
-          let transition;
-          try {
-            transition = prepareAutomaticStrategyContinuation({
+          const completionEvidence =
+            strategyProtocolResult.runtimeState?.outcome === 'completed'
+            || mayInferDirectEditCompletion
+              ? {
+                  physicalStatus: 'succeeded',
+                  deliverableValid,
+                }
+              : null;
+          const createAutomaticContinuationMeta = (
+            stage,
+            instruction,
+            taskRunIndex,
+          ) => {
+            const identity = createHash('sha256')
+              .update(`${strategyTaskAtStart.taskExecutionId}:${stage}:${taskRunIndex}`)
+              .digest('hex');
+            const meta = {
+              ...chatBody,
+              // One logical task, several physical Runs. The chain is only
+              // reassemblable downstream if each Run reports the lineage of
+              // the Run that caused it.
+              analyticsHints: {
+                ...(chatBody.analyticsHints ?? {}),
+                ...inheritedRunLineageHints(run, chatBody, taskRunIndex),
+              },
+              projectId: strategyTaskAtStart.projectId,
+              conversationId: strategyTaskAtStart.conversationId,
+              agentId: strategyTaskAtStart.selectedAgentId,
+              appliedPluginSnapshotId: strategyTaskAtStart.snapshotId,
+              pluginId: strategyTaskAtStart.strategyId,
+              assistantMessageId: `odnext_assistant_${identity.slice(0, 32)}`,
+              clientRequestId: `odnext_run_${identity.slice(0, 40)}`,
+              message: instruction,
+              currentPrompt: instruction,
+              titleGeneration: undefined,
+              userMessageId: undefined,
+              odNextTaskInputSnapshot:
+                run.odNextTaskInputSnapshot ?? chatBody.odNextTaskInputSnapshot ?? null,
+            };
+            automaticContinuationChatBody = {
+              ...meta,
+              requestFingerprint: createHash('sha256')
+                .update(JSON.stringify({
+                  taskExecutionId: strategyTaskAtStart.taskExecutionId,
+                  sourceRunId: run.id,
+                  stage,
+                  taskRunIndex,
+                  instruction,
+                  projectId: meta.projectId,
+                  conversationId: meta.conversationId,
+                  agentId: meta.agentId,
+                  snapshotId: meta.appliedPluginSnapshotId,
+                }))
+                .digest('hex'),
+            };
+            return automaticContinuationChatBody;
+          };
+
+          let syntaxRepairClaimed = false;
+          if (completionEvidence) {
+            try {
+            const completionReasonCodes = odNextCompletionEnforcementReasonCodes({
+              task: strategyTaskAtStart,
+              parsed: strategyProtocolResult,
+              ...(complexRuntimeEvidence ? { complexRuntimeEvidence } : {}),
+            });
+            const assessment = assessOdNextCompletionCandidate(db, {
+              taskExecutionId: strategyTaskAtStart.taskExecutionId,
+              runId: run.id,
+              parsed: strategyProtocolResult,
+              toolUseCount: strategyToolUseCount,
+              ...(executionPreflight ? { executionPreflight } : {}),
+              completionEvidence,
+              ...(completionReasonCodes.length > 0
+                ? { productionEnforcementReasonCodes: completionReasonCodes }
+                : {}),
+            });
+            if (assessment.ready && assessment.state) {
+              let gate;
+              try {
+                if (typeof run.deliverableEntryFile !== 'string') {
+                  throw new Error('canonical_entry_unavailable');
+                }
+                gate = await evaluateOdNextSyntaxDeliveryGate({
+                  projectRoot: effectiveCwd,
+                  entryFile: run.deliverableEntryFile,
+                  changeDetectionState: run.changeDetectionState ?? 'snapshot_failed',
+                  ...(run.artifactOutcome?.diff ? { diff: run.artifactOutcome.diff } : {}),
+                  processTreeQuiescent: processTreeQuiescentForDelivery,
+                });
+              } catch {
+                const changeDetectionState = run.changeDetectionState ?? 'snapshot_failed';
+                gate = {
+                  validation: {
+                    changeDetectionState,
+                    deliverableCodeChanges: [],
+                    syntaxCheck: {
+                      state: 'check_incomplete',
+                      checkerVersion: OD_NEXT_JAVASCRIPT_SYNTAX_CHECKER_VERSION,
+                      checkerHash: OD_NEXT_JAVASCRIPT_SYNTAX_CHECKER_HASH,
+                      durationMs: 0,
+                      errorCount: 0,
+                      errorFileCount: 0,
+                      diagnosticSummary: [],
+                    },
+                  },
+                  deliverySyntaxState: 'check_incomplete',
+                  diagnostics: [],
+                  checkedFileCount: 0,
+                  repairRequired: false,
+                  incompleteReason: 'gate_failure',
+                };
+              }
+              run.syntaxCheck = {
+                state: gate.validation.syntaxCheck.state,
+                ...(gate.validation.syntaxCheck.skipReason
+                  ? { skipReason: gate.validation.syntaxCheck.skipReason }
+                  : {}),
+                durationMs: gate.validation.syntaxCheck.durationMs,
+                errorCount: gate.validation.syntaxCheck.errorCount,
+                errorFileCount: gate.validation.syntaxCheck.errorFileCount,
+                checkedFileCount: gate.checkedFileCount,
+              };
+              run.deliverySyntaxState = gate.deliverySyntaxState;
+
+              if (gate.repairRequired) {
+                if (!assessment.state.executionMode) {
+                  throw new Error('A completed OD Next delivery must lock its execution mode.');
+                }
+                const exactSyntaxRepairSessionId = (() => {
+                  if (
+                    def.resumesSessionViaAcpLoad === true
+                    && acpSession
+                    && typeof acpSession.getDurableSessionId === 'function'
+                  ) {
+                    return acpSession.getDurableSessionId();
+                  }
+                  if (
+                    def.streamFormat === 'pi-rpc'
+                    && acpSession
+                    && typeof acpSession.getLastSessionPath === 'function'
+                  ) {
+                    return acpSession.getLastSessionPath();
+                  }
+                  if (agentResumeCtx.isResuming) return agentResumeCtx.resumeSessionId;
+                  return agentCapturesSessionId
+                    ? capturedSessionId
+                    : agentResumeCtx.newSessionId;
+                })();
+                if (
+                  !agentSupportsSessionResume
+                  || typeof exactSyntaxRepairSessionId !== 'string'
+                  || exactSyntaxRepairSessionId.length === 0
+                ) {
+                  throw new Error(
+                    'The exact source native session was unavailable for syntax repair.',
+                  );
+                }
+                const repair = prepareOdNextSyntaxRepairRun({
+                  db,
+                  service: internalRunCreation,
+                  task: strategyTaskAtStart,
+                  route: assessment.state.route,
+                  executionMode: assessment.state.executionMode,
+                  diagnostics: gate.diagnostics,
+                  validation: gate.validation,
+                  createMeta: (instruction, taskRunIndex) => (
+                    createAutomaticContinuationMeta(
+                      'syntax_repair',
+                      instruction,
+                      taskRunIndex,
+                    )
+                  ),
+                });
+                if (repair.prepared.kind !== 'ready') {
+                  throw new Error('The syntax repair Run was not ready after claim.');
+                }
+                const nextRun = repair.prepared.run;
+                nextRun.runPurpose = 'syntax_auto_repair';
+                // Bind this host-owned continuation to the exact source handle
+                // and workspace. The mutable conversation session row remains
+                // useful for ordinary chat, but cannot redirect this repair if
+                // another same-conversation Run finishes during the handoff.
+                nextRun.nativeSessionContinuePending = {
+                  sessionId: exactSyntaxRepairSessionId,
+                  stablePromptHash: currentStableHash,
+                  stablePromptSections: currentStableSections,
+                  cwd: effectiveCwd,
+                };
+                nextRun.strategyTask = projectStrategyTask(repair.task, nextRun.id);
+                rememberTransientOdNextSyntaxRepairPrompt(
+                  nextRun.id,
+                  repair.fullInstruction,
+                );
+                run.syntaxRepairTriggered = true;
+                run.syntaxRepairSourceRunId = run.id;
+                run.strategyTask = projectStrategyTask(repair.task, run.id);
+                pendingStrategyContinuation = {
+                  run: nextRun,
+                  chatBody: automaticContinuationChatBody,
+                };
+                strategyTaskAtStart = repair.task;
+                syntaxRepairClaimed = true;
+              } else {
+                strategyTaskAtStart = recordStrategyTaskSyntaxValidation(db, {
+                  taskExecutionId: strategyTaskAtStart.taskExecutionId,
+                  expectedRevision: strategyTaskAtStart.revision,
+                  sourceRunId: run.id,
+                  validation: gate.validation,
+                  deliverySyntaxState: gate.deliverySyntaxState,
+                });
+              }
+            }
+            } catch (error) {
+              if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
+              send('error', createSseErrorPayload(
+                'OD_NEXT_SYNTAX_GATE_FAILED',
+                error instanceof Error ? error.message : String(error),
+                { retryable: false },
+              ));
+              finishStrategyAwarePhysicalRun('failed', 1, signal);
+              return;
+            }
+          }
+          if (!run.syntaxCheck) {
+            run.syntaxCheck = {
+              state: 'skipped',
+              skipReason: 'non_delivery_stage',
+              durationMs: 0,
+              errorCount: 0,
+              errorFileCount: 0,
+              checkedFileCount: 0,
+            };
+            run.deliverySyntaxState = 'not_checked';
+          }
+          if (syntaxRepairClaimed) {
+            // The source physical Run succeeds below. Its logical task remains
+            // running on the already-claimed syntax_auto_repair continuation.
+            // Do not let the normal coordinator commit `completed` first.
+          } else {
+            let transition;
+            try {
+              transition = prepareAutomaticStrategyContinuation({
               db,
               service: internalRunCreation,
               task: strategyTaskAtStart,
@@ -15692,84 +16128,40 @@ export async function startServer({
                       },
                     }
                   : {}),
-              createMeta: (stage, instruction, taskRunIndex) => {
-                const identity = createHash('sha256')
-                  .update(`${strategyTaskAtStart.taskExecutionId}:${stage}:${taskRunIndex}`)
-                  .digest('hex');
-                const meta = {
-                  ...chatBody,
-                  // One logical task, several physical Runs. The chain is only
-                  // reassemblable downstream if each Run reports the lineage of
-                  // the Run that caused it.
-                  analyticsHints: {
-                    ...(chatBody.analyticsHints ?? {}),
-                    ...inheritedRunLineageHints(run, chatBody, taskRunIndex),
-                  },
-                  projectId: strategyTaskAtStart.projectId,
-                  conversationId: strategyTaskAtStart.conversationId,
-                  agentId: strategyTaskAtStart.selectedAgentId,
-                  appliedPluginSnapshotId: strategyTaskAtStart.snapshotId,
-                  pluginId: strategyTaskAtStart.strategyId,
-                  assistantMessageId: `odnext_assistant_${identity.slice(0, 32)}`,
-                  clientRequestId: `odnext_run_${identity.slice(0, 40)}`,
-                  message: instruction,
-                  currentPrompt: instruction,
-                  titleGeneration: undefined,
-                  userMessageId: undefined,
-                  odNextTaskInputSnapshot:
-                    run.odNextTaskInputSnapshot ?? chatBody.odNextTaskInputSnapshot ?? null,
-                };
-                automaticContinuationChatBody = {
-                  ...meta,
-                  requestFingerprint: createHash('sha256')
-                    .update(JSON.stringify({
-                      taskExecutionId: strategyTaskAtStart.taskExecutionId,
-                      sourceRunId: run.id,
-                      stage,
-                      taskRunIndex,
-                      instruction,
-                      projectId: meta.projectId,
-                      conversationId: meta.conversationId,
-                      agentId: meta.agentId,
-                      snapshotId: meta.appliedPluginSnapshotId,
-                    }))
-                    .digest('hex'),
-                };
-                return automaticContinuationChatBody;
-              },
-            });
-          } catch (error) {
-            if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
-            send('error', createSseErrorPayload(
-              'OD_NEXT_CONTINUATION_FAILED',
-              error instanceof Error ? error.message : String(error),
-              { retryable: false },
-            ));
-            finishStrategyAwarePhysicalRun('failed', 1, signal);
-            return;
-          }
-          run.strategyTask = projectStrategyTask(transition.result.task, run.id);
-          if (transition.result.action === 'blocked') {
-            const signal = rolloutStopSignalForBlockedContinuation(
-              transition.result.reasonCodes,
-            );
-            const stopMode = signal ? stopModeForOdNextSignal(signal) : null;
-            if (signal && stopMode) {
-              latchOdNextRolloutForRun(run, stopMode, signal);
+              createMeta: createAutomaticContinuationMeta,
+              });
+            } catch (error) {
+              if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
+              send('error', createSseErrorPayload(
+                'OD_NEXT_CONTINUATION_FAILED',
+                error instanceof Error ? error.message : String(error),
+                { retryable: false },
+              ));
+              finishStrategyAwarePhysicalRun('failed', 1, signal);
+              return;
             }
-          }
-          if (transition.start && transition.prepared?.kind === 'ready') {
-            const nextRun = transition.prepared.run;
-            nextRun.strategyTask = projectStrategyTask(transition.result.task, nextRun.id);
-            pendingStrategyContinuation = {
-              run: nextRun,
-              chatBody: automaticContinuationChatBody,
-            };
+            run.strategyTask = projectStrategyTask(transition.result.task, run.id);
+            if (transition.result.action === 'blocked') {
+              const signal = rolloutStopSignalForBlockedContinuation(
+                transition.result.reasonCodes,
+              );
+              const stopMode = signal ? stopModeForOdNextSignal(signal) : null;
+              if (signal && stopMode) {
+                latchOdNextRolloutForRun(run, stopMode, signal);
+              }
+            }
+            if (transition.start && transition.prepared?.kind === 'ready') {
+              const nextRun = transition.prepared.run;
+              nextRun.strategyTask = projectStrategyTask(transition.result.task, nextRun.id);
+              pendingStrategyContinuation = {
+                run: nextRun,
+                chatBody: automaticContinuationChatBody,
+              };
+            }
           }
         }
       }
-      const retried = finishWithRetryDecision(status, code, signal);
-      if (!retried && pendingStrategyContinuation) {
+      if (pendingStrategyContinuation) {
         const continuation = pendingStrategyContinuation;
         // This turn is not over: the daemon is about to run the next stage of
         // the SAME logical task, with no user prompt of its own. Record the
@@ -15780,52 +16172,105 @@ export async function startServer({
         // the turn whole through `strategyTaskRunIndex` (folded at render time),
         // and a consumer that re-pointed the existing message at `nextRunId`
         // instead would print the continuation's answer twice.
-        const continuationTask = getStrategyTaskExecutionByRunId(db, continuation.run.id);
+        let continuationTask = null;
+        try {
+          continuationTask = getStrategyTaskExecutionByRunId(db, continuation.run.id);
+        } catch {
+          // The already-attached projection below still carries the stable
+          // task identity. A diagnostic read must never prevent source Run
+          // terminalization.
+        }
         design.runs.emit(run, 'diagnostic', {
           type: 'strategy_task_continuation',
           taskExecutionId: continuationTask?.taskExecutionId
+            ?? continuation.run.strategyTask?.taskExecutionId
             ?? strategyTaskAtStart?.taskExecutionId
             ?? null,
           sourceRunId: run.id,
           nextRunId: continuation.run.id,
-          inputStage: continuationTask?.inputStage ?? null,
+          inputStage: continuationTask?.inputStage
+            ?? continuation.run.strategyTask?.inputStage
+            ?? null,
           taskRunIndex: continuationTask?.runs.length
             ? continuationTask.runs.length - 1
             : null,
         });
-        reconcileAssistantMessageOnRunEnd(db, design.runs, continuation.run);
-        internalRunCreation.start(
-          continuation.run,
-          {
-            // The continuation is composed from the source Run's body, so it
-            // carries the same project, agent, plugin and Skill facts. Identity
-            // is inherited rather than re-derived: nobody made a request for
-            // this Run, and the task it continues is the user's.
-            body: continuation.chatBody,
-            requestAnalyticsContext:
-              run.analyticsContext ?? run.analyticsRecovery?.context ?? null,
-            creationKind: 'created',
-            resumed: false,
-          },
-          async () => {
+      }
+      const retried = finishWithRetryDecision(status, code, signal);
+      if (!retried && pendingStrategyContinuation) {
+        const continuation = pendingStrategyContinuation;
+        try {
+          reconcileAssistantMessageOnRunEnd(db, design.runs, continuation.run);
+          internalRunCreation.start(
+            continuation.run,
+            {
+              // The continuation is composed from the source Run's body, so it
+              // carries the same project, agent, plugin and Skill facts. Identity
+              // is inherited rather than re-derived: nobody made a request for
+              // this Run, and the task it continues is the user's.
+              body: continuation.chatBody,
+              requestAnalyticsContext:
+                run.analyticsContext ?? run.analyticsRecovery?.context ?? null,
+              creationKind: 'created',
+              resumed: false,
+            },
+            async () => {
+              try {
+                return await startChatRun(continuation.chatBody, continuation.run);
+              } catch (error) {
+                reconcileStrategyTaskRunTerminal(db, {
+                  runId: continuation.run.id,
+                  status: 'failed',
+                });
+                const latestTask = getStrategyTaskExecutionByRunId(db, continuation.run.id);
+                if (latestTask) {
+                  continuation.run.strategyTask = projectStrategyTask(
+                    latestTask,
+                    continuation.run.id,
+                  );
+                }
+                throw error;
+              }
+            },
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          try {
+            design.runs.fail(
+              continuation.run,
+              'OD_NEXT_CONTINUATION_START_FAILED',
+              `The claimed strategy continuation could not start: ${message}`,
+              { retryable: false },
+            );
+          } catch {
             try {
-              return await startChatRun(continuation.chatBody, continuation.run);
-            } catch (error) {
               reconcileStrategyTaskRunTerminal(db, {
                 runId: continuation.run.id,
                 status: 'failed',
               });
-              const latestTask = getStrategyTaskExecutionByRunId(db, continuation.run.id);
-              if (latestTask) {
-                continuation.run.strategyTask = projectStrategyTask(
-                  latestTask,
-                  continuation.run.id,
-                );
-              }
-              throw error;
+            } catch {
+              // Startup reconciliation owns the final fallback for a durable
+              // claimed Run if both local finalizers are unavailable.
             }
-          },
-        );
+            try {
+              design.runs.finish(continuation.run, 'failed', 1, null);
+            } catch {
+              // The claimed Run is durable; startup reconciliation remains the
+              // final fallback if its local terminal store is unavailable.
+            }
+          }
+          try {
+            const latestTask = getStrategyTaskExecutionByRunId(db, continuation.run.id);
+            if (latestTask) {
+              continuation.run.strategyTask = projectStrategyTask(
+                latestTask,
+                continuation.run.id,
+              );
+            }
+          } catch {
+            // The durable task reconciliation above remains authoritative.
+          }
+        }
       }
       } finally {
         // Best-effort cleanup of the per-run agy log file on every close

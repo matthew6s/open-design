@@ -1462,6 +1462,103 @@ describe('run event log persistence', () => {
     });
   });
 
+  it('persists the syntax repair completion-ready intent in durable run state', () => {
+    const runs = createRunsWithLog(tmpDir);
+    const run = runs.create({ projectId: 'p1' }) as {
+      id: string;
+      syntaxRepairCompletionReady?: boolean;
+    };
+    run.syntaxRepairCompletionReady = true;
+    expect(runs.persistState(run)).toBe(true);
+
+    expect(JSON.parse(fs.readFileSync(path.join(tmpDir, run.id, 'state.json'), 'utf8')))
+      .toMatchObject({ syntaxRepairCompletionReady: true });
+  });
+
+  it('reports a durable state write failure to strict lifecycle callers', () => {
+    const runs = createRunsWithLog(tmpDir);
+    const run = runs.create({ projectId: 'p1' }) as {
+      id: string;
+      status: string;
+      syntaxRepairCompletionReady?: boolean;
+    };
+    run.status = 'running';
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('simulated atomic rename failure');
+    });
+
+    expect(runs.persistSyntaxRepairCompletionReady(run)).toBe(false);
+    expect(run.syntaxRepairCompletionReady).toBe(false);
+    // Model the finalizer's next lifecycle write, followed by a crash before
+    // finish(). The failed strict marker must not reappear as a completion-
+    // ready running Run on restart.
+    runs.emit(run, 'error', {
+      error: { code: 'OD_NEXT_SYNTAX_REPAIR_FINALIZATION_FAILED', message: 'failed' },
+    });
+    rename.mockRestore();
+
+    expect(JSON.parse(fs.readFileSync(path.join(tmpDir, run.id, 'state.json'), 'utf8')))
+      .toMatchObject({
+        status: 'running',
+        syntaxRepairCompletionReady: false,
+        errorCode: 'OD_NEXT_SYNTAX_REPAIR_FINALIZATION_FAILED',
+      });
+    const afterRestart = createRunsWithLog(tmpDir);
+    expect(afterRestart.get(run.id)).toMatchObject({
+      status: 'failed',
+      errorCode: 'DAEMON_RESTARTED',
+      syntaxRepairCompletionReady: false,
+    });
+  });
+
+  it('hydrates a restart-recovered syntax repair as succeeded without a synthetic error', () => {
+    const beforeRestart = createRunsWithLog(tmpDir);
+    const run = beforeRestart.create({ projectId: 'p1' });
+    const statePath = path.join(tmpDir, run.id, 'state.json');
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    fs.writeFileSync(statePath, `${JSON.stringify({
+      ...state,
+      status: 'succeeded',
+      updatedAt: state.updatedAt + 1,
+      terminalAt: state.updatedAt + 1,
+      exitCode: 0,
+      syntaxRepairCompletionReady: true,
+      terminalRecoveryReason: 'daemon_restart',
+    })}\n`, 'utf8');
+
+    const afterRestart = createRunsWithLog(tmpDir);
+    const hydrated = afterRestart.get(run.id);
+
+    expect(hydrated).toMatchObject({ status: 'succeeded', errorCode: null });
+    expect(hydrated.events.slice(-1)).toMatchObject([
+      { event: 'end', data: { status: 'succeeded', code: 0 } },
+    ]);
+    expect(hydrated.events.some((event: { event: string }) => event.event === 'error'))
+      .toBe(false);
+  });
+
+  it('defers a completion-ready repair GET to global reconciliation without failing it', () => {
+    const beforeRestart = createRunsWithLog(tmpDir);
+    const run = beforeRestart.create({ projectId: 'p1' });
+    const statePath = path.join(tmpDir, run.id, 'state.json');
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    fs.writeFileSync(statePath, `${JSON.stringify({
+      ...state,
+      status: 'running',
+      syntaxRepairCompletionReady: true,
+    })}\n`, 'utf8');
+
+    const beforeGlobalReconciliation = createRunsWithLog(tmpDir);
+
+    expect(beforeGlobalReconciliation.get(run.id)).toBeNull();
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+      status: 'running',
+      syntaxRepairCompletionReady: true,
+      error: null,
+      errorCode: null,
+    });
+  });
+
   it('retains the cancellation cause when hydrating durable status after restart', async () => {
     const beforeRestart = createRunsWithLog(tmpDir);
     const canceled = beforeRestart.create({ projectId: 'p1' });

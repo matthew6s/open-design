@@ -102,6 +102,16 @@ async function fingerprintFileAsync(
 // path -> fingerprint for every artifact-extension file under the project root.
 export type ArtifactSnapshot = Map<string, ArtifactFingerprint>;
 
+// Snapshot truncation is operational metadata, not part of the path ->
+// fingerprint contract consumed by existing callers. Keep it out-of-band so
+// snapshots remain ordinary Maps while delivery gates can refuse to treat a
+// capped walk as complete coverage.
+const truncatedArtifactSnapshots = new WeakSet<ArtifactSnapshot>();
+
+export function artifactSnapshotWasTruncated(snapshot: ArtifactSnapshot): boolean {
+  return truncatedArtifactSnapshots.has(snapshot);
+}
+
 // Directories that never hold user-facing artifacts; skipped so the walk stays
 // cheap and never wanders into dependencies, VCS, or daemon scratch.
 const IGNORED_DIR_NAMES: ReadonlySet<string> = new Set([
@@ -147,8 +157,12 @@ export function snapshotProjectArtifacts(rootDir: string): ArtifactSnapshot {
   const snapshot: ArtifactSnapshot = new Map();
   let trackedCount = 0;
   let otherCount = 0;
+  let truncated = false;
   const walk = (dir: string): void => {
-    if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) return;
+    if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) {
+      truncated = true;
+      return;
+    }
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -156,13 +170,19 @@ export function snapshotProjectArtifacts(rootDir: string): ArtifactSnapshot {
       return;
     }
     for (const entry of entries) {
-      if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) return;
+      if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) {
+        truncated = true;
+        return;
+      }
       if (entry.isDirectory()) {
         if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith('.')) continue;
         walk(path.join(dir, entry.name));
       } else if (entry.isFile()) {
         const tracked = isTrackedRunFile(entry.name);
-        if (tracked ? trackedCount >= MAX_FILES : otherCount >= MAX_OTHER_FILES) continue;
+        if (tracked ? trackedCount >= MAX_FILES : otherCount >= MAX_OTHER_FILES) {
+          truncated = true;
+          continue;
+        }
         const full = path.join(dir, entry.name);
         try {
           const stat = fs.statSync(full);
@@ -181,6 +201,7 @@ export function snapshotProjectArtifacts(rootDir: string): ArtifactSnapshot {
     }
   };
   walk(rootDir);
+  if (truncated) truncatedArtifactSnapshots.add(snapshot);
   return snapshot;
 }
 
@@ -194,8 +215,12 @@ export async function snapshotProjectArtifactsAsync(rootDir: string): Promise<Ar
   const files: Array<{ full: string; tracked: boolean }> = [];
   let trackedCount = 0;
   let otherCount = 0;
+  let truncated = false;
   const walk = async (dir: string): Promise<void> => {
-    if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) return;
+    if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) {
+      truncated = true;
+      return;
+    }
     let entries: fs.Dirent[];
     try {
       entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -203,13 +228,19 @@ export async function snapshotProjectArtifactsAsync(rootDir: string): Promise<Ar
       return;
     }
     for (const entry of entries) {
-      if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) return;
+      if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) {
+        truncated = true;
+        return;
+      }
       if (entry.isDirectory()) {
         if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith('.')) continue;
         await walk(path.join(dir, entry.name));
       } else if (entry.isFile()) {
         const tracked = isTrackedRunFile(entry.name);
-        if (tracked ? trackedCount >= MAX_FILES : otherCount >= MAX_OTHER_FILES) continue;
+        if (tracked ? trackedCount >= MAX_FILES : otherCount >= MAX_OTHER_FILES) {
+          truncated = true;
+          continue;
+        }
         files.push({ full: path.join(dir, entry.name), tracked });
         if (tracked) trackedCount += 1;
         else otherCount += 1;
@@ -217,6 +248,7 @@ export async function snapshotProjectArtifactsAsync(rootDir: string): Promise<Ar
     }
   };
   await walk(rootDir);
+  if (truncated) truncatedArtifactSnapshots.add(snapshot);
 
   // A small worker pool prevents a 5k-file project from turning the async
   // safety fix into a long serial tail, while still bounding filesystem load.
@@ -285,11 +317,15 @@ export interface RunArtifactDiff {
   contentModified: number;
   contentTouched: number;
   contentTouchedPaths: string[];
+  contentCreatedPaths: string[];
+  contentModifiedPaths: string[];
   // HTML rendering dependencies are not legacy artifacts, but changing them
   // can visibly modify the primary preview and must inform
   // primary_artifact_change.
   renderDependencyTouched: number;
   renderDependencyTouchedPaths: string[];
+  renderDependencyCreatedPaths: string[];
+  renderDependencyModifiedPaths: string[];
   supportingMediaTouched: number;
   // Distinct files of ANY type this run created or modified — markdown briefs,
   // docx exports, JSON data, code, plus everything the counters above already
@@ -320,7 +356,11 @@ export function diffRunArtifacts(
   let supportingMediaTouched = 0;
   let filesWritten = 0;
   const contentTouchedPaths: string[] = [];
+  const contentCreatedPaths: string[] = [];
+  const contentModifiedPaths: string[] = [];
   const renderDependencyTouchedPaths: string[] = [];
+  const renderDependencyCreatedPaths: string[] = [];
+  const renderDependencyModifiedPaths: string[] = [];
   for (const [filePath, fingerprint] of after) {
     const prior = before.get(filePath);
     const isNew = !prior;
@@ -346,8 +386,13 @@ export function diffRunArtifacts(
       else modified += 1;
       touchedPaths.push(filePath);
       if (contentChanged) {
-        if (isNew) contentCreated += 1;
-        else contentModified += 1;
+        if (isNew) {
+          contentCreated += 1;
+          contentCreatedPaths.push(filePath);
+        } else {
+          contentModified += 1;
+          contentModifiedPaths.push(filePath);
+        }
         contentTouchedPaths.push(filePath);
         if (isSupportingMediaPath(classifyPath)) supportingMediaTouched += 1;
       }
@@ -355,6 +400,8 @@ export function diffRunArtifacts(
     if (contentChanged && isRenderDependencyPath(classifyPath)) {
       renderDependencyTouched += 1;
       renderDependencyTouchedPaths.push(filePath);
+      if (isNew) renderDependencyCreatedPaths.push(filePath);
+      else renderDependencyModifiedPaths.push(filePath);
     }
     if (isPreviewModulePath(classifyPath)) previewModuleCount += 1;
     if (isDesignSystemFile(classifyPath)) designSystemCreated = true;
@@ -370,8 +417,12 @@ export function diffRunArtifacts(
     contentModified,
     contentTouched: contentCreated + contentModified,
     contentTouchedPaths,
+    contentCreatedPaths,
+    contentModifiedPaths,
     renderDependencyTouched,
     renderDependencyTouchedPaths,
+    renderDependencyCreatedPaths,
+    renderDependencyModifiedPaths,
     supportingMediaTouched,
     filesWritten,
   };
