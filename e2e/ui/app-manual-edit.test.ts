@@ -313,6 +313,7 @@ test('[P0] @critical preview toolbar keeps share, download, comment, and zoom ac
     .replace(
       '</body>',
       '<img id="offline-image" src="assets/offline.svg">' +
+        '<script src="scripts/support.js"></script>' +
         '<script type="module" src="scripts/main.js"></script></body>',
     );
   await seedHtmlArtifact(page, projectId, 'toolbar-preview.html', entryHtml);
@@ -321,6 +322,12 @@ test('[P0] @critical preview toolbar keeps share, download, comment, and zoom ac
     projectId,
     'styles/offline.css',
     'body{--offline-export-proof:ready;background-image:url("../assets/offline.svg")}',
+  );
+  await seedProjectFile(
+    page,
+    projectId,
+    'scripts/support.js',
+    'document.body.dataset.offlineSupport = "ready";',
   );
   await seedProjectFile(
     page,
@@ -344,6 +351,12 @@ test('[P0] @critical preview toolbar keeps share, download, comment, and zoom ac
   await openDesignFile(page, 'toolbar-preview.html');
 
   await expect(artifactPreview(page)).toBeVisible();
+  const previewFrame = artifactPreviewFrame(page);
+  await expect(previewFrame.locator('body')).toHaveAttribute('data-offline-support', 'ready');
+  await expect(previewFrame.locator('body')).toHaveAttribute('data-offline-motion', 'ready');
+  await expect.poll(() => previewFrame.locator('body').evaluate((body) => (
+    getComputedStyle(body).getPropertyValue('--offline-export-proof').trim()
+  ))).toBe('ready');
   const viewMode = page.getByRole('tablist', { name: 'View mode' });
   await expect(viewMode).toBeVisible();
   await expect(viewMode.getByRole('tab', { name: 'Preview', exact: true })).toHaveAttribute('aria-selected', 'true');
