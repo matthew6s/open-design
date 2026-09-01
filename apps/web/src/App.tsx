@@ -5534,6 +5534,7 @@ function AppInner() {
           message={projectCreateError}
           role="alert"
           tone="error"
+          ttlMs={0}
           onDismiss={() => setProjectCreateError(null)}
         />
       ) : null}
