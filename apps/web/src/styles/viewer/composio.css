@@ -3769,15 +3769,22 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   min-height: 0;
   min-width: 0;
 }
-.chat-jump-btn {
+/* Jump 与 Plan 严格复用同一个底部浮层位。这个宿主是两者唯一的水平定位
+   基准:左右取 composer 同一份对称内缩,子项不再各算一遍 center。 */
+.chat-bottom-float-slot {
   position: absolute;
+  left: var(--chat-composer-inline-inset, 16px);
+  right: var(--chat-composer-inline-inset, 16px);
   bottom: 12px;
-  /* Margin-based centering (instead of `transform: translateX(-50%)`)
-   * so the slide-in / slide-out transition can animate `transform`
-   * without overwriting a centering translate. */
-  left: 0;
-  right: 0;
-  margin: 0 auto;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.chat-bottom-float-slot.has-plan-pill {
+  z-index: 9;
+}
+.chat-jump-btn {
   width: max-content;
   display: inline-flex;
   align-items: center;
@@ -3792,7 +3799,8 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   font-size: 12px;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 6;
+  /* 定位与水平中线由 `.chat-bottom-float-slot` 唯一拥有;按钮只恢复自己的
+   * 命中,这样它和 Plan 不可能因为两套定位公式再次漂开。 */
   /* Default = hidden. The slide tucks below and scales down slightly to
    * read as folding into the composer. Strong ease-out curve
    * (cubic-bezier(0.23, 1, 0.32, 1)) replaces both built-in `ease` and

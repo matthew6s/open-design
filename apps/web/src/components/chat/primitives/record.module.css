@@ -337,7 +337,7 @@
 .tool {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   padding: 7px 11px;
   border: var(--chat-stroke) solid var(--chat-border);
   border-radius: var(--chat-radius);

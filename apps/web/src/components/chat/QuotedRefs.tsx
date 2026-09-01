@@ -4,10 +4,17 @@
  * 一枚芯片装**所有**引用,写着「N 条注释」—— 稿子第 69 格的意义就是证明
  * 「一条和五条一样高」:条数只改数字,不改高度。全文在 hover 的浮层里按序号列出来。
  */
-import type { ReactElement } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { Icon } from '../Icon';
 import { useT } from '../../i18n';
 import type { ChatQuote } from '../../runtime/chat/quote-selection';
+import { quotePopoverMaxHeight } from '../../runtime/chat/quote-popover';
 import { STROKE_ICON } from './primitives/icons';
 import styles from './QuotedRefs.module.css';
 
@@ -18,9 +25,55 @@ export interface QuotedRefsProps {
 
 export function QuotedRefs({ quotes, onClear }: QuotedRefsProps): ReactElement | null {
   const t = useT();
+  const refsRef = useRef<HTMLSpanElement>(null);
+  const [popoverMaxHeight, setPopoverMaxHeight] = useState(0);
+  const syncPopoverHeight = useCallback(() => {
+    const node = refsRef.current;
+    if (!node || typeof window === 'undefined') return;
+
+    const portalBoundary = node.closest<HTMLElement>('[data-chat-panel-top]');
+    const portalTop = Number(portalBoundary?.dataset.chatPanelTop);
+    const pane = node.closest<HTMLElement>('.pane');
+    const panelTop = Number.isFinite(portalTop)
+      ? portalTop
+      : (pane?.getBoundingClientRect().top ?? window.visualViewport?.offsetTop ?? 0);
+    const next = quotePopoverMaxHeight({
+      anchorTop: node.getBoundingClientRect().top,
+      panelTop,
+    });
+    setPopoverMaxHeight((current) => (current === next ? current : next));
+  }, []);
+
+  useLayoutEffect(() => {
+    const node = refsRef.current;
+    if (!node || typeof window === 'undefined') return;
+    syncPopoverHeight();
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(syncPopoverHeight);
+    observer?.observe(node);
+    const pane = node.closest<HTMLElement>('.pane');
+    if (pane) observer?.observe(pane);
+    window.addEventListener('resize', syncPopoverHeight);
+    window.visualViewport?.addEventListener('resize', syncPopoverHeight);
+    window.visualViewport?.addEventListener('scroll', syncPopoverHeight);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncPopoverHeight);
+      window.visualViewport?.removeEventListener('resize', syncPopoverHeight);
+      window.visualViewport?.removeEventListener('scroll', syncPopoverHeight);
+    };
+  }, [quotes.length, syncPopoverHeight]);
+
   if (quotes.length === 0) return null;
   return (
-    <span className={styles.refs} data-testid="chat-quoted-refs">
+    <span
+      ref={refsRef}
+      className={styles.refs}
+      data-testid="chat-quoted-refs"
+      onMouseEnter={syncPopoverHeight}
+    >
       {/* 稿子 `.refs .ic` 是**描边的对话气泡**,不是实心引号。
           原来这里画的是 ❝ —— 用户第一眼就问「注释的样式怎么是这样的??」。
           气泡说的是「这是从对话里摘出来的一段」,引号说的是「这是引文」;
@@ -43,7 +96,12 @@ export function QuotedRefs({ quotes, onClear }: QuotedRefsProps): ReactElement |
         {/* 稿子 `.del svg { width: 10px; height: 10px }` */}
         <Icon name="close" size={10} />
       </button>
-      <span className={styles.pop}>
+      <span
+        className={styles.pop}
+        data-testid="chat-quoted-refs-popover"
+        role="tooltip"
+        style={{ maxHeight: `${popoverMaxHeight}px` }}
+      >
         <ol>
           {quotes.map((q) => (
             <li key={q.id}>

@@ -37,6 +37,10 @@ const CSS = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../../../src/components/chat/PlanPill.module.css'),
   'utf-8',
 ).replace(/\/\*[\s\S]*?\*\//g, '');
+const HOST_CSS = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../../../src/styles/viewer/composio.css'),
+  'utf-8',
+).replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
  * 选择器列表**只按顶层逗号切**。
@@ -68,9 +72,9 @@ function splitTopLevel(list: string, sep = ','): string[] {
  * 同一个选择器可能出现在好几条规则里(共享的那条 + 后面单独收窄的那条),
  * 特异性相同时后写的赢,所以要全收、按顺序接,不能只取第一条。
  */
-function declarationsFor(selector: string): string {
+function declarationsFor(selector: string, source = CSS): string {
   const bodies: string[] = [];
-  for (const [, selectorList, body] of CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const [, selectorList, body] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selectors = splitTopLevel(selectorList ?? '').map((s) => s.replace(/\s+/g, ' '));
     if (selectors.includes(selector)) bodies.push(body ?? '');
   }
@@ -83,19 +87,6 @@ function valueOf(body: string, prop: string): string | null {
   let out: string | null = null;
   for (const [, value] of body.matchAll(new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;]+)`, 'g'))) {
     out = (value ?? '').trim();
-  }
-  return out;
-}
-
-/** `margin` / `margin-inline` 最终吃到的 [左, 右]。四值写法必须分别取,否则「对称」会假过。 */
-function inlineMargin(body: string): [string, string] | null {
-  let out: [string, string] | null = null;
-  for (const [, prop, value] of body.matchAll(/(?:^|[;{\s])(margin|margin-inline):\s*([^;]+)/g)) {
-    const parts = splitTopLevel((value ?? '').trim(), ' ').filter(Boolean);
-    if (prop === 'margin-inline') out = [parts[0]!, parts[1] ?? parts[0]!];
-    else if (parts.length === 1) out = [parts[0]!, parts[0]!];
-    else if (parts.length === 4) out = [parts[3]!, parts[1]!];
-    else out = [parts[1]!, parts[1]!];
   }
   return out;
 }
@@ -179,17 +170,14 @@ function renderPane() {
 describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
   it('药丸浮在滚动区底部,不再作为普通 flex 孩子撑出白带', () => {
     renderPane();
-    const row = screen.getByTestId('chat-plan-pill');
-    expect(row.parentElement?.classList.contains('chat-log-viewport')).toBe(true);
-    expect(row.parentElement?.parentElement?.classList.contains('chat-log-wrap')).toBe(true);
-    // 挂的必须是**那一行**自己的类名。少了这一条,把两层并回一层(外层也写 `.wrap`)
-    // 时整组断言会全部假过 —— 消融验过,那一改法八条一条都不红。
-    expect(row.classList.contains(planStyles.row!)).toBe(true);
-    const body = declarationsFor(`.${local(planStyles.row)}`);
+    const pill = screen.getByTestId('chat-plan-pill');
+    const slot = screen.getByTestId('chat-bottom-float-slot');
+    expect(pill.parentElement).toBe(slot);
+    expect(slot.parentElement?.classList.contains('chat-log-viewport')).toBe(true);
+    expect(slot.parentElement?.parentElement?.classList.contains('chat-log-wrap')).toBe(true);
+    const body = declarationsFor('.chat-bottom-float-slot', HOST_CSS);
     expect(valueOf(body, 'position')).toBe('absolute');
     expect(valueOf(body, 'bottom')).toBe('12px');
-    expect(valueOf(body, 'left')).toBe('0');
-    expect(valueOf(body, 'right')).toBe('0');
     expect(valueOf(body, 'display')).toBe('flex');
     expect(valueOf(body, 'justify-content'), '药丸靠这条落到那一行的正中').toBe('center');
     expect(valueOf(body, 'pointer-events'), '满宽定位层不许挡住消息文字').toBe('none');
@@ -197,10 +185,9 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
   });
 
   it('横向内缩取输入框那一列的同一个 token,而且左右对称', () => {
-    const body = declarationsFor(`.${local(planStyles.row)}`);
-    const margin = inlineMargin(body);
-    expect(margin, '这一行要有横向内缩').not.toBeNull();
-    const [left, right] = margin!;
+    const body = declarationsFor('.chat-bottom-float-slot', HOST_CSS);
+    const left = valueOf(body, 'left');
+    const right = valueOf(body, 'right');
     // 不对称就是把中线整体推走 —— 居中的账在这里就已经算错了。
     expect(left).toBe(right);
     // 取的必须是输入框 / 发送队列那一列同一个 token:换成字面量,
@@ -211,7 +198,8 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
   it('药丸自己不再左对齐 —— 旧的 align-self: flex-start 是这次的病根', () => {
     const body = declarationsFor(`.${local(planStyles.wrap)}`);
     expect(valueOf(body, 'align-self')).toBeNull();
-    expect(inlineMargin(body), '横向内缩归那一行管,药丸自己不再兼这份差').toBeNull();
+    expect(valueOf(body, 'margin'), '横向内缩归宿主管,药丸自己不再兼这份差').toBeNull();
+    expect(valueOf(body, 'position'), '水平定位只许宿主拥有').toBeNull();
   });
 
   it('浮层在同一条中线上开,而不是贴着药丸左边缘', () => {
@@ -226,9 +214,9 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
   });
 
   it('浮层的定位基准是那一行,不是药丸 —— 否则百分比宽度上限没有意义', () => {
-    const row = declarationsFor(`.${local(planStyles.row)}`);
+    const slot = declarationsFor('.chat-bottom-float-slot', HOST_CSS);
     const wrap = declarationsFor(`.${local(planStyles.wrap)}`);
-    expect(valueOf(row, 'position'), '包含块必须是满宽的那一行').toBe('absolute');
+    expect(valueOf(slot, 'position'), '包含块必须是满宽的公共浮层位').toBe('absolute');
     expect(valueOf(wrap, 'position'), '药丸自己不能再当包含块,否则 100% 只有药丸那么宽').toBeNull();
   });
 
@@ -249,8 +237,13 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
   });
 
   it('不是靠写死的位移居中 —— 面板可拖宽拖窄,写死的量当场漂移', () => {
-    for (const selector of [`.${local(planStyles.row)}`, `.${local(planStyles.wrap)}`, `.${local(planStyles.wrap)} .${local(planStyles.pop)}`]) {
-      const body = declarationsFor(selector);
+    const subjects: Array<[string, string]> = [
+      ['.chat-bottom-float-slot', HOST_CSS],
+      [`.${local(planStyles.wrap)}`, CSS],
+      [`.${local(planStyles.wrap)} .${local(planStyles.pop)}`, CSS],
+    ];
+    for (const [selector, source] of subjects) {
+      const body = declarationsFor(selector, source);
       for (const prop of ['left', 'right', 'margin-left', 'margin-right', 'inset-inline-start']) {
         const value = valueOf(body, prop);
         if (value === null) continue;
@@ -261,22 +254,21 @@ describe('Plan 药丸 · 和对话内容 / 输入框同一条中线', () => {
 
   it('居中之后仍然看得见、仍然悬停 / 键盘打得开', () => {
     renderPane();
-    const row = screen.getByTestId('chat-plan-pill');
+    const wrap = screen.getByTestId('chat-plan-pill');
     // 还在,而且还是那句「第 N / M 步」(无 provider 时 i18n 落回 en)
-    expect(row).toHaveTextContent('Step 3 of 5');
+    expect(wrap).toHaveTextContent('Step 3 of 5');
     // 浮层里整张清单还在
     const steps = within(screen.getByTestId('chat-plan-pill-steps')).getAllByRole('listitem');
     expect(steps.map((li) => li.textContent)).toEqual(TODOS.map((t) => t.content));
     // 悬停 / 聚焦的触发面仍然挂在**药丸自己那一层**上,不是满宽的那一行 ——
     // 挂到行上,整条空白都会把浮层勾出来。
-    const wrap = row.firstElementChild as HTMLElement;
     expect(wrap.className).toBe(planStyles.wrap);
     expect(wrap.querySelector('button')).not.toBeNull();
     expect(wrap.contains(screen.getByTestId('chat-plan-pill-steps'))).toBe(true);
     for (const trigger of [`.${local(planStyles.wrap)}:hover .${local(planStyles.pop)}`, `.${local(planStyles.wrap)}:focus-within .${local(planStyles.pop)}`]) {
       expect(valueOf(declarationsFor(trigger), 'opacity')).toBe('1');
     }
-    // 而且那一行本身不许成为触发面
-    expect(CSS).not.toMatch(new RegExp(`\\.${local(planStyles.row)}:hover`));
+    // 而且公共浮层位本身不许成为触发面
+    expect(HOST_CSS).not.toMatch(/\.chat-bottom-float-slot:hover/);
   });
 });

@@ -190,10 +190,14 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
       && (soleQuestion.type === 'checkbox' || soleQuestion.type === 'radio')
       && soleQuestion.options,
     );
-  /** 多选题勾了几条 —— 稿子把它摆在卡头右侧(`.h .n`) */
+  /** 多选题勾了几行 —— 稿子把它摆在卡头右侧(`.h .n`) */
   const pickedCount = questionsToRender.reduce((sum, q) => {
-    const v = currentAnswers[q.id];
-    return sum + (q.type === 'checkbox' && Array.isArray(v) ? v.length : 0);
+    return sum + pickedCheckboxChoiceCount(
+      q,
+      currentAnswers[q.id],
+      visualStyleContext,
+      otherOpen.has(q.id),
+    );
   }, 0);
 
   useEffect(() => {
@@ -2048,6 +2052,40 @@ function questionValueIsKnown(q: QuestionForm['questions'][number], value: strin
   if (q.options?.some((option) => option.value === value || option.label === value)) return true;
   if (q.cards?.some((card) => card.id === value || card.label === value)) return true;
   return false;
+}
+
+/**
+ * 卡头数字数的是画面里勾中的选项行，不是提交协议里的数组项。
+ *
+ * 「自己填」无论暂时为空，还是被逗号拆成多条提交值，界面上都只有一行；恢复旧会话时
+ * 重复/别名值也不能把同一行重复计算。视觉目录的稳定 card id 不在模型原始 options 里，
+ * 但仍是普通的固定选项，必须逐张计数。
+ */
+function pickedCheckboxChoiceCount(
+  q: QuestionForm['questions'][number],
+  value: string | string[] | undefined,
+  visualStyleContext: VisualStyleContext | undefined,
+  ownChoiceOpen: boolean,
+): number {
+  if (q.type !== 'checkbox' || !Array.isArray(value)) return 0;
+
+  const catalogValues = visualStyleContext && questionUsesVisualStyleCatalog(q)
+    ? new Set(visualStyleCardsForContext(visualStyleContext).map((card) => card.value))
+    : null;
+  const fixedValues = new Set<string>();
+  let hasCustomValue = false;
+
+  for (const entry of value) {
+    const normalized = entry.trim();
+    if (!normalized) continue;
+    const fixed = catalogValues
+      ? catalogValues.has(normalized)
+      : questionValueIsKnown(q, normalized);
+    if (fixed) fixedValues.add(normalized);
+    else hasCustomValue = true;
+  }
+
+  return fixedValues.size + (ownChoiceOpen || hasCustomValue ? 1 : 0);
 }
 
 function customSingleValue(

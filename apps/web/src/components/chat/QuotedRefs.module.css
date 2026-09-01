@@ -97,6 +97,11 @@
   z-index: 7;
   width: max-content;
   max-width: 300px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 9px 11px;
   border-radius: var(--chat-radius);
   background: var(--chat-overlay-glass);
@@ -113,15 +118,19 @@
 }
 .refs:hover .pop {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* 稿子 `.refs .pop ol { list-style: none; counter-reset: r }` + `li::before { counter(r) "." }`
    —— 序号是 counter 画的,不是文本,所以「1.」永远跟着条数走 */
 .pop ol {
+  min-height: 0;
   margin: 0;
   padding: 0;
   list-style: none;
   counter-reset: r;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .pop li {
   display: flex;

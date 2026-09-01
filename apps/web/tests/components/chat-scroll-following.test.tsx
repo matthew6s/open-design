@@ -250,14 +250,22 @@ function jumpBtnShown(): boolean {
   return screen.getByTestId('chat-jump-btn').getAttribute('aria-hidden') === 'false';
 }
 
+function bottomFloatSlot(): HTMLElement {
+  return screen.getByTestId('chat-bottom-float-slot');
+}
+
 function chatPaneEl(
   messages: ChatMessage[],
-  overrides: { streaming?: boolean } = {},
+  overrides: {
+    streaming?: boolean;
+    queuedItems?: Array<{ id: string; prompt: string }>;
+  } = {},
 ) {
   return (
     <ChatPane
       messages={messages}
       streaming={overrides.streaming ?? false}
+      queuedItems={overrides.queuedItems}
       error={null}
       projectId="project-1"
       projectFiles={[]}
@@ -473,6 +481,59 @@ describe('流式输出时的滚动跟随(用户 2026-08-27)', () => {
     expect(geom.scrollTop).toBe(maxScrollTop() - 30);
   });
 
+  it('运行中刚加入发送队列时,第一次手动上滚必须立即挣脱,后续队列 / Plan resize 不得抢回', async () => {
+    /*
+     * OPEND-2532 的时序不是普通的「流式时上滚」:
+     *
+     *   1. 原本贴底,run 仍在 streaming;
+     *   2. 「添加到对话」让 QueuedSendStrip 在 chat-log 外面 mount,viewport 当场变矮;
+     *   3. ResizeObserver 要到下一帧才刷新几何基线,用户已经在这一帧先滚了。
+     *
+     * 如果 scroll 事件仍拿 queue 出现前的 clientHeight 当 previous sample,
+     * `nextFollowIntent` 会把这次上滚误判成布局变化、保留 following=true,
+     * 同一条 onScroll 随即把 scrollTop 写回底部 —— 手感就是「完全滚不动」。
+     */
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    const messages = longConversation('chunk');
+    const { rerender } = render(chatPaneEl(messages, { streaming: true }));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4600);
+
+    // Queue mount 让可用高度少 80px。刻意不触发 / 不 flush ResizeObserver:
+    // 用户可以在观察者下一帧之前立刻碰滚轮或拖滚动条。
+    geom.clientHeight = 320;
+    await act(async () => {
+      rerender(chatPaneEl(messages, {
+        streaming: true,
+        queuedItems: [{ id: 'queued-1', prompt: '把这条添加到对话' }],
+      }));
+    });
+
+    await userScrollTo(4560);
+    expect(geom.scrollTop).toBe(4560);
+
+    // 随后 queue 的实际 ResizeObserver 到达,同时 TodoWrite 让 Plan 浮层出现、
+    // 流水本身也继续长高。三种布局变化都只能更新几何 / 浮标,不能改回跟随意图。
+    geom.contentHeight += 120;
+    await act(async () => {
+      rerender(chatPaneEl(longConversationWithTodo('chunk more'), {
+        streaming: true,
+        queuedItems: [{ id: 'queued-1', prompt: '把这条添加到对话' }],
+      }));
+    });
+    geom.clientHeight = 280;
+    await triggerResize();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(4560);
+
+    // 只有用户自己真的滚到底,才重新挂上 follow。
+    await userScrollTo(maxScrollTop());
+    geom.contentHeight += 120;
+    await triggerResize();
+    await flushFrames();
+    expect(geom.scrollTop).toBe(maxScrollTop());
+  });
+
   it.each(['client-height-growth', 'content-height-shrink'] as const)(
     '距底 30px 后的 %s 只改变布局,不得恢复流式跟随',
     async (layoutChange) => {
@@ -522,9 +583,11 @@ describe('「回到最新」什么时候该在(用户 2026-08-27:「总是在不
     await flushFrames();
     await userScrollTo(1000);
 
+    const slot = bottomFloatSlot();
     expect(screen.getByTestId('chat-plan-pill')).toBeTruthy();
+    expect(screen.queryByTestId('chat-jump-btn')).toBeNull();
+    expect(slot.children).toHaveLength(1);
     expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(true);
-    expect(jumpBtnShown()).toBe(false);
 
     const finishedMessages = longConversationWithTodo('chunk').map((message) =>
       message.id === 'streaming' ? { ...message, runStatus: 'succeeded' as const } : message,
@@ -535,6 +598,8 @@ describe('「回到最新」什么时候该在(用户 2026-08-27:「总是在不
 
     expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
     expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(false);
+    expect(screen.getByTestId('chat-jump-btn').parentElement).toBe(slot);
+    expect(slot.children).toHaveLength(1);
     expect(jumpBtnShown()).toBe(true);
   });
 

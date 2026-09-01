@@ -253,6 +253,26 @@ describe('中断的一轮 · 状态词', () => {
   it('文案落在 `assistant.canceledLabel` 上,逐字与稿子相同', () => {
     expect(zhCN['assistant.canceledLabel']).toBe('已手动停止');
   });
+
+  it('旧会话同时带 no_result 时仍按手动停止处理,不回退成红色运行失败', () => {
+    const { container } = renderTurn(turn({
+      runStatus: 'canceled',
+      resultDeliveryState: 'no_result',
+      events: [
+        { kind: 'tool_use', id: 'read-before-stop', name: 'Bash', input: { command: 'ls' } },
+        {
+          kind: 'tool_result',
+          toolUseId: 'read-before-stop',
+          content: 'partial output',
+          isError: false,
+        },
+      ],
+    }));
+
+    expect(container.textContent).toContain(en['assistant.canceledLabel']);
+    expect(container.textContent).toContain(en['chat.record.running']);
+    expect(container.textContent).not.toContain(en['chat.record.failedTurn']);
+  });
 });
 
 describe('中断的一轮 · 只留 复制 / Fork', () => {

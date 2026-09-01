@@ -10,32 +10,8 @@
  * 「真实场景里药丸钉在流水底部,上方本来就是空的,不需要这一层。」
  */
 
-/* 药丸那一行 —— 稿子里没有这一层,它是**接产品这一侧宿主**用的。
-   ------------------------------------------------------------
-   产品 2026-08-27 的原话:「把这个 todo 放到左右居中,第 N/M 步和上面的 hover 卡片,
-   都和对话内容、下面输入框中心对齐」。
-
-   这一行绝对定位在 `.chat-log-viewport` 底部,左右同时贴边后再用
-   `--chat-composer-inline-inset` 对称内缩,`justify-content: center` 因此与输入框共用中线。
-   关键是它**不进普通文档流**:Plan 出没不再压缩 `.chat-log` 的 clientHeight,
-   也就不会在消息与输入框之间撑出整条白带。
-
-   满宽的 `.row` 同时是清单 popover 的包含块,让 `max-width: 100%` 按 viewport 宽度收;
-   它自己 `pointer-events: none`,只让真药丸 `.wrap` 恢复交互,透明区不挡消息。 */
-.row {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 12px;
-  z-index: 9;
-  display: flex;
-  justify-content: center;
-  margin: 0 var(--chat-composer-inline-inset, 12px);
-  pointer-events: none;
-}
-
 /* 稿子 `.pmini { position: relative; display: inline-flex }`。
-   定位包含块由上面满宽的 `.row` 承担,不在这儿。
+   定位包含块由 ChatPane 那个满宽的底部浮层位承担,不在这儿。
    这一层仍旧是**悬停 / 聚焦的触发面**:它裹住药丸本身,不铺满整行 ——
    铺满的话整条空白扫过去都会把浮层勾出来。 */
 .wrap {

@@ -17,10 +17,9 @@ export interface ChatQuote {
 /**
  * 浮条摆在选区上方还是下方。
  *
- * 稿子第 23-2 格:「选区贴着面板顶边 · 浮条翻到下方」。
- * 判据是**上方放不下就翻**,不是「离顶多少像素」这种拍脑袋的阈值 ——
- * 浮条自己的高度 + 和选区之间那 7px 缝(稿子 `.selbar { bottom: calc(100% + 7px) }`)
- * 就是它需要的空间。
+ * 默认跟在选区下方；只有下方被 composer 挤住时才翻到上方。
+ * 判据是**下方放不下就翻**,不是「离底多少像素」这种拍脑袋的阈值 ——
+ * 浮条自己的高度 + 和选区之间那 7px 缝就是它需要的空间。
  */
 export function quoteBarPlacement(input: {
   /** 选区矩形的上边(视口坐标) */
@@ -40,11 +39,11 @@ export function quoteBarPlacement(input: {
   const gap = input.gap ?? 7;
   const needed = bar + gap;
   const availableAbove = input.selectionTop - input.panelTop;
-  if (availableAbove >= needed) return 'above';
   if (input.panelBottom == null || input.selectionBottom == null) return 'below';
   const availableBelow = input.panelBottom - input.selectionBottom;
   if (availableBelow >= needed) return 'below';
-  return availableAbove >= availableBelow ? 'above' : 'below';
+  if (availableAbove >= needed) return 'above';
+  return availableBelow >= availableAbove ? 'below' : 'above';
 }
 
 export function quoteBarPosition(input: {

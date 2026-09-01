@@ -2852,7 +2852,7 @@ describe('ProjectView conversation run isolation', () => {
     );
   });
 
-  it('auto-starts queued sends one at a time after the active run completes', async () => {
+  it('auto-starts queued sends one at a time in the same event flush after the active run becomes terminal', async () => {
     let finishReattach: (() => void) | null = null;
     let reattachHandlers: { onDone: () => void } | null = null;
     const daemonRuns: Array<{
@@ -2908,12 +2908,19 @@ describe('ProjectView conversation run isolation', () => {
     });
     expect(streamViaDaemon).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      daemonRuns[0]?.onRunStatus?.('succeeded');
-      daemonRuns[0]?.handlers.onDone('first done');
-    });
-
-    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+    // Terminal status is the drain signal. Freeze timers before delivering it:
+    // the next send must begin from this React update/effect cycle, without a
+    // polling interval or a delayed retry (the reported regression was ~20s).
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        daemonRuns[0]?.onRunStatus?.('succeeded');
+        daemonRuns[0]?.handlers.onDone('first done');
+      });
+      expect(streamViaDaemon).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(streamViaDaemon.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
         history: expect.arrayContaining([

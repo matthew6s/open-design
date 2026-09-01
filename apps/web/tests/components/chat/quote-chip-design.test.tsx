@@ -14,7 +14,7 @@
  *      我们的是**没底没边的深色裸叉**。两边的 `.refs .del` 声明看着一样,
  *      差别整个来自那条**没被搬过来的基类** —— 只 diff module 文本永远照不出来。
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -99,6 +99,41 @@ describe('引用芯片 · 一条和五条一样高(第 69 格的意义)', () => 
     expect(pop?.className).toContain('pop');
     expect(ruleFor('.pop')).toContain('position: absolute');
     expect(list?.children).toHaveLength(5);
+  });
+});
+
+describe('Notes 浮层 · 按 ChatPanel 可用高度收口', () => {
+  it('portal 后仍使用面板顶边，窄高窗口会同步缩短浮层', () => {
+    render(
+      <div data-chat-panel-top="52">
+        <I18nProvider initial="zh-CN">
+          <QuotedRefs quotes={quotes(6)} onClear={() => undefined} />
+        </I18nProvider>
+      </div>,
+    );
+    const chip = screen.getByTestId('chat-quoted-refs');
+    let anchorTop = 260;
+    Object.defineProperty(chip, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: anchorTop } as DOMRect),
+    });
+
+    fireEvent.mouseEnter(chip);
+    const popover = screen.getByTestId('chat-quoted-refs-popover');
+    expect(popover.style.maxHeight).toBe('189px');
+    expect(popover.getAttribute('role')).toBe('tooltip');
+    expect(popover.querySelector('ol')?.children).toHaveLength(6);
+
+    anchorTop = 160;
+    fireEvent(window, new Event('resize'));
+    expect(popover.style.maxHeight).toBe('89px');
+  });
+
+  it('只在浮层可见时接管指针，列表才能实际滚动且不会留下隐形遮挡', () => {
+    expect(ruleFor('.pop')).toMatch(/pointer-events:\s*none/);
+    expect(ruleFor('.refs:hover .pop')).toMatch(/pointer-events:\s*auto/);
+    expect(ruleFor('.pop ol')).toMatch(/overflow-y:\s*auto/);
+    expect(ruleFor('.pop ol')).toMatch(/overscroll-behavior:\s*contain/);
   });
 });
 

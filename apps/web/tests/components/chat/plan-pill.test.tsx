@@ -153,8 +153,10 @@ describe('Plan 药丸 · 收起态(第 71 格)', () => {
     // queue 仍在普通布局中缩短 viewport;Plan 只在 viewport 内浮动,
     // 自己 mount / unmount 不得改变 chat-log 的 clientHeight。
     expect(pill.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const viewport = pill.parentElement;
+    const slot = pill.parentElement;
+    const viewport = slot?.parentElement;
     const wrap = viewport?.parentElement;
+    expect(slot?.getAttribute('data-testid')).toBe('chat-bottom-float-slot');
     expect(viewport?.classList.contains('chat-log-viewport')).toBe(true);
     expect(wrap?.classList.contains('chat-log-wrap')).toBe(true);
     expect(wrap?.parentElement).toBe(strip.parentElement);

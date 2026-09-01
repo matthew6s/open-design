@@ -38,41 +38,36 @@ export function PlanPill({ todos, running }: PlanPillProps): ReactElement | null
   if (!state) return null;
 
   return (
-    /* 两层是**两件事**,不能并成一层:
-       外层 `.row` 绝对铺满 `.chat-log-viewport` 并把药丸摆到正中
-       (和输入框同一条中线),同时当浮层的包含块 ——
-       浮层的宽度上限要按「这一列有多宽」来收;
-       内层 `.wrap` 只裹住药丸本身,它是悬停 / 聚焦的触发面 ——
-       并成一层就等于让整条空白都能把浮层勾出来。 */
     <div
-      className={styles.row}
+      /* 水平中线、bottom 与 popover 的定位包含块统一由 ChatPane 的
+         `chat-bottom-float-slot` 管。这里仍只裹住真药丸,所以透明区域不会
+         触发悬停,也不会挡住下面的消息。 */
+      className={styles.wrap}
       data-testid="chat-plan-pill"
     >
-      <div className={styles.wrap}>
-        <div className={styles.pop}>
-          <ol className={styles.steps} data-testid="chat-plan-pill-steps">
-            {state.steps.map((step, index) => (
-              <li
-                key={`${step.content}-${index}`}
-                className={step.current ? styles.now : step.struck ? styles.done : undefined}
-              >
-                <StatusMark status={step.mark} />
-                <span className={styles.tx}>
-                  {/* 划线走执行记录那枚 `.struck`,不在本 Module 里另画一条 ——
-                      线只跟着文字走,所以挂在内层而不是整栏上 */}
-                  <span className={step.struck ? record.struck : undefined}>{step.content}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-        {/* 稿子就是一颗 `<button type="button">` + `cursor: default`:它不是可点的动作,
-            但保留按钮语义让键盘走得到 —— 走到时 `:focus-within` 把浮层浮出来 */}
-        <button className={styles.pill} type="button">
-          <Orb state="solving" label={t('chat.record.running')} className={record.orb} />
-          {t('chat.record.planStep', { current: state.current, total: state.total })}
-        </button>
+      <div className={styles.pop}>
+        <ol className={styles.steps} data-testid="chat-plan-pill-steps">
+          {state.steps.map((step, index) => (
+            <li
+              key={`${step.content}-${index}`}
+              className={step.current ? styles.now : step.struck ? styles.done : undefined}
+            >
+              <StatusMark status={step.mark} />
+              <span className={styles.tx}>
+                {/* 划线走执行记录那枚 `.struck`,不在本 Module 里另画一条 ——
+                    线只跟着文字走,所以挂在内层而不是整栏上 */}
+                <span className={step.struck ? record.struck : undefined}>{step.content}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
+      {/* 稿子就是一颗 `<button type="button">` + `cursor: default`:它不是可点的动作,
+          但保留按钮语义让键盘走得到 —— 走到时 `:focus-within` 把浮层浮出来 */}
+      <button className={styles.pill} type="button">
+        <Orb state="solving" label={t('chat.record.running')} className={record.orb} />
+        {t('chat.record.planStep', { current: state.current, total: state.total })}
+      </button>
     </div>
   );
 }

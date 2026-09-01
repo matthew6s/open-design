@@ -15,7 +15,7 @@
 ### A. 立即修复
 
 - [x] 滚动 intent：用户下滚但未真正到底时继续保持 `escaped`，布局收缩不得重新挂回自动跟随；已补 `clientHeight↑`、`scrollHeight↓` 和两阶段收缩红测。
-- [x] PlanPill：已确认当前 HEAD 使用聊天 viewport 内真悬浮层，不参与 chat-log 高度；jump 出现时上移，Queue / Composer / tray 保持 viewport 外布局。
+- [x] PlanPill：已确认当前 HEAD 使用聊天 viewport 内真悬浮层，不参与 chat-log 高度；胶囊保持设计稿规定的底部位置，出现时只增加 chat-log 末尾安全留白，Queue / Composer / tray 保持 viewport 外布局。
 - [x] Question Form：Next / Back / 非末步 Skip / “自己填”高度变化已加入 DOM element anchor，恢复 footer / own-row 的 viewport offset。
 - [x] 长历史虚拟列表：大于 80 条时已用 first-visible key + offset 补偿估算高度到实测高度的变化，会话切换会废弃旧锚点。
 

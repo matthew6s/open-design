@@ -691,13 +691,20 @@ function AssistantMessageImpl({
    *
    * 还有一条只对没有 runStatus 的历史消息生效,见 `legacyTurnFailed`。
    */
-  const turnRunStatus = streaming
-    ? 'running'
-    : message.resultDeliveryState === 'no_result' ||
-        message.resultDeliveryState === 'delivery_failed' ||
-        (!message.runStatus && legacyTurnFailed(displayEvents, message.endedAt))
-      ? 'failed'
-      : (message.runStatus ?? 'succeeded');
+  let turnRunStatus: NonNullable<ChatMessage['runStatus']>;
+  if (streaming) {
+    turnRunStatus = 'running';
+  } else if (message.runStatus === 'canceled') {
+    turnRunStatus = 'canceled';
+  } else if (
+    message.resultDeliveryState === 'no_result' ||
+    message.resultDeliveryState === 'delivery_failed' ||
+    (!message.runStatus && legacyTurnFailed(displayEvents, message.endedAt))
+  ) {
+    turnRunStatus = 'failed';
+  } else {
+    turnRunStatus = message.runStatus ?? 'succeeded';
+  }
   /**
    * 这一轮的执行记录(规格 `chat-panel-next.md`)。
    *
@@ -790,10 +797,10 @@ function AssistantMessageImpl({
    * 好几枚(`open` 早发、`show` 晚发),所以**按字段**取最后一个,而不是按事件
    * 整条覆盖 —— 否则晚到的 `show` 会把早到的 `open` 抹掉。
    *
-   * 没有这个事件时 `show` 是 undefined,两处消费点对此的回答**故意不一样**:
-   * 交付清单(`displayedProduced`,喂 Share / Download / 下一步锚点)退化成恒等,
-   * 对话里的产物卡(`declaredArtifactFiles`)则一张都不出。后者是产品拍的板 ——
-   * 「一张都不显示那就不显示呗」—— 也意味着旧会话不再列产物卡。
+   * 没有这个事件时 `show` 是 undefined。交付清单(`displayedProduced`,喂 Share /
+   * Download / 下一步锚点)退化成恒等;产物卡只保留 daemon 已经归属给本轮的
+   * `producedFiles`,不会把正文猜测或裸工具行兜底成卡。这样旧会话 / 漏发协议标记
+   * 的模型不会把权威产物丢掉,又不会让「正文提到一个旧文件」重新冒出产物卡。
    */
   const artifactFocus = useMemo(() => {
     const selections: { open?: string; show?: string[] }[] = [];
@@ -859,19 +866,21 @@ function AssistantMessageImpl({
     [artifactFocus.show, blocks, fileOps, message, produced, projectFiles, projectId, streaming],
   );
   /**
-   * 这一轮**对话里列出来**的产物 —— 只有 agent 声明过的那些。
+   * 这一轮**对话里列出来**的产物。
    *
    * 产品拍的板(逐字):「一张都不显示那就不显示呗, 如果有重要的新创建的没给用户
    * 展示那是问题, 但如果没什么重要的或者要让用户看的, 那就不展示呗没啥问题吧?」
    *
-   * 所以这里**不是** `displayedProduced` 的别名:后者是「这一轮交付了什么」,
-   * 喂 Share / Download / 下一步锚点和插件目录扫描 —— 那几处在没声明时必须
-   * 保住推断清单,否则按钮没有目标。这里是「对话列出什么」,没声明就一个不列。
-   * 两个答案在「没声明」这一格上必然不同,所以它们是两个值。
-   */
+   * 有 `show` 时按 agent 声明收窄 `displayedProduced`;没有时只接受 daemon 的
+   * `producedFiles`。关键是后半条不能写成 `displayedProduced` 的无条件 fallback:
+   * 它还混着正文链接 / mtime 推断,曾把上一轮旧文件误认成本轮产物。OPEND-2515
+   * 的反例正相反:daemon 已经给出权威产物,却因为模型没发 `show` 在这里被清空。
+  */
   const declaredArtifactFiles = useMemo(
-    () => [...declaredArtifactCards(displayedProduced, artifactFocus.show)],
-    [artifactFocus.show, displayedProduced],
+    () => artifactFocus.show
+      ? [...declaredArtifactCards(displayedProduced, artifactFocus.show)]
+      : [...produced],
+    [artifactFocus.show, displayedProduced, produced],
   );
   const turnFileOps = useMemo(
     () => mergeProducedFilesIntoFileOps(fileOps, displayedProduced),
@@ -892,7 +901,9 @@ function AssistantMessageImpl({
   const summaryArtifactOps = useMemo(
     () => summaryArtifactOpsForProducedFiles(
       fileOps,
-      [...declaredArtifactCards(produced, artifactFocus.show)],
+      artifactFocus.show
+        ? [...declaredArtifactCards(produced, artifactFocus.show)]
+        : produced,
       artifactFocus.show,
     ),
     [artifactFocus.show, fileOps, produced],
@@ -912,10 +923,10 @@ function AssistantMessageImpl({
    */
   const turnArtifactPanelEntries = useMemo(() => {
     /*
-     * 卡片是**声明**出来的,不是推断出来的。这里没有第四道「有没有声明」的闸 ——
-     * 两条支各自已经按声明收过一次(`summaryArtifactOps` / `declaredArtifactFiles`),
-     * 再加一道闸会是一条**永远红不了**的分支:没声明时两条支本来就都是空的。
-     * 一条规则,一处实现,一次 ablation。
+     * 两条支各自已经在消费点做过同一套边界处理
+     * (`summaryArtifactOps` / `declaredArtifactFiles`):有 `show` 就按声明收窄,
+     * 没有 `show` 就只保留 daemon 权威归属的 `producedFiles`。所以这里不能再回到
+     * raw fileOps / `displayedProduced` —— 后两者还混着裸工具行与正文 / mtime 推断。
      */
     if (summaryArtifactOps.length > 0) return summaryArtifactOps;
     if (streaming) return [];

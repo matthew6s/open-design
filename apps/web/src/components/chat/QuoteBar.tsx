@@ -1,8 +1,8 @@
 /**
  * 选区浮条(设计稿组件 23 · 第 65 / 66 格)。
  *
- * 在助手正文里选中一段话,这条浮条浮在选区**上方、水平居中**;
- * 选区贴着面板顶边时翻到下方(判据在 `runtime/chat/quote-selection.ts`,能脱离 DOM 测)。
+ * 在助手正文里选中一段话,这条浮条浮在选区**下方、水平居中**;
+ * 下方被 composer 挤住时翻到上方(判据在 `runtime/chat/quote-selection.ts`,能脱离 DOM 测)。
  *
  * 为什么用 `position: fixed` 而不是稿子的 `absolute`:稿子把浮条画在
  * `<mark class="sel">` 里面 —— 那是静态稿唯一能摆的方式。真实的选区是 DOM Range,

@@ -474,6 +474,64 @@ describe('QuestionFormView', () => {
     });
   });
 
+  it('counts the visible own-answer row once while it opens, clears, and closes', () => {
+    render(
+      <QuestionFormView form={checkboxObjectForm} interactive onSubmit={vi.fn()} />,
+    );
+
+    expect(screen.queryByText('0 picked')).toBeNull();
+
+    fireEvent.click(chip('Editorial / magazine'));
+    expect(screen.getByText('1 picked')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Write your own' }));
+    expect(screen.getByText('2 picked')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('qf-input'), {
+      target: { value: 'Neo-museum, Field notebook' },
+    });
+    expect(screen.getByText('2 picked')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('qf-input'), { target: { value: '' } });
+    expect(screen.getByText('2 picked')).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText('Write your own'));
+    expect(screen.queryByTestId('qf-input')).toBeNull();
+    expect(screen.getByText('1 picked')).toBeTruthy();
+  });
+
+  it('restores one picked own-answer row from a checkbox draft', () => {
+    render(
+      <QuestionFormView
+        form={checkboxObjectForm}
+        interactive
+        draftAnswers={{ tone: ['editorial', 'Neo-museum', 'Field notebook'] }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect((screen.getByTestId('qf-input') as HTMLTextAreaElement).value).toBe(
+      'Neo-museum, Field notebook',
+    );
+  });
+
+  it('replays one picked own-answer row from submitted checkbox history', () => {
+    render(
+      <QuestionFormView
+        form={checkboxObjectForm}
+        interactive
+        submittedAnswers={{ tone: ['editorial', 'Neo-museum', 'Field notebook'] }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect((screen.getByTestId('qf-input') as HTMLTextAreaElement).value).toBe(
+      'Neo-museum, Field notebook',
+    );
+  });
+
   it('can hide custom choice input for exact machine-id pickers', () => {
     const exactForm = {
       ...selectObjectForm,
@@ -1051,6 +1109,7 @@ describe('QuestionFormView', () => {
 
     fireEvent.click(card('Editorial narrative'));
     fireEvent.click(card('Bold storytelling'));
+    expect(screen.getByText('2 picked')).toBeTruthy();
     expect((card('Product keynote') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
@@ -1106,6 +1165,24 @@ describe('QuestionFormView', () => {
 
     expect(card('Editorial narrative').getAttribute('aria-checked')).toBe('true');
     expect(card('Premium pitch').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('2 picked')).toBeTruthy();
+  });
+
+  it('replays visual catalog and custom history as two picked rows', () => {
+    render(
+      <QuestionFormView
+        form={checkboxObjectForm}
+        interactive
+        submittedAnswers={{
+          tone: ['deck-editorial-narrative', 'Warm Japanese editorial', 'Cinematic grain'],
+        }}
+        visualStyleContext="deck"
+      />,
+    );
+
+    expect(card('Editorial narrative').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('Warm Japanese editorial')).toBeTruthy();
+    expect(screen.getByText('2 picked')).toBeTruthy();
   });
 
   it('summarizes a submitted catalog-backed direction card with its title and preview', () => {

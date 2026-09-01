@@ -10,9 +10,10 @@
  *   「一张都不显示那就不显示呗, 如果有重要的新创建的没给用户展示那是问题,
  *     但如果没什么重要的或者要让用户看的, 那就不展示呗没啥问题吧?」
  *
- * 后一句推翻了本文件最初钉的那条「不发标记 = 按现在规则展示」:**产物卡片是
- * 声明出来的,不是推断出来的**。没声明就一张不出 —— 文件仍然在右侧文件列表里
- * 拿得到,只是对话不再替它列一遍。
+ * `show` 负责把一组权威产物收窄成主要交付物。没有 `show` 时不能把 daemon 已经
+ * 归属到本轮的 `producedFiles` 清空:模型没发协议标记、旧会话还没有这个协议时,
+ * 那份权威清单仍是 UI 能拿到的最强证据。只有正文猜测 / 工具写入、没有权威归属
+ * 的文件仍然不兜底成卡。
  *
  * 结果面板有**两条互斥的渲染路**,两条都得收窄,否则会出现「卡片精简了、
  * 汇总行还写着 6 个文件」这种自相矛盾:
@@ -187,8 +188,13 @@ describe('agent 声明的 show,决定这一轮出哪些卡', () => {
    * 反面 / 正面成对出现。少了「不发标记」那一条,把实现改成「永远只出第一张卡」
    * 也能让下面几条全绿。
    */
-  it('不发标记 —— 一张卡都不出', () => {
+  it('不发标记 —— 保留 daemon 归属到本轮的权威产物', () => {
     renderTurn(turn());
+    expect(resultPanelNames()).toEqual(ALL_PRODUCED.map((file) => file.name).sort());
+  });
+
+  it('没有 daemon 产物归属 —— 不把裸工具写入无条件兜底成卡', () => {
+    renderTurn(turn({ producedFiles: [] }));
     expect(resultPanelNames()).toEqual([]);
   });
 
@@ -240,11 +246,8 @@ describe('agent 声明的 show,决定这一轮出哪些卡', () => {
     expect(resultPanelNames()).toEqual(['index.html']);
   });
 
-  /*
-   * `open` 管预览、`show` 管卡片,两件事各自独立 —— 只发 `open` 不等于顺带
-   * 声明了卡片。
-   */
-  it('只声明 open、没声明 show —— 一张卡都不出', () => {
+  /* `open` 只负责预览目标;它不能把 daemon 的权威清单当作不存在。 */
+  it('只声明 open、没声明 show —— 仍保留权威产物', () => {
     renderTurn(
       turn({
         events: [
@@ -253,7 +256,7 @@ describe('agent 声明的 show,决定这一轮出哪些卡', () => {
         ],
       }),
     );
-    expect(resultPanelNames()).toEqual([]);
+    expect(resultPanelNames()).toEqual(ALL_PRODUCED.map((file) => file.name).sort());
   });
 });
 
@@ -264,12 +267,10 @@ describe('另一条渲染路:没有写 / 改工具记录时的产物卡', () => 
     { kind: 'text', text: '已完成。' },
   ] as ChatMessage['events'];
 
-  it('不发标记 —— 一张卡都不出,面板整块不渲染', () => {
+  it('不发标记 —— 没有工具记录也保留 daemon 的权威产物', () => {
     renderTurn(turn({ events: noToolEvents }));
-    expect(document.querySelectorAll('[data-artifact-card]').length).toBe(0);
-    /* 卡片清单空了,`FileOpsSummary` 就没有内容可渲染,整块跟着消失 ——
-       钉住这一条,免得留下一个空标题栏。 */
-    expect(document.querySelector('[data-testid="file-ops-summary"]')).toBeNull();
+    expect(resultPanelNames()).toEqual(ALL_PRODUCED.map((file) => file.name).sort());
+    expect(document.querySelector('[data-testid="file-ops-summary"]')).toBeTruthy();
   });
 
   it('声明只显示那个 html —— 只出一张卡,而且就是它', () => {

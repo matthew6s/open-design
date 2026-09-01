@@ -1585,6 +1585,7 @@ export function ChatPane({
     left: number;
     width: number;
     bottom: number;
+    top: number;
   } | null>(null);
   const [composerSlotHeight, setComposerSlotHeight] = useState(0);
   const [editingQueuedSendId, setEditingQueuedSendId] = useState<string | null>(null);
@@ -2175,6 +2176,22 @@ export function ChatPane({
     if (queuedItems.some((item) => item.id === editingQueuedSendId)) return;
     setEditingQueuedSendId(null);
   }, [editingQueuedSendId, queuedItems]);
+
+  /*
+   * QueuedSendStrip 在 chat-log 外面,但 mount / unmount / 编辑态会立刻改变
+   * chat-log 的 clientHeight。ResizeObserver 要到下一帧才回调;用户如果在这两拍
+   * 之间立刻上滚,onScroll 仍会拿 queue 出现前的 clientHeight 当 previous sample,
+   * 把真实手势误判成布局修正,然后 following 把位置写回底部(OPEND-2532)。
+   *
+   * layout effect 在新 DOM 对用户可见前先刷新**几何基线**。这里只记 sample,
+   * 不碰跟随意图也不写 scrollTop:仍然跟随的人由既有 ResizeObserver 在下一帧
+   * 贴到新底;已经/正在手动滚的人则不会被这次 queue 布局变化抢回去。
+   */
+  useLayoutEffect(() => {
+    const el = logRef.current;
+    if (!el) return;
+    rememberScrollSample(el);
+  }, [queuedItems, editingQueuedSendId]);
 
   /**
    * "Edit" on a queued row means TAKE THE TURN OUT of the queue and put it
@@ -2957,17 +2974,20 @@ export function ChatPane({
     const updateRect = () => {
       frame = null;
       const rect = slot.getBoundingClientRect();
+      const paneTop = slot.closest<HTMLElement>('.pane')?.getBoundingClientRect().top ?? 0;
       setComposerPortalRect((prev) => {
         const next = {
           left: Math.round(rect.left),
           width: Math.round(rect.width),
           bottom: Math.max(0, Math.round(window.innerHeight - rect.bottom)),
+          top: Math.max(0, Math.round(paneTop)),
         };
         if (
           prev
           && prev.left === next.left
           && prev.width === next.width
           && prev.bottom === next.bottom
+          && prev.top === next.top
         ) {
           return prev;
         }
@@ -3781,39 +3801,37 @@ export function ChatPane({
                 {/* 正文取词的浮条:只认 chat-log 里的选区(输入框、侧栏的选中不该弹它) */}
                 <QuoteBar scopeRef={logRef} onQuote={handleQuote} />
                 </div>
-                {/* Always mounted so the CSS transition can play in both
-                  directions; the `chat-jump-btn-active` class flips the
-                  slide + opacity, and `aria-hidden` + `tabIndex={-1}`
-                  keep it out of the a11y tree when it's not visible.
+                {/* 底部只有这一个浮层位:宿主统一负责水平中线与 bottom,两个胶囊
+                    只负责自己的外观。Plan 出现时直接不挂 Jump,而不是只摘 active
+                    class —— 否则 Jump 的 140ms 退场动画会和刚挂上的 Plan 短暂重叠。
 
-                  Keep the affordance available while conversation history is
-                  open. A history pick can leave a long transcript at an older
-                  reading position, and this is the deterministic way back to
-                  the latest turn (OPEND-2420). The history header now owns the
-                  higher stacking layer, so its menu occludes the pill only
-                  where the two physically overlap instead of deleting the
-                  pill's state from the rest of the pane. */}
-                <button
-                type="button"
-                ref={jumpBtnGlassRef}
-                className={`chat-jump-btn od-glass-refract${showJumpToLatest ? ' chat-jump-btn-active' : ''}`}
-                data-testid="chat-jump-btn"
-                onClick={jumpToBottom}
-                title={t('chat.scrollToLatest')}
-                aria-hidden={!showJumpToLatest}
-                tabIndex={showJumpToLatest ? 0 : -1}
+                    没有 Plan 时 Jump 仍常驻,让它自己的进 / 退场 transition 能完整
+                    播放。会话历史打开时也不删它(OPEND-2420),遮挡仍由堆叠层负责。 */}
+                <div
+                  className={`chat-bottom-float-slot${planPillVisible ? ' has-plan-pill' : ''}`}
+                  data-testid="chat-bottom-float-slot"
                 >
-                  <Icon name="arrow-up" size={14} style={{ transform: 'rotate(180deg)' }} />
-                  <span>{t('chat.jumpToLatest')}</span>
-                </button>
-                {/* Plan 药丸是滚动区上的浮层,不是输入框前的一行布局。
-                  放在 chat-log-wrap 里绝对定位,才不会撑出一条白带；对应的
-                  chat-log 底部预留让末尾文案能完整滚到它上方。它与“回到最新”
-                  共用唯一浮层位,运行期间由 Plan 优先。 */}
-                <PlanPill
-                  todos={planPillTodos}
-                  running={planPillRunning}
-                />
+                  {planPillVisible ? (
+                    <PlanPill
+                      todos={planPillTodos}
+                      running={planPillRunning}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      ref={jumpBtnGlassRef}
+                      className={`chat-jump-btn od-glass-refract${showJumpToLatest ? ' chat-jump-btn-active' : ''}`}
+                      data-testid="chat-jump-btn"
+                      onClick={jumpToBottom}
+                      title={t('chat.scrollToLatest')}
+                      aria-hidden={!showJumpToLatest}
+                      tabIndex={showJumpToLatest ? 0 : -1}
+                    >
+                      <Icon name="arrow-up" size={14} style={{ transform: 'rotate(180deg)' }} />
+                      <span>{t('chat.jumpToLatest')}</span>
+                    </button>
+                  )}
+                </div>
               </div>
               {chatLogTray}
             </div>
@@ -3893,6 +3911,7 @@ export function ChatPane({
                   <div
                     {...chatSeam('chat-composer-fixed-layer')}
                     ref={composerLayerRef}
+                    data-chat-panel-top={composerPortalRect.top}
                     style={{
                       left: composerPortalRect.left,
                       bottom: composerPortalRect.bottom,

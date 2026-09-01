@@ -13,19 +13,41 @@ import {
 } from '../../../src/runtime/chat/quote-selection';
 
 describe('浮条翻面(稿子 23-1 / 23-2)', () => {
-  it('上方放得下就摆上方', () => {
-    expect(quoteBarPlacement({ selectionTop: 400, panelTop: 100 })).toBe('above');
+  it('上下都放得下时默认摆在选区下方', () => {
+    expect(quoteBarPlacement({
+      selectionTop: 300,
+      selectionBottom: 320,
+      panelTop: 100,
+      panelBottom: 500,
+    })).toBe('below');
   });
 
-  it('选区贴着面板顶边,上方放不下,翻到下方', () => {
-    expect(quoteBarPlacement({ selectionTop: 110, panelTop: 100 })).toBe('below');
+  it('选区贴着面板顶边时仍摆在下方', () => {
+    expect(quoteBarPlacement({
+      selectionTop: 110,
+      selectionBottom: 130,
+      panelTop: 100,
+      panelBottom: 500,
+    })).toBe('below');
   });
 
-  it('判据是「浮条高度 + 那道缝」,不是拍脑袋的阈值', () => {
-    // 正好差一像素放不下 → 翻
-    expect(quoteBarPlacement({ selectionTop: 140, panelTop: 100, barHeight: 34, gap: 7 })).toBe('below');
-    // 正好放得下 → 不翻
-    expect(quoteBarPlacement({ selectionTop: 141, panelTop: 100, barHeight: 34, gap: 7 })).toBe('above');
+  it('下方差一像素放不下才翻到上方', () => {
+    expect(quoteBarPlacement({
+      selectionTop: 400,
+      selectionBottom: 460,
+      panelTop: 100,
+      panelBottom: 500,
+      barHeight: 34,
+      gap: 7,
+    })).toBe('above');
+    expect(quoteBarPlacement({
+      selectionTop: 400,
+      selectionBottom: 459,
+      panelTop: 100,
+      panelBottom: 500,
+      barHeight: 34,
+      gap: 7,
+    })).toBe('below');
   });
 
   it('选区贴着 composer 时下方放不下,保持在上方', () => {
@@ -48,6 +70,23 @@ describe('浮条翻面(稿子 23-1 / 23-2)', () => {
 });
 
 describe('浮条位置夹取', () => {
+  it('常规选区把浮条放在选区下方并保留稿子的间隙', () => {
+    const position = quoteBarPosition({
+      selectionLeft: 180,
+      selectionRight: 260,
+      selectionTop: 250,
+      selectionBottom: 270,
+      panelLeft: 100,
+      panelRight: 400,
+      panelTop: 100,
+      panelBottom: 500,
+      barHeight: 34,
+      gap: 7,
+    });
+
+    expect(position).toEqual({ left: 220, top: 277, placement: 'below' });
+  });
+
   it('靠左右边选择时把完整浮条夹在聊天栏内', () => {
     const left = quoteBarPosition({
       selectionLeft: 100,
@@ -88,7 +127,28 @@ describe('浮条位置夹取', () => {
       barHeight: 34,
     });
     expect(position.placement).toBe('above');
-    expect(position.top).toBeLessThan(480);
+    expect(position.top).toBe(443);
+    expect(position.top - 34).toBeGreaterThanOrEqual(108);
+    expect(position.top).toBeLessThanOrEqual(492);
+  });
+
+  it('选区被聊天视口顶边裁切时仍把下方浮条夹在安全区内', () => {
+    const position = quoteBarPosition({
+      selectionLeft: 180,
+      selectionRight: 260,
+      selectionTop: 80,
+      selectionBottom: 95,
+      panelLeft: 100,
+      panelRight: 400,
+      panelTop: 100,
+      panelBottom: 500,
+      barHeight: 34,
+      gap: 7,
+      edgeInset: 8,
+    });
+
+    expect(position).toEqual({ left: 220, top: 108, placement: 'below' });
+    expect(position.top + 34).toBeLessThanOrEqual(492);
   });
 });
 
