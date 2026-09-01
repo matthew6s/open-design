@@ -519,7 +519,7 @@ describe("stopPackedLinuxApp", () => {
       stoppedPids: [],
     });
     await expect(stopPackedLinuxApp(makeConfig())).resolves.toMatchObject({ status: "not-running" });
-    expect(stop).toHaveBeenCalledTimes(8);
+    expect(stop).toHaveBeenCalledTimes(12);
     expect(stop).toHaveBeenCalledWith(
       expect.objectContaining({ source: SIDECAR_SOURCES.TOOLS_PACK }),
       undefined,
