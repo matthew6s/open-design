@@ -26,15 +26,61 @@ export type PackagedHomeFirstRunResult = {
   workspaceTabClicksBeforeOutput: number;
 };
 
+export type PackagedHomeFirstRunExpressionOptions = {
+  readinessPollIntervalMs?: number;
+  readinessTimeoutMs?: number;
+};
+
 /**
- * Instruments the first packaged Home send without recovering the renderer.
+ * Waits for the ready Home composer, then instruments the first packaged send
+ * without recovering the renderer.
  * Output observation is polled through a separate expression, so this setup
  * never reloads the page or clicks a workspace tab after submission.
  */
-export function packagedHomeFirstRunExpression(): string {
+export function packagedHomeFirstRunExpression(
+  options: PackagedHomeFirstRunExpressionOptions = {},
+): string {
+  const readinessPollIntervalMs = options.readinessPollIntervalMs ?? 100;
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
   return `
     (async () => {
       const prompt = ${JSON.stringify(PACKAGED_HOME_FIRST_RUN_PROMPT)};
+      const readinessStartedAt = Date.now();
+      let input = null;
+      let readiness = null;
+      while (input == null) {
+        const candidate = document.querySelector('[data-testid="home-hero-input"]');
+        const loadingSurface = document.querySelector('.od-loading-shell, .centered-loader');
+        const onboardingSurface = document.querySelector(
+          '.entry-shell--onboarding, .entry-onboarding-modal',
+        );
+        const composerVisible =
+          candidate instanceof HTMLElement && candidate.getClientRects().length > 0;
+        const composerContentEditable =
+          candidate instanceof HTMLElement && candidate.isContentEditable;
+        readiness = {
+          pathname: location.pathname,
+          loadingVisible:
+            loadingSurface instanceof HTMLElement && loadingSurface.getClientRects().length > 0,
+          onboardingVisible:
+            onboardingSurface instanceof HTMLElement && onboardingSurface.getClientRects().length > 0,
+          composerFound: candidate != null,
+          composerVisible,
+          composerContentEditable,
+        };
+        if (composerVisible && composerContentEditable) {
+          input = candidate;
+          break;
+        }
+        if (Date.now() - readinessStartedAt >= ${JSON.stringify(readinessTimeoutMs)}) {
+          throw new Error(
+            'packaged first Home run composer did not become ready: '
+              + JSON.stringify(readiness),
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, ${JSON.stringify(readinessPollIntervalMs)}));
+      }
+
       const stateKey = '__odPackagedHomeFirstRun';
       const state = {
         hrefBefore: location.href,
@@ -107,11 +153,6 @@ export function packagedHomeFirstRunExpression(): string {
         }
       }, true);
 
-      const input = document.querySelector('[data-testid="home-hero-input"]');
-      const visible = input instanceof HTMLElement && input.getClientRects().length > 0;
-      if (!visible || !(input instanceof HTMLElement) || !input.isContentEditable) {
-        throw new Error('packaged first Home run found no visible Lexical composer');
-      }
       const editor = input.__lexicalEditor;
       if (!editor?.parseEditorState || !editor?.setEditorState) {
         throw new Error('packaged first Home run could not resolve the Lexical editor');
