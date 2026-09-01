@@ -16,6 +16,8 @@ import {
   type DesktopExportArtifactResult,
   type DesktopExportPdfInput,
   type DesktopExportPdfResult,
+  type DesktopRenderFramesInput,
+  type DesktopRenderFramesResult,
   type DesktopRenderSlidesInput,
   type DesktopRenderSlidesResult,
   type DesktopUpdateStatusSnapshot,
@@ -32,6 +34,7 @@ import type {
 import { OPEN_DESIGN_PREVIEW_NAVIGATION_ATTEMPT_PARAM } from "@open-design/host";
 
 import { renderDeckSlides } from "./deck-capture.js";
+import { renderDeterministicFrames } from "./frame-capture.js";
 import { openFirstPartyMailto } from "./mailto-open.js";
 import { openValidatedDirectory } from "./open-path.js";
 import { exportArtifact as exportArtifactFromHtml } from "./artifact-export.js";
@@ -421,6 +424,7 @@ export type DesktopRuntime = {
   exportArtifact(input: DesktopExportArtifactInput): Promise<DesktopExportArtifactResult>;
   exportPdf(input: DesktopExportPdfInput): Promise<DesktopExportPdfResult>;
   openUpdateDialog(request: OpenDesignHostUpdaterOpenDialogRequest): void;
+  renderFrames(input: DesktopRenderFramesInput): Promise<DesktopRenderFramesResult>;
   renderSlides(input: DesktopRenderSlidesInput): Promise<DesktopRenderSlidesResult>;
   screenshot(input: DesktopScreenshotInput): Promise<DesktopScreenshotResult>;
   show(): void;
@@ -3112,6 +3116,9 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
       window.webContents.send(UPDATER_OPEN_DIALOG_EVENT, request);
       window.show();
       window.focus();
+    },
+    renderFrames(input) {
+      return renderDeterministicFrames(input);
     },
     renderSlides(input) {
       return renderDeckSlides(input);

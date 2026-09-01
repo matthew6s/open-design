@@ -67,6 +67,7 @@ import {
   type RunFailureClassification,
 } from './run-failure-classification.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
+import { runAdmissionEvidenceForRun } from './runtimes/run-lifecycle-analytics.js';
 import { buildTraceObjectManifests } from './trace-object-manifest.js';
 import type { TraceArtifactObjectSource, TraceObjectUploadManifests } from './trace-object-manifest.js';
 import { getDetectedRuntimeVersions } from './runtimes/detection.js';
@@ -1065,6 +1066,7 @@ export async function buildSafeRunQualityProjectionFromDaemon(
     cancelOrigin: run.cancelOrigin ?? null,
     terminalTrigger: run.terminalTrigger ?? null,
     events: run.events,
+    admissionEvidence: runAdmissionEvidenceForRun(run),
   });
   // Terminal process evidence. The single-Run trace reported the stderr and
   // stdout tails only for a non-succeeded Run, and always reported the derived
@@ -1185,6 +1187,7 @@ export async function reportRunCompletedFromDaemon(
       cancelOrigin: run.cancelOrigin ?? null,
       terminalTrigger: run.terminalTrigger ?? null,
       events: run.events,
+      admissionEvidence: runAdmissionEvidenceForRun(run),
     });
     const timings = summarizeRunTimingAnalytics({
       runCreatedAt: run.createdAt,

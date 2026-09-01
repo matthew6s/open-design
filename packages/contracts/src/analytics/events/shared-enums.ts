@@ -372,6 +372,8 @@ export type TrackingRunFailureStage =
 export type TrackingRunFailureMechanism =
   | 'policy_rejection'
   | 'provider_rejection'
+  | 'model_route_unavailable'
+  | 'invalid_model_selection'
   | 'protocol_violation'
   | 'frame_too_large'
   | 'startup_readiness_timeout'
@@ -407,6 +409,19 @@ export type TrackingRunRepairOwner =
   | 'policy_owner'
   | 'shared_boundary'
   | 'unknown';
+/** v3 describes the terminal attempt; absent evidence remains unknown. */
+export type TrackingRunAdmissionPhase = 'before_execution' | 'during_execution' | 'unknown';
+/** `none` means no affirmative policy evidence, not proof that no policy applied. */
+export type TrackingRunPolicyReason =
+  | 'model_window_limit'
+  | 'membership_concurrency_limit'
+  | 'hard_quota'
+  | 'workspace_credits_exhausted'
+  | 'amr_insufficient_balance'
+  | 'amr_tier_upgrade_required'
+  | 'entitlement_required'
+  | 'none';
+/** v2 values were defaults, not phase evidence. Use admission_phase on v3. */
 export type TrackingRunAdmissionStatus =
   | 'admitted'
   | 'rejected_policy'

@@ -102,6 +102,9 @@ const landingPageDailyFeishuWorkflowPath = join(workspaceRoot, ".github", "workf
 const landingPageCiWorkflowPath = join(workspaceRoot, ".github", "workflows", "landing-page-ci.yml");
 const landingPageStagingWorkflowPath = join(workspaceRoot, ".github", "workflows", "landing-page-staging.yml");
 const landingPageProductionWorkflowPath = join(workspaceRoot, ".github", "workflows", "landing-page-production.yml");
+const dshBootstrapPublishWorkflowPath = join(workspaceRoot, ".github", "workflows", "dsh-bootstrap-publish.yml");
+const catalogPublishWorkflowPath = join(workspaceRoot, ".github", "workflows", "catalog-publish.yml");
+const catalogValidateWorkflowPath = join(workspaceRoot, ".github", "workflows", "catalog-validate.yml");
 const landingPageDailyFeishuScriptPath = join(workspaceRoot, ".github", "scripts", "landing-page-daily-feishu.ts");
 const releasePublishMetadataScriptPath = join(
   workspaceRoot,
@@ -1402,6 +1405,132 @@ process.stdin.on("end", () => {
       expect(plan).not.toHaveProperty("run_docker_build");
       expect(plan).not.toHaveProperty("docker_validation_required");
     }
+  });
+
+  it("[P2] routes both DSH installer sources to the cross-resource identity test", async () => {
+    for (const file of [
+      "tools/release/resources/dsh-bootstrap/install-dsh.sh",
+      "apps/landing-page/public/install-dsh.sh",
+      "e2e/tests/dsh-bootstrap-source-identity.test.ts",
+    ]) {
+      await expect(
+        runScopesPrint("pull_request", { pull_request: { number: 1 } }, [file]),
+      ).resolves.toMatchObject({
+        run_e2e_vitest: true,
+        web_tests_required: true,
+      });
+    }
+  });
+
+  it("[P1] builds tools-release before the standalone DSH publisher invokes its bin", async () => {
+    const workflow = await readFile(dshBootstrapPublishWorkflowPath, "utf8");
+    const buildIndex = workflow.indexOf("pnpm --filter @open-design/tools-release build");
+    const publishIndex = workflow.indexOf("pnpm exec tools-release publish-dsh-bootstrap");
+
+    expect(buildIndex).toBeGreaterThanOrEqual(0);
+    expect(publishIndex).toBeGreaterThan(buildIndex);
+  });
+
+  it("[P2] triggers the standalone DSH publisher for its bundle helpers", async () => {
+    const workflow = await readFile(dshBootstrapPublishWorkflowPath, "utf8");
+    const trigger = sectionBetween(workflow, "on:", "\npermissions:");
+
+    expect(trigger).toContain('"tools/release/resources/dsh-bootstrap/**"');
+    expect(trigger).toContain('"tools/release/src/storage/dsh-bootstrap-*.ts"');
+    expect(trigger).toContain('"tools/release/src/storage/publish-dsh-bootstrap.ts"');
+    expect(trigger).toContain('"tools/release/src/storage/common.ts"');
+    expect(trigger).toContain('"tools/release/src/storage/s3-upload.ts"');
+  });
+
+  it("[P1] serializes both DSH latest-pointer publishers", async () => {
+    const [standaloneWorkflow, productionWorkflow] = await Promise.all([
+      readFile(dshBootstrapPublishWorkflowPath, "utf8"),
+      readFile(landingPageProductionWorkflowPath, "utf8"),
+    ]);
+
+    expect(standaloneWorkflow).toContain("group: landing-page-production");
+    expect(productionWorkflow).toContain("group: landing-page-production");
+    expect(standaloneWorkflow).toContain("cancel-in-progress: false");
+    expect(productionWorkflow).toContain("cancel-in-progress: false");
+  });
+
+  it("[P1] rejects stale reruns before either DSH publisher can update latest", async () => {
+    const [standaloneWorkflow, productionWorkflow] = await Promise.all([
+      readFile(dshBootstrapPublishWorkflowPath, "utf8"),
+      readFile(landingPageProductionWorkflowPath, "utf8"),
+    ]);
+
+    for (const workflow of [standaloneWorkflow, productionWorkflow]) {
+      const freshnessIndex = workflow.indexOf(
+        'main_sha="$(git ls-remote origin refs/heads/main | awk \'{print $1}\')"',
+      );
+      const staleGuardIndex = workflow.indexOf('$GITHUB_SHA" != "$main_sha');
+      const publishIndex = workflow.indexOf("pnpm exec tools-release publish-dsh-bootstrap");
+
+      expect(freshnessIndex).toBeGreaterThanOrEqual(0);
+      expect(staleGuardIndex).toBeGreaterThan(freshnessIndex);
+      expect(publishIndex).toBeGreaterThan(staleGuardIndex);
+      expect(workflow).toContain("refusing");
+      expect(workflow).toContain("stale workflow SHA");
+    }
+  });
+
+  it("[P1] publishes catalog snapshots only from main", async () => {
+    const workflow = await readFile(catalogPublishWorkflowPath, "utf8");
+    const guardedJobs = workflow.match(
+      /if: github\.repository == 'nexu-io\/open-design' && github\.ref == 'refs\/heads\/main'/g,
+    );
+
+    expect(guardedJobs).toHaveLength(2);
+  });
+
+  it("[P2] triggers catalog publishing for shared storage helpers", async () => {
+    const [publishWorkflow, validateWorkflow] = await Promise.all([
+      readFile(catalogPublishWorkflowPath, "utf8"),
+      readFile(catalogValidateWorkflowPath, "utf8"),
+    ]);
+
+    for (const workflow of [publishWorkflow, validateWorkflow]) {
+      const trigger = sectionBetween(workflow, "on:", "\npermissions:");
+      expect(trigger).toContain('"tools/release/src/storage/publish-catalog.ts"');
+      expect(trigger).toContain('"tools/release/src/storage/common.ts"');
+      expect(trigger).toContain('"tools/release/src/storage/s3-upload.ts"');
+    }
+  });
+
+  it("[P1] preserves checksummed hidden files in the catalog handoff artifact", async () => {
+    const workflow = await readFile(catalogPublishWorkflowPath, "utf8");
+    const upload = sectionBetween(workflow, "- name: Upload snapshot artifact", "\n\n  publish:");
+
+    expect(upload).toContain("uses: actions/upload-artifact@v4");
+    expect(upload).toContain("path: .tmp/catalog-snapshot");
+    expect(upload).toContain("include-hidden-files: true");
+  });
+
+  it("[P1] renders immutable catalog previews in a digest-pinned environment", async () => {
+    const [workflow, packageJsonText] = await Promise.all([
+      readFile(catalogPublishWorkflowPath, "utf8"),
+      readFile(join(workspaceRoot, "tools", "release", "package.json"), "utf8"),
+    ]);
+    const packageJson = JSON.parse(packageJsonText) as {
+      optionalDependencies?: { playwright?: string };
+    };
+
+    expect(workflow).toContain(
+      "image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948",
+    );
+    expect(packageJson.optionalDependencies?.playwright).toBe("1.60.0");
+    expect(workflow).toContain(
+      `mcr.microsoft.com/playwright:v${packageJson.optionalDependencies?.playwright}-noble@sha256:`,
+    );
+    expect(workflow).toContain("options: --ipc=host");
+    expect(workflow).toContain(
+      "apt-get install -y --no-install-recommends zstd=1.5.5+dfsg2-2build1.1",
+    );
+    expect(workflow).not.toContain("playwright install --with-deps chromium");
+    expect(workflow.indexOf("Render previews")).toBeLessThan(
+      workflow.indexOf("Install pinned zstd"),
+    );
   });
 
   it("[P2] closes packaged-leaf coverage without duplicating the broad E2E lane", async () => {
@@ -2960,7 +3089,7 @@ process.stdin.on("end", () => {
     expect(productionWorkflow).not.toMatch(/DSH_BOOTSTRAP_VERSION: v\d/);
     expect(productionWorkflow).toContain("DSH_BOOTSTRAP_VERSION: ${{ steps.dsh_bootstrap.outputs.version }}");
     expect(productionWorkflow).toContain('"$RELEASE_PUBLIC_ORIGIN/bootstrap/dsh/$DSH_BOOTSTRAP_VERSION/$name"');
-    expect(productionWorkflow).toContain("DSH_BOOTSTRAP_SOURCE_DIR: apps/landing-page/public");
+    expect(productionWorkflow).toContain("DSH_BOOTSTRAP_SOURCE_DIR: tools/release/resources/dsh-bootstrap");
     expect(productionWorkflow).toContain("RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}");
     expect(productionWorkflow).toContain("RELEASE_STORAGE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}");
     expect(productionWorkflow).toContain("RELEASE_STORAGE_BUCKET: ${{ secrets.CLOUDFLARE_R2_RELEASES_BUCKET }}");

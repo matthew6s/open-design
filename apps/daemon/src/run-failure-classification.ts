@@ -8,6 +8,8 @@ import type {
   TrackingRunFailureUserAction,
   TrackingRunEvidenceLevel,
   TrackingRunAdmissionStatus,
+  TrackingRunAdmissionPhase,
+  TrackingRunPolicyReason,
   TrackingRunRepairOwner,
   TrackingRunTerminalTrigger,
 } from '@open-design/contracts/analytics';
@@ -17,10 +19,12 @@ import {
 } from '@open-design/contracts';
 
 import { classifyAmrAccountFailure } from './integrations/vela-errors.js';
+import { runFailureEvidence } from './services/run-failure-evidence.js';
 import { summarizeRunToolProgress } from './run-diagnostics.js';
 import { isAcpHandshakeRpcErrorText } from './runtimes/acp-handshake-id.js';
 import { classifyAgentServiceFailure } from './runtimes/auth.js';
 import type { RunResult, RunStatusForAnalytics } from './run-result.js';
+import type { RunAdmissionEvidence } from './runtimes/run-lifecycle-analytics.js';
 
 export interface RunEventForFailureClassification {
   event: string;
@@ -37,6 +41,7 @@ export interface RunFailureClassificationInput {
   cancelOrigin?: TrackingRunCancelOrigin | null;
   terminalTrigger?: TrackingRunTerminalTrigger | null;
   events?: RunEventForFailureClassification[];
+  admissionEvidence?: RunAdmissionEvidence | undefined;
 }
 
 export interface RunFailureClassification {
@@ -48,7 +53,9 @@ export interface RunFailureClassification {
   evidence_level?: TrackingRunEvidenceLevel;
   repair_owner?: TrackingRunRepairOwner;
   admission_status?: TrackingRunAdmissionStatus;
-  classifier_version?: 'run-failure-v2';
+  admission_phase?: TrackingRunAdmissionPhase;
+  policy_reason?: TrackingRunPolicyReason;
+  classifier_version?: 'run-failure-v2' | 'run-failure-v3';
   retryable: boolean;
   user_action: TrackingRunFailureUserAction;
   /** Distinguishes an explicit user stop from lifecycle-driven cancellation. */
@@ -825,8 +832,8 @@ function classification(
     failure_domain,
     evidence_level,
     repair_owner,
-    admission_status: policy ? 'rejected_policy' : 'admitted',
-    classifier_version: 'run-failure-v2',
+    admission_status: 'unknown',
+    classifier_version: 'run-failure-v3',
     retryable,
     user_action,
   };
@@ -1415,6 +1422,9 @@ export function classifyRunFailure(
 ): RunFailureClassification | undefined {
   const failure = classifyRunFailureBase(input);
   if (!failure) return failure;
+  if (input.result === 'cancelled') {
+    return { ...failure, ...(input.terminalTrigger ? { terminal_trigger: input.terminalTrigger } : {}) };
+  }
   const terminalTrigger = input.terminalTrigger ?? failure.terminal_trigger;
   const failureText = collectFailureText({
     ...input,
@@ -1435,9 +1445,32 @@ export function classifyRunFailure(
             ? 'stream_idle_timeout'
             : failure.failure_mechanism
     : failure.failure_mechanism;
+  // A retry or manual resume can fail in preflight before appending its next start. The new
+  // causal fields must not reuse the preceding attempt in that interval;
+  // legacy classification/retry behavior intentionally remains unchanged.
+  let evidenceEvents = terminalAttemptEvents(input.events);
+  let pendingRetry = -1;
+  for (let index = evidenceEvents.length - 1; index >= 0; index -= 1) {
+    if (evidenceEvents[index]?.event === 'run_retry_attempted'
+      || evidenceEvents[index]?.event === 'run_resume_attempted') {
+      pendingRetry = index;
+      break;
+    }
+  }
+  if (pendingRetry >= 0) evidenceEvents = evidenceEvents.slice(pendingRetry + 1);
+  const evidenceFailure = pendingRetry >= 0
+    ? classifyRunFailureBase({ ...input, events: evidenceEvents }) ?? failure
+    : failure;
   return {
     ...failure,
     ...(failureMechanism ? { failure_mechanism: failureMechanism } : {}),
+    ...(pendingRetry >= 0 ? {
+      failure_mechanism: evidenceFailure.failure_mechanism,
+      failure_domain: evidenceFailure.failure_domain,
+      evidence_level: evidenceFailure.evidence_level,
+      repair_owner: evidenceFailure.repair_owner,
+    } : {}),
+    ...runFailureEvidence(input, evidenceFailure, evidenceEvents),
     ...(terminalTrigger ? { terminal_trigger: terminalTrigger } : {}),
   };
 }

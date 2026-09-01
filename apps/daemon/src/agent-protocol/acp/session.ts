@@ -63,6 +63,7 @@ import {
 import { buildAcpSessionNewParams, buildPromptBlocks, type AcpMcpServerInput } from './session-params.js';
 import { withholdStdioMcpServersForBuild } from './stdio-mcp.js';
 import { createVelaChildEvidenceConsumer } from '../../runtimes/vela-child-evidence.js';
+import { withAcpEmissionProvenance, type AcpEmissionMeta } from './emission-provenance.js';
 
 const NON_DISPLAYABLE_ACP_SESSION_UPDATES = new Set([
   'usage_update',
@@ -84,9 +85,7 @@ const NON_DISPLAYABLE_ACP_SESSION_UPDATES = new Set([
  * exclude these; consumers that build the transcript still want them, which is
  * why the pair is emitted rather than dropped.
  */
-export interface AcpEmissionMeta {
-  hostSynthesized?: boolean;
-}
+export type { AcpEmissionMeta } from './emission-provenance.js';
 
 /**
  * Options for `attachAcpSession`. All fields except `child`, `prompt`, and
@@ -315,7 +314,7 @@ export function attachAcpSession({
     // ids (paths, tokens, JWTs) never leak into Langfuse span ids or
     // metadata.toolCallId.
     const telemetryToolCallId = acpTelemetryToolCallId(toolCallId);
-    send('agent', {
+    send('agent', withAcpEmissionProvenance({
       type: 'tool_use',
       id: telemetryToolCallId,
       name: st.name,
@@ -323,15 +322,15 @@ export function attachAcpSession({
       // Wall-clock start of the first ACP frame for this toolCallId so analytics
       // can compute real duration even though tool_use is emitted at terminal.
       startedAt: st.firstSeenAt,
-    }, meta);
-    send('agent', {
+    }, meta), meta);
+    send('agent', withAcpEmissionProvenance({
       type: 'tool_result',
       toolUseId: telemetryToolCallId,
       // Bash/execute stdout can dump private files (cat .env). Langfuse only
       // lexically masks Bash, so redact before the canonical transcript ships.
       content: acpSafeToolResultContent(st.name, st.resultContent),
       isError,
-    }, meta);
+    }, meta), meta);
     // Concrete only on terminal tool_result for a real (non-think) tool.
     emittedConcreteToolEvent = true;
   };
