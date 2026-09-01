@@ -8993,6 +8993,117 @@ describe('FileViewer tweaks toolbar', () => {
     expect(screen.queryByText(/Preview unavailable/)).toBeNull();
   });
 
+  it('stops exposing last-good and offers retry when a replacement mint fails', async () => {
+    disableSyntheticPreviewNavigation();
+    const fileV1 = htmlPreviewFile({ name: 'replacement-mint.html', path: 'replacement-mint.html', mtime: 1_000, size: 100 });
+    const fileV2 = { ...fileV1, mtime: 2_000, size: 120 };
+    let mintAttempt = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input);
+      if (url.startsWith('/api/projects/project-1/raw/replacement-mint.html')) {
+        return new Response('<!doctype html><main>Replacement mint</main>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+      if (url === '/api/projects/project-1/files') {
+        return new Response(JSON.stringify({ files: [mintAttempt < 2 ? fileV1 : fileV2] }), {
+          status: 200,
+        });
+      }
+      if (url.includes('/api/projects/project-1/preview-url')) {
+        mintAttempt += 1;
+        if (mintAttempt === 2) {
+          return new Response(JSON.stringify({ error: 'temporarily unavailable' }), {
+            status: 503,
+          });
+        }
+        const version = mintAttempt === 1 ? 1 : 2;
+        return new Response(JSON.stringify({
+          url: `/api/projects/project-1/preview/legacy-scope/replacement-mint.html?v=${version}`,
+          file: 'replacement-mint.html',
+          expiresAt: Date.now() + 60 * 60 * 1000,
+          scopedOrigin: {
+            normalUrl: `http://n-replacement-mint-v${version}.localhost:43111/replacement-mint.html`,
+            poweredUrl: `http://p-replacement-mint-v${version}.localhost:43111/replacement-mint.html`,
+            documentVersion: `replacement-mint-v${version}`,
+            previewPolicy: {
+              sandboxProfile: 'normal',
+              guards: { storage: false, focus: false, redirect: false },
+              deck: false,
+            },
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ deployments: [] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const capabilities: PreviewRuntimeCapability[] = [
+      'content_measurement',
+      'scroll',
+      'snapshot',
+      'observability',
+      'selection',
+      'tweaks',
+      'palette',
+    ];
+    const settle = (frame: HTMLIFrameElement, version: number) => {
+      emitPreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:hello',
+        sessionId: `replacement-mint-v${version}`,
+        documentVersion: `replacement-mint-v${version}`,
+        availableCapabilities: capabilities,
+      });
+      emitPreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:capabilities-applied',
+        sessionId: `replacement-mint-v${version}`,
+        documentVersion: `replacement-mint-v${version}`,
+        enabledCapabilities: capabilities,
+      });
+      emitPreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:ready',
+        sessionId: `replacement-mint-v${version}`,
+        documentVersion: `replacement-mint-v${version}`,
+      });
+      emitPreviewRuntimeHarnessMessage(frame, {
+        type: 'od:preview:presentation-state-applied',
+        sessionId: `replacement-mint-v${version}`,
+        documentVersion: `replacement-mint-v${version}`,
+        revision: 1,
+      });
+    };
+    const view = (file: ProjectFile, filesRefreshKey: number) => (
+      <IframeKeepAliveProvider>
+        <FileViewer
+          projectId="project-1"
+          projectKind="prototype"
+          file={file}
+          filesRefreshKey={filesRefreshKey}
+        />
+      </IframeKeepAliveProvider>
+    );
+    const { rerender } = render(view(fileV1, 1));
+    const first = await screen.findByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    settle(first, 1);
+    expect(await screen.findByTestId('preview-runtime-frame-current')).toBe(first);
+
+    rerender(view(fileV2, 2));
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-runtime-navigation-error')).toBeTruthy();
+      expect(screen.queryByTestId('preview-runtime-frame-current')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId('preview-runtime-navigation-retry'));
+    const replacement = await screen.findByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+    settle(replacement, 2);
+    expect(await screen.findByTestId('preview-runtime-frame-current')).toBe(replacement);
+    expect(mintAttempt).toBe(3);
+  });
+
   it('remints VERSION_CHANGED immediately, fences old attempts, and stops at a bounded budget', async () => {
     disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({
@@ -9755,11 +9866,10 @@ describe('FileViewer tweaks toolbar', () => {
     expect(document.body.contains(replacement)).toBe(false);
   });
 
-  it('ignores file-list refreshes when the converged document identity is unchanged', async () => {
+  it('remints when changed bytes preserve size and mtime but advance the settled file-watch generation', async () => {
     disableSyntheticPreviewNavigation();
     const file = htmlPreviewFile({ name: 'stable.html', path: 'stable.html', mtime: 1_000, size: 100 });
-    const sessionId = 'scope-stable';
-    const documentVersion = '100:1000';
+    let servedVersion = 1;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string'
         ? input
@@ -9767,7 +9877,7 @@ describe('FileViewer tweaks toolbar', () => {
           ? input.url
           : String(input);
       if (url.startsWith('/api/projects/project-1/raw/stable.html')) {
-        return new Response('<!doctype html><main>Stable</main>', {
+        return new Response(`<!doctype html><main>Version ${servedVersion}</main>`, {
           status: 200,
           headers: { 'Content-Type': 'text/html' },
         });
@@ -9781,9 +9891,9 @@ describe('FileViewer tweaks toolbar', () => {
           file: 'stable.html',
           expiresAt: Date.now() + 60 * 60 * 1000,
           scopedOrigin: {
-            normalUrl: `http://n-${sessionId}.localhost:43111/stable.html`,
-            poweredUrl: `http://p-${sessionId}.localhost:43111/stable.html`,
-            documentVersion,
+            normalUrl: `http://n-same-metadata-v${servedVersion}.localhost:43111/stable.html`,
+            poweredUrl: `http://p-same-metadata-v${servedVersion}.localhost:43111/stable.html`,
+            documentVersion: `same-metadata-v${servedVersion}`,
             previewPolicy: {
               sandboxProfile: 'normal',
               guards: { storage: false, focus: false, redirect: false },
@@ -9802,11 +9912,12 @@ describe('FileViewer tweaks toolbar', () => {
           projectKind="prototype"
           file={file}
           filesRefreshKey={filesRefreshKey}
+          fileContentRefreshKey={filesRefreshKey}
         />
       </IframeKeepAliveProvider>
     );
-    const { rerender } = render(view(0));
-    const frame = await waitFor(() => (
+    const { rerender } = render(view(1));
+    const first = await waitFor(() => (
       screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement
     ));
     const capabilities: PreviewRuntimeCapability[] = [
@@ -9818,45 +9929,50 @@ describe('FileViewer tweaks toolbar', () => {
       'tweaks',
       'palette',
     ];
-    for (const type of [
-      'od:preview:hello',
-      'od:preview:capabilities-applied',
-      'od:preview:ready',
-      'od:preview:presentation-state-applied',
-    ] as const) {
-      act(() => {
-        window.dispatchEvent(new MessageEvent('message', {
-          source: frame.contentWindow,
-          data: {
-            type,
-            protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
-            sessionId,
-            documentVersion,
-            ...(type === 'od:preview:hello'
-              ? { availableCapabilities: capabilities }
-              : {}),
-            ...(type === 'od:preview:capabilities-applied'
-              ? { enabledCapabilities: capabilities }
-              : {}),
-            ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
-          },
-        }));
-      });
-    }
-    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
+    const settle = (frame: HTMLIFrameElement, version: number) => {
+      for (const type of [
+        'od:preview:hello',
+        'od:preview:capabilities-applied',
+        'od:preview:ready',
+        'od:preview:presentation-state-applied',
+      ] as const) {
+        act(() => {
+          window.dispatchEvent(new MessageEvent('message', {
+            source: frame.contentWindow,
+            data: {
+              type,
+              protocolVersion: PREVIEW_RUNTIME_PROTOCOL_VERSION,
+              sessionId: `same-metadata-v${version}`,
+              documentVersion: `same-metadata-v${version}`,
+              ...(type === 'od:preview:hello'
+                ? { availableCapabilities: capabilities }
+                : {}),
+              ...(type === 'od:preview:capabilities-applied'
+                ? { enabledCapabilities: capabilities }
+                : {}),
+              ...(type === 'od:preview:presentation-state-applied' ? { revision: 1 } : {}),
+            },
+          }));
+        });
+      }
+    };
+    settle(first, 1);
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
 
-    rerender(view(7));
-    rerender(view(9));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+    servedVersion = 2;
+    rerender(view(2));
+    const replacement = await waitFor(() => {
+      const frame = screen.getByTestId('preview-runtime-frame-standby') as HTMLIFrameElement;
+      expect(frame).not.toBe(first);
+      return frame;
     });
-
-    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(frame);
-    expect(screen.queryByTestId('preview-runtime-frame-standby')).toBeNull();
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(first);
     expect(fetchMock.mock.calls.filter(([input]) => (
       String(input).includes('/api/projects/project-1/preview-url')
-    ))).toHaveLength(1);
+    ))).toHaveLength(2);
+
+    settle(replacement, 2);
+    expect(screen.getByTestId('preview-runtime-frame-current')).toBe(replacement);
   });
 
   it('navigates a converged deck directly without replacing its real-URL frame', async () => {

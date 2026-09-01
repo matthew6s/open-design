@@ -1718,6 +1718,7 @@ interface Props {
   file: ProjectFile;
   liveHtml?: string;
   filesRefreshKey?: number;
+  fileContentRefreshKey?: number;
   isDeck?: boolean;
   streaming?: boolean;
   commentQueueOnSend?: boolean;
@@ -1823,6 +1824,7 @@ export const FileViewer = memo(function FileViewer({
   file,
   liveHtml,
   filesRefreshKey = 0,
+  fileContentRefreshKey = 0,
   isDeck,
   streaming,
   commentQueueOnSend = false,
@@ -1914,6 +1916,7 @@ export const FileViewer = memo(function FileViewer({
         file={file}
         liveHtml={liveHtml}
         filesRefreshKey={filesRefreshKey}
+        fileContentRefreshKey={fileContentRefreshKey}
         isDeck={rendererMatch.renderer.id === 'deck-html'}
         streaming={Boolean(streaming)}
         commentQueueOnSend={commentQueueOnSend}
@@ -7327,6 +7330,7 @@ function HtmlViewer({
   file,
   liveHtml,
   filesRefreshKey = 0,
+  fileContentRefreshKey = 0,
   isDeck,
   streaming,
   commentQueueOnSend = false,
@@ -7364,6 +7368,7 @@ function HtmlViewer({
   file: ProjectFile;
   liveHtml?: string;
   filesRefreshKey?: number;
+  fileContentRefreshKey?: number;
   isDeck: boolean;
   streaming: boolean;
   commentQueueOnSend?: boolean;
@@ -9510,19 +9515,56 @@ function HtmlViewer({
   const previewRuntimeNavigationEnabled =
     sourceAuthorizationScopeKey !== null
     && liveHtml === undefined;
+  // Saving from Manual Edit produces watcher echoes after the bridge has
+  // already applied the exact persisted bytes to this document. Keep that
+  // document identity stable during Edit and while the persisted-source latch
+  // proves the current DOM is still exact. A genuinely different source then
+  // releases the latch and consumes the latest metadata generation once.
+  const previewRuntimeCanAdoptPersistedManualEditDocument =
+    !manualEditMode
+    && !manualEditSrcDocActive
+    && manualEditPersistedDocumentRef.current?.reloadKey === reloadKey
+    && source !== null
+    && manualEditPersistedDocumentRef.current.sourceFingerprint
+      === previewSourceFingerprint(source);
+  const previewRuntimeOwnerKey =
+    `${sourceAuthorizationScopeKey ?? 'pending'}\0${projectId}\0${file.name}`;
+  const previewRuntimeRevisionIdentityRef = useRef({
+    ownerKey: previewRuntimeOwnerKey,
+    size: file.size,
+    mtime: file.mtime,
+    fileContentRefreshKey,
+  });
+  if (
+    previewRuntimeRevisionIdentityRef.current.ownerKey !== previewRuntimeOwnerKey
+    || (
+      !manualEditMode
+      && !manualEditSrcDocActive
+      && !previewRuntimeCanAdoptPersistedManualEditDocument
+    )
+  ) {
+    previewRuntimeRevisionIdentityRef.current = {
+      ownerKey: previewRuntimeOwnerKey,
+      size: file.size,
+      mtime: file.mtime,
+      fileContentRefreshKey,
+    };
+  }
+  const previewRuntimeRevisionIdentity = previewRuntimeRevisionIdentityRef.current;
   // Match the daemon's exact HTML document identity. UI reloads replace the
   // browsing context behind last-good via navigationRetryToken; they do not
-  // mint another credential for the same document. filesRefreshKey is a
-  // catalog/SSE reconciliation generation and may advance several times for
-  // one unchanged file, so it is deliberately excluded as well.
+  // mint another credential for the same document. The committed refresh key
+  // is the settled witness for watcher-visible byte changes that can preserve
+  // both size and mtime, so it must participate in scope minting as well.
   const previewRuntimeRevisionKey =
-    `${file.size}:${file.mtime}:scope-retry:${previewRuntimeScopeRetryToken}`;
+    `${previewRuntimeRevisionIdentity.size}:${previewRuntimeRevisionIdentity.mtime}:content-refresh:${previewRuntimeRevisionIdentity.fileContentRefreshKey}:scope-retry:${previewRuntimeScopeRetryToken}`;
   const previewRuntimeContentGeneration = [
     sourceAuthorizationScopeKey ?? 'pending',
     projectId,
     file.name,
-    String(file.size),
-    String(file.mtime),
+    String(previewRuntimeRevisionIdentity.size),
+    String(previewRuntimeRevisionIdentity.mtime),
+    String(previewRuntimeRevisionIdentity.fileContentRefreshKey),
   ].join('\0');
   const previewRuntimeScopedNavigation = useProjectScopedPreviewNavigation({
     projectId,

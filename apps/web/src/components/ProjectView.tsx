@@ -2388,10 +2388,14 @@ export function ProjectView({
     files: ProjectFile[];
     refreshKey: number;
     generation: number;
-  }>({ files: [], refreshKey: 0, generation: 0 });
+    fileContentRefreshKeys: ReadonlyMap<string, number>;
+  }>({ files: [], refreshKey: 0, generation: 0, fileContentRefreshKeys: new Map() });
   const projectFiles = projectFilesSnapshot.files;
   const committedFilesRefreshKey = projectFilesSnapshot.refreshKey;
   const committedFilesGeneration = projectFilesSnapshot.generation;
+  const committedFileContentRefreshKeys = projectFilesSnapshot.fileContentRefreshKeys;
+  const fileContentRefreshGenerationRef = useRef(0);
+  const pendingFileContentRefreshKeysRef = useRef(new Map<string, number>());
   const projectFilesGenerationRef = useRef(committedFilesGeneration);
   const committedFilesRefreshKeyRef = useRef(committedFilesRefreshKey);
   committedFilesRefreshKeyRef.current = committedFilesRefreshKey;
@@ -3560,6 +3564,9 @@ export function ProjectView({
   ): Promise<ProjectFile[]> => {
     const requestSeq = ++projectFilesRequestSeqRef.current;
     const requestedRefreshKey = filesRefreshRequestKeyRef.current;
+    const requestedFileContentRefreshKeys = new Map(
+      pendingFileContentRefreshKeysRef.current,
+    );
     let next: ProjectFile[];
     try {
       next = await fetchProjectFiles(project.id, {
@@ -3580,11 +3587,23 @@ export function ProjectView({
       // Commit the list and both observation witnesses atomically. A refresh
       // request must never publish a new key or generation alongside an older
       // file snapshot.
-      setProjectFilesSnapshot({
-        files: next,
-        refreshKey: requestedRefreshKey,
-        generation: acceptedGeneration,
+      setProjectFilesSnapshot((previous) => {
+        const fileContentRefreshKeys = new Map(previous.fileContentRefreshKeys);
+        for (const [path, refreshKey] of requestedFileContentRefreshKeys) {
+          fileContentRefreshKeys.set(path, refreshKey);
+        }
+        return {
+          files: next,
+          refreshKey: requestedRefreshKey,
+          generation: acceptedGeneration,
+          fileContentRefreshKeys,
+        };
       });
+      for (const [path, refreshKey] of requestedFileContentRefreshKeys) {
+        if (pendingFileContentRefreshKeysRef.current.get(path) === refreshKey) {
+          pendingFileContentRefreshKeysRef.current.delete(path);
+        }
+      }
       onAcceptedGeneration?.(acceptedGeneration);
     }
     return next;
@@ -4048,6 +4067,13 @@ export function ProjectView({
   const refreshPreviewCommentsRef = useRef<(() => Promise<void>) | null>(null);
   const handleProjectEvent = useCallback((evt: ProjectEvent) => {
     if (evt.type === 'file-changed') {
+      // A normal watcher event names the exact file. Collab's atomic directory
+      // replacement deliberately emits an empty path because every file may
+      // have changed; FileWorkspace treats that entry as the project wildcard.
+      pendingFileContentRefreshKeysRef.current.set(
+        normalizeComparableFilePath(evt.path),
+        ++fileContentRefreshGenerationRef.current,
+      );
       iframeKeepAlivePool.evictProject(project.id);
       invalidateHtmlSourceSnapshotProject(project.id);
       coalescedFileChangedRefresh();
@@ -11830,6 +11856,7 @@ export function ProjectView({
           files={projectFiles}
           liveArtifacts={liveArtifacts}
           filesRefreshKey={committedFilesRefreshKey}
+          fileContentRefreshKeys={committedFileContentRefreshKeys}
           filesGeneration={committedFilesGeneration}
           onRefreshFiles={refreshFileWorkspace}
           isDeck={isDeck}

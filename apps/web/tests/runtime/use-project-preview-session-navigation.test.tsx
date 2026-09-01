@@ -75,6 +75,38 @@ describe('useProjectPreviewSessionNavigation', () => {
     expect(hook.result.current.navigation?.documentVersion).toBe('v2');
   });
 
+  it.each([
+    ['an unavailable result', () => Promise.resolve(null)],
+    ['a rejected request', () => Promise.reject(new Error('mint failed'))],
+  ])('stops exposing the previous revision after %s', async (_label, replacement) => {
+    const get = vi.fn()
+      .mockResolvedValueOnce(navigation('scope-0001', 'v1'))
+      .mockImplementationOnce(replacement);
+    const options = {
+      projectId: 'project-1',
+      fileName: 'index.html',
+      authorizationKey: 'local',
+      policy: normalPolicy,
+      cache: { get },
+      now: () => 1_000,
+      refreshAheadMs: 1_000,
+    };
+    const hook = renderHook(
+      ({ revisionKey }) => useProjectPreviewSessionNavigation({ ...options, revisionKey }),
+      { initialProps: { revisionKey: 'v1' } },
+    );
+    await flushMicrotasks();
+    expect(hook.result.current.navigation?.documentVersion).toBe('v1');
+
+    hook.rerender({ revisionKey: 'v2' });
+    expect(hook.result.current.navigation?.documentVersion).toBe('v1');
+    await flushMicrotasks();
+
+    expect(hook.result.current.navigation).toBeNull();
+    expect(hook.result.current.loading).toBe(false);
+    expect(hook.result.current.unavailable).toBe(true);
+  });
+
   it('hides a scoped URL immediately when project or authorization ownership changes', async () => {
     const next = deferred<ProjectScopedPreviewNavigation | null>();
     const get = vi.fn()

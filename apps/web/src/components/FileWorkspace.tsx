@@ -220,6 +220,7 @@ interface Props {
   files: ProjectFile[];
   liveArtifacts: LiveArtifactSummary[];
   filesRefreshKey?: number;
+  fileContentRefreshKeys?: ReadonlyMap<string, number>;
   filesGeneration?: number;
   onRefreshFiles: (
     options?: { fresh?: boolean },
@@ -1299,6 +1300,7 @@ export function FileWorkspace({
   files,
   liveArtifacts,
   filesRefreshKey = 0,
+  fileContentRefreshKeys,
   filesGeneration,
   onRefreshFiles,
   isDeck,
@@ -3393,6 +3395,9 @@ export function FileWorkspace({
       projectKind={projectKind}
       file={file}
       filesRefreshKey={filesRefreshKey}
+      fileContentRefreshKey={fileContentRefreshKeys?.get(
+        normalizeProjectFilePath(file.path ?? file.name),
+      ) ?? fileContentRefreshKeys?.get('') ?? 0}
       isDeck={isDeck}
       streaming={streaming}
       commentQueueOnSend={commentQueueOnSend}
