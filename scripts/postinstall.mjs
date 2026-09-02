@@ -11,10 +11,10 @@ const repoRoot = resolve(scriptDir, "..");
 const buildTargets = [
   "packages/release",
   "packages/contracts",
-  "packages/standalone",
   "packages/components",
   "packages/platform",
   "packages/download",
+  "packages/standalone",
   "packages/host",
   "packages/registry-protocol",
   "packages/agui-adapter",
