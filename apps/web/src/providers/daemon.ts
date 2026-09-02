@@ -1614,6 +1614,16 @@ async function consumeDaemonPhysicalRun({
   // frame — both mirror the same finalize-time classification.
   let endFailureCategory: ChatRunStatusResponse['failureCategory'] = null;
   let endFailureDetail: ChatRunStatusResponse['failureDetail'] = null;
+  // The daemon's VERDICT on the same failure — what the user should do, and
+  // whether re-running can help at all. Tracked separately from the
+  // classification above because the card's button hangs off it: without these
+  // the chat could only re-derive retryability from the detail NAME, and its
+  // table disagreed with the daemon on forty-odd causes the daemon had already
+  // ruled futile. `undefined` means the daemon said nothing (an older build, or
+  // a run it never classified) and must stay distinguishable from a verdict of
+  // `false`, which is why neither starts at `null`.
+  let endFailureAction: ChatRunStatusResponse['failureAction'] | undefined;
+  let endRetryable: boolean | undefined;
   let resolvedArtifactCount: number | undefined;
   const reportArtifactCount = (value: unknown) => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return;
@@ -1952,6 +1962,8 @@ async function consumeDaemonPhysicalRun({
             if (event.data.resumable === true) endResumable = true;
             if (event.data.failureCategory) endFailureCategory = event.data.failureCategory;
             if (event.data.failureDetail) endFailureDetail = event.data.failureDetail;
+            if (event.data.failureAction) endFailureAction = event.data.failureAction;
+            if (typeof event.data.retryable === 'boolean') endRetryable = event.data.retryable;
             reportArtifactCount(event.data.artifactCount);
             reportArtifactPaths(event.data.artifactPaths);
             if (event.data.strategyTask) endStrategyTask = event.data.strategyTask;
@@ -1980,6 +1992,8 @@ async function consumeDaemonPhysicalRun({
           // run-error UI on reconnect.
           if (status.failureCategory) endFailureCategory = status.failureCategory;
           if (status.failureDetail) endFailureDetail = status.failureDetail;
+          if (status.failureAction) endFailureAction = status.failureAction;
+          if (typeof status.retryable === 'boolean') endRetryable = status.retryable;
           reportArtifactCount(status.artifactCount);
           reportArtifactPaths(status.artifactPaths);
           if (status.strategyTask) endStrategyTask = status.strategyTask;
@@ -2023,6 +2037,8 @@ async function consumeDaemonPhysicalRun({
         if (status.resumable === true) endResumable = true;
         if (status.failureCategory) endFailureCategory = status.failureCategory;
         if (status.failureDetail) endFailureDetail = status.failureDetail;
+        if (status.failureAction) endFailureAction = status.failureAction;
+        if (typeof status.retryable === 'boolean') endRetryable = status.retryable;
         reportArtifactCount(status.artifactCount);
         reportArtifactPaths(status.artifactPaths);
         if (status.strategyTask) endStrategyTask = status.strategyTask;
@@ -2115,6 +2131,8 @@ async function consumeDaemonPhysicalRun({
           markErrorRunFailure(markErrorResumable(pendingStructuredError, endResumable), {
             failureCategory: endFailureCategory,
             failureDetail: endFailureDetail,
+            failureAction: endFailureAction,
+            retryable: endRetryable,
           }),
         );
         return;
@@ -2134,7 +2152,12 @@ async function consumeDaemonPhysicalRun({
             new Error(`agent exited with ${exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`}${fallbackTail ? `\n${fallbackTail}` : ''}`),
             endResumable,
           ),
-          { failureCategory: endFailureCategory, failureDetail: endFailureDetail },
+          {
+            failureCategory: endFailureCategory,
+            failureDetail: endFailureDetail,
+            failureAction: endFailureAction,
+            retryable: endRetryable,
+          },
         ),
       );
       return;
@@ -2181,23 +2204,38 @@ function markErrorResumable(err: Error, resumable: boolean): Error {
   return err;
 }
 
-/** Stamp the daemon's failure classification onto a surfaced error so the chat
- *  error card can map `failureDetail` to a specific named failure type + fix
- *  (see resolveRunFailureUi). Only stamps present values so an older daemon that
- *  omits the fields leaves the error's classification undefined. */
+/** Stamp the daemon's failure classification AND its verdict onto a surfaced
+ *  error, so the chat error card can both name a specific failure type + fix
+ *  (`failureDetail`) and lead with the action the daemon actually recommends
+ *  (`failureAction` / `retryable`) instead of re-deriving retryability from the
+ *  detail name (see resolveRunFailureUi).
+ *
+ *  Only stamps values the daemon actually sent: an older daemon that omits a
+ *  field must leave the property ABSENT, not present-and-undefined, because the
+ *  card distinguishes "the daemon had no verdict" from "the daemon said no" —
+ *  the classifier's own last-resort `unknown` row is `retryable: false`, so
+ *  reading absence as a verdict would strip Retry from exactly the
+ *  unclassified failures that deserve it. `retryable` is therefore gated on a
+ *  boolean type check rather than on truthiness. */
 function markErrorRunFailure(
   err: Error,
   fields: {
     failureCategory?: ChatRunStatusResponse['failureCategory'];
     failureDetail?: ChatRunStatusResponse['failureDetail'];
+    failureAction?: ChatRunStatusResponse['failureAction'];
+    retryable?: boolean;
   },
 ): Error {
   const target = err as Error & {
     failureCategory?: ChatRunStatusResponse['failureCategory'];
     failureDetail?: ChatRunStatusResponse['failureDetail'];
+    failureAction?: ChatRunStatusResponse['failureAction'];
+    retryable?: boolean;
   };
   if (fields.failureCategory) target.failureCategory = fields.failureCategory;
   if (fields.failureDetail) target.failureDetail = fields.failureDetail;
+  if (fields.failureAction) target.failureAction = fields.failureAction;
+  if (typeof fields.retryable === 'boolean') target.retryable = fields.retryable;
   return err;
 }
 

@@ -25,6 +25,8 @@ type ChatRunMessageState = {
   errorCode?: string | null;
   failureCategory?: string | null;
   failureDetail?: string | null;
+  failureAction?: string | null;
+  retryable?: boolean | null;
 };
 
 type PendingMessageEvents = {
@@ -281,6 +283,8 @@ export function persistRunFailureClassification(
   if (!run.assistantMessageId) return;
   const failureCategory = run.failureCategory ?? null;
   const failureDetail = run.failureDetail ?? null;
+  const failureAction = run.failureAction ?? null;
+  const retryable = typeof run.retryable === 'boolean' ? run.retryable : null;
   if (!failureCategory && !failureDetail) return;
   try {
     finalizeRunMessageEvents(db, run);
@@ -311,6 +315,12 @@ export function persistRunFailureClassification(
       ...base,
       ...(failureCategory ? { failureCategory } : {}),
       ...(failureDetail ? { failureDetail } : {}),
+      // The verdict rides along with the classification so a RELOADED
+      // conversation resolves to the same error-card button the live stream
+      // did. `retryable` is spread on an explicit non-null test, not on
+      // truthiness: `false` is the whole point of carrying it.
+      ...(failureAction ? { failureAction } : {}),
+      ...(retryable === null ? {} : { retryable }),
     };
     if (run.errorCode && typeof enriched.code !== 'string') enriched.code = run.errorCode;
     if (idx >= 0) {

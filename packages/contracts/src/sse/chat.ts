@@ -1,5 +1,5 @@
 import type { LiveArtifactRefreshStatus } from '../api/live-artifacts.js';
-import type { RunFailureCategory, RunFailureDetail } from '../api/chat.js';
+import type { RunFailureAction, RunFailureCategory, RunFailureDetail } from '../api/chat.js';
 import type { StrategyTaskProjectionV2 } from '../plugins/strategy-v2.js';
 import type { SseErrorPayload } from '../errors.js';
 import type { SseTransportEvent } from './common.js';
@@ -107,6 +107,15 @@ export interface ChatSseEndPayload {
    *  Mirror ChatRunStatusResponse.failureCategory / failureDetail. */
   failureCategory?: RunFailureCategory | null;
   failureDetail?: RunFailureDetail | null;
+  /** The daemon's verdict on the same failure: what the user should do, and
+   *  whether re-running can help at all. Carried on the terminal frame for the
+   *  same reason as the classification above — the chat decides which button
+   *  the error card leads with, and re-deriving retryability from the detail
+   *  name on the client is exactly the drift these fields exist to end.
+   *  Mirror ChatRunStatusResponse.failureAction / retryable; both absent from
+   *  older daemons, and absence means "no verdict", not `retryable: false`. */
+  failureAction?: RunFailureAction | null;
+  retryable?: boolean | null;
   strategyTask?: StrategyTaskProjectionV2;
 }
 

@@ -12667,6 +12667,16 @@ export async function startServer({
       run.failureCategory = result === 'failed' ? failure?.failure_category ?? null : null;
       run.failureDetail = result === 'failed' ? failure?.failure_detail ?? null : null;
       run.failureAction = result === 'failed' ? failure?.user_action ?? null : null;
+      // The classifier's own retryability verdict. Kept alongside `user_action`
+      // rather than derived from it: the two are written independently, so a
+      // failure can be non-retryable while still carrying an action other than
+      // `'none'` (install the CLI, switch model, recharge). Without this the
+      // chat can only re-derive retryability from the detail NAME, which is the
+      // drift the classification fields exist to end.
+      run.retryable =
+        result === 'failed' && typeof failure?.retryable === 'boolean'
+          ? failure.retryable
+          : null;
       // Stamp the classification onto the persisted assistant message too, so a
       // reload (or any daemon-side persistence without the live web error
       // handler) keeps the specific failure guidance instead of the coarse

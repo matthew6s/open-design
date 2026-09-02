@@ -542,6 +542,7 @@ function durableRunState(run) {
     failureCategory: run.failureCategory ?? null,
     failureDetail: run.failureDetail ?? null,
     failureAction: run.failureAction ?? null,
+    retryable: run.retryable ?? null,
     cancelOrigin: run.cancelOrigin ?? null,
     terminalTrigger: run.terminalTrigger ?? null,
     resumable: run.resumable ?? false,
@@ -1133,6 +1134,7 @@ export function createChatRunService({
     run.failureCategory = null;
     run.failureDetail = null;
     run.failureAction = null;
+    run.retryable = null;
     run.resumable = false;
     run.cancelRequested = false;
     run.cancelOrigin = null;
@@ -1291,6 +1293,7 @@ export function createChatRunService({
     failureCategory: run.failureCategory ?? null,
     failureDetail: run.failureDetail ?? null,
     failureAction: run.failureAction ?? null,
+    retryable: run.retryable ?? null,
     resumable: run.resumable ?? false,
     endedWithUnfinishedWork: !!run.endedWithUnfinishedWork,
     ...(Number.isFinite(run.artifactCount) ? { artifactCount: run.artifactCount } : {}),
@@ -1399,6 +1402,13 @@ export function createChatRunService({
       ...(Array.isArray(run.artifactPaths) ? { artifactPaths: run.artifactPaths } : {}),
       failureCategory: run.failureCategory ?? null,
       failureDetail: run.failureDetail ?? null,
+      // The verdict, not just the classification: what the user should do, and
+      // whether re-running can help. The chat picks the error card's button off
+      // this frame, so leaving them out forced it to re-derive retryability from
+      // the detail NAME — a lookup table that disagreed with the daemon on
+      // forty-odd causes it had already ruled futile.
+      failureAction: run.failureAction ?? null,
+      retryable: run.retryable ?? null,
       ...(run.strategyTask ? { strategyTask: run.strategyTask } : {}),
     }, terminalAt, false);
     for (const sse of run.clients) sse.end();

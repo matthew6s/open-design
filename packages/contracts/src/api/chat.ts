@@ -724,6 +724,16 @@ export interface ChatRunStatusResponse {
   failureDetail?: RunFailureDetail | null;
   /** Recommended recovery action derived from the same failure classification. */
   failureAction?: RunFailureAction | null;
+  /** The classifier's own verdict on whether re-running this can help
+   *  (`run-failure-classification.ts` → `retryable`). Published alongside
+   *  `failureAction` because the two are written independently: a failure can be
+   *  `retryable: false` and still carry an action other than `'none'`
+   *  (install the CLI, switch model, recharge). Absent on success / older
+   *  daemons, and an absent verdict must be read as "no verdict" rather than
+   *  as `false` — the classifier's own last-resort `unknown` row is stamped
+   *  `retryable: false` by default, so treating absence as a verdict would
+   *  strip Retry from precisely the unclassified failures that deserve it. */
+  retryable?: boolean | null;
   /** True when this terminal failure can be recovered by resuming the agent's
    *  existing CLI session (a transient upstream drop / inactivity timeout on a
    *  session-resuming runtime), rather than only restarting from scratch. The
@@ -883,6 +893,12 @@ export type PersistedAgentEvent =
   // `failureCategory` / `failureDetail` carry the daemon's finer classification
   // for the same failure, so the error card can name a specific type + fix even
   // when many causes share one `code` (e.g. hard_quota vs a transient 429).
+  // `retryable` / `failureAction` carry the daemon's VERDICT on that same
+  // failure — whether re-running can help, and what the user should do instead.
+  // The card reads them off this persisted event, so a reloaded conversation
+  // resolves to the same button the live stream did. Both absent on events
+  // written before they existed; see the note on `ChatRunStatusResponse` for why
+  // absence must not be read as `retryable: false`.
   | {
       kind: 'status';
       label: string;
@@ -890,6 +906,8 @@ export type PersistedAgentEvent =
       code?: string;
       failureCategory?: RunFailureCategory;
       failureDetail?: RunFailureDetail;
+      failureAction?: RunFailureAction;
+      retryable?: boolean;
       /**
        * `label: 'error'` only. Bounded, secret-redacted tail of the agent
        * process's stderr for this run — the original cause behind a generic
