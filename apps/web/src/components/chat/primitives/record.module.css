@@ -144,38 +144,47 @@
   border-radius: 0;
 }
 /*
- * 注脚那一档的墨色 —— **执行记录自己**那一档静音灰。
+ * 任务进度那一族的墨色 —— **正文深色**,不是静音灰。
  *
- * ## 三枚同值 token,不是一枚被抄了三遍
+ * ## 2026-09-02 掉头:整族从静音灰拉回深色
  *
- * 稿子里 `#a3a3a3` 出现在三个**各自独立**的 token 上,每一枚都写明了「不联动谁」:
- *   · `--progress-detail-ink`(components.css:1065)「步骤小结与正常命令行使用独立的
- *     浅灰色,**不联动 Thinking 滚动流**」
- *   · `--stream-ink`(components.css:28)滚动流里的推理,产品单独指定的色号
- *   · `--message-muted-ink`(components.css:409)「时间 / 复制 / 反馈 / fork」那一层,
- *     稿子写明「**不联动全局次级文字或已选中的反馈状态**」
+ * 上一版这里是 `#a3a3a3`,照的是当时的稿子。设计当天下午 `104fc5c5dc` 把这条整个
+ * **反转**了(不是补丁,是掉头),最新稿 `361b78253e` 的原文:
+ *   `.fold.mod-flat { --progress-detail-ink: var(--text-strong) }`(components.css:1066)
+ * 注释也跟着改:「步骤小结与正常命令行**跟随步骤标题色**,不联动 Thinking 滚动流」。
+ * 用户 2026-09-02 看过浏览器里的最新稿后确认:「就按他设计稿对齐,是我们之前讨论的结果」。
  *
- * 所以这三枚**不合并**(2026-09-02 复核结论)。合并等于把三处互相独立的产品决定绑成
- * 一处:哪天「反馈按钮再淡一点」或「思考流再淡一点」落下来,执行记录会跟着一起变。
- * 值相同是**今天碰巧**,不是同一件事。`styles/chat.css` 那枚 `--chat-message-muted-ink`
- * 的注释里已经把同一条道理写过一遍(「谁用它谁自己声明一次,而不是挂到 chat 根上
- * 让整棵树都继承得到:那样迟早会有人『顺手』拿它染别的东西」)——这里照同一条走。
+ * 所以整族(步骤间小结 / 步骤耗时 / 可折叠命令行 / 工具行的每一格)现在都是
+ * `--text-strong`,浅色主题下 `#202020` —— 和产品 `--chat-text-strong` 逐字节相同。
+ *
+ * ## 终端块**不**跟着掉头 —— 它现在有自己的一枚
+ *
+ * 最新稿里 `.term` / `.term.mod-cmd` / `.term .er` 仍是字面 `#A3A3A3`
+ * (components.css:2419 / 2439 / 2450),而那条把整族染深的规则挂在
+ * `.fold.mod-flat .tool` 与 `--progress-detail-ink` 上,**够不着终端块**。
+ * 上一版让终端块从 `.fold.flat` 继承这枚 token —— 那时两边同值,看不出问题;
+ * 掉头之后同一枚变量要同时给出两个值,做不到。所以终端块领了自己的
+ * `--chat-terminal-ink`(见文件下方 `.term`),两边各有各的出处。
+ * 判据钉在 `record-progress-ink-latest-spec.test.tsx`:一条盯「进度变深」、
+ * 一条盯「终端仍浅」,少一条就防不住「一翻全翻」。
  *
  * ## 为什么两个选择器一起声明
  *
- * 消费它的有两类盒子:扁平壳里的那几层(小结 / 步骤耗时 / 可折叠命令行 / 终端块
- * 那三行),以及**工具行自己**。稿子在 `.tool` 一族里写的是字面量 `#A3A3A3` 而不是
- * `var(…)`,正因为工具行不保证住在扁平壳里(稿子里它也能独立出现)。产品这边不写
- * 字面量(仓库规约:组件 CSS Module 只消费 `--chat-*`),改成**谁用谁声明一次** ——
- * 值仍然只有这一个出处。
- *
- * 终端块(`.term` 一族,文件下方)**不**单列一个所有者:它只由 `ToolRow` 的可折叠
- * 那一支渲染,而 `ToolRow` 只从 `ExecutionShell` 出来,永远坐在 `.fold.flat` 里面 ——
- * 补一个所有者今天没有任何一条路径能走到,那是死代码。
+ * 消费它的有两类盒子:扁平壳里的那几层,以及**工具行自己**。稿子在 `.tool` 一族里
+ * 写的是字面量而不是 `var(…)`,正因为工具行不保证住在扁平壳里(稿子里它也能独立
+ * 出现)。产品这边不写字面量(仓库规约:组件 CSS Module 只消费 `--chat-*`),
+ * 改成**谁用谁声明一次** —— 值仍然只有这一个出处。
  */
 /* 两个所有者写在**同一行**是有原因的:`record-label-rail.test.ts` 按行首锚点
    (`^\.tool\s*\{`)找 `.tool` 那条规则读 `gap`,换行会让它先撞上这一条。 */
-.fold.flat, .tool { --chat-progress-detail-ink: #a3a3a3; }
+.fold.flat, .tool { --chat-progress-detail-ink: var(--chat-text-strong); }
+/*
+ * 壳头自己那一行的总耗时(稿子 1042 新增:
+ * `.fold.mod-flat > summary .ms { color: var(--text-strong) }`)。
+ * 基础的 `.fold > summary .ms` 是 `--text-soft`(#848484)—— 那一档留给**别处**的
+ * 折叠头;扁平壳这一行跟着整族走深。
+ */
+.fold.flat > summary .meta { color: var(--chat-text-strong); }
 .fold.flat > summary {
   margin-inline: -7px;
   padding: 6px 7px;
@@ -281,9 +290,11 @@
  */
 .fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow) {
   padding-inline-start: 22px;
-  /* 夹在两步中间的这几句是注脚,不是开场白:12px + 静音灰
-     (稿子:「步骤间的小结用 12px;开头说明保留 13px」) */
-  font-size: var(--chat-t-mini);
+  /* 稿子 1071-1076(`104fc5c5dc` 改过这一格):「步骤间的小结**与正文同为 13px**,
+     但降到常规字重,避免盖过步骤标题」。上一版是 12px + 静音灰,配的是掉头前
+     那套「整族退后一档」;掉头之后它跟步骤标题同色,靠**字重**而不是字号 / 墨色分主次。 */
+  font-size: var(--chat-t-body);
+  font-weight: 400;
   color: var(--chat-progress-detail-ink);
 }
 /* 行内代码自带 --chat-text-strong;不接管的话一段静音里会留下几个黑块 */
@@ -430,6 +441,23 @@
 .fold.flat .fold:not(.fail) > summary:has(> .summaryContent > .icon) .icon > svg {
   color: inherit;
 }
+/*
+ * 标题和耗时**两种状态都走正文深色**(稿子 1107:
+ * `.fold.mod-flat .fold > summary:has(> .ti) > :is(.nm, .ms) { color: var(--text-strong) }`)。
+ *
+ * ⚠️ 这一条**故意不带** `:not(.fail)` —— 稿子 `104fc5c5dc` 把那个排除**去掉了**。
+ * 上面那条(整行 + 图标)仍带排除,两条分工是稿子自己的分工:
+ *   失败行的**图标**留红(`.fold.fail > summary .icon`),
+ *   失败行的**标题和耗时**跟着深色 —— 失败是状态,由图标和「失败」二字标,
+ *   标题写的是这一步在干什么,不是错误本身。
+ * 少了这一条,失败命令行的耗时会掉回基础的 `--chat-text-soft`(#848484)。
+ *
+ * 换算同上:稿子的 `> .nm` 在产品里隔着一层 `.summaryContent`,`> .ms` 仍是直接子代。
+ */
+.fold.flat .fold > summary:has(> .summaryContent > .icon) > .summaryContent > .name,
+.fold.flat .fold > summary:has(> .summaryContent > .icon) > .meta {
+  color: var(--chat-text-strong);
+}
 
 /* ── 工具行 ─────────────────────────────────────────────────── */
 
@@ -443,14 +471,14 @@
   background: var(--chat-bg);
   font-size: var(--chat-t-body);
   /*
-   * **整行退到静音灰**(稿子 `.tool { … color: #A3A3A3; line-height: var(--lh-row) }`,
-   * components.css:2167-2171)。
+   * **整行跟着任务进度走正文深色**(最新稿 2236-2239:
+   * `.fold.mod-flat .tool:not(.is-fail) { color: var(--text-strong) }`,失败那一支同值)。
    *
-   * 这里原来写的是 `var(--chat-text)`(#494949),注释说「稿子 `.tool { color: var(--text) }`」
-   * —— 那是**读的旧稿**。用户 2026-09-02 并排对比截图指出的就是这一行:
-   * 稿子里「搜索 / 读取 / 新建 / 执行」四种工具行整行都是浅灰、明显退后一档,
-   * 产品里和步骤标题一样深。这一档不是「次级文字」,是**注脚**:
-   * 一摞十几条调用记录,逐条读没有意义,要读的是标题和结果。
+   * ⚠️ 这里 2026-09-02 上午刚按当时的稿子改成静音灰,当天下午 `104fc5c5dc` 又**掉头**了:
+   * 稿子给 `.tool` 一族保留的 `#A3A3A3` 只管**独立出现**的工具行,而坐在
+   * `.fold.mod-flat` 里的那一份被新规则整族覆盖成深色。产品这边 `ToolRow` 只从
+   * `ExecutionShell` 出来、永远坐在扁平壳里,所以「独立出现」那一档在这里没有落点 ——
+   * 一条 `--chat-progress-detail-ink` 就是全部。
    *
    * 行高 1.5(--lh-row)照旧,原来没写会继承到外层的 1.7,整行高出 2.6px。
    */
@@ -484,6 +512,13 @@
  * 秒数和箭头被顶到行尾(188 → 368),整条抽屉头跟稿子对不上。
  */
 .fold > summary .name { flex: 0 1 auto; }
+/*
+ * 工具行的标题压到**常规字重**(最新稿 2144-2147 给 `.tool .nm` 补的 `font-weight: 400`)。
+ * 整族拉回深色之后,行标题和步骤标题同色了 —— 主次改由字重分:步骤 500,行 400。
+ * 只挂 `.tool`,不挂裸 `.name`:折叠头那一份的 500 由 summary 自己那条给,并成一条会
+ * 把抽屉标题一起压平。
+ */
+.tool .name { font-weight: 400; }
 .name code {
   /* 全局 `code` 是行内代码芯片(底色 + 1px 5px 内距 + 圆角);稿子这里的 code
      只是等宽的文件名,不带芯片。不清掉的话每一行文件名都比稿子胖一圈。 */
@@ -537,7 +572,9 @@
   text-align: center;
   font-family: var(--chat-font-mono);
   font-size: var(--chat-t-cap);
-  color: var(--chat-text-soft);
+  /* 稿子 2237 把 `.pk` 也列进了「任务进度整族深色」那条,和行首图标同档;
+     原来的 `--chat-text-soft`(#848484)是掉头之前那套配色留下的。 */
+  color: var(--chat-progress-detail-ink);
 }
 
 /*
@@ -567,7 +604,9 @@
 .tool.fail {
   border-color: var(--chat-red-border);
   background: var(--chat-red-bg);
-  color: var(--chat-text);
+  /* 稿子 2238-2239 把失败行**整行**也列进了「任务进度整族深色」那条,
+     和成功行同色 —— 红只留给行首图标和「失败」二字。 */
+  color: var(--chat-text-strong);
 }
 .why {
   flex: none;
@@ -600,17 +639,29 @@
   border-radius: 0;
   font-family: var(--chat-font-mono);
   font-size: var(--chat-t-mini);
-  color: var(--chat-text-strong);
+  /*
+   * **跟着整行走,不自己钉一档**(稿子 2196 `.tool .fn code { … color: inherit }`)。
+   * 原来这里写死 `--chat-text-strong`,在「整行退到静音灰」那一版里文件名比整行深一档 ——
+   * 稿子从来没让它单独深:它是那一行的一部分,行是什么色它就是什么色。
+   * 今天两边算出来都是 #202020,但写法不同的后果在失败行上看得见(见下面那条)。
+   */
+  color: inherit;
   text-underline-offset: 2px;
   transition: text-decoration-color var(--chat-dur-quick) var(--chat-ease-out);
 }
-.file:hover code { text-decoration: underline; text-decoration-color: var(--chat-text-soft); }
+/* 下划线也跟着这一行的字色走(稿子 2241 `… .fn:hover code { text-decoration-color: currentColor }`)。
+   原来钉的是 `--chat-text-soft`(#848484),在深色的行上会比字浅两档。 */
+.file:hover code { text-decoration: underline; text-decoration-color: currentColor; }
 /* 打不开的那一档(读取到的文件、搜索模式、命令)—— 同一副等宽外观,
    但不给手型、不给悬停下划线:看起来能点、点了没反应比一开始就不像链接更糟。
    判据见 `runtime/chat/record-file-open.ts`,渲染分叉在 `FileButton.tsx`。 */
 .fileStatic { cursor: default; }
 .fileStatic:hover code { text-decoration: none; }
-.tool.fail .file code { color: var(--chat-text); }
+/* 失败行的文件名同样是正文深色(稿子 2239 把 `.is-fail` 那一支的 `.nm code`
+   一并列进了整族深色那条)。原来是 `--chat-text`(#494949),比同一行的其它字浅一档。
+   这一条**照稿子留成显式的**,不靠上面那句 `inherit` 兜:稿子两支各写一次,
+   失败行哪天要换整行底色时,文件名不会跟着漂。 */
+.tool.fail .file code { color: var(--chat-text-strong); }
 
 /* ── 状态记号 ───────────────────────────────────────────────── */
 
@@ -894,8 +945,8 @@
 /*
  * ## 终端块的三档墨色:稿子里是**同一个灰**,区分不靠颜色
  *
- * 稿子(853da24ea5 `components.css:2409 / 2429 / 2440`,与交付稿 8015870095 逐字相同)
- * 三处写的都是字面量 `#A3A3A3`:
+ * 稿子(最新稿 361b78253e `components.css:2419 / 2439 / 2450`;交付稿 8015870095、
+ * 中间稿 853da24ea5 逐字相同,只是行号前后移过)三处写的都是字面量 `#A3A3A3`:
  *   `.term        { … color: #A3A3A3 }`   ← 普通输出
  *   `.term.mod-cmd{ … color: #A3A3A3 }`   ← 命令那一行
  *   `.term .er    { color: #A3A3A3 }`     ← 报错那一行
@@ -912,18 +963,31 @@
  * 所以下面三条同色是**有意的**;真要退化,退的是那两枚标记,不是这三个色号。
  * 守卫见 `record-surface-and-terminal-ink.test.tsx`(会盯着 `$` 和红 `✗` 还在不在)。
  *
- * 产品这边不写字面量(仓库规约:组件 CSS Module 只消费 `--chat-*`),走
- * `--chat-progress-detail-ink` —— 全文件那一档静音灰只有一个出处,声明在文件上方的
- * `.fold.flat, .tool` 上,终端块从 `.fold.flat` 继承得到。
+ * ## ⚠️ 终端块**不跟着任务进度掉头** —— 所以它有自己的一枚 token
+ *
+ * `104fc5c5dc` 把任务进度整族从静音灰拉回了正文深色,可它**只覆盖到**
+ * `.fold.mod-flat .tool` 和 `--progress-detail-ink` 那几条,`.term` 一族三个
+ * 字面量原地未动。最新稿在浏览器里量过:终端块 `rgb(163, 163, 163)`。
+ *
+ * 上一版让终端块从 `.fold.flat` 继承 `--chat-progress-detail-ink` —— 那时两边同值,
+ * 看不出这是两件事;掉头之后同一枚变量要同时给出两个值,做不到。所以这里领一枚
+ * 自己的 `--chat-terminal-ink`:值仍然只有一个出处(声明在 `.term` 上,
+ * `.term.cmd` / `.term .er` 从它继承),而「进度变深、终端不动」两边各自站得住。
+ *
+ * 产品这边不写字面量(仓库规约:组件 CSS Module 只消费 `--chat-*`),所以走
+ * 「谁用谁声明一次」—— 和 `--chat-progress-detail-ink`、`--chat-stream-ink`、
+ * `--chat-message-muted-ink` 同一条路子。这几枚**不合并**:值相同是今天碰巧,
+ * 稿子给每一枚都写明了「不联动谁」。
  */
 .term {
+  --chat-terminal-ink: #a3a3a3;
   max-height: 104px;
   overflow-y: auto;
   padding: 9px 11px;
   font-family: var(--chat-font-mono);
   font-size: var(--chat-t-cap);
   line-height: 1.65;
-  color: var(--chat-progress-detail-ink);
+  color: var(--chat-terminal-ink);
 }
 .fold .body.stack .term{ padding: 7px 9px; }
 /*
@@ -944,13 +1008,13 @@
 
 /* 命令那一行:和输出**同色**(见上面那段),区分全靠行首这个 $;
    回绕时对齐到命令本身而不是 $ 下面 */
-.term.cmd { color: var(--chat-progress-detail-ink); }
+.term.cmd { color: var(--chat-terminal-ink); }
 .term.cmd div { padding-inline-start: 13px; text-indent: -13px; }
 .term.cmd div::before { content: '$ '; color: var(--chat-text-faint); }
 
 .term .ok { color: var(--chat-brand-text); }
 /* 报错行也是同一档灰,整行不红;红的只有行首那枚 ✗(下一条) */
-.term .er { color: var(--chat-progress-detail-ink); }
+.term .er { color: var(--chat-terminal-ink); }
 .term .er::first-letter { color: var(--chat-red); font-weight: 700; }
 
 /* ── 生图(组件 12)──────────────────────────────────────────

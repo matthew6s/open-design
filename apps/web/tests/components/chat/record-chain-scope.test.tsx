@@ -61,7 +61,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '../../../src');
 const R = recordStyles as unknown as Record<string, string>;
 
-/* ── CSS Module 哈希 + 层叠(与 `record-muted-ink.test.tsx` 同一副打法)────── */
+/* ── CSS Module 哈希 + 层叠(与 `record-ink-layers.test.tsx` 同一副打法)────── */
 
 function hashOf(mod: unknown): string {
   const probe = (mod as Record<string, string>).odHashProbe;
