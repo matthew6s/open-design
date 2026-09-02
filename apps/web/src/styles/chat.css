@@ -2368,9 +2368,13 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
     opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.chat-queued-send-row:hover {
-  background: color-mix(in srgb, var(--bg-subtle) 70%, transparent);
-}
+/* 整行 hover **不铺底** —— 稿子里 hover 反馈只挂在控件上
+   (`components.css:2909` 的 `.grip:hover` 换字色、:2935 的 `.qops button:hover`
+   换底色 + 字色),`.queue` 一族里**没有** `.queue .q:hover` 这条规则。
+   原来这里那条整行底色是**卡片时代的残留**:它和已经被撤掉的 `border` /
+   `background` / `min-height` / `box-shadow` 是同一批进来的,按稿子还原那一版
+   把那几条都收了,唯独漏了它。队列今天是一叠靠分隔线立起来的待办,
+   整行铺色会读成「这一条被选中了」,而队列里没有"选中"这个状态。 */
 
 .chat-queued-send-row-dragging {
   opacity: 0.45;
@@ -2482,11 +2486,24 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   opacity: 0.35;
 }
 
-.chat-queued-send-drag-handle:hover:not(:disabled),
+/* 稿子把「抓手」和「按钮」的 hover **分开写**,两边的值一条都不一样,
+   合成一条选择器就必然有一半是错的:
+     · `components.css:2909`  `.queue .q .grip:hover { color: var(--text-muted) }`
+       —— 整条规则**只有这一句**,不铺底;
+     · `components.css:2935`  `.qops button:hover { background: var(--bg-fill-secondary);
+                                                    color: var(--text-strong) }`。
+   原来两者共用 `background: var(--bg-panel); color: var(--text)`:手柄多了一块稿子
+   没有的底(抓手一 hover 就读成一颗按钮),动作键的底色与字色也都不在稿子那两档上。
+
+   `border-color` 一并去掉 —— 基础那条写的是 `border: 0`,0 宽的边染什么色都看不见,
+   是条死声明;留着只会让下一个人以为 hover 时有一圈描边。 */
+.chat-queued-send-drag-handle:hover:not(:disabled) {
+  color: var(--text-muted);
+}
+
 .chat-queued-send-action:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--border) 84%, transparent);
-  background: var(--bg-panel);
-  color: var(--text);
+  background: var(--bg-fill-secondary);
+  color: var(--text-strong);
 }
 
 .chat-queued-send-drag-handle:focus-visible,
@@ -3690,6 +3707,11 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   line-clamp: 2;
   overflow: hidden;
   white-space: normal;
+  /* 稿子 `components.css:327` 把 `.queue .q .tx` 和终端输出并成一条:
+       `.term div, .queue .q .tx { overflow-wrap: anywhere }`
+     这一格装的是用户自己写的话,里头可能有一整条 URL 或一串没有空格的路径。
+     不给这一条,那种长串在两行的盒子里既不换行也不参与 clamp,直接把行撑破。 */
+  overflow-wrap: anywhere;
 }
 
 /* ── 壳外正文的逐字化开(组件 4 / 13,W9)────────────────────────────

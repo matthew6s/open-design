@@ -9,10 +9,8 @@
  * 会在这里红,提醒他连同触发条件一起补齐。
  *
  * ── ① 队列首行高亮 `.chat-queued-send-row-active` ──────────────────
- * `styles/chat.css:2377` 写着
+ * `styles/chat.css:2377` 曾写着
  *   .chat-queued-send-row-active { border-color: …; background: color-mix(…); }
- * 类**确实挂上去了**(`ChatPane.tsx`,`index === 0` 那一行),所以死的是规则不是类
- * (类名本身留着:`ChatPane.tsx` 不在这一轮授权改的文件里,已单独列出)。
  * 死因是层叠:同一份文件靠后的 `styles/chat.css:3587`
  *   .chat-queued-send-row { … border: 0; border-radius: 0; background: none; … }
  * 特异性同为 (0,0,1,0)、位置在后 —— `border` / `background` 两条简写把
@@ -20,8 +18,15 @@
  *   #408 .chat-queued-send-row  →  #409 .chat-queued-send-row-active  →  #553 .chat-queued-send-row
  * 三条同为 (0,0,1,0),赢的是最后那条,读回 `transparent`。
  *
- * 稿子那边也没有这个高亮:`361b78253e:docs/design/chat-panel/src/components.css`
- * 的 `.queue .q` 一族只有 `:first-child { border-top: none }`,没有首行底色。
+ * **规则和类名今天都已经删掉了**(2026-09-02)。原来这里写的是「类名留着,等设计定」——
+ * 稿子已经把这件事答了:`361b78253e:docs/design/chat-panel/src/components.css:2898`
+ *   `.queue .q:first-child { border-top: none; }`
+ * 这是 `.queue .q:first-child` 在整份稿子里**唯一**的一条规则 —— 首行只少一道上边线,
+ * 不换底色、不换描边。所以按 1:1 对齐,类名也没有留着的理由,它已经从 `src/` 里清干净。
+ * 逐值对稿的断言在 `queue-draft-alignment.test.tsx`。
+ *
+ * 这一节因此留下来当**反向护栏**:哪天有人把首行高亮重新做出来,得先让新规则赢过
+ * 后置那条 (0,0,1,0),而不是像上次那样加一条被静默压掉的声明。
  *
  * ── ② 滚动遮罩 `.chat-queued-send-list.is-scrollable` ───────────────
  * `styles/chat.css:2324`。`is-scrollable` 这个类在整个 `src/` 里**只有一处**
@@ -86,7 +91,9 @@ const CSS = createResolver(
 /**
  * 排队条的真实结构(`ChatPane.tsx`):
  *   .chat-queued-send-strip > .chat-queued-send-list > .chat-queued-send-row
- * 首行额外挂 `.chat-queued-send-row-active`。
+ *
+ * `-active` 这里是**手工挂上去的**(产品已经不挂了)—— 它要问的是
+ * 「就算有人把这个类挂回来,屏幕上会不会多出一档高亮」,答案必须是不会。
  */
 function stage(): { plain: Element; active: Element; list: Element } {
   const { container } = render(
@@ -124,10 +131,24 @@ describe('排队条 · 首行高亮那条规则是死的', () => {
     expect(CSS.resolved(list)['padding-right']).toBe('0px');
   });
 
-  it('首行那个类还挂着 —— 所以「死的是规则」这句话有对象', () => {
-    // 类名留在 TSX 里(那份文件不在这一轮授权范围内)。它现在没有任何规则消费:
-    // 谁要把首行高亮真正做出来,补规则的同时得先让它赢过后置那条 (0,0,1,0)。
-    expect(CHAT_PANE_TSX).toContain("index === 0 ? ' chat-queued-send-row-active' : ''");
+  it('类名已经从整棵 src/ 树里清掉了 —— 稿子首行没有高亮', () => {
+    // 稿子 `components.css:2898` 的 `.queue .q:first-child { border-top: none }` 是首行
+    // 唯一的处理。规则删了、类名也删了,`src/` 里不该再有任何一处产出这个类名。
+    const producers: string[] = [];
+    for (const file of everySource(resolve(WEB, 'src'))) {
+      if (readFileSync(file, 'utf-8').includes('chat-queued-send-row-active')) {
+        producers.push(file.slice(resolve(WEB, 'src').length + 1));
+      }
+    }
+    expect(producers).toEqual([]);
+    // 校准:同一把「找产地」的量法在一个**还活着**的队列类名上找得到东西
+    const alive: string[] = [];
+    for (const file of everySource(resolve(WEB, 'src'))) {
+      if (readFileSync(file, 'utf-8').includes('chat-queued-send-row-dragging')) {
+        alive.push(file.slice(resolve(WEB, 'src').length + 1));
+      }
+    }
+    expect(alive).toContain('components/ChatPane.tsx');
   });
 
   it('挂上 -active 和不挂,底色一模一样(而且都是 transparent)', () => {

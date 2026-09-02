@@ -448,7 +448,7 @@ OPEND-2188「镜像陈列页」**已经存在**,但不是 web 的 dev 路由,而
 |---|---|---|---|---|---|
 | 1 | plan-card | 执行中 · 逐条打勾 | 无对位实现;最接近 `ExecutionShell.tsx:403-421` `PlanRow` | 有偏差(结构级) | 稿子是一张独立 `.card`(卡头 orb + 计数 N/M + 白底 `<ol class="steps">` + 148px 限高滚动);产品是执行记录里的一只 `Foldable`,三样都没有。⚠️ `PlanPill.tsx:17` 记「展开态那张独立卡拍板不做(D33 / S9)」—— **需确认这条裁决是否覆盖本格** |
 | 2 | plan-card | 收起 · 第 N/M 步 | `PlanPill.tsx:87-133`;`PlanPill.module.css:17-136` | 有偏差 | ① `.pill` 与 `.steps li.now` 用 `--chat-text-strong` `#202020`,稿 `--plan-current-text` `#353535`;② 稿新增 `.steps li { font-weight: 400 }` 产品没写;③ 非当前那几档的灰**已由并行 agent 本轮改对**(`--chat-text-soft` = `#848484` = 稿 `--plan-other-text`),待复验 |
-| 3 | queue | 排队中 | `ChatPane.tsx:5071-5296`;`chat.css` **两段**:2265-2530 与 3492-3660 | 有偏差 + 需量测 | ① 行结构已对;② steer 标签本轮刚补,但**图标仍是 `arrow-up`**,稿子是「箭头进竖线」的回车/插入形 —— 这是 #7170 之前的旧缺口;③ 产品多一档「首行高亮」`.chat-queued-send-row-active`,稿子没有;④ 队列外框已裁决保留;⑤ 两段选择器块的层叠归属 → Q-1~Q-7 |
+| 3 | queue | 排队中 | `ChatPane.tsx:5071-5296`;`chat.css` **两段**:2265-2530 与 3492-3660 | 有偏差 + 需量测 | ① 行结构已对;② steer 标签本轮刚补,但**图标仍是 `arrow-up`**,稿子是「箭头进竖线」的回车/插入形 —— 这是 #7170 之前的旧缺口;~~③ 产品多一档「首行高亮」`.chat-queued-send-row-active`,稿子没有;~~ **③ 2026-09-02 已按稿清掉**(规则先删、类名跟着删)。判据是稿子 `361b78253e:docs/design/chat-panel/src/components.css:2898` 的 `.queue .q:first-child { border-top: none }` —— 这是首行在整份稿子里**唯一**的一条处理,没有首行底色,所以「待设计定」这句话已经有答案。护栏:`tests/components/chat/queue-draft-alignment.test.tsx`(逐值对稿)+ `queue-dead-rules.test.tsx`(类名全树已清 + 就算挂回来也不会多出高亮);④ 队列外框已裁决保留;⑤ 两段选择器块的层叠归属 → Q-1~Q-7 |
 | 4 | queue | 条数多 · 限高滚动 | `chat.css:3550-3557` | 需量测 | `.chat-queued-send-list` 在 `:2285`(`min(31vh,168px)` + flex)和 `:3550`(`122px` + block)**各写一遍、同特异度**,只靠源码顺序决胜。另 `.is-scrollable` 那条渐隐**是死码**(队列上从来没加过这个类) |
 | 5 | queue | 出队 · 变普通消息 | `ProjectView.tsx:9635-9679`、`:7209` | **已实现** | 无 |
 | 6 | upgrade | 额度不足 · < 5 美金 | `UpgradeCard.tsx:64-95`;`UpgradeCard.module.css:30-191` | **已实现**(待复验) | 逐条对上,含星芒 SVG data URI 与稿**逐字节相同**、`.amount b` 用新值 `#f49624`(不是旧的 `#f8672f`)。唯一形态差:稿挂 `.up.mod-glow::after`,产品挂 `.up::after` 无条件出 —— 等价 |
@@ -530,7 +530,7 @@ OPEND-2188「镜像陈列页」**已经存在**,但不是 web 的 dev 路由,而
 | 19 | **音频波形要不要真采样** | 当前是按时长哈希的稳定伪采样,契约里没有波形字段。要不要立项让 daemon 出真采样,是产品 + 后端的事 | 24 |
 | 20 | **错误卡「联系支持」→「联系」** | 与「从失败处重试→重试」同一类文案裁剪(后者产品**已经就是「重试」**,不需改)。19 个 locale 都要跟 | 19 |
 | 21 | **升级卡 CTA 文案 `Upgrade`** | 稿子是单页中文 demo 却在按钮里留了英文,判不出是有意还是遗留 | 18 |
-| 22 | **产品多出来 / 稿子没画的几处** | `.answered .color-answer b` 的等宽字族、队列首行高亮 `.chat-queued-send-row-active`、文档长条的上传失败态(稿子没画,产品自行染红,注释标 S13 待决) | 5 / 17 / 21 |
+| 22 | **产品多出来 / 稿子没画的几处** | `.answered .color-answer b` 的等宽字族、~~队列首行高亮 `.chat-queued-send-row-active`~~(**2026-09-02 已清**,依据同 §7.5 第 3 格 ③)、文档长条的上传失败态(稿子没画,产品自行染红,注释标 S13 待决) | 5 / 17 / 21 |
 
 ---
 

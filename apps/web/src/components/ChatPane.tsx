@@ -5277,6 +5277,27 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
   }
 }
 
+/**
+ * 队列行里那颗提示气泡朝哪边弹。
+ *
+ * 稿子 `361b78253e:docs/design/chat-panel/src/components.css:2693`
+ *   `[data-tip].mod-tip-b::after,
+ *    .queue .q:first-child [data-tip]::after { bottom: auto; top: calc(100% + 6px); }`
+ * 选择器落在首行的**每一个** `[data-tip]` 上,拖拽手柄也在内。
+ * 上一行注释(:2692)把理由写死了:「队列第一行:卡头去掉之后它上面已经没有东西,
+ * 朝上的气泡会顶出限高容器。」
+ *
+ * 我们这边的气泡不是伪元素,是 body 上的 `TooltipLayer` portal,不会被队列的
+ * `max-height` 裁掉;但方向照稿 —— 队列贴在输入框上方,首行朝上的气泡正好盖住
+ * 流水里最后一条消息,朝下弹落在队列自己身上。
+ */
+function queuedTipPlacement(
+  index: number,
+  fallback: 'top' | 'right',
+): 'top' | 'right' | 'bottom' {
+  return index === 0 ? 'bottom' : fallback;
+}
+
   /** 导出只为验收:镜像陈列页(`tests/components/chat/mirror-gallery.test.tsx`)要单挂
    *  这一条队列去对第 72–74 格。产品里仍旧只有 `ChatPane` 一个消费方。 */
   export function QueuedSendStrip({
@@ -5394,7 +5415,12 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
             : '';
           return (
             <div
-              className={`chat-queued-send-row${index === 0 ? ' chat-queued-send-row-active' : ''}${
+              /* 首行**不换任何样式**:稿子 `.queue .q:first-child`
+                 (`361b78253e:docs/design/chat-panel/src/components.css:2898`)
+                 唯一的处理是 `border-top: none`,没有首行底色。
+                 原来这里按 `index === 0` 挂过一枚 `-active`,规则已删、类名也跟着走 ——
+                 留着就是一个没有任何规则消费、却在 diff 里长得像「首行有特殊态」的钩子。 */
+              className={`chat-queued-send-row${
                 editingId === item.id ? ' chat-queued-send-row-editing' : ''
               }${isDragging ? ' chat-queued-send-row-dragging' : ''}${dropClass}`}
               data-testid="chat-queued-send-row"
@@ -5409,7 +5435,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                 className="chat-queued-send-drag-handle chat-queued-send-tooltip od-tooltip"
                 title={t('chat.queuedReorder')}
                 data-tooltip={t('chat.queuedReorder')}
-                data-tooltip-placement="right"
+                data-tooltip-placement={queuedTipPlacement(index, 'right')}
                 aria-label={t('chat.queuedReorder')}
                 draggable={canReorder}
                 disabled={!canReorder}
@@ -5432,7 +5458,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                     className="chat-queued-send-action chat-queued-send-tooltip od-tooltip"
                     title={t('chat.queuedEdit')}
                     data-tooltip={t('chat.queuedEdit')}
-                    data-tooltip-placement="top"
+                    data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.queuedEdit')}
                     onClick={() => onEdit(item)}
                   >
@@ -5446,7 +5472,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                     onClick={() => onRemove(item.id)}
                     title={t('chat.comments.remove')}
                     data-tooltip={t('chat.comments.remove')}
-                    data-tooltip-placement="top"
+                    data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.comments.remove')}
                   >
                     <Icon name="trash" size={13} />
@@ -5475,7 +5501,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                     className="chat-queued-send-action chat-queued-send-action-steer chat-queued-send-tooltip od-tooltip"
                     title={t('chat.queuedSteer')}
                     data-tooltip={t('chat.queuedSteer')}
-                    data-tooltip-placement="top"
+                    data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.queuedSteer')}
                     data-testid="chat-queued-send-steer"
                     onClick={() => onSteer?.(item)}
@@ -5489,7 +5515,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                     className="chat-queued-send-action chat-queued-send-tooltip od-tooltip"
                     title={rowSteerBlockedReason(item, Boolean(onSteer), steerBlockedReason, t)}
                     data-tooltip={rowSteerBlockedReason(item, Boolean(onSteer), steerBlockedReason, t)}
-                    data-tooltip-placement="top"
+                    data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.send')}
                     data-testid="chat-queued-send-now"
                     onClick={() => onSendNow?.(item.id)}
