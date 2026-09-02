@@ -3,7 +3,9 @@
  * emits to ask the user a structured set of clarifying questions before
  * starting design work.
  *
- * Body must be JSON. Example:
+ * Canonical bodies are JSON. A narrow legacy reader also accepts the
+ * `question-select` / `question-text` child-tag shape already persisted in
+ * older conversations. New output must keep using JSON. Example:
  *
  *   <question-form id="discovery" title="Quick brief">
  *   {
@@ -282,7 +284,17 @@ export function hasUnterminatedQuestionForm(input: string): boolean {
 export function couldCompleteAsQuestionFormBody(tail: string): boolean {
   const body = stripLeadingJsonFence(tail).trim();
   if (body.length === 0) return true;
-  return body.startsWith('{') || body.startsWith('[');
+  if (body.startsWith('{') || body.startsWith('[')) return true;
+  return couldCompleteAsLegacyQuestionFormBody(body);
+}
+
+const LEGACY_QUESTION_TAGS = ['<question-select', '<question-text'] as const;
+
+function couldCompleteAsLegacyQuestionFormBody(body: string): boolean {
+  const lower = body.toLowerCase();
+  return LEGACY_QUESTION_TAGS.some(
+    (tag) => tag.startsWith(lower) || lower.startsWith(tag),
+  );
 }
 
 // Consume a leading ```` ```json ```` fence, including one that is itself only
@@ -308,9 +320,58 @@ export function containsQuestionFormAsk(input: string): boolean {
     if (!m) return false;
     const tagName = (m[1] ?? 'question-form').toLowerCase();
     const openEnd = cursor + m.index + m[0].length;
-    if (findCloseTag(input, openEnd, `</${tagName}>`) !== -1) return true;
-    if (couldCompleteAsQuestionFormBody(input.slice(openEnd))) return true;
-    cursor = openEnd;
+    const closeTag = `</${tagName}>`;
+    const closeIdx = findCloseTag(input, openEnd, closeTag);
+    if (closeIdx === -1) {
+      const nestedOpen = OPEN_RE.exec(input.slice(openEnd));
+      if (nestedOpen) {
+        cursor = openEnd + nestedOpen.index;
+        continue;
+      }
+      return couldCompleteAsQuestionFormBody(input.slice(openEnd));
+    }
+    const body = input.slice(openEnd, closeIdx);
+    if (parseForm(body, parseAttrs(m[2] ?? '')).form) return true;
+    const nestedOpen = OPEN_RE.exec(body);
+    cursor = nestedOpen
+      ? openEnd + nestedOpen.index
+      : closeIdx + closeTag.length;
+  }
+  return false;
+}
+
+/**
+ * True when a complete protocol block was emitted but cannot render.
+ *
+ * This is intentionally separate from {@link containsQuestionFormAsk}: an
+ * invalid closed form is neither a text answer nor a clarification handshake.
+ * Delivery classification uses this signal to avoid turning a protocol error
+ * into a green, report-only success. Unterminated bodies are excluded because
+ * they may still be arriving while run finalization and SSE delivery race.
+ */
+export function containsUnrenderableQuestionForm(input: string): boolean {
+  let cursor = 0;
+  while (cursor < input.length) {
+    const m = OPEN_RE.exec(input.slice(cursor));
+    if (!m) return false;
+    const tagName = (m[1] ?? 'question-form').toLowerCase();
+    const closeTag = `</${tagName}>`;
+    const openEnd = cursor + m.index + m[0].length;
+    const closeIdx = findCloseTag(input, openEnd, closeTag);
+    if (closeIdx === -1) {
+      const nestedOpen = OPEN_RE.exec(input.slice(openEnd));
+      if (!nestedOpen) return false;
+      cursor = openEnd + nestedOpen.index;
+      continue;
+    }
+    const body = input.slice(openEnd, closeIdx);
+    if (parseForm(body, parseAttrs(m[2] ?? '')).form) {
+      cursor = closeIdx + closeTag.length;
+      continue;
+    }
+    const nestedOpen = OPEN_RE.exec(body);
+    if (!nestedOpen) return true;
+    cursor = openEnd + nestedOpen.index;
   }
   return false;
 }
@@ -361,7 +422,10 @@ function parseForm(body: string, attrs: Record<string, string>): FormParseResult
   try {
     data = JSON.parse(stripped);
   } catch {
-    return { form: null, reason: 'invalid-json' };
+    const legacyForm = parseLegacyForm(body, attrs);
+    return legacyForm
+      ? { form: legacyForm }
+      : { form: null, reason: 'invalid-json' };
   }
   if (!data || typeof data !== 'object') return { form: null, reason: 'unsupported-payload' };
   const obj = Array.isArray(data) ? {} : (data as Record<string, unknown>);
@@ -391,6 +455,119 @@ function parseForm(body: string, attrs: Record<string, string>): FormParseResult
       ...(lang ? { lang } : {}),
     },
   };
+}
+
+/**
+ * Compatibility reader for the child-tag protocol persisted by older runs.
+ * It is deliberately narrow: the body must contain only `question-select` or
+ * `question-text` children (plus whitespace), and select options must be
+ * balanced `<option>` elements. Arbitrary XML must remain unrenderable.
+ */
+function parseLegacyForm(
+  body: string,
+  attrs: Record<string, string>,
+): QuestionForm | null {
+  const questions: FormQuestion[] = [];
+  const childRe = /<(question-select|question-text)\b([^>]*?)(\/?)>/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = childRe.exec(body)) !== null) {
+    if (body.slice(cursor, match.index).trim()) return null;
+    const tagName = (match[1] ?? '').toLowerCase();
+    const questionAttrs = parseAttrs(match[2] ?? '');
+    const selfClosing = match[3] === '/';
+    const openEnd = match.index + match[0].length;
+    let inner = '';
+    let nextCursor = openEnd;
+    if (!selfClosing) {
+      const closeTag = `</${tagName}>`;
+      const closeIdx = findCloseTag(body, openEnd, closeTag);
+      if (closeIdx === -1) return null;
+      inner = body.slice(openEnd, closeIdx);
+      nextCursor = closeIdx + closeTag.length;
+    }
+
+    const id = cleanLegacyText(questionAttrs.id) || `q${questions.length + 1}`;
+    const labelAttr =
+      cleanLegacyText(questionAttrs.label) ||
+      cleanLegacyText(questionAttrs.prompt) ||
+      cleanLegacyText(questionAttrs.question);
+    const required = questionAttrs.required?.toLowerCase() === 'true';
+    const placeholder = cleanLegacyText(questionAttrs.placeholder);
+
+    if (tagName === 'question-select') {
+      const parsed = parseLegacyOptions(inner);
+      if (!parsed || parsed.options.length === 0) return null;
+      const label = labelAttr || parsed.leadingText || id;
+      questions.push({
+        id,
+        label,
+        type: 'select',
+        options: parsed.options,
+        ...(required ? { required: true } : {}),
+        ...(placeholder ? { placeholder } : {}),
+      });
+    } else {
+      if (/<[^>]+>/.test(inner)) return null;
+      const label = labelAttr || cleanLegacyText(inner) || id;
+      questions.push({
+        id,
+        label,
+        type: 'text',
+        ...(required ? { required: true } : {}),
+        ...(placeholder ? { placeholder } : {}),
+      });
+    }
+    cursor = nextCursor;
+    childRe.lastIndex = nextCursor;
+  }
+  if (questions.length === 0 || body.slice(cursor).trim()) return null;
+  return {
+    id: cleanLegacyText(attrs.id) || 'discovery',
+    title: cleanLegacyText(attrs.title) || 'A few quick questions',
+    questions,
+  };
+}
+
+function parseLegacyOptions(
+  inner: string,
+): { options: FormOption[]; leadingText?: string } | null {
+  const optionRe = /<option\b([^>]*)>([\s\S]*?)<\/option\s*>/gi;
+  const options: FormOption[] = [];
+  let cursor = 0;
+  let leadingText: string | undefined;
+  let match: RegExpExecArray | null;
+  while ((match = optionRe.exec(inner)) !== null) {
+    const rawBetween = inner.slice(cursor, match.index);
+    if (/<[^>]+>/.test(rawBetween)) return null;
+    const between = cleanLegacyText(rawBetween);
+    if (between) {
+      if (options.length > 0 || leadingText) return null;
+      leadingText = between;
+    }
+    const optionAttrs = parseAttrs(match[1] ?? '');
+    const label = cleanLegacyText(match[2] ?? '');
+    if (!label || /<[^>]+>/.test(match[2] ?? '')) return null;
+    const value =
+      cleanLegacyText(optionAttrs.value) || cleanLegacyText(optionAttrs.id) || label;
+    options.push({ label, value });
+    cursor = match.index + match[0].length;
+  }
+  const trailing = inner.slice(cursor);
+  if (/<[^>]+>/.test(trailing) || cleanLegacyText(trailing)) return null;
+  return { options, ...(leadingText ? { leadingText } : {}) };
+}
+
+function cleanLegacyText(value: string | undefined): string {
+  if (!value) return '';
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function mapRawQuestion(q: unknown, index: number): FormQuestion | null {
@@ -471,6 +648,14 @@ export function parsePartialQuestionForm(input: string): QuestionForm | null {
   const attrs = parseAttrs(m[2] ?? '');
   const closeIdx = findCloseTag(input, openEnd, closeTag);
   const rawBody = closeIdx === -1 ? input.slice(openEnd) : input.slice(openEnd, closeIdx);
+  if (couldCompleteAsLegacyQuestionFormBody(rawBody.trim())) {
+    const completed = parseLegacyForm(rawBody, attrs);
+    return completed ?? {
+      id: cleanLegacyText(attrs.id) || 'discovery',
+      title: cleanLegacyText(attrs.title) || 'A few quick questions',
+      questions: [],
+    };
+  }
   // Strip the fenced ```json wrapper some models emit. The opening fence is
   // removed always; the trailing fence is removed too once it streams in
   // (possibly only a partial ``` so far) — otherwise the leftover backticks
