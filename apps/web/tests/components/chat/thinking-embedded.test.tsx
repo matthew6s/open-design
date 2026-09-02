@@ -416,7 +416,8 @@ describe('N7-f 缩进对齐工具行,两态之间不跳', () => {
     return slot && /icon/.test(slot.className) ? slot : null;
   };
 
-  it('思考中 / 思考过程用**同一个** 15px 图标位 —— 左边缘不会跳', () => {
+  // 槽宽 15 → 16 是 `629cb3586a` 改的(和它装的图标同宽);`.step` / `.mark` 仍是 15px。
+  it('思考中 / 思考过程用**同一个** 16px 图标位 —— 左边缘不会跳', () => {
     const live = render(show(shellOf(
       [tool('a.png'), think('推理。')], { status: 'running', thinking: true },
     )));

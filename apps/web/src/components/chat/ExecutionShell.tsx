@@ -386,11 +386,18 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
   useThinkingFollow(bodyRef, live);
 
   /*
-   * 两态的行首都占**同一只 15px 图标槽**(`.icon`)。这是「左边缘不会跳」的另一半:
-   * 光把整格缩进补齐还不够 —— 球自带 `margin-inline: -3px`(`.orb[data-orb-box='24']`),
-   * 直接摆在 summary 里会比 brain 图标再左 3px,思考一结束整行横跳一下。
+   * 两态的行首都占**同一只 16px 图标槽**(`.icon`)。这是「左边缘不会跳」的另一半:
+   * 光把整格缩进补齐还不够 —— 球自带 `margin-inline: -2px`(`.orb[data-orb-box='20']`,
+   * 下面那行传的就是 `box={20}`),直接摆在 summary 里会比 brain 图标再左 2px,
+   * 思考一结束整行横跳一下。
    * 塞进 `place-items: center` 的槽里之后,后面的字只看槽宽,两态一致。
-   * (在 Chrome 里量过:补之前 思考中 x=-3 / 思考过程 x=0,补之后都是 22。)
+   * (在 Chrome 里量过:补之后两态的字都落在 x=23。)
+   *
+   * ⚠️ 这段里的数被两次改动挪过,别照着更早的注释回改:
+   *   · `93d0f16b93` 把球从 box 24 换成 box 20,负边距跟着 −3px → −2px;
+   *   · `629cb3586a` 把槽从 15px 提到 16px(和它装的图标同宽),字的落点 22 → 23。
+   *   `.step`(计划序号)和 `.mark`(状态记号)**没跟着动**,两列仍是 15px ——
+   *   别把这里的 16 顺手套到那两列上,判据在 `w76-icon-slot.test.tsx`。
    */
   const summary = live
     ? (
