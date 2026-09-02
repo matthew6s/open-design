@@ -35,7 +35,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(root, p), 'utf8');
 
 const tokens = read('src/tokens.css');
-const components = read('src/components.css') + '\n' + read('src/thinking-orb.css') + '\n' + read('src/plan-todo.css') + '\n' + read('src/thinking-stream.css') + '\n' + read('src/visual-fan.css') + '\n' + read('src/visual-samples.css') + '\n' + read('src/pixel-liquid.css') + '\n' + read('src/audio-wave.css');
+const components = read('src/components.css') + '\n' + read('src/thinking-orb.css') + '\n' + read('src/plan-todo.css') + '\n' + read('src/thinking-stream.css') + '\n' + read('src/visual-fan.css') + '\n' + read('src/pixel-liquid.css') + '\n' + read('src/audio-wave.css');
 const orbJs = read('src/thinking-orb.js');
 const interactionsJs = read('src/interactions.js');
 const planJs = read('src/plan-todo.js');
@@ -80,6 +80,7 @@ for (const page of PAGES) {
     `<script>document.documentElement.setAttribute('data-theme','${page.theme}')</script>`,
     `<title>${page.title}</title>`,
     '<!-- 本文件由 build.mjs 生成，不要直接改；改 src/components.css 后重新跑。 -->',
+    '<link rel="stylesheet" href="chat-panel/src/visual-samples.css">',
     `<style>${css}</style>`,
     '<style>',
     'body { margin: 0; }',

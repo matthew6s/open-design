@@ -23,17 +23,20 @@ No install step and no dependencies — `build.mjs` uses only Node's standard
 library. `serve.py` exists because the pages are UTF-8 and most one-line static
 servers omit the charset, which makes every Chinese string render as mojibake.
 
-## Why the output is one self-contained file
+## Why the output is almost self-contained
 
-Fonts, sample images, CSS and JS are all inlined. Two constraints force this:
+Fonts, component CSS and JS are inlined. Two constraints drive this:
 
 1. The pages have to work when opened by double-click over `file://`. Browsers
    block cross-origin `url()` font loads there, so a linked font never arrives.
-2. They are reviewed inside sandboxed artifact viewers whose CSP blocks every
-   external request.
+2. They may be reviewed inside sandboxed artifact viewers whose CSP blocks
+   remote requests.
 
-Both pages are ~1.2 MB for that reason. The bulk is two base64 fonts plus the
-four placeholder preview images, not markup.
+The four placeholder preview images are the one exception. They stay in
+`src/visual-samples.css` and the generated pages link that local stylesheet so
+each tracked HTML file remains below the repository's 1 MB blob limit. Opening
+the page through `serve.py` or directly over `file://` still loads them. The
+stylesheet contains only data URLs and makes no network request.
 
 ## Source map
 

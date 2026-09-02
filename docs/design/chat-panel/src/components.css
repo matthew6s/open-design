@@ -1104,7 +1104,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) { color: var(--progress-detail-ink); }
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.ti, .ms),
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > .ti > svg { color: inherit; }
-.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.nm, .ms) { color: #202020; }
+.fold.mod-flat .fold > summary:has(> .ti) > :is(.nm, .ms) { color: var(--text-strong); }
 /* 终端块同样把 7px 的负外边距补回来:左边跟着它上面那行命令,右边收回卡内。
    只改左右两边 —— 上下那份间距是 .code 自己的,写成 margin 简写会把它顶掉。 */
 .fold.mod-flat .body.mod-stack .code { margin-inline: 29px 18px; }
