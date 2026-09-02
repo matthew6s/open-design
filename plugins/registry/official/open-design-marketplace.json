@@ -7097,7 +7097,7 @@
     {
       "name": "open-design/example-open-design-landing",
       "title": "OpenDesign Landing",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "github:nexu-io/open-design@main/plugins/_official/examples/open-design-landing",
       "publisher": {
         "id": "open-design",
