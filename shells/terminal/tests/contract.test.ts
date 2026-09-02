@@ -276,6 +276,35 @@ describe("Terminal native contract", () => {
     }
   });
 
+  it("blocks an unforced Shell install on another attachment of the same Shell type", async () => {
+    const root = mkdtempSync(join(tmpdir(), "terminal-shell-same-type-blocker-"));
+    try {
+      const lifecycle = fixtureLifecycle(root);
+      const scope = { channel: "somechan", namespace: "same-type-blocker" };
+      const generation = { id: "6".repeat(64) } as any;
+      const terminal = { type: "terminal", version: "0.1.0", buildHash: "7".repeat(64), digest: "8".repeat(64) };
+      await lifecycle.start(scope, generation, { id: "terminal-active", shell: terminal }, exactBinding(scope, generation));
+
+      await expect(lifecycle.beginTransition(scope, "shell-install", {
+        ownerAttachmentId: "terminal-updater",
+        ownerShellType: "terminal",
+      })).resolves.toMatchObject({
+        state: "blocked",
+        reason: "occupied",
+        occupants: [{ attachmentId: "terminal-active", shell: { type: "terminal" } }],
+      });
+
+      await lifecycle.start(scope, generation, { id: "terminal-updater", shell: terminal }, exactBinding(scope, generation));
+      await lifecycle.release(scope, "terminal-active");
+      await expect(lifecycle.beginTransition(scope, "shell-install", {
+        ownerAttachmentId: "terminal-updater",
+        ownerShellType: "terminal",
+      })).resolves.toMatchObject({ state: "acquired" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("expires an abandoned transition and fences its stale owner", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-transition-expiry-"));
     try {

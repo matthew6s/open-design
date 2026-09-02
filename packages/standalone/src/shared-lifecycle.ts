@@ -130,13 +130,11 @@ export function projectSharedLifecycleStatus(stateInput: SharedLifecycleState, h
 
 export function sharedLifecycleTransitionBlockers(
   state: SharedLifecycleState,
-  kind: "content-restart" | "shell-install",
+  _kind: "content-restart" | "shell-install",
   owner: Readonly<{ attachmentId?: string; shellType?: string }>,
 ): LifecycleStatus["occupants"] {
   const occupants = projectSharedLifecycleStatus(state, 1_000).occupants;
-  return kind === "content-restart"
-    ? occupants.filter(({ attachmentId }) => attachmentId !== owner.attachmentId)
-    : occupants.filter(({ shell }) => shell.type !== owner.shellType);
+  return occupants.filter(({ attachmentId }) => attachmentId !== owner.attachmentId);
 }
 
 function expectTransition(state: SharedLifecycleState, token: string, fence: number): SharedLifecycleTransitionState {
