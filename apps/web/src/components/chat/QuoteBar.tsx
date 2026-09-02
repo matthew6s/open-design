@@ -1,8 +1,9 @@
 /**
  * 选区浮条(设计稿组件 23 · 第 65 / 66 格)。
  *
- * 在助手正文里选中一段话,这条浮条浮在选区**下方、水平居中**;
- * 下方被 composer 挤住时翻到上方(判据在 `runtime/chat/quote-selection.ts`,能脱离 DOM 测)。
+ * 在助手正文里选中一段话,这条浮条浮在选区**上方、水平居中**(稿子 23-1);
+ * 上方被面板顶边挤住时翻到下方(稿子 23-2)。判据在 `runtime/chat/quote-selection.ts`,
+ * 能脱离 DOM 测。
  *
  * 为什么用 `position: fixed` 而不是稿子的 `absolute`:稿子把浮条画在
  * `<mark class="sel">` 里面 —— 那是静态稿唯一能摆的方式。真实的选区是 DOM Range,
@@ -10,7 +11,14 @@
  */
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { useT } from '../../i18n';
-import { isQuotable, normalizeQuoteText, quoteBarPosition } from '../../runtime/chat/quote-selection';
+import {
+  QUOTE_BAR_DEFAULT_HEIGHT_PX,
+  QUOTE_BAR_DEFAULT_WIDTH_PX,
+  isQuotable,
+  normalizeQuoteText,
+  quoteBarPosition,
+  type QuoteRect,
+} from '../../runtime/chat/quote-selection';
 import styles from './QuoteBar.module.css';
 
 export interface QuoteBarProps {
@@ -34,15 +42,40 @@ interface BarState {
 
 interface SelectionGeometry {
   range: Range;
-  rangeRect: DOMRect;
+  /** 选区**首行**矩形 —— 浮条朝上时贴的就是它 */
+  firstRect: QuoteRect;
+  /** 选区**末行**矩形 —— 翻到下方时贴的是它;单行选区与 `firstRect` 相同 */
+  lastRect: QuoteRect;
   panelRect: DOMRect;
   scrollTop: number;
   text: string;
 }
 
-const DEFAULT_BAR_WIDTH = 112;
-const DEFAULT_BAR_HEIGHT = 34;
 const GEOMETRY_EPSILON = 0.5;
+
+/**
+ * 选区里**看得见的**那两块矩形(首行 / 末行)。
+ *
+ * 不能用 `Range.getBoundingClientRect()`:那是所有 client rect 的**并集**,
+ * 而并集里混着选区末端那个**零宽**的光标矩形。拖选稍微过界一点,末端就落到
+ * 下一个区块的行首 —— 屏幕上一个字都没高亮,并集的下沿却已经跑到那一行去了。
+ * 浮条贴着并集的下沿,于是掉到几百像素以下(现场:选中执行计划里的一行,
+ * 浮条落在「运行…」那一行上、几乎压到输入框)。
+ *
+ * 所以只认**有面积**的矩形,并集退成兜底 —— jsdom 这类没有排版的环境
+ * `getClientRects()` 恒为空,那里仍走并集。
+ */
+function visibleSelectionRects(range: Range): { first: QuoteRect; last: QuoteRect } | null {
+  const painted = Array.from(range.getClientRects() ?? []).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+  const first = painted[0];
+  const last = painted[painted.length - 1];
+  if (first && last) return { first, last };
+  const union = range.getBoundingClientRect();
+  if (union.width === 0 && union.height === 0) return null;
+  return { first: union, last: union };
+}
 
 function readSelectionGeometry(scope: HTMLElement): SelectionGeometry | null {
   const selection = window.getSelection();
@@ -51,11 +84,12 @@ function readSelectionGeometry(scope: HTMLElement): SelectionGeometry | null {
   if (!scope.contains(range.commonAncestorContainer)) return null;
   const text = normalizeQuoteText(selection.toString());
   if (!isQuotable(text)) return null;
-  const rangeRect = range.getBoundingClientRect();
-  if (rangeRect.width === 0 && rangeRect.height === 0) return null;
+  const rects = visibleSelectionRects(range);
+  if (!rects) return null;
   return {
     range,
-    rangeRect,
+    firstRect: rects.first,
+    lastRect: rects.last,
     panelRect: scope.getBoundingClientRect(),
     scrollTop: scope.scrollTop,
     text,
@@ -66,17 +100,21 @@ function near(a: number, b: number): boolean {
   return Math.abs(a - b) < GEOMETRY_EPSILON;
 }
 
+function sameRect(a: QuoteRect, b: QuoteRect): boolean {
+  return (
+    near(a.left, b.left) &&
+    near(a.top, b.top) &&
+    near(a.right, b.right) &&
+    near(a.bottom, b.bottom)
+  );
+}
+
 function sameVisibleGeometry(a: SelectionGeometry, b: SelectionGeometry): boolean {
   return (
     near(a.scrollTop, b.scrollTop) &&
-    near(a.panelRect.left, b.panelRect.left) &&
-    near(a.panelRect.top, b.panelRect.top) &&
-    near(a.panelRect.right, b.panelRect.right) &&
-    near(a.panelRect.bottom, b.panelRect.bottom) &&
-    near(a.rangeRect.left, b.rangeRect.left) &&
-    near(a.rangeRect.top, b.rangeRect.top) &&
-    near(a.rangeRect.right, b.rangeRect.right) &&
-    near(a.rangeRect.bottom, b.rangeRect.bottom)
+    sameRect(a.panelRect, b.panelRect) &&
+    sameRect(a.firstRect, b.firstRect) &&
+    sameRect(a.lastRect, b.lastRect)
   );
 }
 
@@ -132,17 +170,12 @@ export function QuoteBar({
     setSelectionActive(true);
     geometryRef.current = geometry;
     const measuredBar = barRef.current?.getBoundingClientRect();
-    const measuredWidth = measuredBar?.width || DEFAULT_BAR_WIDTH;
-    const measuredHeight = measuredBar?.height || DEFAULT_BAR_HEIGHT;
+    const measuredWidth = measuredBar?.width || QUOTE_BAR_DEFAULT_WIDTH_PX;
+    const measuredHeight = measuredBar?.height || QUOTE_BAR_DEFAULT_HEIGHT_PX;
     const position = quoteBarPosition({
-      selectionLeft: geometry.rangeRect.left,
-      selectionRight: geometry.rangeRect.right,
-      selectionTop: geometry.rangeRect.top,
-      selectionBottom: geometry.rangeRect.bottom,
-      panelLeft: geometry.panelRect.left,
-      panelRight: geometry.panelRect.right,
-      panelTop: geometry.panelRect.top,
-      panelBottom: geometry.panelRect.bottom,
+      first: geometry.firstRect,
+      last: geometry.lastRect,
+      panel: geometry.panelRect,
       barWidth: measuredWidth,
       barHeight: measuredHeight,
     });

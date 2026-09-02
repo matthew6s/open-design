@@ -13,17 +13,31 @@ import {
   splitQuotedPrompt,
 } from '../../../src/runtime/chat/quote-selection';
 
+/** 一块选区矩形,按「左上宽高」写更贴近量出来的样子 */
+const box = (left: number, top: number, width: number, height: number) => ({
+  left,
+  top,
+  right: left + width,
+  bottom: top + height,
+});
+
 describe('浮条翻面(稿子 23-1 / 23-2)', () => {
-  it('上下都放得下时默认摆在选区下方', () => {
+  /*
+   * 稿子 `.selbar { bottom: calc(100% + 7px) }` 是**默认**,
+   * `.selbar.mod-below { top: calc(100% + 6px) }` 才是翻面那一格。
+   * 产品原来反着来 —— 浮条不但盖住接着要读的下一行,还把定位基准换成了
+   * 选区下沿,于是下沿一跑远它就跟着掉下去(OPEND 现场那一发)。
+   */
+  it('上下都放得下时默认摆在选区上方', () => {
     expect(quoteBarPlacement({
       selectionTop: 300,
       selectionBottom: 320,
       panelTop: 100,
       panelBottom: 500,
-    })).toBe('below');
+    })).toBe('above');
   });
 
-  it('选区贴着面板顶边时仍摆在下方', () => {
+  it('选区贴着面板顶边才翻到下方', () => {
     expect(quoteBarPlacement({
       selectionTop: 110,
       selectionBottom: 130,
@@ -32,26 +46,25 @@ describe('浮条翻面(稿子 23-1 / 23-2)', () => {
     })).toBe('below');
   });
 
-  it('下方差一像素放不下才翻到上方', () => {
+  it('上方差一像素放不下才翻到下方', () => {
+    // 需要的空间 = 浮条 34 + 稿子那道 7px 缝
     expect(quoteBarPlacement({
-      selectionTop: 400,
-      selectionBottom: 460,
+      selectionTop: 141,
+      selectionBottom: 165,
       panelTop: 100,
       panelBottom: 500,
       barHeight: 34,
-      gap: 7,
     })).toBe('above');
     expect(quoteBarPlacement({
-      selectionTop: 400,
-      selectionBottom: 459,
+      selectionTop: 140,
+      selectionBottom: 164,
       panelTop: 100,
       panelBottom: 500,
       barHeight: 34,
-      gap: 7,
     })).toBe('below');
   });
 
-  it('选区贴着 composer 时下方放不下,保持在上方', () => {
+  it('选区贴着 composer 时照样在上方 —— 上方本来就是默认', () => {
     expect(quoteBarPlacement({
       selectionTop: 450,
       selectionBottom: 480,
@@ -61,72 +74,76 @@ describe('浮条翻面(稿子 23-1 / 23-2)', () => {
   });
 
   it('上下都放不下时选择空间更大的一侧', () => {
+    // 上 15 / 下 30
     expect(quoteBarPlacement({
       selectionTop: 115,
       selectionBottom: 130,
       panelTop: 100,
-      panelBottom: 170,
+      panelBottom: 160,
     })).toBe('below');
+    // 上 30 / 下 15
+    expect(quoteBarPlacement({
+      selectionTop: 130,
+      selectionBottom: 145,
+      panelTop: 100,
+      panelBottom: 160,
+    })).toBe('above');
   });
 });
 
 describe('浮条位置夹取', () => {
-  it('常规选区把浮条放在选区下方并保留稿子的间隙', () => {
-    const position = quoteBarPosition({
-      selectionLeft: 180,
-      selectionRight: 260,
-      selectionTop: 250,
-      selectionBottom: 270,
-      panelLeft: 100,
-      panelRight: 400,
-      panelTop: 100,
-      panelBottom: 500,
-      barHeight: 34,
-      gap: 7,
-    });
+  const panel = box(100, 100, 300, 400); // 100..400 × 100..500
 
-    expect(position).toEqual({ left: 220, top: 277, placement: 'below' });
+  it('常规选区把浮条放在选区上方并保留稿子的 7px 缝', () => {
+    const line = box(180, 250, 80, 20);
+    const position = quoteBarPosition({ first: line, last: line, panel, barHeight: 34 });
+
+    expect(position).toEqual({ left: 220, top: 243, placement: 'above' });
+  });
+
+  it('翻到下方时用的是稿子的 6px 缝,不是上方那道 7px', () => {
+    const line = box(180, 110, 80, 20);
+    const position = quoteBarPosition({ first: line, last: line, panel, barHeight: 34 });
+
+    expect(position.placement).toBe('below');
+    expect(position.top).toBe(136);
+  });
+
+  /*
+   * 稿子的 CSS 注释把参照写死了:「定位参照是【选区】不是整段」。
+   * 跨行选区的并集中心就是段落中心 —— 正是它警告的那种偏。
+   * 所以贴哪一块就居中于哪一块。
+   */
+  it('跨行选区朝上贴首行、居中于首行;翻下去则贴末行、居中于末行', () => {
+    const firstLine = box(300, 250, 60, 20); // 中心 330
+    const lastLine = box(140, 270, 60, 20); // 中心 170
+    const above = quoteBarPosition({ first: firstLine, last: lastLine, panel, barHeight: 34 });
+    expect(above).toEqual({ left: 330, top: 243, placement: 'above' });
+
+    // 同一段跨行选区贴到面板顶边:翻到下方,基准整个换成末行
+    const flippedFirst = box(300, 110, 60, 20);
+    const flippedLast = box(140, 130, 60, 20);
+    const below = quoteBarPosition({
+      first: flippedFirst,
+      last: flippedLast,
+      panel,
+      barHeight: 34,
+    });
+    expect(below).toEqual({ left: 170, top: 156, placement: 'below' });
   });
 
   it('靠左右边选择时把完整浮条夹在聊天栏内', () => {
-    const left = quoteBarPosition({
-      selectionLeft: 100,
-      selectionRight: 120,
-      selectionTop: 300,
-      selectionBottom: 320,
-      panelLeft: 100,
-      panelRight: 400,
-      panelTop: 100,
-      panelBottom: 500,
-      barWidth: 120,
-    });
-    const right = quoteBarPosition({
-      selectionLeft: 380,
-      selectionRight: 400,
-      selectionTop: 300,
-      selectionBottom: 320,
-      panelLeft: 100,
-      panelRight: 400,
-      panelTop: 100,
-      panelBottom: 500,
-      barWidth: 120,
-    });
+    const leftEdge = box(100, 300, 20, 20);
+    const rightEdge = box(380, 300, 20, 20);
+    const left = quoteBarPosition({ first: leftEdge, last: leftEdge, panel, barWidth: 120 });
+    const right = quoteBarPosition({ first: rightEdge, last: rightEdge, panel, barWidth: 120 });
     expect(left.left).toBe(168);
     expect(right.left).toBe(332);
   });
 
   it('底部选区的浮条坐标不会落进 composer 一侧', () => {
-    const position = quoteBarPosition({
-      selectionLeft: 180,
-      selectionRight: 260,
-      selectionTop: 450,
-      selectionBottom: 480,
-      panelLeft: 100,
-      panelRight: 400,
-      panelTop: 100,
-      panelBottom: 500,
-      barHeight: 34,
-    });
+    const line = box(180, 450, 80, 30);
+    const position = quoteBarPosition({ first: line, last: line, panel, barHeight: 34 });
     expect(position.placement).toBe('above');
     expect(position.top).toBe(443);
     expect(position.top - 34).toBeGreaterThanOrEqual(108);
@@ -134,17 +151,12 @@ describe('浮条位置夹取', () => {
   });
 
   it('选区被聊天视口顶边裁切时仍把下方浮条夹在安全区内', () => {
+    const clipped = box(180, 80, 80, 15);
     const position = quoteBarPosition({
-      selectionLeft: 180,
-      selectionRight: 260,
-      selectionTop: 80,
-      selectionBottom: 95,
-      panelLeft: 100,
-      panelRight: 400,
-      panelTop: 100,
-      panelBottom: 500,
+      first: clipped,
+      last: clipped,
+      panel,
       barHeight: 34,
-      gap: 7,
       edgeInset: 8,
     });
 

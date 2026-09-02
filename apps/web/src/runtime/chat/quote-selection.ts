@@ -14,81 +14,117 @@ export interface ChatQuote {
   messageId: string;
 }
 
+/** 定位用得上的那四条边 —— `DOMRect` 的子集,好让判据脱离 DOM 测。 */
+export interface QuoteRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** 稿子 `.selbar { bottom: calc(100% + 7px) }` —— 朝上时和选区之间的缝。 */
+export const QUOTE_BAR_GAP_ABOVE_PX = 7;
+/** 稿子 `.selbar.mod-below { top: calc(100% + 6px) }` —— 翻到下方时那道缝小 1px。 */
+export const QUOTE_BAR_GAP_BELOW_PX = 6;
+/** 浮条离面板左右/上下边的安全内缩。 */
+export const QUOTE_BAR_EDGE_INSET_PX = 8;
+/** 稿子的 3px 内距 + 28px 按钮;真实浮条量到宽高之前拿它顶一拍。 */
+export const QUOTE_BAR_DEFAULT_WIDTH_PX = 112;
+export const QUOTE_BAR_DEFAULT_HEIGHT_PX = 34;
+
 /**
  * 浮条摆在选区上方还是下方。
  *
- * 默认跟在选区下方；只有下方被 composer 挤住时才翻到上方。
- * 判据是**下方放不下就翻**,不是「离底多少像素」这种拍脑袋的阈值 ——
- * 浮条自己的高度 + 和选区之间那 7px 缝就是它需要的空间。
+ * **默认朝上**(稿子 23-1),只有上方被面板顶边挤住时才翻到下方(稿子 23-2)——
+ * 和 tooltip 那套边界补正同一个道理:浮层默认朝上,容器上面没地方了才翻。
+ *
+ * 朝下当默认是错的,而且错得不止一格:浮条会盖住用户接着要读的下一行,
+ * 更要命的是它把定位基准换成了选区的**下沿** —— 一旦下沿因为末端零宽矩形
+ * 跑远(见 `QuoteBar` 的 `visibleSelectionRects`),浮条就跟着掉到几百像素以下。
+ *
+ * 判据是**放不放得下**,不是「离边多少像素」这种拍脑袋的阈值:浮条自己的高度
+ * 加上那道缝就是它需要的空间。两边都放不下时选空间大的一侧,再由
+ * `quoteBarPosition` 夹回面板里。
  */
 export function quoteBarPlacement(input: {
-  /** 选区矩形的上边(视口坐标) */
+  /** 选区**首行**矩形的上边(视口坐标)—— 朝上时浮条贴的就是它 */
   selectionTop: number;
-  /** 聊天面板可视区的上边(视口坐标) */
+  /** 选区**末行**矩形的下边(视口坐标)—— 翻到下方时浮条贴的是它 */
+  selectionBottom: number;
+  /** 聊天日志可视区的上边(视口坐标) */
   panelTop: number;
-  /** 选区矩形的下边；提供它与 panelBottom 后可避开底部 composer */
-  selectionBottom?: number;
-  /** 聊天日志可视区的下边（即 composer 上沿） */
-  panelBottom?: number;
+  /** 聊天日志可视区的下边(即 composer 上沿) */
+  panelBottom: number;
   /** 浮条高度,默认按稿子的 3px 内距 + 28px 按钮算 */
   barHeight?: number;
-  /** 浮条与选区之间的缝,稿子是 7px */
-  gap?: number;
+  gapAbove?: number;
+  gapBelow?: number;
 }): 'above' | 'below' {
-  const bar = input.barHeight ?? 34;
-  const gap = input.gap ?? 7;
-  const needed = bar + gap;
+  const bar = input.barHeight ?? QUOTE_BAR_DEFAULT_HEIGHT_PX;
+  const gapAbove = input.gapAbove ?? QUOTE_BAR_GAP_ABOVE_PX;
+  const gapBelow = input.gapBelow ?? QUOTE_BAR_GAP_BELOW_PX;
   const availableAbove = input.selectionTop - input.panelTop;
-  if (input.panelBottom == null || input.selectionBottom == null) return 'below';
+  if (availableAbove >= bar + gapAbove) return 'above';
   const availableBelow = input.panelBottom - input.selectionBottom;
-  if (availableBelow >= needed) return 'below';
-  if (availableAbove >= needed) return 'above';
-  return availableBelow >= availableAbove ? 'below' : 'above';
+  if (availableBelow >= bar + gapBelow) return 'below';
+  return availableAbove >= availableBelow ? 'above' : 'below';
 }
 
+/**
+ * 浮条的落点。
+ *
+ * 传进来的是选区**首行**和**末行**两块矩形,不是它们的并集:朝上贴首行的上沿、
+ * 翻下去贴末行的下沿,水平也只居中于**贴着的那一块**。稿子的 CSS 注释把这条
+ * 写死了 ——「定位参照是【选区】不是整段:浮条要对准你选的那几个字,段落居中
+ * 会在长句里偏出去老远」。跨行选择时并集的中心就是段落中心,正是它警告的那种偏。
+ * 单行选区两块是同一块,退化回原来的行为。
+ */
 export function quoteBarPosition(input: {
-  selectionLeft: number;
-  selectionRight: number;
-  selectionTop: number;
-  selectionBottom: number;
-  panelLeft: number;
-  panelRight: number;
-  panelTop: number;
-  panelBottom: number;
+  /** 选区首行矩形 */
+  first: QuoteRect;
+  /** 选区末行矩形;单行选区与 `first` 相同 */
+  last: QuoteRect;
+  /** 聊天日志可视区 */
+  panel: QuoteRect;
   barWidth?: number;
   barHeight?: number;
-  gap?: number;
+  gapAbove?: number;
+  gapBelow?: number;
   edgeInset?: number;
 }): { left: number; top: number; placement: 'above' | 'below' } {
-  const barWidth = input.barWidth ?? 112;
-  const barHeight = input.barHeight ?? 34;
-  const gap = input.gap ?? 7;
-  const edge = input.edgeInset ?? 8;
+  const barWidth = input.barWidth ?? QUOTE_BAR_DEFAULT_WIDTH_PX;
+  const barHeight = input.barHeight ?? QUOTE_BAR_DEFAULT_HEIGHT_PX;
+  const gapAbove = input.gapAbove ?? QUOTE_BAR_GAP_ABOVE_PX;
+  const gapBelow = input.gapBelow ?? QUOTE_BAR_GAP_BELOW_PX;
+  const edge = input.edgeInset ?? QUOTE_BAR_EDGE_INSET_PX;
   const placement = quoteBarPlacement({
-    selectionTop: input.selectionTop,
-    selectionBottom: input.selectionBottom,
-    panelTop: input.panelTop,
-    panelBottom: input.panelBottom,
+    selectionTop: input.first.top,
+    selectionBottom: input.last.bottom,
+    panelTop: input.panel.top,
+    panelBottom: input.panel.bottom,
     barHeight,
-    gap,
+    gapAbove,
+    gapBelow,
   });
 
-  const center = (input.selectionLeft + input.selectionRight) / 2;
-  const minLeft = input.panelLeft + edge + barWidth / 2;
-  const maxLeft = input.panelRight - edge - barWidth / 2;
+  // 贴哪一块,就居中于哪一块 —— 位置和参照必须是同一个矩形。
+  const anchor = placement === 'above' ? input.first : input.last;
+  const center = (anchor.left + anchor.right) / 2;
+  const minLeft = input.panel.left + edge + barWidth / 2;
+  const maxLeft = input.panel.right - edge - barWidth / 2;
   const left = maxLeft < minLeft
-    ? (input.panelLeft + input.panelRight) / 2
+    ? (input.panel.left + input.panel.right) / 2
     : Math.min(Math.max(center, minLeft), maxLeft);
 
   const desiredTop = placement === 'above'
-    ? input.selectionTop - gap
-    : input.selectionBottom + gap;
+    ? anchor.top - gapAbove
+    : anchor.bottom + gapBelow;
   const minTop = placement === 'above'
-    ? input.panelTop + edge + barHeight
-    : input.panelTop + edge;
+    ? input.panel.top + edge + barHeight
+    : input.panel.top + edge;
   const maxTop = placement === 'above'
-    ? input.panelBottom - edge
-    : input.panelBottom - edge - barHeight;
+    ? input.panel.bottom - edge
+    : input.panel.bottom - edge - barHeight;
   const top = maxTop < minTop
     ? (minTop + maxTop) / 2
     : Math.min(Math.max(desiredTop, minTop), maxTop);
