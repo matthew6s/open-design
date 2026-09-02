@@ -1066,64 +1066,15 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 开头说明沿用正文深色:浅色主题 --text-strong 为 #202020。
    进行中和已完成保持一致;步骤间的小结在下方单独使用浅灰色。 */
 .fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-strong); }
-/* 步骤之间穿一条竖线 —— chain-of-thought 的那根"链"。
-   ------------------------------------------------------------
-   参照 21st.dev @elements- 的 chain-of-thought:线是每一步自己画的一段
-   (上游写作 `absolute top-7 bottom-0 left-1/2 w-px bg-border`),从自己那颗
-   状态点【下方】起,一直到自己这一段的底。挨着的两步各画各的,拼起来就是一条
-   贯通的线,而每颗状态点的位置天然是断的 —— 线不是被点盖住,是让位给点。
-   ------------------------------------------------------------
-   为什么要这条线:这一块现在是"一颗点 + 一行字"重复四遍,四步之间是并列还是
-   先后,全靠人从文案里推。线把它们串成一串,顺序这件事由版式说,不用再写字。
-   而且展开的那一步底下挂着好几条子行,线顺着子行左边一路下来,"这些是这一步
-   干的"就不用再靠缩进去猜。
-   ------------------------------------------------------------
-   14px = 行内边距 7 + 状态点 15 的一半 −0.5,正好压在点的中轴上;子行的
-   padding-inline-start 是 29(=7+15+7),所以线落在子行左边的空槽里,不挡字。
-   最后一步收起时不画:那会在末尾留一截没有去处的短线;它展开时要画 ——
-   底下挂着子行,那截线正是用来管住它们的。
-   第二条选择器还带 :not(:first-of-type):8~11 那几个工具调用模块用的是同一副
-   壳,但里面只有【一步】。一步的东西没有"链"可言,画出来就是一截从点底下垂
-   下来、下面什么也没有的短线。既是头一步又是末一步 → 两条都不命中,不画。 */
-.fold.mod-flat > .body.mod-stack > .fold { position: relative; }
-.fold.mod-flat > .body.mod-stack > .fold:not(:last-of-type)::before,
-.fold.mod-flat > .body.mod-stack > .fold[open]:not(:first-of-type)::before {
-  content: ""; position: absolute; inset-inline-start: 14.5px;
-  top: 25px; bottom: 0; width: 1px;
-  background: var(--border); pointer-events: none;
-}
-/* 夹在两步中间的那句小结也要把线接上。
-   ------------------------------------------------------------
-   「已完成」那一版是【步骤 / 小结 / 步骤 / 小结 / 步骤】交替排的:每一步只画
-   自己那一段,线走到自己盒底就断,中间隔着一段小结 —— 四段线看着像四道短划,
-   不是一条链。所以给"前后都还有步骤"的那几句小结补一段通高的线。
-   :has(~ .fold) 判的是"我后面还有步骤",前面的 .fold ~ 判的是"我前面已经有过
-   步骤" —— 两头都在,中间这段才该接上;最后一句收尾的小结后面没有步骤了,
-   不接,免得又在末尾拖出一截。 */
-/* 夹在两步中间的小结要【往右让 22px】,让它的首字和上面那行步骤名对齐。
-   ------------------------------------------------------------
-   不让的话,线正好从这几个字的头上穿过去(线在 7.5,而字原来也从这一带起),
-   「截」字被竖着划一刀。22 = 步骤行的 7 内边距 + 状态点 15,再加 flex 的
-   7 间距、减去小结自己比步骤盒少探出的那 7 —— 量出来就是 22,推导得出的
-   数和量出来的一致,所以直接写常量,不去堆 calc。
-   让开之后还多一层意思:这几句本来就是【某一步之后的小结】,缩进跟步骤名
-   对齐,它就明显是挂在这条链上的,而不是和步骤并列的另一种东西。
-   开头那句(第一步之前的那段)不动:它是整块的开场白,不在链上,线也没穿过它。 */
+/* 夹在两步中间的小结往右让 22px,让首字和步骤名对齐。
+   22 = 状态点 15px + 行内间距 7px。开头说明不缩进,仍作为整块的开场白。 */
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) {
-  position: relative;
   padding-inline-start: 22px;
   /* 步骤间的小结用 12px;开头说明保留 13px。 */
   font-size: var(--t-mini);
   color: var(--progress-detail-ink);
 }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) code { color: inherit; }
-.fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold)::before {
-  /* 7.5 而不是 14.5:步骤那一层挂着 margin-inline:-7px,盒子比小结往左多探 7px,
-     两边各自的 0 点差了这 7px。要的是【同一条竖线】,所以数字得各算各的。 */
-  content: ""; position: absolute; inset-inline-start: 7.5px;
-  top: 0; bottom: 0; width: 1px;
-  background: var(--border); pointer-events: none;
-}
 /* 步骤这一层【不挂失败标】。
    失败的是整轮任务(由「任务失败」那张卡报),或者是具体的某一次调用(工具行
    自己带红标);步骤夹在中间,它只是被打断,没有属于自己的失败态。
@@ -1786,7 +1737,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .amount-unit { margin-top: 3px; font-size: var(--t-cap); color: var(--text-muted); }
 .amount-rail {
   position: relative; height: var(--amount-track-height); overflow: hidden;
-  border-radius: var(--radius-circular);
+  border-radius: var(--radius-pill);
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--amount-active) 22%, var(--bg-panel)) 0 var(--range-pct),
     var(--bg-panel) var(--range-pct) 100%);
@@ -1794,17 +1745,21 @@ button.att-d:hover { border-color: var(--border-strong); }
 .amount-range {
   position: absolute; inset: 0; z-index: 1;
   appearance: none; width: 100%; height: var(--amount-track-height); margin: 0;
-  background: transparent; cursor: grab;
+  border-radius: var(--radius-pill); background: transparent; cursor: grab;
 }
 .amount-range:active { cursor: grabbing; }
 .amount-range:focus-visible { outline: 1px solid var(--selected); outline-offset: -1px; }
-.amount-range::-webkit-slider-runnable-track { height: var(--amount-track-height); background: transparent; }
+.amount-range::-webkit-slider-runnable-track {
+  height: var(--amount-track-height); border-radius: var(--radius-pill); background: transparent;
+}
 .amount-range::-webkit-slider-thumb {
   appearance: none; width: var(--amount-thumb-size); height: var(--amount-thumb-size); margin-top: 1px;
   border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
   box-shadow: var(--shadow-sm);
 }
-.amount-range::-moz-range-track { height: var(--amount-track-height); border: 0; background: transparent; }
+.amount-range::-moz-range-track {
+  height: var(--amount-track-height); border: 0; border-radius: var(--radius-pill); background: transparent;
+}
 .amount-range::-moz-range-thumb {
   width: var(--amount-thumb-size); height: var(--amount-thumb-size);
   border: 0; border-radius: var(--radius-circular); background: var(--amount-active);
