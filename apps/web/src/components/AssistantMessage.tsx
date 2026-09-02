@@ -839,7 +839,20 @@ function AssistantMessageImpl({
     );
   }, [nextTurn]);
 
-  const fileOps = useMemo(() => deriveFileOps(displayEvents), [displayEvents]);
+  /*
+   * 把项目上下文递进去,`FileOpEntry.path` 才能是**项目相对路径** —— 产物卡、
+   * 结果行、封面地址、导出 / 分享全都拿它当项目文件的钥匙(不变式写在
+   * `runtime/file-ops.ts` 的 `FileOpEntry.path` 上)。少了 `resolvedDir`,
+   * agent 给的绝对路径只能退回基名,住在子目录里的产物就点不开、封面也画不出来。
+   */
+  const fileOpScope = useMemo(
+    () => ({ projectId, resolvedDir: projectResolvedDir }),
+    [projectId, projectResolvedDir],
+  );
+  const fileOps = useMemo(
+    () => deriveFileOps(displayEvents, fileOpScope),
+    [displayEvents, fileOpScope],
+  );
   const rawProduced = message.producedFiles ?? [];
   /**
    * 这一轮 agent 自己声明的「显示什么」—— `<od-focus …/>` 的 `show`。
