@@ -1725,7 +1725,17 @@ function injectUrlPreviewBridge(
   return injectBeforeBodyClose(html, 'data-od-url-snapshot-bridge', URL_PREVIEW_SNAPSHOT_BRIDGE);
 }
 
-function applyUrlPreviewBridgesToHtml(
+/**
+ * Install the preview bridges a document navigation asked for by name.
+ *
+ * Exported because every preview surface that navigates a frame at a real
+ * daemon URL needs the same guarantee, not just project files: on the srcdoc
+ * transport the host injected the storage shim, the redirect guard and the
+ * snapshot bridge itself, and on the URL transport only the origin server can.
+ * Catalogue preview routes (skills, plugins, design systems) call this so the
+ * two transports stay behaviorally identical.
+ */
+export function applyUrlPreviewBridgesToHtml(
   transformed: string | Buffer,
   mime: string,
   requestedBridge: unknown,

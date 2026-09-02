@@ -1713,6 +1713,23 @@ export type SkillExampleResult =
   | { unavailable: true; kind: string }
   | { error: string };
 
+/**
+ * The one real URL a skill's shipped example document is served from.
+ *
+ * Preview surfaces navigate a frame straight at this URL instead of
+ * rebuilding the fetched HTML into a srcdoc copy, so the document keeps its
+ * own directory semantics and its relative assets resolve. A frame navigation
+ * cannot carry the `x-od-workspace-*` headers the fetch path uses, so the
+ * workspace identity has to ride along as navigation query — every one of
+ * these routes accepts it (`allowNavigationQuery`).
+ */
+export function skillExampleDocumentUrl(
+  id: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): string {
+  return workspaceResourceUrl(`/api/skills/${encodeURIComponent(id)}/example`, workspaceContext);
+}
+
 // Returns a discriminated result so callers can distinguish a real
 // failure (network error, daemon unreachable, server error) from a
 // normal load or a missing shipped preview. Previously this collapsed
@@ -1732,7 +1749,9 @@ export async function fetchSkillExample(
     return { unavailable: true, kind: previewType };
   }
   try {
-    const url = `/api/skills/${encodeURIComponent(id)}/example`;
+    // Header-scoped fetch: pass no context so the path stays bare and the
+    // workspace identity travels in `workspaceProjectHeaders` as before.
+    const url = skillExampleDocumentUrl(id, null);
     const resp = workspaceContext
       ? await fetch(url, { headers: workspaceProjectHeaders(workspaceContext) })
       : await fetch(url);
@@ -3547,16 +3566,35 @@ export async function openProjectInEditor(
   return (await resp.json()) as import('@open-design/contracts').OpenProjectInEditorResponse;
 }
 
+/** Real document URL for a design system's token preview. See skillExampleDocumentUrl. */
+export function designSystemPreviewDocumentUrl(
+  id: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): string {
+  return workspaceResourceUrl(
+    `/api/design-systems/${encodeURIComponent(id)}/preview`,
+    workspaceContext,
+  );
+}
+
+/** Real document URL for a design system's showcase. See skillExampleDocumentUrl. */
+export function designSystemShowcaseDocumentUrl(
+  id: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): string {
+  return workspaceResourceUrl(
+    `/api/design-systems/${encodeURIComponent(id)}/showcase`,
+    workspaceContext,
+  );
+}
+
 export async function fetchDesignSystemPreview(
   id: string,
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<string | null> {
   try {
     const resp = await fetch(
-      workspaceResourceUrl(
-        `/api/design-systems/${encodeURIComponent(id)}/preview`,
-        workspaceContext,
-      ),
+      designSystemPreviewDocumentUrl(id, workspaceContext),
       workspaceContext ? { headers: workspaceProjectHeaders(workspaceContext) } : undefined,
     );
     if (!resp.ok) return null;
@@ -3572,10 +3610,7 @@ export async function fetchDesignSystemShowcase(
 ): Promise<string | null> {
   try {
     const resp = await fetch(
-      workspaceResourceUrl(
-        `/api/design-systems/${encodeURIComponent(id)}/showcase`,
-        workspaceContext,
-      ),
+      designSystemShowcaseDocumentUrl(id, workspaceContext),
       workspaceContext ? { headers: workspaceProjectHeaders(workspaceContext) } : undefined,
     );
     if (!resp.ok) return null;
@@ -3596,12 +3631,32 @@ export async function fetchDesignSystemShowcase(
 // asset for an otherwise valid plugin is not an error the user can
 // retry their way out of. Surfacing the calm "no shipped preview"
 // placeholder is the truthful UX.
+/** Real document URL for a plugin's shipped preview. See skillExampleDocumentUrl. */
+export function pluginPreviewDocumentUrl(
+  id: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): string {
+  return workspaceResourceUrl(`/api/plugins/${encodeURIComponent(id)}/preview`, workspaceContext);
+}
+
+/** Real document URL for one named plugin example. See skillExampleDocumentUrl. */
+export function pluginExampleDocumentUrl(
+  pluginId: string,
+  stem: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): string {
+  return workspaceResourceUrl(
+    `/api/plugins/${encodeURIComponent(pluginId)}/example/${encodeURIComponent(stem)}`,
+    workspaceContext,
+  );
+}
+
 export async function fetchPluginPreviewHtml(
   id: string,
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<SkillExampleResult> {
   try {
-    const url = `/api/plugins/${encodeURIComponent(id)}/preview`;
+    const url = pluginPreviewDocumentUrl(id, null);
     const resp = workspaceContext
       ? await fetch(url, { headers: workspaceProjectHeaders(workspaceContext) })
       : await fetch(url);
@@ -3625,8 +3680,7 @@ export async function fetchPluginExampleHtml(
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<SkillExampleResult> {
   try {
-    const url =
-      `/api/plugins/${encodeURIComponent(pluginId)}/example/${encodeURIComponent(stem)}`;
+    const url = pluginExampleDocumentUrl(pluginId, stem, null);
     const resp = workspaceContext
       ? await fetch(url, { headers: workspaceProjectHeaders(workspaceContext) })
       : await fetch(url);
