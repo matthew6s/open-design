@@ -96,7 +96,7 @@ describe('refund policy page', () => {
         1,
         `${locale}: only the all-other-customers rule should remain in the list`,
       );
-      assert.ok(policy.supportSubject.length > 0, `${locale}: missing email subject`);
+      assert.match(policyText, /support@open-design\.ai/, `${locale}: missing support email`);
       assert.match(policyText, /14/, `${locale}: missing EU/UK/Turkey deadline`);
       assert.match(policyText, /7/, `${locale}: missing South Korea deadline`);
       assert.match(policyText, /48/, `${locale}: missing all-other-customers deadline`);
@@ -113,7 +113,6 @@ describe('refund policy page', () => {
     assert.equal('timing' in zh, false);
     assert.equal('applySteps' in zh, false);
 
-    assert.match(page, /support@open-design\.ai/);
     assert.match(page, /getRefundPolicyContent/);
     assert.match(page, /availableLocaleCodes=\{LANDING_LOCALES\.map/);
     assert.match(page, /suppressLocaleAutoRedirect/);
@@ -136,14 +135,13 @@ describe('refund policy page', () => {
     assert.match(pricingPage, /const refundPolicyHref = href\('\/refund-policy\/'\)/);
   });
 
-  it('tracks the support email click with the refund policy context', async () => {
+  it('omits the duplicate footer contact block', async () => {
     const page = await readFile(PAGE_PATH, 'utf8');
 
-    assert.match(page, /data-refund-support-link/);
-    assert.match(page, /window\.__odTrack\?\.\('ui_click'/);
-    assert.match(page, /page_name:\s*'refund_policy'/);
-    assert.match(page, /area:\s*'footer'/);
-    assert.match(page, /element:\s*'support_email'/);
+    assert.doesNotMatch(page, /class="refund-footer"/);
+    assert.doesNotMatch(page, /data-refund-support-link/);
+    assert.doesNotMatch(page, /\.refund-footer/);
+    assert.doesNotMatch(page, /element:\s*'support_email'/);
   });
 
   it('links billing terms to the localized refund policy', async () => {

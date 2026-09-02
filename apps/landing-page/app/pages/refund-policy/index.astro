@@ -7,7 +7,6 @@ const locale = localeFromPath(Astro.url.pathname);
 const copy = getRefundPolicyContent(locale);
 const localeMeta = getLocaleDefinition(locale);
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
-const supportHref = `mailto:support@open-design.ai?subject=${encodeURIComponent(copy.supportSubject)}`;
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'WebPage',
@@ -61,22 +60,7 @@ const jsonLd = {
       </section>
     ))}
 
-    <footer class="refund-footer">
-      <p>{copy.contact} <a href={supportHref} data-refund-support-link data-refund-locale={locale}>{copy.contactCta}</a></p>
-    </footer>
   </article>
-
-  <script is:inline>
-    document.querySelector('[data-refund-support-link]')?.addEventListener('click', (event) => {
-      const link = event.currentTarget;
-      window.__odTrack?.('ui_click', {
-        page_name: 'refund_policy',
-        area: 'footer',
-        element: 'support_email',
-        locale: link?.getAttribute('data-refund-locale') || 'en',
-      });
-    });
-  </script>
 
   <style>
     .refund-policy {
@@ -136,19 +120,6 @@ const jsonLd = {
     }
     .refund-section li strong::after { content: " "; }
     .refund-section li span { display: inline; }
-    .refund-footer {
-      padding: 16px 0 4px;
-      border-top: 1px solid var(--line, rgba(38, 38, 38, 0.15));
-      color: var(--ink-soft, #555);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    .refund-footer p { margin: 0 0 8px; }
-    .refund-footer a {
-      color: #1677ff;
-      font-weight: 600;
-      text-underline-offset: 3px;
-    }
     @media (max-width: 640px) {
       .refund-header { padding-bottom: 18px; }
       .refund-header h1 { font-size: 30px; }
