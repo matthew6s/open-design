@@ -3,11 +3,16 @@
  * 意图澄清卡里几格**没跟上最新稿**的账。
  *
  * ── 基线 ──────────────────────────────────────────────────────────────
- * `361b78253e:docs/design/chat-panel/src/components.css`
+ * `729fa43ce7:docs/design/chat-panel/src/components.css`
  * (`origin/design/chat-cards-surface` 的头)。**永远跟最新版。**
- * 本文件涉及的那几段(字号梯子 / `.opt` 一族 / `.language-*` / `.color-*` /
- * `.amount-*` / `.answered`)在 `853da24ea5 → 361b78253e` 之间**逐字节未变**;
- * 那一版改的是任务进度那一族(`.fold.mod-flat` / `.tool`),不在这张卡上。
+ *
+ * ⚠️ 基线从 `361b78253e` 前移到 `729fa43ce7` 时,这张卡上只动了**一条**:
+ *   `17841fa8e1`  `.opt { font-size: var(--t-mini) → var(--t-body) }`(12 → 13)
+ * 下面「防真空」那条拿 `.qf-chip` 当量尺标定件,期望值因此从 `T_MINI` 换成
+ * `T_BODY`。`.opt` 里面那格 `.own-ta` 稿子**没动**,仍是 `--t-mini` ——
+ * 半迁移护栏在 `tests/components/chat/w67-text-axes.test.tsx`。
+ * 本文件涉及的其余几段(字号梯子 / `.language-*` / `.color-*` / `.amount-*` /
+ * `.answered`)在 `853da24ea5 → 729fa43ce7` 之间逐字节未变。
  *
  * ── 验收判据:1:1,拿稿子的**字面值**当期望值 ─────────────────────────
  * 断言里写的每一个数都是稿子那条规则算出来的**最终值**,不是「用了哪个变量」:
@@ -99,8 +104,10 @@ beforeAll(() => {
  * 每一个都和产品 `styles/tokens.css` / `styles/base.css` 里的同名 token 逐字节相同。
  */
 
-/** `--t-cap` / `--t-mini` → `--font-size-12`(稿子 tokens.css:294)。 */
+/** `--t-cap` / `--t-mini` → `--font-size-12`(稿子 tokens.css:291)。 */
 const T_MINI = '12px';
+/** `--t-body` → `--font-size-13`(稿子 tokens.css:292);`729fa43ce7` 起 `.opt` 走这一档。 */
+const T_BODY = '13px';
 /** `--t-lead` → `--font-size-14`(稿子 tokens.css:296)。 */
 const T_LEAD = '14px';
 /** 稿子 `body { font-weight: 500 }`(`361b78253e:151-153`)。 */
@@ -196,12 +203,14 @@ const AMOUNT_FORM: QuestionForm = {
 
 describe('① 字号 / 字色 1:1 —— 逐格对着稿子那条规则读', () => {
   it('防真空:量尺确实解得开 `var()`,读回的是字面值', () => {
-    // 解不开的话下面全组会拿 `var(--font-size-12)` 去比 `12px`,一路假红。
+    // 解不开的话下面全组会拿 `var(--font-size-13)` 去比 `13px`,一路假红。
     // 选项行(`.qf-chip`)今天写的就是这个 token,拿它当标尺。
+    // ⚠️ `729fa43ce7`(`17841fa8e1`)把稿子的 `.opt` 从 `--t-mini` 抬到了 `--t-body`,
+    //    所以标定件的期望值是 13,不是 12 —— 别照着旧基线改回去。
     const container = mount(RADIO_FORM);
     const measured = CSS.resolved(pick(container, '.qf-chip'));
     expect(measured['font-size'], '样式链没盖到这张卡').not.toBe(UNSET);
-    expect(measured['font-size'], 'token 没解开 —— 下面全组的比较都不成立').toBe(T_MINI);
+    expect(measured['font-size'], 'token 没解开 —— 下面全组的比较都不成立').toBe(T_BODY);
   });
 
   it('分组标签 —— 稿子 `361b78253e:1530-1533`(12px / #5c5c5c / 500)', () => {

@@ -28,7 +28,13 @@
   background: none;
   font-size: var(--chat-t-body);
   line-height: var(--chat-lh-row);
-  color: var(--chat-text);
+  /* 稿子 `729fa43ce7:components.css:2157`:`.tool { … color: #A3A3A3 … }`。
+     重连这一行在稿子里就是一条**独立**的 `.tool`(`cmp-reconnect` 三态都是),
+     不坐在 `.fold.mod-flat` 里,所以那条把工具行提深到 `--text-strong` 的规则
+     轮不到它 —— 整行吃的就是这一档。
+     前两态整句被 `.shimmer` 盖成透明渐变看不出来,**失败那一态**的「连接失败」
+     直接吃这一档:原来写的 `--chat-text`(#494949)比稿子深两档。 */
+  color: var(--chat-tool-ink);
 }
 
 /* 球的画布 24px 比同一列位置上的记号大一截,负边距收的是画布四周的空边,

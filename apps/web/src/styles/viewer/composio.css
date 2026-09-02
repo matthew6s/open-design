@@ -783,6 +783,17 @@
   box-shadow: none;
   opacity: 0.92;
 }
+/* 稿子 `729fa43ce7:docs/design/chat-panel/src/components.css:1337`:
+     .card > .h { display:flex; align-items:center; gap:7px; padding:9px 11px;
+                  border-bottom: 1px solid var(--border-soft);
+                  background: var(--bg-panel);
+                  font-size: var(--t-lead); font-weight: 600;
+                  color: var(--text-strong); }
+   ⚠️ `--t-lead` = `--font-size-14`(稿子 components.css:109 注「组件名、卡片标题」)。
+   这里原来写的是 12 —— 在稿子那把梯子上是 `--t-cap` / `--t-mini` 那一档,
+   也就是「角标、状态标签、辅助行」用的号。卡头是这张卡的**名字**,掉两档之后
+   它和卡里的辅助文字同号,卡就没有头了。两个基线(`361b78253e` / `729fa43ce7`)
+   上这一条一个字没改,所以不是跟新稿走,是一直没对上。 */
 .question-form-head {
   display: flex;
   align-items: center;
@@ -790,13 +801,22 @@
   padding: 9px 11px;
   border-bottom: 1px solid var(--border-soft, var(--border));
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: var(--font-size-14);
   font-weight: 600;
   line-height: 1.5;
   color: var(--text-strong);
 }
 .question-form-locked .question-form-head {
   background: var(--bg-subtle);
+}
+/* 稿子 `729fa43ce7:visual-fan.css`:
+     .card:has(> .cbody > .opts.mod-visual) > .h { padding-inline: 16px; }
+   —— **只收视觉方向这一张卡**:它的卡头右边多了一枚倒计时,标题组和倒计时各贴
+   一侧内边界,11px 在那张卡上顶得太紧。其余确认卡仍是通用卡头的 9px / 11px。
+   稿子用 `.opts.mod-visual` 认这张卡,我们对应的是 `.qf-visual-picker`;
+   写成后代 `:has()` 而不是直接子代 —— 那颗选择器在我们这边比稿子多包了一层。 */
+.question-form:has(.qf-visual-picker) > .question-form-head {
+  padding-inline: 16px;
 }
 /* 稿子:`.card > .h .hd-ic { flex:none; width:15px; height:15px; color: var(--text-soft) }`
    —— 图标是**灰的**(我们原来用 --text-strong,黑的),而且直接是 svg 本身,不套一层 span。
@@ -811,10 +831,24 @@
 .question-form-title {
   min-width: 0;
 }
+/* 稿子里这一段就是 `.card > .h` 里那只裸 `<b>`,自己不另开字号 ——
+   跟着卡头的 `--t-lead`(14)走。写出来而不是靠继承:`.question-form-head`
+   之外还有别的地方挂这个类,漏一处就又掉回 12。 */
 .question-form-title {
-  font-size: 12px;
+  font-size: var(--font-size-14);
   font-weight: 600;
   color: var(--text-strong);
+}
+/* 稿子 `729fa43ce7:components.css:1318`:
+     .card:has(> .cbody > .opts) > .h > b { font-weight: 500; }
+   —— **带选项的确认卡**,卡头那只 `<b>` 降到 500;不带选项的卡仍走上面那条 600
+   (`.card > .h b`)。把稿子那份 CSS 在稿子那份 HTML 上算过:意图澄清卡的
+   `.h > b` 胜出值就是 500,赢在 `:has()` 那一档特异性上。
+   我们的对应结构是 `.question-form > .question-form-body > .qf-options`,
+   所以钩子挂在 `.question-form` 上,和上面那条 `:has(.question-form-foot):has(.qf-options)`
+   同一种写法。 */
+.question-form:has(.qf-options) > .question-form-head > .question-form-title {
+  font-weight: 500;
 }
 .question-form-pill {
   font-size: 12px;
@@ -847,6 +881,14 @@
 .qf-picked {
   margin-inline-start: auto;
   color: var(--text-strong);
+  /* 稿子 `729fa43ce7:components.css:1356`:
+       .card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums;
+                       font-size: var(--t-cap); font-weight: 600; }
+     计数**自己降回 12**,不跟卡头的 14 —— 卡头抬到 `--t-lead` 之后这两条必须
+     一起看:少了这一行,「已选 2」会跟着继承成 14,一行里两个 14 就分不出
+     哪个是卡的名字、哪个是附注。 */
+  font-size: var(--font-size-12);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .qf-picked-label {
@@ -912,12 +954,18 @@
   gap: 2px;
   padding: 0 6px 8px;
 }
-/* 稿子 `.opt` 的全文(逐条对过):
+/* 稿子 `.opt` 的全文(`729fa43ce7:components.css:1420`,逐条对过):
    display:flex; align-items:flex-start; gap:8px; width:100%; padding:8px 11px;
    border:0; border-radius:var(--radius); background:transparent; text-align:left;
-   font-size:var(--t-mini); line-height:var(--lh-row); color:var(--text);
-   我们原来漏了 `line-height` 和 `color` 两条 —— 行高于是继承成 1.7(稿子是 1.5),
-   文字色继承成外层的深灰。`--t-mini`/`--lh-row` 是稿子的别名(=font-size-12 / 1.5)。 */
+   font-size:var(--t-body); line-height:var(--lh-row); color:var(--text);
+
+   ⚠️ 字号是 **13**(`--t-body`),不是 12。上一版基线(`361b78253e`)这里写的是
+   `--t-mini`,`17841fa8e1` 把整档抬到了 `--t-body` —— 选项行和问句现在同号。
+   `--lh-row` 是稿子的别名(= 1.5)。
+   ⚠️ **只抬这一行**:它里面那格「自己填」的输入框稿子仍是
+   `.opt .own-ta { font-size: var(--t-mini) }`(12),两个一起抬就把
+   「输入框比选项轻一档」这层关系抹掉了。护栏见
+   `tests/components/chat/w67-text-axes.test.tsx` 的反向对照。 */
 .qf-chip {
   display: flex;
   align-items: flex-start;
@@ -928,7 +976,7 @@
   border-radius: var(--radius);
   background: transparent;
   text-align: left;
-  font-size: var(--font-size-12);
+  font-size: var(--font-size-13);
   line-height: 1.5;
   color: var(--text);
   cursor: pointer;
@@ -4421,17 +4469,29 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--green);
   animation: pulse 1.2s ease-in-out infinite;
 }
-/* 稿子 `.fb .fin { display: inline-flex; align-items: center; gap: 5px;
-   margin-inline-end: 4px; font-size: var(--t-cap); color: var(--brand-text) }`
-   —— 勾在字里面,所以这一层自己排版,不再靠外面那层 flex 的 gap。 */
+/* 稿子 `729fa43ce7:docs/design/chat-panel/src/components.css:2753`:
+     .fb .fin { display: inline-flex; align-items: center; gap: 5px;
+                margin-inline-end: 4px; font-size: var(--font-size-14);
+                color: var(--brand-text); }
+   —— 勾在字里面,所以这一层自己排版,不再靠外面那层 flex 的 gap。
+
+   ⚠️ 字号是 **14**,不是 12。上一版稿子(`361b78253e`)这里写的是 `var(--t-cap)`,
+   新稿把它整档提到 `--font-size-14` —— 状态词比正文(13)高一档,而不是低一档。
+   我们一直停在 12,于是「已完成」比它下面的正文还小,这正是用户报的那一条。
+   同一次改动里稿子把勾也从 13 提到 16(`.fb .fin > .tick`,那条在 theater.css)。
+
+   字重稿子**一条都不写**,所以它吃面板的排版基线 500
+   (`components/chat/ChatRoot.module.css` 的 `.vars` / `.root`)。这里显式写 500
+   而不是删掉声明:删掉在没挂接缝的上下文里会掉回全站 body 的 400,而
+   「跟基线同重」这条不变量得有人守得住(见 `PlanPill.module.css` 同款处理)。 */
 .assistant-footer .assistant-label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   margin-inline-end: 4px;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--font-size-14);
 }
 .assistant-footer .assistant-stats {
   font-variant-numeric: tabular-nums;
