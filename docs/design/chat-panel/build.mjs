@@ -98,7 +98,7 @@ for (const page of PAGES) {
     `<script type="module">${revealJs}</script>`,
     `<script type="module">${revealImgJs}</script>`,
     `<script type="module">${audioJs}</script>`,
-  ].join('\n');
+  ].join('\n') + '\n';
 
   writeFileSync(join(root, page.out), doc);
   console.log(`${page.out.padEnd(30)} ${String(Buffer.byteLength(doc)).padStart(9)} bytes  theme=${page.theme}  body规则=${bodyRules.length}`);
