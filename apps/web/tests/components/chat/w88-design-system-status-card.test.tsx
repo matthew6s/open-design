@@ -281,7 +281,7 @@ describe('② 结构 —— icon + copy(strong + span)', () => {
 /* ══ ③ 四轴逐值 ════════════════════════════════════════════════════════ */
 
 describe('③ 四轴 —— 逐值对稿 729fa43ce7', () => {
-  it('卡面:底 #121212、字白、内距 9/11、缺口在右下的 14/14/4/14', () => {
+  it('卡面:底 #121212、字白、内距 9/11', () => {
     const measured = CSS.resolved(card());
     expect(measured['background-color']).toBe(D_SURFACE);
     expect(measured['color']).toBe(D_INK);
@@ -289,7 +289,35 @@ describe('③ 四轴 —— 逐值对稿 729fa43ce7', () => {
     expect(measured['padding-bottom']).toBe(`${D_PAD_BLOCK}px`);
     expect(measured['padding-left']).toBe(D_PAD_INLINE);
     expect(measured['padding-right']).toBe(D_PAD_INLINE);
-    expect(measured['border-radius']).toBe('14px 14px 4px 14px');
+  });
+
+  /**
+   * 圆角是这张卡上**唯一一处刻意不对稿**的轴,所以单独一条,把偏差摆在明面上。
+   *
+   *   稿子   `components.css:347`  `border-radius: 14px 14px 4px 14px`(字面量)
+   *   产品   `--chat-radius-lg` / `--chat-radius-sm` → **12 / 12 / 4 / 12**
+   *
+   * 产品的形状刻度是 2/4/8/12/16,**没有 14 这一档**;照抄稿子就得只为这一张卡
+   * 写死一个刻度外的数,而紧挨着它的用户气泡(`.bub`)走的正是 12/12/4/12。
+   *
+   * 授权来源:用户 2026-09-02 亲自答复。当时把「稿子写 14、我们的刻度只有 12」
+   * 这个取舍原样问上去,原话回的是「**先用 token 吧**」。
+   * (这段最早写的时候只见到 CSS 里那句转述、没见到原文,所以标了「未核实」;
+   *  现在补上出处 —— 它是用户的直接答复,不是 agent 之间的转述。)
+   * 所以这里断言的是「产品当前选定的形」,
+   * 同时把稿子的 14 原样记在下面 —— 哪天裁决被推翻,改的是 `SHIPPED` 那一行,
+   * 而不是让人重新去稿子里考古 14 是从哪来的。
+   *
+   * 稿子那 14 究竟是设计有意区分还是漏了 token,**至今没有结论**,
+   * 按 `components/chat/AGENTS.md` §6 属于要回写待决表的稿内矛盾,不在代码里默默选一个。
+   */
+  it('圆角走产品刻度(12/12/4/12),刻意不跟稿子的字面 14 —— 见用例注释', () => {
+    /** 稿子的字面值,留档用,不是当前期望值 */
+    const DRAFT = '14px 14px 4px 14px';
+    /** 产品选定的形:`--radius-xlarge` / `--radius-medium` */
+    const SHIPPED = '12px 12px 4px 12px';
+    expect(SHIPPED, '稿子和产品这一轴本来就不同,相等了说明有人悄悄改回去了').not.toBe(DRAFT);
+    expect(CSS.resolved(card())['border-radius']).toBe(SHIPPED);
   });
 
   it('标题:13px / 600 / 白', () => {

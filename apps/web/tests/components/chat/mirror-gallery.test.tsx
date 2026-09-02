@@ -1177,7 +1177,10 @@ const doc = (name: string, sizeKb: number, order: number) =>
  * **排布本身就被桩带歪了**;逐属性比对拿到的宽高也跟着失真。
  * 而且验收的人看到的是一屏英文点号串,只会以为这个功能没做完。
  */
-const T = tForLanguageTag('zh-CN') as never;
+// `tForLanguageTag` 在语言标签取不到时返回 null;这里的 'zh-CN' 是常量,一定解得出,
+// 所以用非空断言。原来写的是 `as never` —— 那是把返回值断言成了「不可能存在的值」,
+// 于是任何一次调用都报「Type 'never' has no call signatures」。
+const T = tForLanguageTag('zh-CN')!;
 
 /** 稿子里附件永远可点,所以这里给一个空的打开回调 —— 不给的话卡片会被判 disabled。 */
 const msg = (message: unknown) => (

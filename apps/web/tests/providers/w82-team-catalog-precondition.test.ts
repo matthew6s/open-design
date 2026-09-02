@@ -55,7 +55,8 @@ function context(overrides: Partial<WorkspaceCollabContext> = {}): WorkspaceColl
 const PERSONAL = context({
   workspaceId: 'ws-personal',
   workspaceType: 'personal',
-  teamId: null,
+  // 契约里 `teamId` 是 `string | undefined`,个人工作区是「没有这个字段」而不是「值为 null」。
+  teamId: undefined,
   role: 'owner',
 });
 

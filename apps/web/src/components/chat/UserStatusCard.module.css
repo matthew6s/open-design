@@ -32,10 +32,14 @@
  * 所以 280 钉在组件自己身上,`min(…, 100%)` 保住 QA 说的「窄容器中可以随父容器收缩」。
  * 320 那一条**不搬**:width 280 之下它永远不生效,留着只会让下一个人以为上限是 320。
  *
- * 圆角 `14px 14px 4px 14px` 是稿子的字面值,和旁边的用户气泡(`.bub` 走
- * `--radius-lg`/`--radius-sm`,即 12/12/4/12)**刻意差 2px**。产品的形状刻度
- * (2/4/8/12/16)里没有 14,所以这里只能是字面量;它是稿子给这张卡单独定的形,
- * 不是漏了 token。
+ * ⚠️ 【产品裁决 2026-09-02:圆角走 token,不跟稿子的字面 14px】
+ * 稿子这里写的是字面 `14px 14px 4px 14px`。而紧挨着它的用户气泡(`.bub`)走的是
+ * `--radius-lg`/`--radius-sm`,即 **12/12/4/12** —— 两张卡并排站着,角差 2px。
+ * 产品的形状刻度是 2/4/8/12/16,**没有 14 这一档**,所以照抄就必须写死一个
+ * 刻度外的值,而且只为这一张卡写死。产品选了跟刻度、和旁边的气泡同形。
+ *
+ * **对稿时不要把它改回 14px** —— 那是撤销一次裁决,不是修一个偏差。
+ * 稿子那 14 是不是设计有意区分,没有结论;有结论的是我们这边走 token。
  */
 .card {
   display: inline-flex;
@@ -44,7 +48,7 @@
   width: min(280px, 100%);
   padding: 9px 11px;
   border: none;
-  border-radius: 14px 14px 4px 14px;
+  border-radius: var(--chat-radius-lg) var(--chat-radius-lg) var(--chat-radius-sm) var(--chat-radius-lg);
   background: var(--chat-status-card-surface);
   box-shadow: none;
   color: var(--chat-status-card-ink);

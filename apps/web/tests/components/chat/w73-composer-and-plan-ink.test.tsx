@@ -242,7 +242,9 @@ const EDITOR_PROPS = {
   onEnterSend: () => {},
   popoverOpen: false,
   onPopoverKey: () => false,
-} as const;
+  // 不加 `as const`:它会把 `knownEntities` 定成 `readonly []`,
+  // 而 `LexicalComposerInputProps` 要的是可变的 `InlineMentionEntity[]`。
+};
 
 /** 会话面板:`ChatPane` 用 `chatSeam(...)` 把接缝抹在祖先上,这里用 `<ChatRoot>` 等价。 */
 const mountChatComposer = (): HTMLElement =>
