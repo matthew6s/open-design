@@ -8,8 +8,12 @@
  * 为什么用 `position: fixed` 而不是稿子的 `absolute`:稿子把浮条画在
  * `<mark class="sel">` 里面 —— 那是静态稿唯一能摆的方式。真实的选区是 DOM Range,
  * 没法给它包一层标签,所以按选区矩形定位。位置一样,承载方式不同。
+ *
+ * 而 `fixed` 只有在**包含块真的是视口**时才等于「视口坐标」—— 见下面
+ * `QuoteBarLayer` 的注释:浮条必须 portal 到 body,不能留在 ChatPane 的 `.pane` 里。
  */
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { useT } from '../../i18n';
 import {
   QUOTE_BAR_DEFAULT_HEIGHT_PX,
@@ -19,6 +23,7 @@ import {
   quoteBarPosition,
   type QuoteRect,
 } from '../../runtime/chat/quote-selection';
+import { chatSeam } from './ChatRoot';
 import styles from './QuoteBar.module.css';
 
 export interface QuoteBarProps {
@@ -54,18 +59,104 @@ interface SelectionGeometry {
 const GEOMETRY_EPSILON = 0.5;
 
 /**
+ * 一个文本节点上**真正被选中的那一段**,取不到就 null。
+ *
+ * 首尾两个文本节点通常只被选中一半,所以要按 Range 的边界收一刀;
+ * `commonAncestorContainer` 底下还有落在首尾之外的文本节点,靠边界比较剔掉。
+ * 只剩空白的切片也不算 —— 折行处那些换行与缩进在屏幕上什么都没画。
+ */
+function selectedSliceOf(range: Range, node: Text): Range | null {
+  const doc = node.ownerDocument;
+  if (!doc) return null;
+  const slice = doc.createRange();
+  slice.selectNodeContents(node);
+  if (node === range.startContainer) slice.setStart(node, range.startOffset);
+  if (node === range.endContainer) slice.setEnd(node, range.endOffset);
+  if (slice.collapsed) return null;
+  // 起点在选区之前 / 终点在选区之后 = 这个文本节点压根没被选中
+  if (range.compareBoundaryPoints(Range.START_TO_START, slice) > 0) return null;
+  if (range.compareBoundaryPoints(Range.END_TO_END, slice) < 0) return null;
+  if (!slice.toString().trim()) return null;
+  return slice;
+}
+
+/** 一个文本切片画出来的、有面积的那些行 */
+function paintedRectsOf(slice: Range): QuoteRect[] {
+  return Array.from(slice.getClientRects() ?? []).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+}
+
+/**
+ * 选区**首行 / 末行**那两块矩形 —— 只认被高亮的**文字**画出来的行。
+ *
+ * 为什么不能拿整段 Range 的 `getClientRects()`:按 CSSOM,凡是被 Range **整个包住**
+ * 的元素,它的 border box 也在那个列表里,和文字行混在一起。拖选收尾越过气泡一点点,
+ * Range 就会连着吞下 `.chat-log-tail-spacer`(高度由 ChatPane 逐帧写、满宽、一个字都没有)
+ * 或整块 `.msg.user` —— 屏幕上一处高亮都没多,列表里却多出一块贴着日志底部的满宽矩形。
+ * 它**有面积**,所以「只留有面积的矩形」那一版补丁放它过去,浮条于是追着它掉到
+ * 输入框上沿、水平居中到面板正中(用户 2026-09-02 在自己的黑气泡里复现)。
+ *
+ * 文字矩形才是「看得见的选区」的定义:没有文字就没有高亮,没有高亮就不该有锚点。
+ *
+ * 走法是**从两头各走一小段**,不是遍历整个 `commonAncestorContainer`:
+ * `selectionchange` 跟着鼠标移动逐帧来,跨消息拖选时公共祖先会一路涨到 `.chat-log`,
+ * 全量遍历等于每一帧把整份记录的文本节点都量一遍。首行从 `startContainer` 往后找、
+ * 末行从 `endContainer` 往前找,跳过的只有边界上那几个空白 / 越界节点。
+ */
+function selectionEdgeTextRects(range: Range): { first: QuoteRect; last: QuoteRect } | null {
+  const root = range.commonAncestorContainer;
+  const doc = root.ownerDocument ?? (root as Document);
+  const textRectsOf = (node: Node): QuoteRect[] => {
+    if (node.nodeType !== Node.TEXT_NODE) return [];
+    const slice = selectedSliceOf(range, node as Text);
+    return slice ? paintedRectsOf(slice) : [];
+  };
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    const rects = textRectsOf(root);
+    const first = rects[0];
+    const last = rects[rects.length - 1];
+    return first && last ? { first, last } : null;
+  }
+  if (typeof doc.createTreeWalker !== 'function') return null;
+
+  const forward = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  forward.currentNode = range.startContainer;
+  let first: QuoteRect | undefined = textRectsOf(range.startContainer)[0];
+  while (!first) {
+    const node = forward.nextNode();
+    if (!node) break;
+    first = textRectsOf(node)[0];
+  }
+
+  const backward = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  backward.currentNode = range.endContainer;
+  const endRects = textRectsOf(range.endContainer);
+  let last: QuoteRect | undefined = endRects[endRects.length - 1];
+  while (!last) {
+    const node = backward.previousNode();
+    if (!node) break;
+    const rects = textRectsOf(node);
+    last = rects[rects.length - 1];
+  }
+
+  return first && last ? { first, last } : null;
+}
+
+/**
  * 选区里**看得见的**那两块矩形(首行 / 末行)。
  *
- * 不能用 `Range.getBoundingClientRect()`:那是所有 client rect 的**并集**,
- * 而并集里混着选区末端那个**零宽**的光标矩形。拖选稍微过界一点,末端就落到
- * 下一个区块的行首 —— 屏幕上一个字都没高亮,并集的下沿却已经跑到那一行去了。
- * 浮条贴着并集的下沿,于是掉到几百像素以下(现场:选中执行计划里的一行,
- * 浮条落在「运行…」那一行上、几乎压到输入框)。
+ * 首选被高亮文字自己的矩形(`selectionEdgeTextRects`)。取不到时才依次退回
+ * 整段 client rect(仍只留有面积的)与并集 —— 后两条是给**没有排版信息**的环境
+ * (jsdom)兜底的,浏览器里非折叠选区总能量到文字。
  *
- * 所以只认**有面积**的矩形,并集退成兜底 —— jsdom 这类没有排版的环境
- * `getClientRects()` 恒为空,那里仍走并集。
+ * 并集永远是最后一档:它混着选区末端那个**零宽**的光标矩形,拖选稍微过界一点,
+ * 末端就落到下一个区块的行首 —— 屏幕上一个字都没高亮,并集的下沿却已经跑到那一行。
  */
 function visibleSelectionRects(range: Range): { first: QuoteRect; last: QuoteRect } | null {
+  const fromText = selectionEdgeTextRects(range);
+  if (fromText) return fromText;
   const painted = Array.from(range.getClientRects() ?? []).filter(
     (rect) => rect.width > 0 && rect.height > 0,
   );
@@ -239,17 +330,43 @@ export function QuoteBar({
 
   if (!bar) return null;
   return (
-    <QuoteBarView
-      ref={barRef}
-      placement={bar.placement}
-      style={{
-        left: `${bar.left}px`,
-        top: `${bar.top}px`,
-        transform: bar.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)',
-      }}
-      onQuote={() => onQuote(bar.text, bar.messageId)}
-    />
+    <QuoteBarLayer>
+      <QuoteBarView
+        ref={barRef}
+        placement={bar.placement}
+        style={{
+          left: `${bar.left}px`,
+          top: `${bar.top}px`,
+          transform: bar.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)',
+        }}
+        onQuote={() => onQuote(bar.text, bar.messageId)}
+      />
+    </QuoteBarLayer>
   );
+}
+
+/**
+ * 浮条挂的那一层:`<body>` 下面,**不在 ChatPane 的 `.pane` 里**。
+ *
+ * `quoteBarPosition` 算的是视口坐标,浮条也写着 `position: fixed` —— 但
+ * `fixed` 的参照系是「最近的**包含块**」,而带 `transform` / `filter` /
+ * `backdrop-filter` / `contain` 的祖先会把自己变成 fixed 后代的包含块。
+ * ChatPane 的根正是这样一层:`.app .split-chat-slot > .pane`
+ * (`styles/viewer/routines.css`)挂着 `backdrop-filter: var(--material-regular-backdrop)`,
+ * 亮暗两档都解析成 `blur(...) saturate(1.6)`(`styles/material.css`),不是 none。
+ * 于是那对视口坐标被当成「相对 .pane 的坐标」用,浮条恒定下移一个 `.pane` 顶边的
+ * 距离;同一条规则的 `overflow: hidden` 还会把落到 pane 外面的浮条整个裁掉。
+ *
+ * 这不是新发现的坑:输入框正是为此 portal 出去的(routines.css 那条规则自己的
+ * 注释写着「the composer is a separate fixed/portaled layer, so it isn't clipped」)。
+ *
+ * portal 出去要**自带 `--chat-*` 接缝**:自定义属性按 DOM 树继承,挂在 `<body>` 下
+ * 就落在聊天接缝之外,浮条的底色 / 圆角 / 描边(全是 `var(--chat-…)`)会**静默**
+ * 解析成空串。这个仓为此栽过三次(联系支持弹窗、产物卡浮层、输入框)。
+ */
+function QuoteBarLayer({ children }: { children: ReactElement }): ReactElement | null {
+  if (typeof document === 'undefined') return null;
+  return createPortal(<div {...chatSeam()}>{children}</div>, document.body);
 }
 
 /**
