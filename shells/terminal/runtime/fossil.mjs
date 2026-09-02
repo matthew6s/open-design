@@ -3,11 +3,14 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { convergeSidecarLaunch, getSidecarStatus, invokeSidecar, stopSidecar } from "@open-design/sidecar";
+
 const requestPath = process.env.OD_TERMINAL_FOSSIL_REQUEST_V1;
 const resultPath = process.env.OD_TERMINAL_FOSSIL_RESULT_V1;
-const fixtureSidecarUrl = process.env.OD_TERMINAL_FIXTURE_SIDECAR_URL;
 if (!requestPath || !resultPath) throw new Error("Terminal fossil exchange environment is incomplete");
-if (fixtureSidecarUrl != null && !/^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(fixtureSidecarUrl)) throw new Error("Terminal fixture Sidecar URL must use localhost HTTP");
+
+const sidecarAction = "standalone.request.v1";
+let activeSidecarStamp = null;
 
 const digestPattern = /^[a-f0-9]{64}$/;
 const versionPattern = /^\d+\.\d+\.\d+$/;
@@ -48,7 +51,7 @@ async function validateInstallation(value) {
   if (manifest?.schemaVersion !== 1 || manifest.shell?.type !== "terminal" || manifest.shell?.version !== value.shell.version || !digestPattern.test(manifest.shell?.buildHash) || manifest.target !== value.target) throw new Error("installed manifest identity mismatch");
   if (manifest.runtime?.name !== "node" || manifest.runtime?.version !== value.runtime.version || manifest.runtime?.sha256 !== value.runtime.digest) throw new Error("installed runtime binding mismatch");
   const descriptorPath = (descriptor) => descriptor?.file ?? descriptor?.entrypoint;
-  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.fossil, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.seed?.standaloneLauncher, manifest.releaseDocuments?.content, manifest.trust,
+  const descriptors = [manifest.carrierLock, manifest.contracts, manifest.runtimeModules, manifest.fossil, manifest.sidecarBootstrap, manifest.sidecarHost, manifest.fixtureLifecycle, manifest.fixtureShellUpdater, manifest.standalone, manifest.seed?.closure, manifest.seed?.standaloneLauncher, manifest.releaseDocuments?.content, manifest.trust,
     manifest.shellFiles?.sh?.terminal, manifest.shellFiles?.sh?.install, manifest.shellFiles?.ps1?.terminal, manifest.shellFiles?.ps1?.install];
   for (const descriptor of descriptors) {
     const entrypoint = descriptorPath(descriptor);
@@ -61,6 +64,12 @@ async function validateInstallation(value) {
   for (const descriptor of contractIndex.files) {
     const path = resolve(root, normalize(descriptor?.file));
     if (typeof descriptor?.file !== "string" || !digestPattern.test(descriptor?.sha256) || !inside(root, path) || sha256(await readFile(path)) !== descriptor.sha256) throw new Error("installed contract bundle failed verification");
+  }
+  const moduleIndex = await readJson(resolve(root, manifest.runtimeModules.file));
+  if (moduleIndex?.schemaVersion !== 1 || !Array.isArray(moduleIndex.files) || moduleIndex.files.length === 0) throw new Error("invalid runtime module index");
+  for (const descriptor of moduleIndex.files) {
+    const path = resolve(root, normalize(descriptor?.file));
+    if (typeof descriptor?.file !== "string" || !digestPattern.test(descriptor?.sha256) || !inside(root, path) || sha256(await readFile(path)) !== descriptor.sha256) throw new Error("installed runtime module failed verification");
   }
   const standalonePath = resolve(root, manifest.standalone.entrypoint);
   const standalone = await import(pathToFileURL(standalonePath).href);
@@ -78,18 +87,105 @@ async function readUrl(url) {
 }
 
 async function sidecarRequest(message) {
-  const response = await fetch(`${fixtureSidecarUrl}/v1/request`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ schemaVersion: 1, ...message }),
+  if (activeSidecarStamp == null) throw new Error("Terminal Sidecar has not converged");
+  return await invokeSidecar(activeSidecarStamp, sidecarAction, { schemaVersion: 1, ...message });
+}
+
+async function convergeTerminalSidecar(request, installation) {
+  const stamp = Object.freeze({
+    channel: request.channel,
+    namespace: request.namespace,
+    source: "standalone",
+    mode: "runtime",
+    app: "standalone",
   });
-  const payload = await response.json();
-  if (!response.ok || payload?.ok !== true) {
-    const error = new Error(payload?.error?.message ?? `fixture Sidecar request failed: ${response.status}`);
-    error.code = payload?.error?.code;
-    throw error;
+  const runtimeRoot = resolve(request.storeRoot, "sidecar-runtime");
+  const sidecarHost = resolve(installation.root, installation.manifest.sidecarHost.entrypoint);
+  const sidecarBootstrap = resolve(installation.root, installation.manifest.sidecarBootstrap.entrypoint);
+  const config = {
+    schemaVersion: 1,
+    channel: request.channel,
+    namespace: request.namespace,
+    storeRoot: resolve(request.storeRoot),
+    runtimeRoot,
+    standaloneEntrypoint: resolve(installation.root, installation.manifest.standalone.entrypoint),
+    sidecarHost,
+  };
+  try {
+    const existing = await getSidecarStatus(stamp, { timeoutMs: 500 });
+    if (
+      existing?.control !== "ready"
+      || existing.dataRoot !== config.storeRoot
+      || existing.runtimeRoot !== runtimeRoot
+      || !Number.isSafeInteger(existing.generationPid)
+      || !Number.isSafeInteger(existing.hostPid)
+      || !Number.isSafeInteger(existing.bootstrapPid)
+    ) throw new Error("existing Terminal Sidecar differs from its launch contract");
+    activeSidecarStamp = stamp;
+    return {
+      description: {
+        ready: true,
+        resources: {
+          dataRoot: existing.dataRoot,
+          ownerPid: null,
+          pid: existing.generationPid,
+          port: 0,
+          runtimeRoot: existing.runtimeRoot,
+        },
+        stamp,
+      },
+      status: existing,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "existing Terminal Sidecar differs from its launch contract") throw error;
   }
-  return payload.result;
+  const converged = await convergeSidecarLaunch({
+    args: [sidecarBootstrap],
+    command: process.execPath,
+    cwd: installation.root,
+    env: { ...process.env, OD_TERMINAL_SIDECAR_CONFIG_V1: JSON.stringify(config) },
+    resources: { dataRoot: config.storeRoot, ownerPid: null, port: 0, runtimeRoot },
+    stamp,
+  });
+  if (!converged.description.ready || JSON.stringify(converged.description.stamp) !== JSON.stringify(stamp)) {
+    throw new Error("Terminal Sidecar convergence returned another resource identity");
+  }
+  activeSidecarStamp = stamp;
+  const status = await getSidecarStatus(stamp, { generationPid: converged.description.resources.pid });
+  if (
+    status?.control !== "ready"
+    || status.generationPid !== converged.description.resources.pid
+    || !Number.isSafeInteger(status.hostPid)
+    || !Number.isSafeInteger(status.bootstrapPid)
+    || status.hostPid === status.bootstrapPid
+  ) throw new Error("Terminal Sidecar did not prove its supervised fossil handoff");
+  return { description: converged.description, status };
+}
+
+async function handoffTerminalSidecarGeneration(binding, convergence) {
+  const previousHostPid = convergence.status.hostPid;
+  const response = await sidecarRequest({
+    domain: "generation",
+    operation: "handoff",
+    scope: binding.scope,
+    bindingDigest: binding.digest,
+    generationId: binding.generationId,
+  });
+  if (response?.accepted !== true || response.retiringHostPid !== previousHostPid) {
+    throw new Error("Terminal Sidecar rejected an idle exact generation handoff");
+  }
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    try {
+      const status = await getSidecarStatus(activeSidecarStamp, {
+        generationPid: convergence.description.resources.pid,
+        timeoutMs: 500,
+      });
+      if (status?.hostPid !== previousHostPid && status?.previousHostPid === previousHostPid) return status;
+    } catch {}
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error("Terminal Sidecar exact generation successor did not become ready");
 }
 
 function sidecarLifecycle(requestAttachmentCapability) {
@@ -119,7 +215,6 @@ function sidecarLifecycle(requestAttachmentCapability) {
           renew: () => transitionCall("renew"),
           release: () => transitionCall("release"),
           forceStop: () => transitionCall("force-stop"),
-          completeStart: (generation, attachment, capabilityHash) => transitionCall("complete-start", { generation, attachment, capabilityHash }),
           completeBoundStart: (generation, attachment, binding) => transitionCall("complete-start", { generation, binding, attachment }),
         },
       };
@@ -135,102 +230,6 @@ function sidecarShellUpdater(scope, options) {
     waitForChange: (afterRevision, timeoutMs) => request("wait", { afterRevision, timeoutMs }),
     invoke: (action) => request("invoke", { action }),
     confirmInstalled: (proof) => request("confirm-installed", { proof }),
-  };
-}
-
-function terminalGenerationHandoff(standalone, lifecycle, scope) {
-  const pending = new Map();
-  const runtimeHandle = (request) => ({
-    async readStatus() {
-      const status = await lifecycle.status(scope);
-      return {
-        bindingDigest: request.binding.digest,
-        generationId: request.binding.generationId,
-        instanceId: status.instanceId ?? `stopped-${status.fence}`,
-        state: status.state,
-        references: status.references,
-      };
-    },
-    async invoke(command) {
-      return {
-        requestId: command.requestId,
-        attachmentId: command.attachmentId,
-        bindingDigest: request.binding.digest,
-        outcome: "unsupported",
-        error: { code: "terminal-capability-unavailable" },
-      };
-    },
-    async close() {
-      await lifecycle.release(scope, request.attachment.id);
-      return this.readStatus();
-    },
-    async waitForTerminal() {
-      for (;;) {
-        const status = await this.readStatus();
-        if (status.state !== "running") return status;
-        await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-      }
-    },
-  });
-  const host = new standalone.FossilHandoffHost(async (binding) => {
-    if (sha256(await readFile(binding.launcher.path)) !== binding.launcher.blobSha256) {
-      throw new Error("materialized Standalone launcher failed handoff binding");
-    }
-    const generation = await import(pathToFileURL(binding.launcher.path).href);
-    if (typeof generation.createStandaloneGenerationBootloader !== "function") {
-      throw new Error("materialized Standalone launcher lacks its generation bootloader");
-    }
-    return generation.createStandaloneGenerationBootloader(async (request) => {
-      const entry = pending.get(request.attachment.id);
-      if (entry == null || entry.input.binding.digest !== request.binding.digest) {
-        throw new Error("generation body start escaped its lifecycle continuation");
-      }
-      await entry.run();
-      return runtimeHandle(request);
-    });
-  });
-  return {
-    async start(input) {
-      if (pending.has(input.attachment.id)) throw new Error("attachment already has a pending generation start");
-      const entry = {
-        input,
-        status: null,
-        task: null,
-        run() {
-          this.task ??= input.start().then((status) => {
-            this.status = status;
-            return status;
-          });
-          return this.task;
-        },
-      };
-      pending.set(input.attachment.id, entry);
-      try {
-        const handle = await host.handoff({
-          binding: input.binding,
-          attachment: input.attachment,
-          capabilities: {
-            invoke: async (request) => ({
-              requestId: request.requestId,
-              attachmentId: request.attachmentId,
-              bindingDigest: request.bindingDigest,
-              outcome: "unsupported",
-              error: { code: "terminal-capability-unavailable" },
-            }),
-          },
-        });
-        await entry.run();
-        const runtime = await handle.readStatus();
-        if (
-          runtime.state !== "running"
-          || runtime.bindingDigest !== input.binding.digest
-          || runtime.generationId !== input.generation.id
-        ) throw new Error("materialized Standalone launcher did not acknowledge its exact generation");
-        return entry.status;
-      } finally {
-        pending.delete(input.attachment.id);
-      }
-    },
   };
 }
 
@@ -277,14 +276,20 @@ async function ensureInstalledSeed(request, installation, store, keys, feedback)
 
 async function execute(request, installation) {
   if (request.operation === "probe") return { capabilities: installation.manifest.capabilities, channel: request.channel, namespace: request.namespace };
+  const sidecarConvergence = await convergeTerminalSidecar(request, installation);
+  const sidecarDescription = sidecarConvergence.description;
+  let currentSidecarStatus = sidecarConvergence.status;
+  const sidecar = () => Object.freeze({
+    bootstrapPid: currentSidecarStatus.bootstrapPid,
+    generationPid: sidecarDescription.resources.pid,
+    hostPid: currentSidecarStatus.hostPid,
+    status: "ready",
+  });
   const { standalone } = installation;
   const keys = await trustedKeys(installation);
   const storeRoot = resolve(request.storeRoot);
   const store = new standalone.StandaloneStore(storeRoot, { channel: request.channel, namespace: request.namespace });
-  const { FileFixtureLifecyclePort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureLifecycle.entrypoint)).href);
-  const lifecycle = fixtureSidecarUrl == null
-    ? new FileFixtureLifecyclePort(storeRoot, { algebra: standalone.SHARED_LIFECYCLE_ALGEBRA })
-    : sidecarLifecycle(request.attachmentCapability);
+  const lifecycle = sidecarLifecycle(request.attachmentCapability);
   const shell = {
     type: "terminal",
     version: installation.manifest.shell.version,
@@ -292,14 +297,20 @@ async function execute(request, installation) {
     digest: sha256(installation.manifestBytes),
   };
   const feedback = request.feedbackFile == null ? undefined : async (event) => appendFile(request.feedbackFile, `${JSON.stringify(event)}\n`, "utf8");
-  const handoff = terminalGenerationHandoff(standalone, lifecycle, { channel: request.channel, namespace: request.namespace });
-  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback, handoff);
+  const launcher = new standalone.VersionedLauncher(store, lifecycle, shell, request.attachmentId ?? "terminal-control", feedback);
+  const bootloader = new standalone.FossilBootloader(store, shell, async (binding) => {
+    const status = await lifecycle.status(binding.scope);
+    if (status.state === "running" && status.references === 0) {
+      currentSidecarStatus = await handoffTerminalSidecarGeneration(binding, {
+        ...sidecarConvergence,
+        status: currentSidecarStatus,
+      });
+    }
+    return launcher;
+  });
   if (request.operation.startsWith("shell-update-")) {
-    const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
     const updaterOptions = { algebra: standalone.SHELL_UPDATE_ALGEBRA, attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };
-    const updater = fixtureSidecarUrl == null
-      ? new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, updaterOptions)
-      : sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
+    const updater = sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
     const action = ({
       "shell-update-check": "check",
       "shell-update-download": "download",
@@ -315,12 +326,29 @@ async function execute(request, installation) {
   }
   if (request.operation === "start") {
     await ensureInstalledSeed(request, installation, store, keys, feedback);
-    return new standalone.FossilBootloader(store, shell, async () => launcher).start();
+    return { ...await bootloader.start(), sidecar: sidecar() };
   }
-  if (request.operation === "heartbeat") return launcher.heartbeat();
-  if (request.operation === "release") return launcher.release();
-  if (request.operation === "status") return launcher.status();
-  if (request.operation === "stop") return launcher.stop();
+  if (request.operation === "heartbeat") return { ...await launcher.heartbeat(), sidecar: sidecar() };
+  if (request.operation === "release") return { ...await launcher.release(), sidecar: sidecar() };
+  if (request.operation === "status") {
+    const lifecycleStatus = await launcher.status();
+    const physicalStatus = await getSidecarStatus(activeSidecarStamp, { generationPid: sidecarDescription.resources.pid });
+    return {
+      ...lifecycleStatus,
+      sidecar: {
+        bootstrapPid: physicalStatus.bootstrapPid,
+        generationPid: sidecarDescription.resources.pid,
+        hostPid: physicalStatus.hostPid,
+        previousHostPid: physicalStatus.previousHostPid,
+        status: physicalStatus.control,
+      },
+    };
+  }
+  if (request.operation === "stop") {
+    const stopped = await launcher.stop();
+    const physical = await stopSidecar(activeSidecarStamp);
+    return { ...stopped, sidecar: { generationPid: sidecarDescription.resources.pid, remainingPids: physical.remainingPids } };
+  }
   const source = request.operation === "prepare-update"
       ? {
         readChannelHead: async () => JSON.parse(Buffer.from(await readUrl(request.channelHeadUrl)).toString("utf8")),
@@ -335,7 +363,6 @@ async function execute(request, installation) {
   if (request.operation === "prepare-update") {
     const preparation = await updater.prepareLatest(request.activationPolicy);
     if (preparation.status !== "shell-reinstall-required") return preparation;
-    const { FixtureShellUpdaterPort } = await import(pathToFileURL(resolve(installation.root, installation.manifest.fixtureShellUpdater.entrypoint)).href);
     const updaterOptions = {
       algebra: standalone.SHELL_UPDATE_ALGEBRA,
       attachmentId: request.attachmentId ?? `${shell.type}-updater`,
@@ -344,10 +371,16 @@ async function execute(request, installation) {
       target: installation.manifest.target,
       trustedKeys: [...keys].map(([keyId, publicKey]) => ({ keyId, publicKey })),
     };
-    const shellUpdater = fixtureSidecarUrl == null
-      ? new FixtureShellUpdaterPort(storeRoot, { channel: request.channel, namespace: request.namespace }, lifecycle, { ...updaterOptions, standalone, trustedKeys: keys })
-      : sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
+    const shellUpdater = sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
     return installation.closure.prepareClosureShellUpdate({ requirement: preparation.requirement, shell, updater: shellUpdater });
+  }
+  const prepared = await store.preparedGeneration();
+  const currentLifecycle = await lifecycle.status({ channel: request.channel, namespace: request.namespace });
+  if (prepared != null && currentLifecycle.state === "running" && currentLifecycle.references === 0) {
+    const binding = standalone.createStandaloneGenerationBinding(prepared, { channel: request.channel, namespace: request.namespace });
+    if (currentLifecycle.bindingDigest !== binding.digest) {
+      await handoffTerminalSidecarGeneration(binding, sidecarConvergence);
+    }
   }
   return updater.applyNow(launcher, { force: request.operation === "apply-update-force" });
 }

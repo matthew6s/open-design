@@ -288,7 +288,7 @@ def finalize(request: dict[str, Any], receipt_path: Path) -> None:
             contribution = {"schemaVersion": 1, "operation": "shell.distribution.contribute", "target": target,
                 "shell": {"type": "terminal", "version": terminal["version"] if terminal else "", "buildHash": scene["shellBuildHash"] if scene else ""},
                 "artifact": source_receipt.get("archive", {}),
-                "updater": {"protocol": "standalone-shell-updater-v3", "handler": "fixture-v3", "interaction": "restart-and-install"}}
+                "updater": {"protocol": "standalone-shell-updater-v3", "handler": "sidecar-v1", "interaction": "restart-and-install"}}
         else:
             contribution = source_receipt
         shell_type, target = str(contribution.get("shell", {}).get("type", "")), str(contribution.get("target", ""))

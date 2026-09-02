@@ -24,13 +24,6 @@ export class FixtureShellUpdaterPort implements StandaloneShellUpdaterPort {
       fence: number;
       occupants: readonly import("@open-design/standalone").StandaloneLifecycleOccupant[];
     }>, commit: () => Promise<T>) => Promise<T>;
-    /** @deprecated Compatibility for the unchanged legacy E2E host only. */
-    retireStandalone?: (input: Readonly<{
-      scope: LifecycleScope;
-      kind: "shell-install";
-      fence: number;
-      occupants: readonly import("@open-design/standalone").StandaloneLifecycleOccupant[];
-    }>) => Promise<Readonly<{ remainingPids: readonly number[] }>>;
     shellType?: string;
     standalone?: typeof import("@open-design/standalone");
     target?: string;

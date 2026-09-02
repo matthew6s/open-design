@@ -26,7 +26,6 @@
     "@open-design/release": "workspace:*",
     "@open-design/sidecar": "workspace:*",
     "@open-design/sidecar-proto": "workspace:*",
-    "@open-design/standalone": "workspace:*",
     "@playwright/test": "1.60.0",
     "@types/node": "20.19.39",
     "@types/pngjs": "6.0.5",

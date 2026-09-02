@@ -479,9 +479,6 @@ importers:
       '@open-design/sidecar-proto':
         specifier: workspace:*
         version: link:../packages/sidecar-proto
-      '@open-design/standalone':
-        specifier: workspace:*
-        version: link:../packages/standalone
       '@playwright/test':
         specifier: 1.60.0
         version: 1.60.0
@@ -855,6 +852,12 @@ importers:
 
   shells/terminal:
     devDependencies:
+      '@open-design/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@open-design/sidecar':
+        specifier: workspace:*
+        version: link:../../packages/sidecar
       '@open-design/standalone':
         specifier: workspace:*
         version: link:../../packages/standalone

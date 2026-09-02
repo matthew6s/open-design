@@ -17,8 +17,8 @@ dependencies and Vitest/TypeScript tests; it is not the distributed runtime.
   as explicit build artifacts supplied in a request; never import app sources.
 - A distribution is complete and offline. Thin installers, when emitted, must pin
   one immutable archive URL and digest and may not resolve mutable latest metadata.
-- Keep lifecycle execution behind the Standalone `LifecyclePort` seam until #7244
-  supplies the final Sidecar adapter. Terminal's fixture updater must exercise the
+- Keep lifecycle execution behind the Standalone `LifecyclePort` seam and adapt
+  that port only through the public `@open-design/sidecar` boundary. Terminal's fixture updater must exercise the
   complete Electron-facing provider contract, including progress, foreign-reference
   blocking, defer, and forced stop/install handoff; it is not a user-facing updater.
 - Do not depend on `.github/scripts`, `tools/pack`, or `tools/release`.

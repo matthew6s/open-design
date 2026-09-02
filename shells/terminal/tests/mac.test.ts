@@ -15,11 +15,11 @@ describe("Terminal macOS carrier", () => {
       if (fixture == null) {
         throw new Error(`locked Node archive for ${target} is required to run the native macOS E2E test`);
       }
-      const { archive, closureFile, directories, lock, locked, releases, standaloneDirectory, work } = fixture;
+      const { archive, closureFile, directories, lock, locked, releases, standaloneDirectory, sidecarDirectory, platformDirectory, work } = fixture;
       const scene = join(work, "scene");
       const sceneRequest = join(work, "scene-request.json");
       const sceneReceipt = join(work, "scene-receipt.json");
-      writeSceneRequest(sceneRequest, { target, shellVersion: readFileSync(join(terminalRoot, "version"), "utf8").trim(), nodeVersion: lock.version, nodeArchive: archive, nodeArchiveSha256: locked.sha256, closureFile, standaloneDirectory, sceneDirectory: scene });
+      writeSceneRequest(sceneRequest, { target, shellVersion: readFileSync(join(terminalRoot, "version"), "utf8").trim(), nodeVersion: lock.version, nodeArchive: archive, nodeArchiveSha256: locked.sha256, closureFile, standaloneDirectory, sidecarDirectory, platformDirectory, sceneDirectory: scene });
       run("sh", [join(terminalRoot, "sh/scene.sh"), "--request", sceneRequest, "--receipt", sceneReceipt]);
       const sceneSha = JSON.parse(readFileSync(sceneReceipt, "utf8")).sceneManifestSha256 as string;
       expect(JSON.parse(readFileSync(join(scene, "scene.json"), "utf8"))).toMatchObject({ shellBuildHash: expectedShellBuildHash(scene, target, locked.sha256) });
@@ -37,6 +37,7 @@ describe("Terminal macOS carrier", () => {
       const terminal = (installRoot: string, storeRoot: string, channel: string, namespace: string, operation: string, options: TerminalOptions = {}) => {
         const result = run("sh", [join(installRoot, "sh/terminal.sh"), "--root", installRoot, "--store-root", storeRoot, "--channel", channel, "--namespace", namespace, "--operation", operation,
           ...(options.attachmentId == null ? [] : ["--attachment-id", options.attachmentId]),
+          ...(options.attachmentCapability == null ? [] : ["--attachment-capability", options.attachmentCapability]),
           ...(options.channelHeadUrl == null ? [] : ["--channel-head-url", options.channelHeadUrl]),
           ...(options.activationPolicy == null ? [] : ["--activation-policy", options.activationPolicy]),
           ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile])]);

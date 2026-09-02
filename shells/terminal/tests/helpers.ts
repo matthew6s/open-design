@@ -5,19 +5,24 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { expect } from "vitest";
 
+import { stopSidecars, type SidecarStamp } from "@open-design/sidecar";
 import { canonicalJson, sha256Hex, signStandaloneChannelHead, signStandaloneMetadata, type StandaloneMetadata } from "@open-design/standalone";
 
 export const repoRoot = resolve(import.meta.dirname, "../../..");
 export const terminalRoot = resolve(import.meta.dirname, "..");
 const temporaryRoots: string[] = [];
 const fixtureServers: ChildProcess[] = [];
+const terminalSidecars = new Map<string, SidecarStamp>();
 
-export type TerminalOptions = { attachmentId?: string; channelHeadUrl?: string; activationPolicy?: string; feedbackFile?: string };
+export type TerminalOptions = { attachmentId?: string; attachmentCapability?: string; channelHeadUrl?: string; activationPolicy?: string; feedbackFile?: string };
 export type TerminalRunner = (root: string, storeRoot: string, channel: string, namespace: string, operation: string, options?: TerminalOptions) => Record<string, any>;
-type SceneRequestInput = { target: string; shellVersion: string; nodeVersion: string; nodeArchive: string; nodeArchiveSha256: string; closureFile: string; standaloneDirectory: string; sceneDirectory: string };
+type SceneRequestInput = { target: string; shellVersion: string; nodeVersion: string; nodeArchive: string; nodeArchiveSha256: string; closureFile: string; standaloneDirectory: string; sidecarDirectory: string; platformDirectory: string; sceneDirectory: string };
 type DistributionRequestInput = { target: string; sceneDirectory: string; sceneManifestSha256: string; releaseDocumentsDirectory: string; trustFile: string; release: { channel: string; releaseVersion: string; sourceCommit: string; publishedAt: string; artifactBaseUrl: string }; outputDirectory: string };
 
-export function cleanupFixtures(): void {
+export async function cleanupFixtures(): Promise<void> {
+  const stamps = [...terminalSidecars.values()];
+  terminalSidecars.clear();
+  if (stamps.length > 0) await stopSidecars(stamps.map((stamp) => ({ stamp }))).catch(() => undefined);
   for (const server of fixtureServers.splice(0)) server.kill();
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 }
@@ -41,6 +46,8 @@ export function writeSceneRequest(path: string, input: SceneRequestInput): void 
     node: { version: input.nodeVersion, archiveFile: input.nodeArchive, archiveSha256: input.nodeArchiveSha256 },
     closureArtifactFile: input.closureFile,
     standaloneDirectory: input.standaloneDirectory,
+    sidecarDirectory: input.sidecarDirectory,
+    platformDirectory: input.platformDirectory,
     sceneDirectory: input.sceneDirectory,
   }));
 }
@@ -67,6 +74,9 @@ export function expectedShellBuildHash(scene: string, target: string, nodeArchiv
     `fixture_lifecycle=${digest("runtime/fixture-lifecycle.mjs")}`,
     `fixture_shell_updater=${digest("runtime/fixture-shell-updater.mjs")}`,
     `fossil=${digest("runtime/fossil.mjs")}`,
+    `runtime_modules=${digest("runtime/modules.json")}`,
+    `sidecar_host=${digest("runtime/sidecar-host.mjs")}`,
+    `sidecar_bootstrap=${digest("runtime/sidecar-bootstrap.mjs")}`,
     `node_archive=${nodeArchiveSha256}`,
     `node_executable=${digest(nodeExecutable)}`,
     `ps_install=${digest("ps1/install.ps1")}`,
@@ -194,7 +204,9 @@ export function prepareExactFixture(target: string) {
   if (!existsSync(archive)) return null;
   const closureFile = join(repoRoot, "apps/closure/dist/index.mjs");
   const standaloneDirectory = join(repoRoot, "packages/standalone/dist");
-  if (!existsSync(closureFile) || !existsSync(join(standaloneDirectory, "index.mjs"))) throw new Error("build Closure and Standalone before the Terminal native test");
+  const sidecarDirectory = join(repoRoot, "packages/sidecar/dist");
+  const platformDirectory = join(repoRoot, "packages/platform/dist");
+  if (!existsSync(closureFile) || !existsSync(join(standaloneDirectory, "index.mjs")) || !existsSync(join(sidecarDirectory, "index.mjs")) || !existsSync(join(platformDirectory, "index.mjs"))) throw new Error("build Closure, Standalone, Sidecar, and Platform before the Terminal native test");
   const work = mkdtempSync(join(tmpdir(), `terminal-${target}-e2e-`)); temporaryRoots.push(work);
   const directories = { documents: join(work, "documents"), output: join(work, "output"), unpacked: join(work, "unpacked"), store: join(work, "store") };
   mkdirSync(directories.documents); mkdirSync(directories.output); mkdirSync(directories.unpacked);
@@ -205,20 +217,32 @@ export function prepareExactFixture(target: string) {
     startToolsServeReleaseStorage(work),
   );
   writeFileSync(join(directories.documents, "content-metadata.json"), readFileSync(releases.beta1.metadataFile));
-  return { archive, closureFile, directories, lock, locked, releases, standaloneDirectory, work };
+  return { archive, closureFile, directories, lock, locked, releases, standaloneDirectory, sidecarDirectory, platformDirectory, work };
 }
 
 export function verifyExactLifecycle(root: string, store: string, terminal: TerminalRunner, releases: ReturnType<typeof releaseDocuments>): void {
+  for (const [channel, namespace] of [["betahyx", "shared"], ["betahyx", "updater-scenario"], ["previewhyx", "shared"]]) {
+    const stamp = { channel, namespace, source: "standalone", mode: "runtime", app: "standalone" };
+    terminalSidecars.set(JSON.stringify(stamp), stamp);
+  }
   const feedbackFile = join(dirname(store), "terminal-feedback.jsonl");
   expect(terminal(root, store, "betahyx", "shared", "probe")).toMatchObject({ outcome: "ready", result: { channel: "betahyx" } });
   const first = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
-  expect(first).toMatchObject({ outcome: "ready", result: { state: "running", references: 1 } });
+  expect(first).toMatchObject({ outcome: "ready", result: { state: "running", references: 1, attachmentCapability: expect.any(String), sidecar: { bootstrapPid: expect.any(Number), generationPid: expect.any(Number), hostPid: expect.any(Number), status: "ready" } } });
+  expect(first.result.sidecar.bootstrapPid).not.toBe(first.result.sidecar.hostPid);
   const second = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
-  expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2 });
-  expect(terminal(root, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b" }).result.references).toBe(2);
-  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a" }).result.references).toBe(1);
-  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-b" }).result).toMatchObject({ state: "running", references: 0 });
-  expect(terminal(root, store, "betahyx", "shared", "stop").result.state).toBe("stopped");
+  expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2, attachmentCapability: expect.any(String), sidecar: { generationPid: first.result.sidecar.generationPid, status: "ready" } });
+  expect(terminal(root, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result.references).toBe(2);
+  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: first.result.attachmentCapability }).result.references).toBe(1);
+  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result).toMatchObject({ state: "running", references: 0 });
+  const reattached = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a" });
+  expect(reattached.result).toMatchObject({
+    generationId: first.result.generationId,
+    references: 1,
+    sidecar: { generationPid: first.result.sidecar.generationPid, status: "ready" },
+  });
+  expect(reattached.result.sidecar.hostPid).not.toBe(first.result.sidecar.hostPid);
+  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: reattached.result.attachmentCapability }).result.references).toBe(0);
   expect(terminal(root, store, "betahyx", "updater-scenario", "start", { attachmentId: "terminal-active" }).result).toMatchObject({ state: "running" });
   expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-check").result).toMatchObject({ outcome: "accepted", snapshot: { state: "available" } });
   expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-download").result).toMatchObject({ snapshot: { state: "ready" } });
@@ -232,6 +256,14 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   const applied = terminal(root, store, "betahyx", "shared", "apply-update");
   expect(applied.result).toMatchObject({ status: "applied", lifecycle: { state: "running" } });
   expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);
+  const handedOff = terminal(root, store, "betahyx", "shared", "status");
+  expect(handedOff.result.sidecar).toMatchObject({
+    generationPid: first.result.sidecar.generationPid,
+    previousHostPid: reattached.result.sidecar.hostPid,
+    status: "ready",
+  });
+  expect(handedOff.result.sidecar.hostPid).not.toBe(reattached.result.sidecar.hostPid);
+  expect(terminal(root, store, "betahyx", "shared", "stop").result.state).toBe("stopped");
   releases.promote(releases.beta3);
   expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "observe" }).result).toMatchObject({
     state: "update-required",

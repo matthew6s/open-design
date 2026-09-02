@@ -4,7 +4,7 @@
   "title": "Terminal installed manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "fossil", "fixtureLifecycle", "fixtureShellUpdater", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
+  "required": ["schemaVersion", "shell", "target", "carrierLock", "shellFiles", "contracts", "runtime", "runtimeModules", "fossil", "sidecarBootstrap", "sidecarHost", "fixtureLifecycle", "fixtureShellUpdater", "standalone", "seed", "releaseDocuments", "trust", "capabilities"],
   "properties": {
     "schemaVersion": {"const": 1},
     "shell": {
@@ -59,6 +59,25 @@
         "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },
+    "sidecarHost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "sha256"],
+      "properties": {
+        "entrypoint": {"const": "runtime/sidecar-host.mjs"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "sidecarBootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "sha256"],
+      "properties": {
+        "entrypoint": {"const": "runtime/sidecar-bootstrap.mjs"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "runtimeModules": {"$ref": "#/$defs/fileDigest"},
     "fixtureLifecycle": {
       "type": "object",
       "additionalProperties": false,
@@ -126,8 +145,8 @@
       "required": ["contentUpdater", "sharedInstance", "shellUpdater"],
       "properties": {
         "contentUpdater": {"const": "standalone-v4"},
-        "sharedInstance": {"const": "fixture-v3"},
-        "shellUpdater": {"const": "fixture-v3"}
+        "sharedInstance": {"const": "sidecar-v1"},
+        "shellUpdater": {"const": "sidecar-v1"}
       }
     }
   },

@@ -11,6 +11,7 @@ import {
   StandaloneUpdater,
   VersionedLauncher,
   canonicalJson,
+  createStandaloneGenerationBinding,
   sha256Hex,
   signStandaloneChannelHead,
   signStandaloneMetadata,
@@ -97,14 +98,14 @@ class FixturePort implements LifecyclePort {
     };
   }
 
-  async start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding?: import("../src/index.js").StandaloneGenerationBinding): Promise<LifecycleStatus> {
+  async start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding: import("../src/index.js").StandaloneGenerationBinding): Promise<LifecycleStatus> {
     this.bindScope(scope);
     if (generation.id === this.failGenerationId) throw new Error("activation failed");
     if (this.generationId != null && this.generationId !== generation.id) throw new Error("different generation is already running");
-    if (this.bindingDigest != null && this.bindingDigest !== (binding?.digest ?? generation.id)) throw new Error("different generation binding is already running");
+    if (this.bindingDigest != null && this.bindingDigest !== binding.digest) throw new Error("different generation binding is already running");
     if (this.generationId == null) this.fence += 1;
     this.generationId = generation.id;
-    this.bindingDigest ??= binding?.digest ?? generation.id;
+    this.bindingDigest ??= binding.digest;
     this.instanceId ??= `fixture-instance-${this.fence}`;
     this.attachments.set(attachment.id, attachment);
     return this.snapshot();
@@ -206,9 +207,15 @@ describe("standalone exact lifecycle", () => {
       },
     };
     const launcher = new VersionedLauncher(store, lifecycle, terminal, "terminal-1", undefined, handoff);
-    const fossil = new FossilBootloader(store, terminal, async () => launcher);
+    const selectedBindings: string[] = [];
+    const fossil = new FossilBootloader(store, terminal, async (binding) => {
+      selectedBindings.push(binding.digest);
+      expect(binding.generationId).toBe(generation.id);
+      return launcher;
+    });
     await expect(fossil.start()).resolves.toMatchObject({ state: "running", generationId: generation.id, references: 1 });
     expect(handoffs).toHaveLength(1);
+    expect(selectedBindings).toEqual(handoffs);
     expect(await store.readState()).toMatchObject({ schemaVersion: 4, revision: 5, prepared: null, activationIntent: null, activationAttempt: null, active: generation.id, lastHealthy: generation.id });
     expect(await readFile(generation.resources.fixture!.path, "utf8")).toContain("fixture");
   });
@@ -328,7 +335,8 @@ describe("standalone exact lifecycle", () => {
     ]), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
     await authorize(store, "initial-bootstrap");
     const lifecycle = new FixturePort();
-    await lifecycle.start(fixtureScope, { ...generation, id: "d".repeat(64) }, { id: "old-terminal", shell: terminal });
+    const occupiedGeneration = { ...generation, id: "d".repeat(64) };
+    await lifecycle.start(fixtureScope, occupiedGeneration, { id: "old-terminal", shell: terminal }, createStandaloneGenerationBinding(occupiedGeneration, fixtureScope));
     const electron = { type: "electron", version: "1.0.0", buildHash: "c".repeat(64), digest: "e".repeat(64) } satisfies StandaloneShellIdentity;
     await expect(new FossilBootloader(store, electron, async () => new VersionedLauncher(store, lifecycle, electron, "electron")).start())
       .rejects.toMatchObject({ code: "shell-update-required" });

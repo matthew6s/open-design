@@ -202,7 +202,6 @@ The model intentionally does not modify `e2e`, `tools-*`, Web, daemon, or the
 Electron Shell. Platform refinement tests belong to their eventual owning
 adapter; Terminal keeps this proof fast and local.
 
-The fixture temporarily accepts the old result-returning `retireStandalone`
-option solely so the frozen E2E host remains source-compatible. New Terminal
-proofs use `withRetiredStandalone(input, commit)`. The legacy option cannot
-establish the guard invariant and is not a production adapter contract.
+The Shell updater accepts only `withRetiredStandalone(input, commit)`. A
+result-returning retirement callback cannot establish the guard invariant and
+is deliberately absent from the new Terminal runtime.

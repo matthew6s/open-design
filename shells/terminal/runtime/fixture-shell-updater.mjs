@@ -59,16 +59,7 @@ export class FixtureShellUpdaterPort {
     this.standalone = options.standalone;
     this.faultAt = options.faultAt;
     this.installDelayMs = options.installDelayMs ?? 0;
-    // `retireStandalone` remains a narrow compatibility seam for the unchanged
-    // legacy E2E host. It is not a valid production refinement because it
-    // cannot prove that physical authority spans the logical commit.
-    this.withRetiredStandalone = options.withRetiredStandalone
-      ?? (options.retireStandalone == null
-        ? async (_input, commit) => await commit()
-        : async (input, commit) => {
-            requireCompleteStandaloneRetirement(await options.retireStandalone(input));
-            return await commit();
-          });
+    this.withRetiredStandalone = options.withRetiredStandalone;
     this.algebra = options.algebra;
     if (this.algebra == null || !["initial", "validate", "reduce"].every((name) => typeof this.algebra[name] === "function")) {
       throw new Error("fixture Shell updater requires the Standalone updater algebra");

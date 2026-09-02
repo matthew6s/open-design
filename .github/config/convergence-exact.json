@@ -18,6 +18,8 @@
       "scripts/postinstall.mjs",
       "apps/closure/",
       "packages/download/",
+      "packages/platform/",
+      "packages/sidecar/",
       "packages/standalone/",
       "shells/terminal/"
     ]

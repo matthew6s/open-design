@@ -187,6 +187,8 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
+          pnpm --filter @open-design/platform build
+          pnpm --filter @open-design/sidecar build
           pnpm --filter @open-design/standalone build
           pnpm --filter @open-design/closure build
           mkdir -p "$RUNNER_TEMP/exact-node"
@@ -207,6 +209,8 @@ jobs:
               "node": {"version": lock["version"], "archiveFile": str(destination), "archiveSha256": value["sha256"]},
               "closureArtifactFile": str(Path("apps/closure/dist/index.mjs").resolve()),
               "standaloneDirectory": str(Path("packages/standalone/dist").resolve()),
+              "sidecarDirectory": str(Path("packages/sidecar/dist").resolve()),
+              "platformDirectory": str(Path("packages/platform/dist").resolve()),
               "sceneDirectory": str(Path(os.environ["RUNNER_TEMP"], "exact-scene")),
           }
           Path(os.environ["RUNNER_TEMP"], "exact-scene-request.json").write_text(json.dumps(request, sort_keys=True, separators=(",", ":")) + "\n")
@@ -487,7 +491,7 @@ jobs:
                   "shell": {"type": shell_type, "version": shells[shell_type]["version"], "buildHash": scene["shellBuildHash"]},
                   "target": target,
                   "artifact": receipt["archive"],
-                  "updater": {"protocol": "standalone-shell-updater-v3", "handler": "fixture-v3", "interaction": "restart-and-install"},
+                  "updater": {"protocol": "standalone-shell-updater-v3", "handler": "sidecar-v1", "interaction": "restart-and-install"},
               }
               contribution_file = directory / "shell-contribution.json"
               contribution_file.write_text(json.dumps(contribution, sort_keys=True, separators=(",", ":")) + "\n")

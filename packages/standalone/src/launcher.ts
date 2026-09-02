@@ -22,7 +22,7 @@ export type LifecycleStatus = {
 export type LifecycleReadiness = Readonly<{ generationId: string; bindingDigest: string; instanceId: string; attachmentId: string }>;
 
 export interface LifecyclePort {
-  start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding?: StandaloneGenerationBinding): Promise<LifecycleStatus>;
+  start(scope: LifecycleScope, generation: GenerationRecord, attachment: LifecycleAttachment, binding: StandaloneGenerationBinding): Promise<LifecycleStatus>;
   awaitReady(scope: LifecycleScope, readiness: LifecycleReadiness): Promise<LifecycleReadiness>;
   heartbeat(scope: LifecycleScope, attachment: LifecycleAttachment): Promise<LifecycleStatus>;
   release(scope: LifecycleScope, attachmentId: string): Promise<LifecycleStatus>;
@@ -85,7 +85,7 @@ export class VersionedLauncher {
   }
 
   startDuringTransition(transition: StandaloneLifecycleTransition): Promise<LifecycleStatus> {
-    return this.startWith((generation, attachment, binding) => transition.completeBoundStart?.(generation, attachment, binding) ?? transition.completeStart(generation, attachment));
+    return this.startWith((generation, attachment, binding) => transition.completeBoundStart(generation, attachment, binding));
   }
 
   private async startWith(
@@ -156,7 +156,7 @@ export class FossilBootloader {
   constructor(
     private readonly store: StandaloneStore,
     private readonly shell: StandaloneShellIdentity,
-    private readonly loadVersionedLauncher: () => Promise<VersionedLauncher>,
+    private readonly loadVersionedLauncher: (binding: StandaloneGenerationBinding) => Promise<VersionedLauncher>,
   ) {}
 
   async start(): Promise<LifecycleStatus> {
@@ -186,6 +186,10 @@ export class FossilBootloader {
           : `Shell ${this.shell.type} ${this.shell.version} is below required ${minimum}`,
       );
     }
-    return (await this.loadVersionedLauncher()).start();
+    const binding = createStandaloneGenerationBinding(generation, {
+      channel: this.store.channel,
+      namespace: this.store.namespace,
+    });
+    return (await this.loadVersionedLauncher(binding)).start();
   }
 }

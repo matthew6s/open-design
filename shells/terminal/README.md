@@ -6,10 +6,11 @@ Node runtime.
 
 The native carrier has one deliberately small job: verify and install the pinned
 official Node carrier, verify the installed Terminal manifest and executable,
-then invoke `runtime/fossil.mjs` with that absolute executable. The E2E-only
-Sidecar host lives outside the archive under `e2e/lib/terminal-exact`; the fossil
-adapter validates its exchange contract and delegates lifecycle work to the
-installed `@open-design/standalone` artifact.
+then invoke `runtime/fossil.mjs` with that absolute executable. The archive
+carries its Sidecar bootstrap/host and the minimal verified
+`@open-design/sidecar`/`@open-design/platform` runtime modules. The fossil adapter
+uses only Sidecar's public convergence and control APIs, while lifecycle policy
+stays in the installed `@open-design/standalone` artifact.
 
 The authoritative release artifact is a complete offline archive. Its digest is
 the immutable download identity. Once installed, the exact bytes of
@@ -53,13 +54,13 @@ a separate download identity.
 After Node is available, `runtime/fossil.mjs` verifies the complete installed
 surface again and imports only the installed Standalone public entrypoint. Store,
 signature, update, activation and rollback policy remain in Standalone. The fossil
-only adapts Terminal files, HTTP and the phase-one Sidecar fixture to those ports.
+adapts Terminal files to the public Sidecar operations; IPC, endpoint derivation,
+process discovery and generation fencing stay private to `@open-design/sidecar`.
 `probe`, cold `start`, reference/heartbeat/release/stop, content update preparation
-and apply are all executable without Web or daemon. #7244 remains the integration
-gate for the real Sidecar transport and product lifecycle.
+and apply are all executable without Web or daemon.
 
-Every runtime request carries an explicit `channel` and `namespace`. The phase-one
-fixture shared instance is keyed only by that pair and follows
+Every runtime request carries an explicit `channel` and `namespace`. The Sidecar
+shared instance is keyed only by that pair and follows
 `contract/instance-lifecycle.schema.json`: reference attachment, heartbeat lease,
 occupant projection, fenced transitions and an explicit traditional stop signal.
 The local Sidecar issues a persisted attachment capability on first attachment;
@@ -107,15 +108,14 @@ launcher is never replaced by baseline code or a rollback generation in the
 same host; Store may roll state back, but recovery requires a fresh host
 lifecycle. One selected generation body serves multiple Shell attachments,
 routes attachment-scoped capabilities, and closes only after the final handle.
-Terminal's real fossil start imports this materialized entry before invoking
+Terminal's supervised Sidecar host imports this materialized entry before invoking
 the lifecycle continuation; normal cold start and transition-owned update start
 therefore cannot drift into separate launch paths. The focused long-lived fake
 host additionally exercises the complete Electron-facing multi-attachment
-shape, including cold-start progress, without introducing Web, daemon or a real
-Sidecar transport.
+shape, including cold-start progress, without introducing Web or daemon.
 
 Standalone owns the global mark/quarantine sweep and bounded asynchronous trash
-cleanup APIs. The fixture Sidecar only schedules them after the requested scope is
+cleanup APIs. The Terminal Sidecar host only schedules them after the requested scope is
 idle. This keeps blob semantics and reclamation out of Closure while exercising
 the same maintenance boundary Electron can reuse.
 
@@ -159,9 +159,6 @@ main CI:
 ```sh
 OD_TERMINAL_NODE_ARCHIVE=/path/to/node-v24.18.0-darwin-arm64.tar.gz \
   pnpm --filter @open-design/terminal test
-
-OD_EXACT_LOCAL_E2E=1 \
-  pnpm --dir e2e exec vitest run -c vitest.config.ts tests/scripts/exact-local.test.ts
 ```
 
 Without the environment variable the suite uses the matching archive from
@@ -182,7 +179,10 @@ forced-stop handoff; the old Shell is rejected as installation proof and the
 extracted replacement Shell completes it. It launches the Sidecar with Node and scripts from the
 installed archive, then covers attachment capabilities, default-deferred and
 forced content restart, transition lease recovery after a Sidecar crash, and
-idle-only blob sweep/cleanup.
+idle-only blob sweep/cleanup. It also closes the final logical reference and
+reattaches the same Terminal identity through a fresh Sidecar host while keeping
+the supervisor generation stable; a later content activation performs another
+exact host handoff.
 Platform coverage is deliberately split between
 `tests/mac.test.ts` (`sh` + tar.gz) and `tests/win.test.ts` (Windows PowerShell
 5.1 + zip); `tests/contract.test.ts` owns the shared protocol assertions.

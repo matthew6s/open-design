@@ -101,7 +101,10 @@ export class FileFixtureLifecyclePort {
     });
   }
 
-  start(scope, generation, attachment, binding) { return this.startInternal(scope, generation, attachment, undefined, binding); }
+  start(scope, generation, attachment, binding) {
+    if (binding == null) throw new Error("fixture lifecycle requires an exact generation binding");
+    return this.startInternal(scope, generation, attachment, undefined, binding);
+  }
   startWithCapability(scope, generation, attachment, capability, binding) { return this.startInternal(scope, generation, attachment, capability, binding); }
 
   awaitReady(scope, readiness) {
@@ -215,8 +218,7 @@ export class FileFixtureLifecyclePort {
         renew,
         release,
         forceStop,
-        completeStart: (generation, attachment, capabilityHash) => complete(generation, attachment, undefined, capabilityHash),
-        completeBoundStart: (generation, attachment, binding) => complete(generation, attachment, binding),
+        completeBoundStart: (generation, attachment, binding, capabilityHash) => complete(generation, attachment, binding, capabilityHash),
       },
     };
   }

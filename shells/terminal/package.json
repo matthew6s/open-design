@@ -6,12 +6,14 @@
   "description": "Native POSIX sh and PowerShell carrier for Standalone exact distributions.",
   "files": ["contract", "node-lock.json", "ps1", "runtime", "sh", "version"],
   "scripts": {
-    "pretest": "pnpm --filter @open-design/standalone build && pnpm --filter @open-design/closure build",
+    "pretest": "pnpm --filter @open-design/platform build && pnpm --filter @open-design/sidecar build && pnpm --filter @open-design/standalone build && pnpm --filter @open-design/closure build",
     "test": "vitest run",
     "pretypecheck": "pnpm --filter @open-design/standalone build",
     "typecheck": "tsc -p tsconfig.tests.json --noEmit"
   },
   "devDependencies": {
+    "@open-design/platform": "workspace:*",
+    "@open-design/sidecar": "workspace:*",
     "@open-design/standalone": "workspace:*",
     "@types/node": "24.12.2",
     "typescript": "6.0.3",

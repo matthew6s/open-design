@@ -21,8 +21,7 @@ export type StandaloneLifecycleTransition = Readonly<{
   renew(): Promise<void>;
   release(): Promise<void>;
   forceStop(): Promise<void>;
-  completeStart(generation: GenerationRecord, attachment: LifecycleAttachment, capabilityHash?: string): Promise<LifecycleStatus>;
-  completeBoundStart?(generation: GenerationRecord, attachment: LifecycleAttachment, binding: StandaloneGenerationBinding): Promise<LifecycleStatus>;
+  completeBoundStart(generation: GenerationRecord, attachment: LifecycleAttachment, binding: StandaloneGenerationBinding): Promise<LifecycleStatus>;
 }>;
 
 export type StandaloneLifecycleTransitionResult =
