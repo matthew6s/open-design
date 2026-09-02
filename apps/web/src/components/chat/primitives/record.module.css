@@ -646,17 +646,39 @@
    * 今天两边算出来都是 #202020,但写法不同的后果在失败行上看得见(见下面那条)。
    */
   color: inherit;
+  /*
+   * **下划线是静止态,不是 hover 态**(稿子 `729fa43ce7`,动刀的是 `e8726686ae`
+   * 「underline tool references by default」):
+   *
+   *   .tool .fn code { … text-decoration: underline; text-decoration-color: currentColor;
+   *                    text-underline-offset: 2px; }
+   *
+   * 同一次把 `.tool .fn:hover code` 和 `.fold.mod-flat .tool .fn:hover code` 两条
+   * **一起删了** —— hover 那一档整个退场,`currentColor` 挪进静止态,连
+   * `transition` 也没了(没有状态要过渡)。稿子写明的理由:「用真的 `<button>`
+   * 并让 `<code>` 默认带下划线:这是个能点的东西,**不需要先 hover 才发现**」。
+   *
+   * 上一版是「静止无线、hover 才出线」,配的是删掉的那两条;照那个写法,
+   * 一行里哪几个词能点,不把鼠标逐个扫过去是看不出来的。
+   */
+  text-decoration: underline;
+  text-decoration-color: currentColor;
   text-underline-offset: 2px;
-  transition: text-decoration-color var(--chat-dur-quick) var(--chat-ease-out);
 }
-/* 下划线也跟着这一行的字色走(稿子 2241 `… .fn:hover code { text-decoration-color: currentColor }`)。
-   原来钉的是 `--chat-text-soft`(#848484),在深色的行上会比字浅两档。 */
-.file:hover code { text-decoration: underline; text-decoration-color: currentColor; }
 /* 打不开的那一档(读取到的文件、搜索模式、命令)—— 同一副等宽外观,
-   但不给手型、不给悬停下划线:看起来能点、点了没反应比一开始就不像链接更糟。
-   判据见 `runtime/chat/record-file-open.ts`,渲染分叉在 `FileButton.tsx`。 */
+   但不给手型、**也不给下划线**:看起来能点、点了没反应比一开始就不像链接更糟。
+   判据见 `runtime/chat/record-file-open.ts`,渲染分叉在 `FileButton.tsx`。
+
+   ⚠️ **稿子里没有这一档**:它的 `.fn` 全是能点的 `<button>`,所以稿子没写过
+   「不可点的文件名长什么样」。而稿子给下划线的理由恰恰是「**这是个能点的东西**,
+   不需要先 hover 才发现」—— 把这个记号发给一个点不动的 `<span>`,等于拿稿子的
+   记号说一句假话。所以下划线只跟着可点那一档走,这一档显式清掉。
+   **要不要连这一档一起加线,归产品拍板**(W66 已列进待拍板)。
+   写成静止态的 `text-decoration: none` 而不是 `:hover` 那一条:上一版那条配的是
+   「hover 才出线」的旧写法,静止态本来就没有线,它一条都没挡住;现在线挪到静止态,
+   挡的位置也得跟着挪。 */
 .fileStatic { cursor: default; }
-.fileStatic:hover code { text-decoration: none; }
+.fileStatic code { text-decoration: none; }
 /* 失败行的文件名同样是正文深色(稿子 2239 把 `.is-fail` 那一支的 `.nm code`
    一并列进了整族深色那条)。原来是 `--chat-text`(#494949),比同一行的其它字浅一档。
    这一条**照稿子留成显式的**,不靠上面那句 `inherit` 兜:稿子两支各写一次,
