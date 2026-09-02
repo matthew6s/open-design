@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { BackoffController } from '../lib/backoff';
+import { bindStreamVisibility } from '../lib/stream-visibility';
 import {
   COLLAB_PROJECT_INVALIDATION_EVENTS,
   PROJECT_CONTENT_TRANSFER_STATE_EVENT,
@@ -117,9 +118,13 @@ export function createProjectEventsConnection(
   let cancelled = false;
   let source: EventSource | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set while the socket is deliberately given back to a parked tab, so no
+  // error/reconnect path re-opens it before the tab is visible again.
+  let releasedWhileHidden = false;
 
   const connect = (): void => {
     if (cancelled) return;
+    if (source) return;
     const es = new Ctor(projectEventsUrl(projectId, workspaceContext));
     source = es;
     es.addEventListener('ready', () => {
@@ -222,15 +227,47 @@ export function createProjectEventsConnection(
       options.onConnectedChange?.(false);
       es.close();
       if (source === es) source = null;
+      // A stream released because the tab is parked must not reconnect itself
+      // — that would quietly take the socket back while nobody is looking.
+      if (releasedWhileHidden) return;
       reconnectTimer = setT(connect, backoff.nextDelay()) as ReturnType<typeof setTimeout>;
     });
   };
+
+  // A stream nobody can see must not hold one of the origin's six sockets —
+  // see `stream-visibility.ts`. `onReady` fires again on the reopen, and this
+  // hook's consumers already treat that as their reconcile point, so the gap a
+  // parked tab opens is closed the moment it comes back.
+  const visibility = bindStreamVisibility({
+    onHidden: () => {
+      if (cancelled) return;
+      releasedWhileHidden = true;
+      if (reconnectTimer) {
+        clearT(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (source) {
+        source.close();
+        source = null;
+      }
+      options.onConnectedChange?.(false);
+    },
+    onVisible: () => {
+      if (cancelled) return;
+      releasedWhileHidden = false;
+      backoff.reset();
+      connect();
+    },
+    ...(options.setTimeoutFn ? { setTimeoutFn: options.setTimeoutFn } : {}),
+    ...(options.clearTimeoutFn ? { clearTimeoutFn: options.clearTimeoutFn } : {}),
+  });
 
   connect();
 
   return {
     close(): void {
       cancelled = true;
+      visibility.dispose();
       if (reconnectTimer) clearT(reconnectTimer);
       if (source) source.close();
     },
