@@ -103,10 +103,40 @@ describe('思考那一格的行首图标(产品 2026-09-02 交付的 brain-line)
     }
   });
 
-  it('尺寸不动 —— 还是 14px(改 16px 是另一条待办,不在这次里)', () => {
+  /**
+   * **和工具行的图标同尺寸**(用户裁决 2026-09-02:「brain 这个图标,应该要跟其他
+   * toolrow 的大小保持一致」)。
+   *
+   * ⚠️ 这条以前钉的是 `width` **属性**等于 14 —— 那是假绿。`Icon` 默认
+   * `size = 14`,渲染成 `width="14"` 属性;而 `.icon > svg` 的 CSS **恒赢**
+   * 表现属性,所以用户看到的一直是样式表里那个数。属性和眼睛看到的不是一回事,
+   * 断言属性等于自欺。稿子把这一格从 14 改到 16 时(`8015870095`),这条测试
+   * 照样绿,还在标题里声称"尺寸不动"。
+   *
+   * 现在钉两件真事:
+   *  ① 思考行和工具行**共用同一格行首槽**,所以尺寸结构上不可能分叉 ——
+   *     哪怕将来这个数再变,两边也一起变;
+   *  ② 那一格的实际尺寸是稿子的 16px。
+   */
+  it('和工具行图标同尺寸 —— 共用同一格行首槽,值取稿子的 16px', () => {
     const svg = doneRowIcon(show({ items: [thought('先想清楚要动哪几个文件。')] }));
-    expect(svg.getAttribute('width')).toBe('14');
-    expect(svg.getAttribute('height')).toBe('14');
+    const slot = svg.parentElement;
+    expect(slot?.className, '思考行的图标不在共用的行首槽里 —— 它会和工具行分叉')
+      .toMatch(/icon/);
+
+    const css = readFileSync(
+      resolve(__dirname, '../../../src/components/chat/primitives/record.module.css'),
+      'utf-8',
+    );
+    // 给这一格**定尺寸**的规则只能有一条。另外几条 `.icon > svg` 只管颜色
+    // (失败行转红那两条),不参与尺寸 —— 所以是按「声明了 width」筛,不是按
+    // 选择器数。多出第二条声明宽度的,就是尺寸分叉的入口。
+    const sized = [...css.matchAll(/\.icon\s*>\s*svg\s*\{([^}]*)\}/g)]
+      .map((match) => /width:\s*(\d+)px/.exec(match[1]!)?.[1])
+      .filter((width): width is string => width !== undefined);
+    expect(sized.length, '给 `.icon > svg` 定宽度的规则不止一条,后面那条会改写前面的')
+      .toBe(1);
+    expect(Number(sized[0]), '和稿子 components.css 的 `.ti > svg` 对不上').toBe(16);
   });
 
   it('**正在想那一档没有图标** —— 行首仍是会自转的球,没被换成静态路径', () => {
