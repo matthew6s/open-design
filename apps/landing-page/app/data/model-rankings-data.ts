@@ -1,4 +1,4 @@
-// 数据来源：ODEval 评测任务 35ce2d8f-ba24-433b-83dc-23551b3077c4（仅 AMR 外壳产物）
+// 数据来源：ODEval 评测任务 35ce2d8f-ba24-433b-83dc-23551b3077c4（仅 OpenDesign 执行链路产物）
 // 由脚本生成，请勿手工编辑。
 
 export type ModelRankingLocale = 'en' | 'zh';
@@ -28,7 +28,7 @@ export type RankedModel = {
   maker: string;
   icon: string;
   color: string;
-  /** 产物由哪个 CLI 外壳生成 */
+  /** 产物由哪条执行链路生成 */
   harness: string;
   /** 参与统计的产物数 */
   n: number;
@@ -102,7 +102,7 @@ export const MODEL_RANKING_SNAPSHOT = {
   dimensionsD2: 70,
 } as const;
 
-/** 场景层面的结果：合并 12 个 AMR 外壳模型，n 足够大，可直接用于结论。 */
+/** 场景层面的结果：合并 12 个模型，n 足够大，可直接用于结论。 */
 export const MODEL_RANKING_SCENARIOS: ScenarioSummary[] = [
   {
     id: "desktop",
@@ -227,7 +227,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "OpenAI",
     icon: "/agents/openai.svg",
     color: "#151714",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 77.6,
     ci95: 7.3,
@@ -375,7 +375,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Anthropic",
     icon: "/agents/anthropic.svg",
     color: "#b85c33",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 75.7,
     ci95: 8.1,
@@ -523,7 +523,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Z.ai",
     icon: "/agents/zhipu.svg",
     color: "#2743d6",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 74.0,
     ci95: 8.7,
@@ -671,7 +671,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Google",
     icon: "/agents/gemini.svg",
     color: "#54bff2",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 73.6,
     ci95: 5.8,
@@ -819,7 +819,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "DeepSeek",
     icon: "/agents/deepseek.svg",
     color: "#4d6bfe",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 72.9,
     ci95: 9.8,
@@ -967,7 +967,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Meta",
     icon: "/agents/meta.svg",
     color: "#0668e1",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 72.5,
     ci95: 6.2,
@@ -1115,7 +1115,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "xAI",
     icon: "/agents/xai.svg",
     color: "#7a63e8",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 72.4,
     ci95: 10.0,
@@ -1263,7 +1263,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Alibaba",
     icon: "/agents/qwen.svg",
     color: "#564bd0",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 72.0,
     ci95: 10.1,
@@ -1411,7 +1411,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "DeepSeek",
     icon: "/agents/deepseek.svg",
     color: "#3f5fd8",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 70.6,
     ci95: 10.3,
@@ -1559,7 +1559,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Z.ai",
     icon: "/agents/zhipu.svg",
     color: "#5c74e0",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 30,
     score: 69.8,
     ci95: 10.5,
@@ -1707,7 +1707,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Moonshot AI",
     icon: "/agents/moonshot.svg",
     color: "#6350cf",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 31,
     score: 65.7,
     ci95: 9.7,
@@ -1855,7 +1855,7 @@ export const MODEL_RANKINGS: RankedModel[] = [
     maker: "Anthropic",
     icon: "/agents/anthropic.svg",
     color: "#df9b70",
-    harness: "AMR",
+    harness: "OpenDesign",
     n: 37,
     score: 59.2,
     ci95: 11.5,
