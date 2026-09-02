@@ -403,7 +403,17 @@ describe('chat assistant feedback', () => {
     expect(screen.queryByRole('button', { name: 'Other' })).toBeNull();
   });
 
-  it('scrolls the feedback reasons panel into view after selecting a rating', () => {
+  /**
+   * Rating a reply must not move the view when the panel is already on screen.
+   *
+   * `block: 'start'` pulls the panel to the top of the scroller whether or not
+   * it needed pulling, which reads as the page jumping away from what the user
+   * was looking at; `smooth` then animates that jump, and the animation's own
+   * frames look exactly like a user scroll to whoever is watching scroll
+   * position. `nearest` scrolls the minimum required — nothing at all when the
+   * panel is already visible, which is the common case.
+   */
+  it('brings the feedback reasons panel into view without yanking the log', () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
 
@@ -413,7 +423,7 @@ describe('chat assistant feedback', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Not helpful' }));
 
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
   });
 
   it('does not ask for feedback while the assistant is still running', () => {

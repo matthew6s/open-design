@@ -6,6 +6,13 @@ import {
   type FollowIntent,
   type ScrollSample,
 } from '../runtime/chat/stick-to-bottom';
+import {
+  ANCHOR_TOP_PADDING,
+  anchorReleasedByScroll,
+  anchorScrollTop,
+  anchorSpacerHeight,
+  isNewTailUserTurn,
+} from '../runtime/chat/anchor-to-top';
 import { appendQuoteOutcome, type ChatQuote } from '../runtime/chat/quote-selection';
 import {
   captureElementScrollAnchor,
@@ -910,9 +917,6 @@ interface QueuedSendUpdate {
   meta?: ChatSendMeta;
 }
 
-// Gap left above the anchored user message when it is pinned to the top.
-const ANCHOR_TOP_PADDING = 12;
-
 /**
  * Fold an OD Next logical task into ONE conversation turn.
  *
@@ -1426,23 +1430,28 @@ export function ChatPane({
     };
   }, [refreshInlineAmrLoginStatus]);
 
-  // "Anchor the just-sent turn to the top" (ChatGPT-style). On send we pin
-  // the user's message to the top of the viewport and let the reply stream
-  // below it instead of following the bottom. `pending` is armed by the
-  // composer's onSend; the messages effect promotes it to `active` once the
-  // new user turn actually renders. A dynamic tail spacer reserves just
-  // enough real, scrollable blank space below the turn so the message can
-  // reach the top even when the reply is short. The spacer is only resized
-  // while the message sits at its pinned position — once the user scrolls
-  // below it, the reserved blank stays put (no collapse, no jump).
-  const anchorPendingRef = useRef(false);
+  /*
+   * "Anchor the just-sent turn to the top" (ChatGPT-style):新发出的那条用户消息
+   * 钉到视口顶端,回复在它下面长,而不是跟着底部跑。尾部占位块撑出刚好够用的
+   * 真实可滚空白,让短回复(甚至还没有回复)时这条消息物理上也够得着顶端;
+   * 占位块只在消息还钉在原位时收缩,用户一旦自己滚开,预留的空白就原地不动。
+   *
+   * **该不该钉,只看「尾条用户消息换人了没有」**(`isNewTailUserTurn`)。
+   * 老写法要每个发送入口自己举手(一个 `pending` 标志),而举手的只有输入框 ——
+   * question-form 交答案、首页发起、批注、队列排到、失败后的「继续」、生图重试
+   * 全都不走输入框,于是它们发出来的那一轮一条都钉不了顶。少一份状态,也就少一处
+   * 「新入口忘了接」。
+   *
+   * `undefined` = 这条会话还没落定过(初次装载 / 刚切会话),那一拍不钉:
+   * 整篇转录一次性到齐不是新发了一轮。
+   */
+  const settledTailUserIdRef = useRef<string | null | undefined>(undefined);
   const anchorActiveRef = useRef(false);
   const tailSpacerRef = useRef<HTMLDivElement | null>(null);
   const chatRailHighlightTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [chatRailHighlightedMessageId, setChatRailHighlightedMessageId] =
     useState<string | null>(null);
   const prevStreamingRef = useRef(streaming);
-  const prevLastUserIdRef = useRef<string | undefined>(undefined);
   // AssistantMessage's interaction callbacks are re-created per render and
   // excluded from its memo comparison (so streaming doesn't re-render every
   // message). Route them through this ref so a memoized message still calls the
@@ -2243,9 +2252,8 @@ export function ChatPane({
 
   useEffect(() => {
     didInitialScrollRef.current = false;
-    anchorPendingRef.current = false;
     anchorActiveRef.current = false;
-    prevLastUserIdRef.current = undefined;
+    settledTailUserIdRef.current = undefined;
     resetTailSpacer();
     // A new conversation should land at the bottom (its own initial
     // scroll), not inherit the previous conversation's saved position —
@@ -2254,7 +2262,7 @@ export function ChatPane({
     savedChatScrollRef.current = null;
     scrolledToFormRef.current = new Set();
     anchorActiveRef.current = false;
-    anchorPendingRef.current = false;
+    settledTailUserIdRef.current = undefined;
     resetTailSpacer();
     /*
      * 跟随意图也归位。它是**上一条会话**的阅读状态:在长会话里滚上去挣脱过,
@@ -2427,13 +2435,18 @@ export function ChatPane({
     // threshold) so a deliberate ~90px scroll-up isn't snapped back the
     // next time content streams in. Issue #983.
 
-    // A brand-new user turn from a local send: switch to "anchor to top"
-    // mode and smooth-scroll their message to the top of the viewport.
+    /*
+     * 屏幕上多了一轮新的用户消息 —— 切到「钉顶」模式,把它送到视口顶端。
+     *
+     * 判据只认结构(尾条用户消息的 id 换了),不认它是从哪个入口发出来的:
+     * 输入框、question-form 交答案、首页发起、批注、队列排到、失败后的「继续」、
+     * 生图重试,全都走这一条。见 `isNewTailUserTurn` 的注释。
+     */
     const lastUser = [...displayMessages].reverse().find((m) => m.role === 'user');
-    const prevUserId = prevLastUserIdRef.current;
-    prevLastUserIdRef.current = lastUser?.id;
-    if (anchorPendingRef.current && lastUser && lastUser.id !== prevUserId) {
-      anchorPendingRef.current = false;
+    const tailUserId = lastUser?.id ?? null;
+    const settledTailUserId = settledTailUserIdRef.current;
+    settledTailUserIdRef.current = tailUserId;
+    if (isNewTailUserTurn(settledTailUserId, tailUserId)) {
       resetTailSpacer();
       anchorActiveRef.current = true;
       /*
@@ -2576,8 +2589,11 @@ export function ChatPane({
       if (anchorActiveRef.current) {
         const pinnedTop = lastUserMsgTopInContent(target);
         if (
-          pinnedTop !== null &&
-          Math.abs(target.scrollTop - (pinnedTop - ANCHOR_TOP_PADDING)) > 40
+          pinnedTop !== null
+          && anchorReleasedByScroll({
+            scrollTop: target.scrollTop,
+            messageTopInContent: pinnedTop,
+          })
         ) {
           anchorActiveRef.current = false;
         }
@@ -3114,23 +3130,43 @@ export function ChatPane({
     if (!el || !spacer) return;
     const msgTopInContent = lastUserMsgTopInContent(el);
     if (msgTopInContent === null) return;
-    const spacerH = spacer.offsetHeight;
-    const contentBelow = el.scrollHeight - spacerH - msgTopInContent;
-    const needed = Math.max(0, el.clientHeight - contentBelow - ANCHOR_TOP_PADDING);
-    spacer.style.height = `${needed}px`;
+    spacer.style.height = `${anchorSpacerHeight({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      spacerHeight: spacer.offsetHeight,
+      messageTopInContent: msgTopInContent,
+    })}px`;
   }
 
-  // Smooth-scroll the anchored message to the top. Called ONCE per turn (on
-  // send). The message then stays at the top on its own as the reply streams
-  // below it, so we never re-scroll — re-scrolling each chunk is what caused
-  // the scroll-down fight and the settle jitter.
+  /**
+   * 把钉住的那条消息送到视口顶端。**每轮只叫一次**(新一轮渲染出来的那一帧)——
+   * 之后它靠自己待在顶上,回复在下面长,所以我们再也不重滚;每来一块内容就重滚
+   * 一次正是当初「往下滚打架 + 落定抖动」的来源。
+   *
+   * ## 【不变量】这一跳必须**瞬时**,而且走 `writeLogScrollTop`
+   *
+   * 平台不提供「这次滚动是谁发起的」,所以「用户是不是自己滚开了」只能看位置
+   * (下面 `onScroll` 里的 `anchorReleasedByScroll`,以及 `stick-to-bottom.ts` 的
+   * 方向判据)。`behavior:'smooth'` 于是会让这套机制**自己把自己判掉**:
+   *
+   *   · 动画中间的每一帧离落点都远超容差 → 第一帧就把钉住状态清掉,占位块从此
+   *     不再收缩,回复下面留一块死空白;
+   *   · 而落点恰好就是底部(占位块就是照着「落点 == 底部」撑的),所以回复还没
+   *     开始吐字时,动画最后一帧是一次「向下滚动 + 落到底部」—— 贴底跟随被重新
+   *     挂上,接着把用户一路拽到底。回复来得快慢决定落在哪一边,这就是用户说的
+   *     「有时候有有时候没有」。
+   *
+   * 瞬时写入没有这个窗口:位置和基线在同一拍里落定(`writeLogScrollTop` 写完就
+   * 记基线),随后浏览器补发的那个 scroll 事件读到的位置就是落点本身,既不构成
+   * 方向,也不越过容差。同一条不变量在 `stick-to-bottom.ts` 和 question-form
+   * 定位(`scrollQuestionFormToTop`)里都写过,这里是最后一处补齐。
+   */
   function scrollAnchorToTop() {
     const el = logRef.current;
     if (!el) return;
     const msgTopInContent = lastUserMsgTopInContent(el);
     if (msgTopInContent === null) return;
-    const target = Math.max(0, msgTopInContent - ANCHOR_TOP_PADDING);
-    el.scrollTo({ top: target, behavior: 'smooth' });
+    writeLogScrollTop(el, anchorScrollTop(msgTopInContent));
   }
 
   function jumpToBottom() {
@@ -3278,22 +3314,14 @@ export function ChatPane({
           return;
         }
         armFollow();
-        // Arm "anchor to top": the messages effect promotes this once
-        // the new user turn renders, pinning it to the top of the view.
-        // Clear any stale reserve from the previous turn first so a resend
-        // doesn't strand the new turn below a leftover gap (release #3653).
+        // Clear any stale reserve from the previous turn before the new one
+        // renders, so a resend doesn't flash the new turn below a leftover gap
+        // (release #3653). 「要不要钉顶」不在这里表态 —— 那是消息流水的结构
+        // 说了算(见 `isNewTailUserTurn`),不然每加一个发送入口就要在这里补一行,
+        // 而实际上从来没人补过。
         anchorActiveRef.current = false;
         resetTailSpacer();
-        anchorPendingRef.current = true;
-        const outcome = onSend(prompt, attachments, commentAttachments, meta);
-        if (outcome instanceof Promise) {
-          return outcome.then((result) => {
-            if (result === 'restore-draft') anchorPendingRef.current = false;
-            return result;
-          });
-        }
-        if (outcome === 'restore-draft') anchorPendingRef.current = false;
-        return outcome;
+        return onSend(prompt, attachments, commentAttachments, meta);
       }}
       onStop={onStop}
       onOpenSettings={onOpenSettings}
