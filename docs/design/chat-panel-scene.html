@@ -1679,7 +1679,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    它问你的话,同宽、一左一右,来回一目了然。 */
 .card:has(.q), .card:has(> .steps), .card:has(.foot), .errb { width: 380px; max-width: 100%; }
 .cbody > .q { padding: 10px 11px 8px; font-size: var(--t-mini); font-weight: 500; line-height: var(--lh-body); color: var(--text-strong); }
-/* 澄清问句使用 13px 正文档,与下面 12px 的选项区分。 */
+/* 澄清问句与选项统一使用 13px 正文档。 */
 .card:has(> .cbody > .opts) > .cbody > .q { font-size: var(--t-body); }
 .cbody > .opts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 11px 10px; }
 
@@ -1712,7 +1712,7 @@ button.att-d:hover { border-color: var(--border-strong); }
   width: 100%; padding: 8px 11px;
   border: 0; border-radius: var(--radius);
   background: transparent; text-align: left;
-  font-size: var(--t-mini); line-height: var(--lh-row); color: var(--text);
+  font-size: var(--t-body); line-height: var(--lh-row); color: var(--text);
   transition: background-color var(--duration-faster) var(--ease-out);
 }
 .opt:hover { background: var(--bg-panel); }
@@ -3059,10 +3059,11 @@ button.att-d:hover { border-color: var(--border-strong); }
    点只说"有个状态",勾说的是"过了" —— 这一行报的正是后者,而同一句话在
    执行记录里(工具行、步骤、已完成任务)全程都由这枚勾说,回合状态行是这段
    流水的收尾,没有理由在最后一行换一种说法。
-   13px 不是 15:这一行右边那组动作图标是 13,状态挨着它们,跟着行内的图标
-   尺寸走 —— 15 会比旁边一整排都大一圈,读成"这不是同一组东西"。
+   16px 跟着状态词走,不跟右边那排动作图标:状态词是 14px 的中文,16px 的勾
+   与它字面等高,勾和字读成一个词;右边那几枚是 13px,它们是另一组东西
+   ——可点的动作 —— 本来就不必和这个词同一尺寸。
    「已手动停止」仍是灰点:它不是"过了",没有勾可画;点在那儿只占位报状态。 */
-.fb .fin > .tick { flex: none; width: 13px; height: 13px; color: var(--brand-weak); }
+.fb .fin > .tick { flex: none; width: 16px; height: 16px; color: var(--brand-weak); }
 .fb .fin.mod-stop i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); }
 .fb button {
   display: grid; place-items: center; width: 26px; height: 26px;
@@ -3982,13 +3983,18 @@ button.att-d:hover { border-color: var(--border-strong); }
    两处必须是同一个数,所以提到共同的祖先上。 */
 .opts.mod-visual[data-view="fan"] { --fan-h: 244px; }
 
-/* 【顶部那条切换已经从标记里去掉了】(2026-08-19 按要求)。卡现在只有叠放一种
-   排布,右上角不再有「铺开」。下面 .vbar / .vswitch 的样式和 visual-fan.js 里
-   那个点击处理都留着 —— 网格那套规则(data-view="grid")本身没删,把 .vbar
-   那段标记加回去就又能切。
-   原注:顶部那一条只放切换,不放别的 —— 这里再挂标题或计数,就成了卡里的第二个卡头。 */
-.vbar { display: flex; align-items: center; padding-bottom: 6px; }
+/* 顶部操作只管这组预览:换一批和叠放 / 网格切换并排靠右。标题与倒计时仍在
+   卡头里,这里不会长成第二个卡头。 */
+.vbar { display: flex; align-items: center; gap: 4px; padding-bottom: 6px; }
 .vbar .sp { flex: 1; }
+.card > .h .visual-countdown { color: var(--text-soft); font-weight: 400; }
+.visual-refresh {
+  flex: none; min-height: 24px; padding-inline: 5px; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size: var(--t-cap); font-weight: 400;
+  transition: background-color var(--duration-faster) var(--ease-out),
+              color var(--duration-faster) var(--ease-out);
+}
+.visual-refresh:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
 /* 纯图标,不带字也不挂 tooltip。
    ------------------------------------------------------------
    两个图标本身已经把话说完了:四格 = 铺开,两张叠着 = 收起。再配「铺开 / 叠起」
@@ -4747,11 +4753,11 @@ body { margin: 0; }
         <div class="msg-me"><div class="bub mod-clamp"><span class="txt">把这一屏重做成能跑的原型,再加一个视觉风格一致的设置页,两页共用同一套间距和圆角。列表页的商品卡要能复用到设置页里那两处小卡上,间距按 8 的倍数走,圆角统一 12px。另外结算页那张缩略图也一起换掉,价格行的字号调大一档 —— 现在两页放一起看着不像一套。跨端那边先不用管,等这两页定了再说。</span><button class="more" type="button" aria-label="展开全文">…<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.9999 13.1714L16.9497 8.22168L18.3639 9.63589L11.9999 15.9999L5.63599 9.63589L7.0502 8.22168L11.9999 13.1714Z"/></svg></button></div></div>
 
         <div class="card">
-                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>先定个视觉方向</b></div>
+                <div class="h"><svg class="hd-ic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3644 1.80762C18.6295 1.80769 18.8839 1.91312 19.0714 2.10059L21.8995 4.92871C22.29 5.31919 22.2899 5.95224 21.8995 6.34277L18.2276 10.0146C19.2826 11.3871 20.0766 12.7665 20.5108 14.0059C20.7653 14.7323 20.9135 15.4571 20.8878 16.1279C20.8618 16.8063 20.6529 17.4897 20.1319 18.0107C19.3188 18.8238 18.1404 18.8753 17.0909 18.6602C16.0059 18.4376 14.789 17.885 13.5646 17.1104L14.6339 15.4199C15.7393 16.1193 16.7271 16.5441 17.4933 16.7012C18.2945 16.8654 18.6149 16.6996 18.7179 16.5967C18.7857 16.5288 18.877 16.3822 18.8897 16.0518C18.9027 15.7134 18.8269 15.2486 18.6231 14.667C18.2955 13.732 17.6762 12.6159 16.7999 11.4424L14.8282 13.4141C14.6407 13.6016 14.3864 13.707 14.1212 13.707H11.2931C10.7408 13.707 10.2931 13.2593 10.2931 12.707V9.87891C10.2931 9.61372 10.3985 9.3594 10.586 9.17188L12.4435 7.31348C11.2356 6.6015 10.012 6.19175 8.91026 6.08594C7.51104 5.95164 6.38043 6.30526 5.63584 7.0498C4.77429 7.91135 4.43188 9.30214 4.77354 11.0107C5.11363 12.7112 6.12068 14.605 7.75791 16.2422C9.51568 18 11.5651 19.0286 13.3526 19.29L13.0636 21.2686C10.7846 20.9353 8.35467 19.669 6.34287 17.6572C4.46542 15.7798 3.24029 13.5416 2.8126 11.4033C2.38658 9.2732 2.74022 7.1173 4.22178 5.63574C5.49617 4.3614 7.27806 3.91963 9.10166 4.09473C10.6796 4.24628 12.3422 4.86047 13.8966 5.86035L17.6573 2.10059L17.7306 2.03418C17.9085 1.88844 18.1323 1.80762 18.3644 1.80762ZM12.2931 10.293V11.707H13.7071L19.7784 5.63574L18.3644 4.22168L12.2931 10.293Z"></path></svg><b>先定个视觉方向</b><time class="n visual-countdown" datetime="PT30S" aria-label="剩余 30 秒">30s</time></div>
                 <div class="cbody">
                 <div class="q">这套电商 App 原型走哪种感觉?四张预览用的是同一份示例内容,比的是风格。</div>
                 <div class="opts mod-visual" data-view="fan">
-                  <div class="vbar"><span class="sp"></span><button class="vswitch" type="button" aria-label="铺成网格"><svg class="ic-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg><svg class="ic-fan" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="8.5" y="3.5" width="11.5" height="15.5" rx="2"/><path d="M5.5 6.5v11a2.5 2.5 0 0 0 2.5 2.5h8"/></svg></button></div>
+                  <div class="vbar"><span class="sp"></span><button class="visual-refresh" type="button">换一批</button><button class="vswitch" type="button" aria-label="铺成网格"><svg class="ic-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg><svg class="ic-fan" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="8.5" y="3.5" width="11.5" height="15.5" rx="2"/><path d="M5.5 6.5v11a2.5 2.5 0 0 0 2.5 2.5h8"/></svg></button></div>
                   <div class="vwrap">
                   <button class="vopt" type="button">
                     <span class="vpv"><span class="pick"><svg class="ck" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><span class="mini mod-s1"></span></span>
@@ -4773,7 +4779,7 @@ body { margin: 0; }
                 <div class="vnav"><button class="vnav-b" type="button" data-nav="prev" aria-label="上一张"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.8284 12.0007L15.7782 16.9504L14.364 18.3646L8 12.0007L14.364 5.63672L15.7782 7.05093L10.8284 12.0007Z"></path></svg></button><button class="vnav-b" type="button" data-nav="next" aria-label="下一张"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.1717 12.0007L8.22192 7.05093L9.63614 5.63672L16.0001 12.0007L9.63614 18.3646L8.22192 16.9504L13.1717 12.0007Z"></path></svg></button></div>
                   </div>
                 <div class="foot">
-                  <button class="btn mod-ghost mod-sm" type="button">换一批</button>
+                  <button class="btn mod-ghost mod-sm" type="button">跳过</button>
                   <span class="sp"></span>
                   <button class="btn mod-ghost mod-sm" type="button">随机</button>
                   <button class="btn mod-primary mod-sm" type="button" disabled>下一步</button>
@@ -6238,7 +6244,7 @@ addEventListener('pointerdown', () => { delete root.dataset.kb; }, true);
 // 叠放 ⇄ 网格。这一条必须真的能点 —— 稿子里"默认叠着"成立的前提就是
 // "想铺开随时铺得开",做成静态图等于把这个前提藏起来让人自己脑补。
 //
-// 「换一批」和「随机」不接:它们要换的是预览图本身,而这份稿子里的预览是
+// 「换一批」和「随机」暂不接:它们要换的是预览图本身,而这份稿子里的预览是
 // CSS 画的灰块,四张长得一样,换了也看不出换过 —— 做一个看不出效果的动作,
 // 比不做更让人怀疑是不是坏了。
 

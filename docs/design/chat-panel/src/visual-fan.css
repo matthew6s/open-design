@@ -13,13 +13,18 @@
    两处必须是同一个数,所以提到共同的祖先上。 */
 .opts.mod-visual[data-view="fan"] { --fan-h: 244px; }
 
-/* 【顶部那条切换已经从标记里去掉了】(2026-08-19 按要求)。卡现在只有叠放一种
-   排布,右上角不再有「铺开」。下面 .vbar / .vswitch 的样式和 visual-fan.js 里
-   那个点击处理都留着 —— 网格那套规则(data-view="grid")本身没删,把 .vbar
-   那段标记加回去就又能切。
-   原注:顶部那一条只放切换,不放别的 —— 这里再挂标题或计数,就成了卡里的第二个卡头。 */
-.vbar { display: flex; align-items: center; padding-bottom: 6px; }
+/* 顶部操作只管这组预览:换一批和叠放 / 网格切换并排靠右。标题与倒计时仍在
+   卡头里,这里不会长成第二个卡头。 */
+.vbar { display: flex; align-items: center; gap: 4px; padding-bottom: 6px; }
 .vbar .sp { flex: 1; }
+.card > .h .visual-countdown { color: var(--text-soft); font-weight: 400; }
+.visual-refresh {
+  flex: none; min-height: 24px; padding-inline: 5px; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size: var(--t-cap); font-weight: 400;
+  transition: background-color var(--duration-faster) var(--ease-out),
+              color var(--duration-faster) var(--ease-out);
+}
+.visual-refresh:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
 /* 纯图标,不带字也不挂 tooltip。
    ------------------------------------------------------------
    两个图标本身已经把话说完了:四格 = 铺开,两张叠着 = 收起。再配「铺开 / 叠起」
