@@ -32,11 +32,24 @@ vi.mock('../../src/i18n', async (importOriginal) => {
   };
 });
 
+/**
+ * 每次 `setDraft` 带的第二个参数。
+ *
+ * 「点了只填草稿」这条产品裁决在实现上就是 `setDraft(prompt, …)`,而不是
+ * `onSend(…)`;`entryFrom: 'next_step'` 是这条路径的归因标记 —— 丢了它,
+ * 埋点看不出「这一条是从下一步引导起草的」,而且下一个人很容易顺手把它改回
+ * 直接发送(那一步同样只改这一行)。所以这里把参数一起钉住。
+ */
+const setDraftCalls: Array<{ text: string; options?: unknown }> = [];
+
 vi.mock('../../src/components/ChatComposer', () => ({
   ChatComposer: forwardRef((_props, ref) => {
     const [draft, setDraft] = useState('');
     useImperativeHandle(ref, () => ({
-      setDraft,
+      setDraft: (text: string, options?: unknown) => {
+        setDraftCalls.push({ text, options });
+        setDraft(text);
+      },
       restoreDraft: ({ text }: { text: string }) => setDraft(text),
       focus: () => undefined,
       applyDesignToolboxAction: () => undefined,
@@ -52,6 +65,7 @@ vi.mock('../../src/components/ChatComposer', () => ({
 
 afterEach(() => {
   cleanup();
+  setDraftCalls.length = 0;
   vi.clearAllMocks();
 });
 
@@ -139,6 +153,10 @@ describe('ChatPane · 下一步引导', () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(screen.getAllByTestId('assistant-flow')).toHaveLength(assistantCountBefore);
     expect(screen.queryAllByTestId('user-message')).toHaveLength(userCountBefore);
+    // 起草路径本身,连同它的归因,一起钉住(OPEND-2497 产品裁决)
+    expect(setDraftCalls).toEqual([
+      { text: '把商品卡换成两列布局', options: { entryFrom: 'next_step' } },
+    ]);
   });
 
   it('旧会话(没有 next_steps 事件)不出这一行', () => {

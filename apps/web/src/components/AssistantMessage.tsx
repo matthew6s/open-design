@@ -1194,6 +1194,28 @@ function AssistantMessageImpl({
     turnArtifactOps.length > 0 ||
     displayedProduced.length > 0 ||
     pluginActionFolders.length > 0;
+  /*
+   * 这一轮**凭什么**可以出「下一步引导」。
+   *
+   * 工具箱那几档(brand / plan / design-system / project-incomplete)的行是
+   * **宿主自己造的** —— 分享、下载、继续抽取、生成产物,每一条都指着一个具体
+   * 目标。没有产物就没有目标,所以那几档必须先有 `hasTurnDeliverable`,否则
+   * 会给出点了没有去处的入口。
+   *
+   * `default` 档不一样:它整档就是 agent 这一轮**自己写下的**三条建议。
+   * 「这一轮有没有值得接着做的事」这个判断已经在 agent 那边做过了 —— host
+   * 协议原话是「没有可迭代的东西(打招呼、一句普通回答、以问题收尾的回合)
+   * 就一条都别发」。宿主再拿产物清单二次否决,不是加一道保险,是把 agent
+   * 已经给出的结论丢掉:引用正文追问、改一处措辞、校对一遍、答一个关于刚
+   * 交付物的问题 —— 这些回合宿主都不往产物名下记,建议却是有的,于是三条
+   * 建议被静默扔掉(OPEND-2497)。
+   *
+   * 收口仍然在 `runSucceeded` 上:失败 / 中止的回合出口是重试,不是接着往下做。
+   */
+  const nextStepDeliveryEvidence =
+    effectiveNextStepVariant === 'default'
+      ? nextStepSuggestions.length > 0
+      : hasTurnDeliverable;
   // Incomplete brand extraction is an explicit recovery workflow, not a
   // generic failed turn: its Continue action is the only way to resume the
   // saved extraction state, even when no artifact was produced yet.
@@ -1207,7 +1229,7 @@ function AssistantMessageImpl({
     unfinishedTodos.length === 0 &&
     !hasPendingQuestionForm &&
     ((!!isLast && hasNextStepPrimary &&
-      ((runSucceeded && hasTurnDeliverable) || isBrandExtractionRecovery)) ||
+      ((runSucceeded && nextStepDeliveryEvidence) || isBrandExtractionRecovery)) ||
       showOpenDesignSubmission);
   // Pre-output vs working: before any real content (text / thinking / tools /
   // files) the footer shimmers "Preparing…"; the moment content lands it

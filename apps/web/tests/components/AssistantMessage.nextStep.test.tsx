@@ -219,6 +219,57 @@ describe('AssistantMessage next-step affordance', () => {
     expect(screen.queryByTestId('next-step-actions')).toBeNull();
   });
 
+  /**
+   * OPEND-2497:「添加到对话」发起的任务跑完了,末尾却没有下一步引导。
+   *
+   * 这一档的三条建议是 **agent 自己现写的** —— 它已经按提示词判过
+   * 「这一轮有没有值得接着做的事」,没有就一条都不发。所以再由宿主拿
+   * 「本轮有没有产物文件」二次否决,只会把 agent 已经给出的判断丢掉:
+   * 引用一段正文追问、改一处措辞、答一个问题,这些回合宿主都不会记到
+   * 产物名下,建议却是有的。
+   *
+   * 产物门只留给工具箱那几档(brand / plan / design-system /
+   * project-incomplete)—— 它们的行是宿主自己造的,得有个锚点。
+   */
+  it('renders the agent-written suggestions on a completed turn with no produced file (OPEND-2497)', () => {
+    const h = handlers();
+    render(
+      <AssistantMessage
+        message={withSuggestions(baseMessage({ producedFiles: [] }))}
+        streaming={false}
+        projectId="proj-1"
+        isLast
+        {...h}
+      />,
+    );
+    expect(screen.getByTestId('next-step-suggestions')).toBeTruthy();
+    for (const text of SUGGESTIONS) expect(screen.getByText(text)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('next-step-suggestion-0'));
+    expect(h.onNextStepSuggestion).toHaveBeenCalledWith('再加一页订单列表');
+  });
+
+  /**
+   * 同一条口子不能顺带放开失败 / 中止的回合 —— 那不是「任务结束」,
+   * 是「任务没做成」,收尾出口是重试,不是接着往下做。
+   */
+  it('still withholds agent-written suggestions when the turn did not succeed', () => {
+    for (const runStatus of ['failed', 'canceled'] as const) {
+      render(
+        <AssistantMessage
+          message={withSuggestions(
+            baseMessage({ runStatus, content: 'Stopped.', producedFiles: [] }),
+          )}
+          streaming={false}
+          projectId="proj-1"
+          isLast
+          {...handlers()}
+        />,
+      );
+      expect(screen.queryByTestId('next-step-suggestions')).toBeNull();
+      cleanup();
+    }
+  });
+
   it('does not render for a simple answer without a project id', () => {
     render(
       <AssistantMessage
