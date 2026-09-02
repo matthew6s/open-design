@@ -180,14 +180,22 @@ function expandOther(container: HTMLElement): { row: HTMLElement; box: HTMLEleme
 /* ── 稿子的原值(light,`361b78253e` 的 `.opt` 一族) ─────────────────── */
 
 /*
- * 稿子 `361b78253e:components.css:151-153` 的 `body { font-weight: 500 }` 是全局基线,
- * 而 `.opt` 一个字重都不写 —— 在稿子里它**继承 500**。产品这边的对应基线在
- * `0334a6599d` 已经抬到 500(chat 接缝层 `ChatRoot.module.css`),`.qf-chip` 这一格
- * 现在跟上了,两边同档。
+ * ⚠️ 2026-09-02 改过一次(W86)。这里原来写的是 `静息 = 500`,理由是
+ * 「稿子 `body { font-weight: 500 }` 是基线,而 `.opt` 一个字重都不写,所以继承 500」。
+ * **那条推理错在前提上**:`<button>` 的字重默认**不继承** —— 浏览器 UA 给按钮用的是
+ * `font` 简写(Chrome `font: 400 13.3333px Arial`),简写把 `font-weight` 一并压成 400。
+ * 稿子的全局复位只写 `font-family: inherit`,所以稿子的静息选项行停在 UA 的 400。
+ * 同一条推理 `638596f84a` 已经在 `typography-baseline.test.ts` 上纠过一次。
  *
- * 上一版稿子 `1bbdce0b06:152` 的 `body` 不写字重(= 400),所以「静息 400」曾经是对的;
- * 交付稿起 `body` 抬到 500,这一格才成了欠账。
+ * 实测(系统 Chrome headless,交付稿 `729fa43ce7` 的组件全集页,同一次会话注一颗 400、
+ * 一颗 500 的按钮做防真空,读回 400 / 500):
+ *   `.opt`(静息)          → 400 × 12,一个例外都没有
+ *   `.opt > span`(选项文案) → 400(继承按钮),只有 `.is-on` 那行的 span 是 500
+ *   `.opt.is-on`           → 500(它自己亲自写)
+ *   `.opt .own-l`          → 500(它自己亲自写,见下面 OPT_WEIGHT)
  */
+const OPT_AT_REST_WEIGHT = '400';
+/** `.opt .own-l { font-weight: 500 }` —— 稿子在这一格**亲自写了** 500,实测 500。 */
 const OPT_WEIGHT = '500';
 const OPT_WEIGHT_ON = '500'; // `.opt.is-on { font-weight: 500 }`(`361b78253e:1410-1412`)
 const STALE_WEIGHT_ON = '600'; // 上一版稿子 `1bbdce0b06:1524` 的旧值,选项行已经不在这儿了
@@ -203,11 +211,11 @@ describe('① 选中的选项行照最新稿的 500,不是上一版稿子的 600
     expect(sources).toContain('button');
   });
 
-  it('没选中那一档是基线的 500(比较的另一端不是空读数)', () => {
+  it('没选中那一档是稿子的 400(比较的另一端不是空读数)', () => {
     const container = mount(FORM);
     const chip = options(container)[0]!;
     expect(chip.getAttribute('aria-checked')).toBe('false');
-    expect(atRest(chip)['font-weight']).toBe(OPT_WEIGHT);
+    expect(atRest(chip)['font-weight']).toBe(OPT_AT_REST_WEIGHT);
   });
 
   it('点中之后是 500', () => {

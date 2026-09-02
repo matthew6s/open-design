@@ -112,6 +112,19 @@ const T_BODY = '13px';
 const T_LEAD = '14px';
 /** 稿子 `body { font-weight: 500 }`(`361b78253e:151-153`)。 */
 const BASELINE_WEIGHT = '500';
+/**
+ * 静息选项行那一档 —— **不是**基线那个 500。
+ *
+ * ⚠️ 2026-09-02 改过一次(W86)。`<button>` 的字重默认**不继承**:浏览器 UA 给按钮用的
+ * 是 `font` 简写(Chrome `font: 400 13.3333px Arial`),简写把 `font-weight` 一并压成 400。
+ * 稿子的全局复位(`729fa43ce7:components.css:170`)只写 `font-family: inherit`,
+ * 所以稿子的 `.opt` 停在 UA 的 400,不跟 `body` 的 500。同一条推理 `638596f84a`
+ * 已经在 `typography-baseline.test.ts` 上纠过一次。
+ * 实测(系统 Chrome headless + 交付稿 `729fa43ce7` 组件全集页,防真空:同一次会话
+ * 注一颗 400、一颗 500 的按钮,读回 400 / 500):`.opt` 静息 400 × 12,无例外。
+ * 旁边那两处 `BASELINE_WEIGHT` 仍是 500,因为稿子在 `.ak` / `.own-ta` 上**亲自写了** 500。
+ */
+const OPT_AT_REST_WEIGHT = '400';
 /** `--text-muted`(稿子 tokens.css:63)。 */
 const TEXT_MUTED = '#5c5c5c';
 /** `--text-strong`(稿子 tokens.css:62)。 */
@@ -431,19 +444,18 @@ describe('④ 数值答案也是稿子说的「短答案」,一样挂 mod-value'
 describe('⑤ 选项行一族跟上 500 基线', () => {
   it('静息态那一档由 `.qf-chip` **自己**给,不寄生在全局 `button` 原语上', () => {
     /*
-     * 基线抬到 500 之后,这一格和 `primitives.css` 那条裸
-     * `button { font-weight: 500 }` 同值 —— 只盯读数就分不出「这条还在不在」:
-     * 把 `.qf-chip` 那句删掉,读数照样是 500(全局原语给的)。
-     * 但稿子里选项行的字重来源是 `body` 基线,不是「它恰好是个 `<button>`」;
-     * 寄生在那条原语上,它一改这张卡就跟着漂,而漂的原因和这张卡无关。
-     * 所以这里指认**是谁赢的**,不只看赢成什么样。
+     * 这一格和 `primitives.css` 那条裸 `button { font-weight: 500 }` 抢同一个属性,
+     * 所以只盯读数不够 —— 还要指认**是谁赢的**:寄生在那条全局原语上的话,
+     * 它一改这张卡就跟着漂,而漂的原因和这张卡毫无关系。
+     * ⚠️ 期望值 2026-09-02 从 500 改到 400(W86):稿子的 `.opt` 停在 UA 的 400,
+     * 不跟 `body` 的 500 —— 理由和实测写在 `OPT_AT_REST_WEIGHT` 上。
      */
     const container = mount(RADIO_FORM);
     const chip = pick(container, '.qf-chip');
     const sources = CSS.declaring(chip, 'font-weight').map((r) => r.selector);
     expect(sources, '样式链没注全 —— 全局原语那条不在,这一量不成立').toContain('button');
     expect(sources, '`.qf-chip` 自己没给字重,静息档是从全局原语漏下来的').toContain('.qf-chip');
-    expect(CSS.resolved(chip)['font-weight']).toBe(BASELINE_WEIGHT);
+    expect(CSS.resolved(chip)['font-weight']).toBe(OPT_AT_REST_WEIGHT);
   });
 
   const OWN_FORM: QuestionForm = {

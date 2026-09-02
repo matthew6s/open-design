@@ -846,8 +846,21 @@
    `.h > b` 胜出值就是 500,赢在 `:has()` 那一档特异性上。
    我们的对应结构是 `.question-form > .question-form-body > .qf-options`,
    所以钩子挂在 `.question-form` 上,和上面那条 `:has(.question-form-foot):has(.qf-options)`
-   同一种写法。 */
-.question-form:has(.qf-options) > .question-form-head > .question-form-title {
+   同一种写法。
+   ------------------------------------------------------------------
+   ⚠️ **视觉方向卡也要算进来**。稿子那张卡的容器是 `.opts.mod-visual` —— 它**就是一个
+   `.opts`**,所以稿子里它跟着降到 500;而我们把这张卡渲染成 `.qf-visual-picker`
+   (不是 `.qf-options`),原来的钩子够不着它,于是停在通用卡头的 600。
+   实测(2026-09-02,系统 Chrome headless):
+     稿 `chat-panel-next.html` 的 `.card > .h > b`,按「这张卡有没有 `.opts`」分档 ——
+       有 `.opts`(含 `.opts.mod-visual` 那两张)→ 500,10 处
+       没有 `.opts`(如「执行中」)               → 600
+     产品侧在**跑着的 web**(127.0.0.1:17573,注入真实组件标记 + 真实祖先链)——
+       带选项的确认卡 → 500(本来就对)   视觉方向卡 → 600(差一档)
+   预览卡里的方向名(稿 `.vt` / 我们 `.qf-visual-card-name`)两边实测都是 600,
+   **不是**这一条说的东西,别顺手一起改。 */
+.question-form:has(.qf-options) > .question-form-head > .question-form-title,
+.question-form:has(.qf-visual-picker) > .question-form-head > .question-form-title {
   font-weight: 500;
 }
 .question-form-pill {
@@ -1003,16 +1016,30 @@
   /* 只继承字体族(稿子的全局 reset 就是 `button { font-family: inherit }`)。
      写成 `font: inherit` 会连带把上面那条规则的 font-size / line-height 一起冲掉。 */
   font-family: inherit;
-  /* 稿子的 `.opt` 一个字重都不写 —— 它继承 `body { font-weight: 500 }`
-     (`361b78253e:151-153`),所以静息态在稿子里就是 500。上一版稿子
-     `1bbdce0b06:152` 的 `body` 还没有字重(= 400),我们这条 400 是照那一版落的。
-     产品这边同一次基线迁移在 `0334a6599d` 已经把 chat 接缝层抬到 500,这一格跟上。
+  /* **400,是量出来的,不是从稿子的声明推的。**
      ------------------------------------------------------------------
-     数值和 `primitives.css` 那条裸 `button { font-weight: 500 }` 撞上了,但这一格
-     **仍要自己说**:稿子里选项行的字重来源是 `body` 基线,不是「它恰好是个按钮」。
-     不写的话这张卡的静息字重就寄生在一条管着全站所有 `<button>` 的原语上,
-     那条一动这张卡跟着漂,而漂的原因和这张卡毫无关系。 */
-  font-weight: 500;
+     这里原来写 500,理由是「稿子的 `.opt` 一条字重都不写,所以继承
+     `body { font-weight: 500 }`」。那条推理错在一个前提上:`<button>` 的字重
+     **默认不继承** —— 浏览器 UA 给按钮用的是 `font` 简写(Chrome
+     `font: 400 13.3333px Arial`),简写把 `font-weight` 一并压成 400。稿子的全局
+     复位(`729fa43ce7:docs/design/chat-panel/src/components.css:170`)只写了
+     `font-family: inherit`,没写 `font` 也没写 `font-weight`,所以稿子的静息选项行
+     **停在 UA 的 400**。`638596f84a` 已经按同一条理由把面板里的裸按钮拨回 400;
+     `.qf-chip` 因为自己写了这一条才躲过那次,这里是同一件事的剩余部分。
+     ------------------------------------------------------------------
+     实测(2026-09-02,系统 Chrome headless + 交付稿 `729fa43ce7` 的组件全集页,
+     同一次会话里往页面注一颗 400 和一颗 500 的按钮做防真空,读回 400 / 500):
+       稿 `.opt`(静息)→ 400 × 12 处,一个例外都没有
+       稿 `.opt.is-on`  → 500(它自己亲自写,见下面那条选中档)
+     产品侧同一把尺在**跑着的 web**(127.0.0.1:17573,注入真实组件标记 + 真实祖先链)
+     读回 `.qf-chip` = 500,改前确实重一档。
+     ------------------------------------------------------------------
+     数值和 `chat.css` 那条 `:where([data-chat-root]) button` 撞上了,但这一格
+     **仍要自己说**:那条是 `:where()`(0,0,1),任何类都压得过它,靠它兜底等于把
+     这张卡的静息字重寄生在一条管着面板里所有裸按钮的规则上。
+     ⚠️ 面板排版基线(`ChatRoot.module.css` 的 500)**不受这条影响、也不许跟着降** ——
+     那一档有裁决,`typography-baseline.test.ts` 钉着。 */
+  font-weight: 400;
   /* OPEND-2402 的**病根**。`primitives.css` 的裸 `button { white-space: nowrap }`
      是给「一行字的按钮」定的 —— 那种按钮的文案断行只会更难读。可选项行是一段
      会换行的正文:一句话的标题,底下还挂一行描述。继承下来之后整行不许换行,
