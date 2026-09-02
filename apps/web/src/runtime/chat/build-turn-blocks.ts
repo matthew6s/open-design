@@ -971,13 +971,25 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
       return;
     }
 
-    // D26:同一份清单的状态推进 —— 原地更新,不新开卡
+    /*
+     * D26:同一份清单的状态推进 —— 原地更新,不新开卡。
+     *
+     * ⚠️ 这里原来只做两件事:没见过的内容推一行,见过的改状态。新快照里**消失**的
+     * 那几条**没有任何一行代码会去动它们**(OPEND-2594)—— agent 把一条粗步骤拆成
+     * 两条重发时就是这个形状:新旧有交集,走的是这一支,而被拆掉的那条原地留着
+     * 「未开始」。于是药丸(读最新那份快照)说「第 6/9 步」,正文(读一路累积下来的行)
+     * 排出 11 条,同一条 todo 在两边的名次对不上。
+     *
+     * 现在按最新快照对账:留下的按快照顺序重排,消失的作废。
+     */
+    const kept: TodoSegment[] = [];
+    const before = todoCard.segments;
     for (const todo of list) {
-      const seg = todoCard.segments.find((a) => a.content === todo.content);
+      const seg = before.find((a) => a.content === todo.content);
       const incoming = normalizeStatus(todo.status);
       if (!seg) {
         const created = makeSegment(todo, previous.has(todo.content));
-        todoCard.segments.push(created);
+        kept.push(created);
         /*
          * **还没开始的那几条也要出行**。
          *
@@ -1002,7 +1014,32 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
        * 行早就在了,状态是**同一个 segment 对象**上的字段,改它就够。
        */
       seg.status = next;
+      // 同一份快照里重复列同一条内容(见过):只算一条,别让它在清单里出现两次
+      if (!kept.includes(seg)) kept.push(seg);
     }
+    /*
+     * **消失即作废** —— 沿用 D14(完全不重叠 = 重新规划)那一档的做法:转完成态 +
+     * `abandoned`,行**留着划线**,不删。留着有两个理由:那条 todo 名下可能挂着本轮
+     * 真跑过的调用,删行等于把证据一起删了;计划被改过这件事本身也要留痕。
+     *
+     * ⚠️ 「部分重叠」这一档产品**没有单独裁决**过,这里沿用同族的 D14。
+     * 如果后来产品要的是「换掉的旧步骤直接不显示」,要改的就是这一段
+     * (连同下面那次重排),不用满地找。
+     */
+    for (const seg of before) {
+      if (kept.includes(seg)) continue;
+      if (seg.status === 'in_progress') seg.status = 'completed';
+      seg.abandoned = true;
+    }
+    todoCard.segments = kept;
+    /*
+     * 行的顺序跟**最新快照**走,不跟插入顺序 —— 药丸和正文得指着同一条「当前」。
+     *
+     * 这一下确实是「回头挪位置」,而全文那条约束说的是**流式中途**不许挪
+     * (一段话先落壳外又挪进壳里,文字会跳)。这里挪的触发点是**新快照到达** ——
+     * 计划本身被 agent 改了,步骤跟着换位是用户预期内的那一跳,不是无端漂移。
+     */
+    relayoutTodoRows(todoCard, kept);
     const plan = todoCard.items.find((x): x is Extract<ShellItem, { kind: 'plan' }> => x.kind === 'plan');
     if (plan) plan.steps = list.map((t) => t.content);
     pickCurrent();
@@ -1235,6 +1272,55 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
 function closeRunningSegments(shell: ExecutionShell): void {
   for (const seg of shell.segments) {
     if (seg.status === 'in_progress') seg.status = 'stopped';
+  }
+}
+
+/**
+ * 把壳里的 todo 行按 `order`(最新那份快照)重排。
+ *
+ * 只动 todo 行占的那几个位置,壳里别的块(正文、计划卡、壳级工具行)原地不动 ——
+ * 重排的是步骤之间的先后,不是整张卡。
+ *
+ * 作废的行不参与排序,但**也不删**:它钉在原来紧挨着它前面那条还算数的步骤后面,
+ * 就是「这一步在这儿被换掉了」的那个位置。前面没有活着的步骤就钉在最前。
+ */
+function relayoutTodoRows(shell: ExecutionShell, order: readonly TodoSegment[]): void {
+  const slots: number[] = [];
+  const rows: TodoSegment[] = [];
+  shell.items.forEach((item, i) => {
+    if (item.kind !== 'todo') return;
+    slots.push(i);
+    rows.push(item.segment);
+  });
+
+  const live = new Set(order);
+  /** 作废行 → 钉在哪条活着的步骤后面(`null` = 钉在最前) */
+  const pinned = new Map<TodoSegment | null, TodoSegment[]>();
+  let anchor: TodoSegment | null = null;
+  for (const seg of rows) {
+    if (live.has(seg)) {
+      anchor = seg;
+      continue;
+    }
+    const bucket = pinned.get(anchor);
+    if (bucket) bucket.push(seg);
+    else pinned.set(anchor, [seg]);
+  }
+
+  const next: TodoSegment[] = [...(pinned.get(null) ?? [])];
+  for (const seg of order) {
+    next.push(seg);
+    for (const dead of pinned.get(seg) ?? []) next.push(dead);
+  }
+  // 数量对不上说明有条 segment 压根没有行 —— 宁可原样不动,也不吞掉一行
+  if (next.length !== slots.length) return;
+
+  let k = 0;
+  for (const seg of next) {
+    const slot = slots[k];
+    k += 1;
+    if (slot == null) break;
+    shell.items[slot] = { kind: 'todo', segment: seg };
   }
 }
 

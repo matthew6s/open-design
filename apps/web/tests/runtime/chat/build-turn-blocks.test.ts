@@ -40,6 +40,10 @@ const tools = (items: readonly { kind: string }[]): ToolRow[] =>
   items.filter((i): i is ToolRow => i.kind === 'tool');
 const texts = (items: readonly { kind: string }[]): string[] =>
   items.filter((i): i is { kind: 'text'; text: string } => i.kind === 'text').map((i) => i.text);
+const todoRows = (items: readonly { kind: string }[]): Array<{ kind: 'todo'; segment: TodoSegment }> =>
+  items.filter((i): i is { kind: 'todo'; segment: TodoSegment } => i.kind === 'todo');
+const plans = (items: readonly { kind: string }[]): Array<{ kind: 'plan'; steps: string[] }> =>
+  items.filter((i): i is { kind: 'plan'; steps: string[] } => i.kind === 'plan');
 
 
 /** 严格索引下 `arr[i]` 是 `T | undefined`;测试里越界就是断言写错了,直接抛 */
@@ -383,6 +387,50 @@ describe('重新规划不开新壳(D14 / D15 / D16)', () => {
     // 作废的那条已经不在 segments 里(被新清单替换),但作废理由按壳内纯文本落了下来
     expect(old).toBeUndefined();
     expect(texts(shell.items)).toContain('两页栅格其实不一样,重新规划。');
+  });
+
+  /*
+   * OPEND-2594 —— 和上面那条**配成一对**:上面是「完全不重叠」,这条是**部分重叠**。
+   *
+   * agent 把一条粗步骤拆成两条、其余原样重发,新旧快照有交集,于是走 D26
+   * 那条「同一份清单在推进」的路。而那条路只会**追加**新内容、**改**见过的状态,
+   * 从旧快照里消失的那几条一行代码都没人动 —— 原地留着「未开始」。
+   *
+   * 结果:药丸读最新快照说「5 步」,正文读累积下来的行排出 6 条,当前那条在两边
+   * 的名次对不上;同一张卡的「执行计划 · 5 步」下面挂着 6 行,自己跟自己打架。
+   */
+  it('部分重叠的新清单:消失的旧步骤作废划线,活着的行按最新快照排', () => {
+    const blocks = buildTurnBlocks({
+      events: [
+        ...todo('p1', [['a', 'in_progress'], ['b', 'pending'], ['X-coarse', 'pending'], ['d', 'pending']]),
+        ...call('t1', 'Bash', { command: 'ls' }),
+        // 粗步骤 X-coarse 被拆成 X1 / X2,a·b·d 原样带过来
+        ...todo('p2', [['a', 'completed'], ['b', 'completed'], ['X1', 'in_progress'], ['X2', 'pending'], ['d', 'pending']]),
+      ],
+      runStatus: 'running',
+    });
+    const shell = nth(shells(blocks), 0);
+    const rows = todoRows(shell.items);
+    const live = rows.filter((r) => !r.segment.abandoned);
+
+    // ① 还算数的是最新快照那 5 条,不是新旧并起来的 6 条
+    expect(live).toHaveLength(5);
+    expect(shell.segments).toHaveLength(5);
+
+    // ② 顺序跟最新快照走,不是插入顺序 —— 药丸和正文得指着同一条「当前」
+    expect(live.map((r) => r.segment.content)).toEqual(['a', 'b', 'X1', 'X2', 'd']);
+    expect(shell.segments.map((s) => s.content)).toEqual(['a', 'b', 'X1', 'X2', 'd']);
+
+    // ③ 被拆掉的那条:作废 + 划线,行**留着**(沿用上面 D14 那条的做法)
+    const gone = rows.find((r) => r.segment.content === 'X-coarse');
+    expect(gone).toBeDefined();
+    expect(gone?.segment.abandoned).toBe(true);
+    expect(gone ? isStruck(gone.segment) : false).toBe(true);
+
+    // ④ 同一张卡不许自相矛盾:「执行计划 · N 步」的 N 必须等于还算数的行数
+    const plan = nth(plans(shell.items), 0);
+    expect(plan.steps).toEqual(['a', 'b', 'X1', 'X2', 'd']);
+    expect(plan.steps).toHaveLength(live.length);
   });
 });
 
