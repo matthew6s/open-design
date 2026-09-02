@@ -176,9 +176,20 @@ function expandOther(container: HTMLElement): { row: HTMLElement; box: HTMLEleme
 
 /* ── 稿子的原值(light,`8015870095` 的 `.opt` 一族) ─────────────────── */
 
-const OPT_WEIGHT = '400'; // `.opt` 一个字重都不写 = 400(全局 `button` 的 500 要归零)
+/*
+ * ⚠️ **400 是我们的现状,不是稿子的值。**
+ *
+ * 稿子 `8015870095:components.css:151-153` 的 `body { font-weight: 500 }` 是全局基线,
+ * 而 `.opt` 一个字重都不写 —— 在稿子里它**继承 500**。我们这边基线另算,量出来是 400。
+ *
+ * 这条断言的作用是**钉住现状、并把偏差记在案**,不是宣称我们和稿子一致。
+ * 产品字重基线已在 `0334a6599d` 抬到 500(chat 接缝层),`.qf-*` 一族的字面字重
+ * 还没跟着复核 —— 那是一整批要一起动的活(见 W43 审计 §5 第 9 条),
+ * 单独改这一格会和相邻几格打架。
+ */
+const OPT_WEIGHT = '400';
 const OPT_WEIGHT_ON = '500'; // `.opt.is-on { font-weight: 500 }`(L1458)
-const STALE_WEIGHT_ON = '600'; // 上一版稿子 `1bbdce0b06` 的旧值,我们停在这儿
+const STALE_WEIGHT_ON = '600'; // 上一版稿子 `1bbdce0b06:1524` 的旧值,选项行已经不在这儿了
 const BOX_HOVER = '#848484'; // `.opt:hover .box { border-color: var(--text-soft) }`(L1485)
 const BOX_ON = 'transparent'; // `.opts.mod-* .opt.is-on .box { border-color: transparent }`
 
@@ -216,9 +227,19 @@ describe('① 选中的选项行照交付稿的 500,不是上一版稿子的 600
     expect(atRest(on!)['font-weight']).toBe(OPT_WEIGHT_ON);
   });
 
-  it('边界:「自己填」展开后那句标题仍是稿子的 600 —— 这一改不许漏到它身上', () => {
-    // 稿子 `.opt .own-l { display: block; font-weight: 600 }` 是**另一条**规则,
-    // 跟 `.opt.is-on` 那一档无关;500 只该落在选项行自己身上。
+  it('边界:「自己填」那句标题仍停在 600(未迁移)—— 选项行那一改不许漏到它身上', () => {
+    /*
+     * ⚠️ **600 是我们的现状,不是稿子的值。上一版注释说反了,这里更正。**
+     *
+     * 交付稿 `8015870095:components.css:1536` 写的是
+     * `.opt .own-l { display: block; font-weight: 500 }`;600 出自**上一版**
+     * `1bbdce0b06:1524`。同一个 commit(`cac28b1a6f`)在隔壁把 `.opt.is-on`
+     * 正确改成了 500,却在这里照旧稿钉死 600,还把它写成"稿子的值"。
+     *
+     * 这条断言的作用是**隔离**:选项行那一改不许漏到这句标题上。
+     * 至于它自己该不该迁到 500 —— 要和 `.qf-*` 一族的字重一起复核(W43 §5 第 9 条),
+     * 单独动它会和相邻几格打架。**迁移时这个数要跟着改成 500。**
+     */
     const container = mount(FORM);
     const { row } = expandOther(container);
     const label = row.querySelector('.qf-own .qf-own-label');
