@@ -2370,18 +2370,9 @@ export function ChatPane({
       // the form instead of the bottom, so the user sees the form first.
       const lastAssistantMsg = [...displayMessages].reverse().find((m) => m.role === 'assistant');
       if (lastAssistantMsg?.content.includes('<question-form')) {
-        const assistantEls = el.querySelectorAll('.msg.assistant');
-        const lastAssistantEl = assistantEls[assistantEls.length - 1];
-        const formEl = lastAssistantEl?.querySelector<HTMLElement>('[data-form-id]');
-        if (formEl && !scrolledToFormRef.current.has(formEl.dataset.formId!)) {
-          scrolledToFormRef.current.add(formEl.dataset.formId!);
-          const distance = distanceFromBottomAfterAligningTop(el, formEl);
-          // This is initial positioning, not a user-facing animated action.
-          // Smooth scrolling emits intermediate scroll events after we have
-          // predicted the destination, which makes those frames look like
-          // user input and can rearm/escape follow incorrectly.
-          formEl.scrollIntoView({ block: 'start', behavior: 'auto' });
-          settleFollowAfterPredictedScroll(el, distance);
+        const formEl = lastAssistantQuestionFormEl(el);
+        if (formEl && questionFormNeedsPositioning(formEl)) {
+          scrollQuestionFormToTop(el, formEl);
           return;
         }
         // Already handled by the auto-scroll effect — don't bottom-scroll.
@@ -2490,14 +2481,11 @@ export function ChatPane({
       // the form instead of the bottom, so the user lands on the form.
       const lastAssistantMsg = [...displayMessages].reverse().find((m) => m.role === 'assistant');
       if (lastAssistantMsg?.content.includes('<question-form')) {
-        const assistantEls = el.querySelectorAll('.msg.assistant');
-        const lastAssistantEl = assistantEls[assistantEls.length - 1];
-        const formEl = lastAssistantEl?.querySelector<HTMLElement>('[data-form-id]');
-        if (formEl && !scrolledToFormRef.current.has(formEl.dataset.formId!)) {
-          scrolledToFormRef.current.add(formEl.dataset.formId!);
-          const distance = distanceFromBottomAfterAligningTop(el, formEl);
-          formEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          settleFollowAfterPredictedScroll(el, distance);
+        const formEl = lastAssistantQuestionFormEl(el);
+        if (formEl && questionFormNeedsPositioning(formEl)) {
+          // 和初次加载**同一个**入口。原来这里是自己写的一份拷贝,而且用的是
+          // `behavior:'smooth'` —— 见 `scrollQuestionFormToTop` 的不变量。
+          scrollQuestionFormToTop(el, formEl);
           return;
         }
         // Form tag in content but the DOM element isn't ready yet (partial
@@ -3069,6 +3057,50 @@ export function ChatPane({
     const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
     const predictedScrollTop = Math.min(Math.max(0, targetTopInContent), maxScrollTop);
     return Math.max(0, maxScrollTop - predictedScrollTop);
+  }
+
+  /**
+   * 最后一条助手消息里那张表单;DOM 还没渲染出来时是 null(流式到一半)。
+   *
+   * 初次加载和流式两条路问的是同一个问题,原来各写了一遍 —— 而「两份几乎逐字相同的
+   * 拷贝」正是下面那条不变量被破坏的方式,所以问法收成一处。
+   * 找的是**最后一条**助手消息:更早的回合里的旧表单不算。
+   */
+  function lastAssistantQuestionFormEl(el: HTMLDivElement): HTMLElement | null {
+    const assistantEls = el.querySelectorAll('.msg.assistant');
+    const lastAssistantEl = assistantEls[assistantEls.length - 1];
+    return lastAssistantEl?.querySelector<HTMLElement>('[data-form-id]') ?? null;
+  }
+
+  /** 这张表单还没被定位过 —— 每张只顶一次,之后用户爱滚哪儿滚哪儿。 */
+  function questionFormNeedsPositioning(formEl: HTMLElement): boolean {
+    return !scrolledToFormRef.current.has(formEl.dataset.formId!);
+  }
+
+  /**
+   * 把 question-form 的上沿顶到视口上沿,并把跟随意图和基线一起落定。
+   *
+   * ## 【不变量】我们自己发起的滚动一律**瞬时**
+   *
+   * 「是不是用户在滚」的判据是「方向 + `scrollHeight` 没变」(`stick-to-bottom.ts`)。
+   * 它成立的前提是:我们自己写位置时,**记下的基线和落点在同一拍里一致**。
+   * `behavior:'smooth'` 破坏的正是这一点 —— 我们按预测记完基线,浏览器才开始动,
+   * 随后吐出来的一串中间位置全在基线的另一侧,判据眼里就是一次用户滚动。
+   *
+   * 单看一次动画常常看不出问题:终点如果正好是底部,最后一帧会把跟随顺手救回来。
+   * 但流式期间**内容一直在长**,而浏览器的落点是调用那一刻算死的、不跟着内容走。
+   * 于是动画落在一个早就不是底部的位置上:中途那一帧上滚把跟随打掉,最后一帧
+   * 不再贴底、也就没有那次搭救。跟随就此留在松开状态,用户一根手指都没碰过。
+   *
+   * 这三步的**顺序**也是不变量的一部分:先按当前几何算预测(`distanceFrom...` 读的是
+   * 还没动的 `scrollTop`),再滚,最后落定基线。三步收在这一个函数里,是为了让
+   * 「预测」和「移动」不可能再各写一份然后跑偏 —— 上一次就是两份拷贝只修了一份。
+   */
+  function scrollQuestionFormToTop(el: HTMLDivElement, formEl: HTMLElement): void {
+    scrolledToFormRef.current.add(formEl.dataset.formId!);
+    const distance = distanceFromBottomAfterAligningTop(el, formEl);
+    formEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+    settleFollowAfterPredictedScroll(el, distance);
   }
 
   // Resize the tail spacer so the anchored message can sit at the top with

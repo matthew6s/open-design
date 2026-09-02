@@ -110,11 +110,30 @@ export function isNearBottom(sample: ScrollSample): boolean {
   return distanceFromBottom(sample) <= resolveResumeBand(sample.clientHeight);
 }
 
+/** 能滚到的最大位置。「底部离用户有多远」的分母。 */
+function maxScrollTopOf(sample: ScrollSample): number {
+  return Math.max(0, sample.scrollHeight - sample.clientHeight);
+}
+
 /**
  * 一次滚动之后,跟随意图该变成什么。
  *
  * **只有这里(以及几处显式动作:点「回到最新」、发消息、切会话)能改意图。**
  * 内容长高变矮一律不许改 —— 那正是老写法的病根。
+ *
+ * ## 【调用方的不变量】自己写位置时,基线和落点必须在同一拍里一致
+ *
+ * 这里分不出「谁发起的滚动」,平台也不打算让它分得出:`scrollend` 明确不带来源
+ * (WICG/overscroll-scrollend-events#4),而程序触发的 scroll 事件 `isTrusted`
+ * 同样是 `true`。所以判据只能靠「方向 + 几何」,而它成立**依赖调用方守规矩**:
+ *
+ * > 自己发起的滚动一律**瞬时**(`behavior:'auto'`);要用动画,先 `release()`。
+ *
+ * `behavior:'smooth'` 破坏的正是这一点 —— 调用方按预测记完基线,浏览器才开始动,
+ * 随后吐出来的一串中间位置全在基线的另一侧,在这里就是一次用户滚动。
+ * 更麻烦的是流式:浏览器的落点在调用那一刻算死,内容还在长,于是动画落在一个
+ * 早就不是底部的位置上,连「最后一帧贴底顺手救回来」都没有。
+ * (`ChatPane` 的 question-form 定位在这上面栽过一次,两份拷贝只修了一份。)
  */
 export function nextFollowIntent(
   current: FollowIntent,
@@ -126,7 +145,25 @@ export function nextFollowIntent(
   const layoutStable =
     next.scrollHeight === previous.scrollHeight && next.clientHeight === previous.clientHeight;
   const scrolledUp = next.scrollTop < previous.scrollTop && layoutStable;
-  const scrolledDown = next.scrollTop > previous.scrollTop && layoutStable;
+  /*
+   * 下滚**不要求布局静止**,只要求「底部没有朝用户挪过来」。
+   *
+   * 严格的 `layoutStable` 在恢复这一侧是错的:流式期间内容每一帧都在长,
+   * 虚拟化重测量也会改 `scrollHeight`,于是用户滚回底部那一下只要撞上一个
+   * 「内容也长了」的帧,整个事件被丢掉,他白滚一次 —— 而逃逸那一侧有 wheel /
+   * touch 兜底,恢复这一侧一个都没有。这个不对称就是「怎么也回不到跟随」的来源。
+   *
+   * 放宽到 `maxScrollTop` 不减少是**可证的**,不是调出来的经验值:
+   *   · 内容长高 / 视口变矮 ⇒ 底部**远离**用户。位置不动的话距离只会变大,
+   *     所以「位置变大且落在底部」必然意味着用户真的往下滚了至少那么多。
+   *   · 内容变矮 ⇒ 底部**朝用户挪**,距离会自己缩进容差里 —— 这正是原来那条
+   *     注释要挡的「Plan / queue / composer 高度变化把几十像素吃掉」,继续挡住。
+   *   · scroll anchoring 在上方插内容会同时抬高 `scrollTop` 和 `scrollHeight`,
+   *     距底不变,造不出「贴底」这个结果。
+   * 所以这一条不需要任何时间窗,也就没有「窗口开多大」这种没法离线验的参数。
+   */
+  const bottomDidNotApproach = maxScrollTopOf(next) >= maxScrollTopOf(previous);
+  const scrolledDown = next.scrollTop > previous.scrollTop && bottomDidNotApproach;
 
   let { following, escaped } = current;
   // 还贴在底上的一两个像素抖动不算挣脱 —— 高 DPI 屏上这种抖动是常态。
