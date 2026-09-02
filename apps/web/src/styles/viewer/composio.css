@@ -2014,18 +2014,21 @@
 /* 稿子 `.btn.mod-primary { height: 32px }` —— 底栏那颗主按钮比其它 sm 档高一截。
    用 QuestionForm 自己的语义类命中；共享 Button 的基础类来自 CSS Module，
    DOM 上没有全局 `.button`，拿 `.button.primary` 当钩子会让这条规则静默失效。 */
-/* OPEND-2401:「圆角容器尺寸偏小,文字接近边界,存在溢出感」。
-   共享 Button 的 `.sm` 档给的是 `padding: 4px 11px` —— 那个 11px 是按
-   「高度由内距撑出来的 26px 盒子」定的。这颗按钮在卡里被钉成 **32px 高的胶囊**
-   (圆角 = 高的一半 = 16px),两端的圆弧在文字所在的中段最宽,11px 的余量
-   几乎全被弧线吃掉,读起来就是「字贴着边」。抬到稿子非 sm 档 `.btn` 的 14px。
-   `min-width` 是另一件事:文案短的语言(「OK」「下一步」)下这颗胶囊会缩成
-   一颗小圆球,和同一行的 ghost 文字按钮失去主次;给一个地板值稳住形状。
-   两条都用逻辑属性 —— 这张卡在 ar / fa 下要整体镜像。 */
+/* **只写高度**,内距和宽度都不碰 —— 稿子选的就是这个做法,理由写在它自己的注释里:
+   「写死高度而不是加内边距:这是个被指定的数值,以后字号一动,靠 padding 撑出来
+   的高度就跟着漂,写死的 32 不会。」宽度同理:稿子的 `.btn` 一族**一条
+   `min-width` 都没有**,这颗按钮的宽度只由文案决定。
+   曾经这里还有 `min-width: 76px` + `padding-inline: 14px`,理由是「圆角吃掉了
+   `.sm` 那 11px 的余量」「短文案会缩成小圆球」。两条在稿子上一字不差地同样成立
+   (稿子那颗同样是 32px 高的胶囊、同样吃 `.mod-sm` 的 11px、同样要渲染短词),
+   而稿子仍然只写高度 —— 所以那不是稿子漏了,是它选了别的做法。
+   那 14px 也不是「补基底缺的东西」:稿子的底栏按钮是 `.btn.mod-primary.mod-sm`,
+   `.mod-sm { padding: 4px 11px }` 覆盖掉基底 `.btn` 的 `6px 14px`,14px 属于
+   **非 sm 档**。写上去等于把档位改回去,按钮于是又宽又肥。
+   删掉不会塌:共享 `Button` 的 `.sm` 自带 `padding-block: 4px; padding-inline: 11px`,
+   和稿子的 `.btn.mod-sm` 逐格相同。 */
 .question-form .qf-primary-action {
   height: 32px;
-  min-width: 76px;
-  padding-inline: 14px;
 }
 .qf-visual-foot-gap {
   flex: 1;
