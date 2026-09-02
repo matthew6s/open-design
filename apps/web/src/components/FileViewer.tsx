@@ -32,7 +32,11 @@ import {
   deckPresentationMessageMatchesDocument,
   parseDeckPresentationMessage,
 } from '@open-design/contracts/runtime/deck-presentation';
-import { PREVIEW_OBSERVABILITY_HOST_STATE_MESSAGE_TYPE } from '@open-design/contracts/runtime/preview-observability';
+import {
+  PREVIEW_OBSERVABILITY_HOST_STATE_MESSAGE_TYPE,
+  parsePreviewFirstPaintMessage,
+  previewFirstPaintPhaseDetail,
+} from '@open-design/contracts/runtime/preview-observability';
 import {
   replayPreviewBridgeModes as replayPreviewBridgeModeState,
   type PreviewBridgeModeState,
@@ -297,7 +301,7 @@ import {
   useIframeKeepAlivePool,
 } from './IframeKeepAlivePool';
 import { PreviewRuntimeTransport } from './PreviewRuntimeTransport';
-import { beginPreviewAttach, previewPhaseDescriptor } from '../runtime/preview-phase-reporter';
+import { beginPreviewAttach, previewPhaseDescriptor, recordPreviewPhase } from '../runtime/preview-phase-reporter';
 
 import type {
   ChatCommentAttachment,
@@ -14330,6 +14334,38 @@ function HtmlViewer({
       '*',
     );
   }, [inTabPresent, effectiveDeck, previewRuntimeDocumentIdentity, workspaceActive]);
+
+  // The document measures its own first visible paint and posts it; nothing
+  // records it unless the host listens. An empty metric is indistinguishable
+  // from a fast one, so a missing listener would read as "previews are
+  // instant" rather than "nobody is measuring".
+  //
+  // It arrives on its own message type, not as an observability event: that
+  // channel ends in a catch-all that turns any parsed observability message
+  // into a runtime error, so routing paint through it would publish one
+  // fabricated error for every healthy preview.
+  useEffect(() => {
+    if (!workspaceActive) return;
+    function onFirstPaint(ev: MessageEvent) {
+      // `contentWindow` has to be non-null before comparing. A detached frame
+      // has none and a message with no source has none either, so `!==` alone
+      // would let anything through at exactly the moment there is no document
+      // to attribute it to.
+      const target = iframeRef.current?.contentWindow;
+      if (!target || ev.source !== target) return;
+      const message = parsePreviewFirstPaintMessage(ev.data);
+      if (!message) return;
+      const navigation = previewRuntimeNavigation.navigation;
+      if (!navigation) return;
+      recordPreviewPhase(
+        { sessionId: navigation.sessionId, documentVersion: navigation.documentVersion },
+        'first_visible_paint',
+        previewFirstPaintPhaseDetail(message),
+      );
+    }
+    window.addEventListener('message', onFirstPaint);
+    return () => window.removeEventListener('message', onFirstPaint);
+  }, [previewRuntimeNavigation.navigation, workspaceActive]);
 
   // The bridge reports the user's intent rather than moving the deck itself:
   // which slide comes next depends on the authored deck's own navigation
