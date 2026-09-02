@@ -508,8 +508,18 @@
  * 图标跟着整行同色(稿子 `.ti > svg { … color: #A3A3A3 }`,components.css:2217)。
  * 原来是 `--chat-text-soft`(#848484)—— 一摞灰行里再掺一档更深的灰,
  * 眼睛会以为图标那一列在强调什么。
+ *
+ * 【尺寸是 16px,不是 14px】(OPEND-2196 缺口 B)。上面引的 `components.css:2217`
+ * 是设计 `8015870095` 那一版,原文**尺寸和颜色在同一条声明里**:
+ *
+ *     .ti > svg { width: 16px; height: 16px; color: #A3A3A3; }
+ *
+ * 当时只把颜色搬了过来,width 留在更早那版稿子(`1bbdce0b06:1938`)的 14px。
+ * 引了这一行却只搬一半,是这个缺口的全部成因。最新稿子 `853da24ea5:2173` 仍是 16px。
+ * 描边粗细跟着尺寸走(1.75 用户单位 × 16/24 = 1.167px),判据在
+ * `tests/components/chat/icon-stroke-weight.test.tsx`。
  */
-.icon > svg { width: 14px; height: 14px; color: var(--chat-progress-detail-ink); }
+.icon > svg { width: 16px; height: 16px; color: var(--chat-progress-detail-ink); }
 /* 失败行:记号和图标转红,红只标要注意的那一个(稿子 2218 / 2223 两条各管一层) */
 .tool.fail .icon,
 .fold.fail > summary .icon { color: var(--chat-red); }

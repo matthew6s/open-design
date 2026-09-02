@@ -19,14 +19,35 @@
  *
  * SVG 里的 `stroke-width` 单位是**用户单位**,不是设备像素 —— 它要乘上
  * viewBox → 显示尺寸的缩放比。我们的图标都是 `viewBox="0 0 24 24"`,
- * 挂在 14px 的格子里,缩放比是 14/24 ≈ 0.583。所以:
+ * 挂在 16px 的格子里,缩放比是 16/24 ≈ 0.667。所以:
  *
- *     稿子   1.75 用户单位 × 0.583 = 1.021 CSS px   ← 看得见
- *     我们   1    用户单位 × 0.583 = 0.583 CSS px   ← 不到 1px,在非 HiDPI 上直接淡掉
+ *     稿子   1.75 用户单位 × 0.667 = 1.167 CSS px   ← 看得见
+ *     我们   1    用户单位 × 0.667 = 0.667 CSS px   ← 不到 1px,在非 HiDPI 上直接淡掉
  *
- * 下面三档的目标值**是真机量出来的**,不是照着 CSS 文本抄的:把上面那份 md5 对得上的
- * 稿子喂进无头 Chrome,对每个 `<svg>` 读 `getComputedStyle().strokeWidth` 再乘
- * `getScreenCTM().a`。三档分别落在 1.021 / 0.802 / 0.948。
+ * 下面三档的目标值**是真机量出来的**,不是照着 CSS 文本抄的:把稿子喂进无头 Chrome,
+ * 对每个 `<svg>` 读 `getComputedStyle().strokeWidth` 再乘 `getScreenCTM().a`。
+ * 三档分别落在 1.167 / 0.802 / 0.948。
+ *
+ * ## 行首那一格是 16px,不是 14px(OPEND-2196 缺口 B)
+ *
+ * 上面那个 `1bbdce0b06` 是**旧版稿子**。它当时确实写的是 14px:
+ *
+ *     1bbdce0b06:docs/design/chat-panel/src/components.css:1938
+ *     .ti > svg { width: 14px; height: 14px; color: var(--text-soft); }
+ *
+ * 设计在 `8015870095`(docs(design): refine chat panel states and interactions)
+ * 把这一条**同时改了尺寸和颜色**,到最新的 `853da24ea5` 仍是这个数:
+ *
+ *     853da24ea5:docs/design/chat-panel/src/components.css:2173
+ *     .ti > svg { width: 16px; height: 16px; color: #A3A3A3; }
+ *
+ * 我们那边只搬了**颜色**那一半 —— `record.module.css` 里 `.icon > svg` 上方的注释
+ * 写着「稿子 `.ti > svg { … color: #A3A3A3 }`,components.css:2217」,`2217` 正是
+ * `8015870095` 里这条 16px 的行号。**引了这一行、却把 width 留在旧版的 14px**,
+ * 于是笔画粗细跟着少了 0.146px(1.167 → 1.021)。
+ *
+ * 所以下面 `toolRow` 从 1.021 改成 1.167 **不是回归,是跟着尺寸走的基线更新**:
+ * 基线 1.75 用户单位没动,动的是 `displayPx`(14 → 16),乘出来的数必然跟着变。
  *
  * ## 这一档**不能**用 vector-effect: non-scaling-stroke 修
  *
@@ -58,10 +79,16 @@ import type { ToolKind } from '../../../src/runtime/chat/tool-kind';
 /** 稿子第 476 行的基线,单位是**用户单位**(viewBox 单位),不是设备像素。 */
 const DESIGN_BASELINE = 1.75;
 
+/**
+ * 行首那一格的显示尺寸,稿子 `components.css:2173`(`853da24ea5`):
+ * `.ti > svg { width: 16px; height: 16px }`。见文件头「行首那一格是 16px」。
+ */
+const DESIGN_TOOL_ICON_PX = 16;
+
 /** 真机量稿子得到的实际粗细(CSS px)。来源见文件头。 */
 const DESIGN_EFFECTIVE = {
-  /** `.ti > svg`(执行记录行首那一格),14px */
-  toolRow: 1.021,
+  /** `.ti > svg`(执行记录行首那一格),16px */
+  toolRow: 1.167,
   /** `.chev`(折叠箭头),11px */
   chevron: 0.802,
   /** `.refs` 里那枚对话气泡,13px */
@@ -105,8 +132,12 @@ function renderSvg(node: ReactElement): SVGSVGElement {
 const TOOL_KINDS: ToolKind[] = ['read', 'write', 'edit', 'delete', 'search', 'exec', 'image', 'other'];
 
 describe('聊天面板描边图标的笔画粗细', () => {
-  it('执行记录行首那一格:全部类别图标都落在稿子量出来的 1.021px 上', () => {
+  it('执行记录行首那一格:全部类别图标都落在稿子量出来的 1.167px 上', () => {
     const displayPx = cssWidth('components/chat/primitives/record.module.css', '.icon > svg');
+    /* 先钉尺寸本身 —— 粗细是「基线 × 尺寸」的乘积,只断言乘积的话,
+       尺寸错了也能被另一个因子的改动补偿回来,读起来还像是笔画的问题。 */
+    expect(displayPx, '行首图标的尺寸和稿子 components.css:2173 对不上')
+      .toBe(DESIGN_TOOL_ICON_PX);
     for (const kind of TOOL_KINDS) {
       const svg = renderSvg(toolIcon(kind));
       expect(Number(svg.getAttribute('stroke-width')), `${kind} 没吃到基线`).toBe(DESIGN_BASELINE);
