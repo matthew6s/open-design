@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatPane } from '../../src/components/ChatPane';
 import { trackRunFailedToastSurfaceView } from '../../src/analytics/events';
+import type { RunFailureDetail } from '@open-design/contracts';
 import type { AppConfig, ChatMessage, Conversation } from '../../src/types';
 
 const translate = (key: string, vars?: Record<string, string | number>) => {
@@ -370,7 +371,9 @@ function failedAssistantMessage({
   id: string;
   runId: string;
   code?: string;
-  failureDetail?: string;
+  // 契约上这一格是封闭集合而不是自由字符串,夹具跟着走 —— 写成 string
+  // 的话拼错一个原因名不会有人发现,而这个文件的断言正是按原因分档的。
+  failureDetail?: RunFailureDetail;
   agentId: string;
 }): ChatMessage {
   return {
