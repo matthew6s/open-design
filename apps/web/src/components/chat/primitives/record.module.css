@@ -1275,6 +1275,42 @@
 .fold .body.stack .body.stack > .fold.thoughts { padding-inline-start: 26px; }
 .fold .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 7px; }
 /*
+ * ── 折叠头的排版 = **同层级的标准工具行** ────────────────────────────
+ *
+ * 这一格**稿子里没有**。用户 2026-09-02 逐字:「思考过程这个是我自己加的,但是跟设计
+ * 同学同步过,这个只要保证跟 toolrow 标准样式一模一样就行」。所以这两条的判据不是某个
+ * 字面值,而是「量出来等于 `.tool`」—— 判据钉在
+ * `tests/components/chat/w71-thoughts-row-matches-tool-row.test.tsx`,那份文件里每条
+ * 断言都是**两边相比**,工具行再变一次(今天已经变过:`.tool .name` 500 → 400)
+ * 这里就会先红,不会又分叉。
+ *
+ * 改之前差在哪(两层级 × 四轴,颜色和字体两轴本来就一致):
+ *   顶层  13px / **500**  ←→ 工具行 13px / 400
+ *   抽屉  **12px** / **500** ←→ 工具行 13px / 400
+ *
+ * 成因是这一格吃的是**折叠行**那一族的通用规则,而不是工具行那一族:
+ *   顶层    `.fold.flat > .body.stack > .fold > summary` 给 13px + 500(那是**步骤**
+ *           标题的一档,见上面 PR #7170 那段);
+ *   抽屉里  上面那条够不着,只剩 `.fold > summary` 的 `--chat-t-mini`(12px),
+ *           字重则一路继承到 `ChatRoot` 的 500。
+ *
+ * 对照物是 `div.tool`(`.tool { font-size: var(--chat-t-body) }` + `.tool .name
+ * { font-weight: 400 }`),不是可折叠命令那一支 —— 那一支和步骤共用折叠头那一档。
+ *
+ * 两条各自的落点是**照抄工具行的分工**,不是随手挑的:
+ *  · 字号写在**行盒**(这里是 summary)上,于是标题和图标槽都跟着走,而耗时 `.meta`
+ *    自己那条 `--chat-t-cap` 照旧赢,和工具行的耗时同为 12px;
+ *  · 字重只写在**标题**上。写到 summary 上会连带把抽屉里的耗时压成 400,而工具行的
+ *    耗时是 500(继承自 `ChatRoot`)—— 那就把一轴修对、另一轴弄歪了。
+ *
+ * 特异性 (0,6,1) 是**故意的**:要压过顶层那条 (0,5,1) 的
+ * `.fold.flat > .body.stack > .fold > summary`,同一条选择器又要够得着抽屉里那一层
+ * (所以 `.body.stack` 之后是后代组合符,不是 `>`)。
+ * 只挂 `.thoughts`:步骤标题和可折叠命令行不在这条裁决里,一个都不许被顺手带走。
+ */
+.fold.flat > .body.stack .fold.thoughts > summary { font-size: var(--chat-t-body); }
+.fold.flat > .body.stack .fold.thoughts > summary .name { font-weight: 400; }
+/*
  * 盒子里的字**只吃容器那一份 `--stream-pad`**,不再叠第二层缩进。
  * 稿子逐字:容器 `padding: var(--stream-pad)`(8px),窗里的正文
  * `… > .think { padding: 0 }` —— 一层内距,不是两层。
