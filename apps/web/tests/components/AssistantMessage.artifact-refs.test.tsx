@@ -135,7 +135,6 @@ const htmlRef = {
   label: 'landing.html',
   kind: 'html',
   displayPolicy: 'latest_with_static_preview',
-  openPolicy: 'workspace_latest',
   snapshotId: 'snap-html-1',
   thumbnailUrl: HTML_SHOT,
   snapshotState: 'ready',
@@ -146,6 +145,8 @@ const imageRef = {
   label: 'hero.png',
   kind: 'image',
   displayPolicy: 'immutable_snapshot',
+  // 已作废的字段,故意留着:线上还有宣布它的旧 daemon / 旧消息,而读取端必须
+  // 无论如何都不把点击引向快照。
   openPolicy: 'snapshot',
   snapshotId: 'snap-img-1',
   snapshotUrl: IMAGE_SHOT,
@@ -172,11 +173,13 @@ describe('AssistantMessage 把消息上的 artifactRefs 交给产物卡', () => 
     ).toBeNull();
 
     fireEvent.click(screen.getByTestId('artifact-card-open-landing.html'));
-    // 第二个实参显式钉 `undefined` —— 可选参数会让 `not.toHaveBeenCalledWith` 永真。
-    expect(onRequestOpenFile.mock.calls[0]).toEqual(['landing.html', undefined]);
+    // 钉实参个数,不用否定式断言 —— 多一个可选参数会让 `not.toHaveBeenCalledWith`
+    // 恒真,那条断言永远不会红。
+    expect(onRequestOpenFile.mock.calls[0]).toHaveLength(1);
+    expect(onRequestOpenFile.mock.calls[0]).toEqual(['landing.html']);
   });
 
-  it('图片卡面和点击都认那一轮的快照', () => {
+  it('图片卡面认那一轮的快照,点击仍开工作区最新版本', () => {
     stubHeadProbeAsReachable();
     const files = [projectFile('hero.png', 'image')];
     const onRequestOpenFile = vi.fn();
@@ -187,10 +190,9 @@ describe('AssistantMessage 把消息上的 artifactRefs 交给产物卡', () => 
     expect(mediaOf('hero.png')!.getAttribute('src')).toBe(IMAGE_SHOT);
 
     fireEvent.click(screen.getByTestId('artifact-card-open-hero.png'));
-    expect(onRequestOpenFile.mock.calls[0]).toEqual([
-      'hero.png',
-      { snapshotId: 'snap-img-1', snapshotUrl: IMAGE_SHOT },
-    ]);
+    // 用户 2026-09-02:「html 和图片都是,产物缩略是快照,但跳过去产物永远指向最新的」。
+    expect(onRequestOpenFile.mock.calls[0]).toHaveLength(1);
+    expect(onRequestOpenFile.mock.calls[0]).toEqual(['hero.png']);
   });
 
   it('旧会话(消息上没有 refs)照旧:HTML 走 live iframe、图片读当前文件', async () => {

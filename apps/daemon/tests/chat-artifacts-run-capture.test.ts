@@ -89,13 +89,15 @@ describe('run terminal chat artifact capture', () => {
     const html = refs.find((r) => r.label === 'page.html');
 
     expect(image?.displayPolicy).toBe('immutable_snapshot');
-    expect(image?.openPolicy).toBe('snapshot');
     expect(image?.snapshotState).toBe('ready');
+    // The click target is the workspace file, for images exactly as for HTML
+    // (user ruling 2026-09-02). The ref names it and nothing else.
+    expect(image?.workspaceArtifactId).toBeTruthy();
+    expect(image).not.toHaveProperty('openPolicy');
     expect(image?.snapshotUrl)
       .toBe(`/api/projects/proj-1/chat-artifact-snapshots/${image?.snapshotId}/content`);
 
     expect(html?.displayPolicy).toBe('latest_with_static_preview');
-    expect(html?.openPolicy).toBe('workspace_latest');
     expect(html?.workspaceArtifactId).toBeTruthy();
     // No cover was rendered. The ref reports that plainly and hands out no
     // URL, which is the client's cue to fall back to a live latest preview.
@@ -226,7 +228,7 @@ describe('run terminal chat artifact capture', () => {
     expect(after?.snapshotState).toBe('ready');
     expect(after?.thumbnailUrl)
       .toBe(`/api/projects/proj-1/chat-artifact-snapshots/${after?.snapshotId}/thumbnail`);
-    // HTML still opens latest, cover or not.
-    expect(after?.openPolicy).toBe('workspace_latest');
+    // A cover changes what the card DRAWS, never what it opens.
+    expect(after?.workspaceArtifactId).toBeTruthy();
   });
 });

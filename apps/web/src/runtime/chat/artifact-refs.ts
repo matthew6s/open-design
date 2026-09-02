@@ -7,10 +7,19 @@
  * | 产物 | 卡面 | 点击 |
  * | --- | --- | --- |
  * | HTML / 原型 / slide / 文档 | **当轮的静态首屏截图**(冻结,不跟 latest 漂) | 工作区**最新版本** |
- * | 图片 | 当轮的**不可变真图快照** | **那张快照** |
+ * | 图片 | 当轮的**不可变真图快照**(冻结) | 工作区**最新版本** |
  *
- * 卡面和点击对 HTML 系是**故意不一致**的 —— 卡面回答「那一轮产出了什么」,
- * 点击回答「现在是什么」。这不是待修的 bug。
+ * 点击那一列 2026-09-02 由用户统一:「html 和图片都是,产物缩略是快照,但跳过去
+ * 产物永远指向最新的」。**两种类型同一条规则,没有例外。**
+ *
+ * 卡面和点击因此是**故意不一致**的 —— 卡面回答「那一轮产出了什么」,点击回答
+ * 「现在是什么」。这不是待修的 bug。
+ *
+ * 于是这个模块**只交卡面用的 URL,不交任何点击目标**。点击目标是宿主自己的事:
+ * 它拿文件名去开工作区最新那一份。曾经这里还会在 `openPolicy==='snapshot'` 时
+ * 把 `snapshotId` 交出去当点击目标,那条链路一路传到宿主才被「只收一个参数」
+ * 悄悄丢掉 —— 看起来像个待接的 bug,接上去正好做出用户否掉的行为。整条拆掉,
+ * 「点开永远最新」才是有意为之而不是意外。
  *
  * ── 拿不到快照的时候 ────────────────────────────────────────────────────
  * 旧会话、截图失败、desktop renderer 不在、配额满,都会没有当轮快照。这时候:
@@ -34,17 +43,19 @@
  * 「只信 ready」这条语义,不是类型形状。
  */
 
-/** 卡面/点击真正要用的两个 URL —— 其余 ref 字段与 Web 无关。 */
+/**
+ * 卡面要画的那张图 —— **只有卡面**。
+ *
+ * 这里没有、也不该有「点击目标」:点击一律是工作区最新文件,宿主拿文件名就够了。
+ */
 export interface ArtifactRefTargets {
   /**
    * 当轮**静态首屏截图**的 URL(HTML / 原型 / slide / 文档)。
    * 卡面读它;拿不到就降级 live iframe 显示最新。
    */
   coverUrl?: string;
-  /** 当轮**不可变真图快照**的 URL(图片)。卡面读它、点击也开它、导出也导它。 */
+  /** 当轮**不可变真图快照**的 URL(图片)。卡面读它、导出也导它 —— 但点击不开它。 */
   snapshotUrl?: string;
-  /** 快照的稳定身份,点击时交给宿主用来开一个只读的历史 tab。 */
-  snapshotId?: string;
 }
 
 /**
@@ -54,12 +65,18 @@ export interface ArtifactRefTargets {
 interface ChatArtifactRefLike {
   label?: unknown;
   displayPolicy?: unknown;
-  openPolicy?: unknown;
-  snapshotId?: unknown;
   thumbnailUrl?: unknown;
   snapshotUrl?: unknown;
   snapshotState?: unknown;
 }
+
+/*
+ * 读取端**刻意不认** `openPolicy` / `snapshotId`。
+ *
+ * 线上仍然会有宣布 `openPolicy:'snapshot'` 的旧 daemon 和旧消息 —— 收下来当数据
+ * 无所谓,但它一个字都不该影响点击去哪。不在这里给它留一个字段名,就没人能顺手
+ * 把它接回去。
+ */
 
 const text = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -111,15 +128,6 @@ export function indexArtifactRefs(input: unknown): Map<string, ArtifactRefTarget
     } else if (ref.displayPolicy === 'immutable_snapshot') {
       const snapshotUrl = text(ref.snapshotUrl);
       if (snapshotUrl) targets.snapshotUrl = snapshotUrl;
-    }
-
-    /*
-     * 点击开快照的身份只在 `open_policy='snapshot'` 时才交出去。HTML 系是
-     * `workspace_latest`,它的点击永远是「打开最新」—— 哪怕它也有一张快照。
-     */
-    if (ref.openPolicy === 'snapshot') {
-      const snapshotId = text(ref.snapshotId);
-      if (snapshotId) targets.snapshotId = snapshotId;
     }
 
     if (Object.keys(targets).length > 0) index.set(label, targets);

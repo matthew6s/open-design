@@ -882,6 +882,8 @@ import { resolveChatArtifactQuota } from './chat-artifacts/quota.js';
 import { reconcileChatArtifactSnapshots } from './chat-artifacts/reconcile.js';
 import { sweepChatArtifactStorage } from './chat-artifacts/gc.js';
 import { captureRunChatArtifactSnapshots } from './chat-artifacts/run-capture.js';
+import { freezeAndRenderChatArtifactCovers } from './chat-artifacts/cover.js';
+import { setMessageArtifactHtmlVersionIds } from './chat-artifacts/store.js';
 import { registerVelaRoutes } from './routes/vela.js';
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerHandoffRoutes } from './routes/handoff.js';
@@ -11346,16 +11348,24 @@ export async function startServer({
           ? outcome.diff.touchedPaths
           : [];
         if (!outcome?.projectRoot || touchedPaths.length === 0) return;
-        await captureRunChatArtifactSnapshots(
-          { db, blobs: CHAT_ARTIFACT_BLOBS, quota: CHAT_ARTIFACT_QUOTA },
-          {
-            projectId: run.projectId,
-            projectRoot: outcome.projectRoot,
-            messageId: run.assistantMessageId,
-            runId: run.id,
-            touchedPaths,
-          },
-        );
+        const deps = { db, blobs: CHAT_ARTIFACT_BLOBS, quota: CHAT_ARTIFACT_QUOTA };
+        const captured = await captureRunChatArtifactSnapshots(deps, {
+          projectId: run.projectId,
+          projectRoot: outcome.projectRoot,
+          messageId: run.assistantMessageId,
+          runId: run.id,
+          touchedPaths,
+        });
+        // Same chokepoint, same reason (spec §6.3). The image path above froze
+        // BYTES here; this freezes the HTML card's RENDERER INPUT here, so the
+        // cover render that follows can take its seconds without the file it is
+        // drawing being allowed to change underneath it. Only the freeze is
+        // awaited — the render deliberately outlives the turn.
+        await freezeAndRenderChatArtifactCovers(deps, {
+          projectRoot: outcome.projectRoot,
+          rows: captured.rows,
+          renderer: desktopArtifactExporter,
+        });
       } catch (err) {
         console.warn('[chat-artifacts] run terminal capture failed', err);
       }
@@ -11384,6 +11394,20 @@ export async function startServer({
         ...(origin ? { origin } : {}),
         metadata: projectRecord?.metadata,
       });
+      // §3.2 lineage, backfilled rather than reordered: the chat-artifact refs
+      // were written a few lines above, before these versions existed. Never
+      // allowed to fail the run — a card without lineage is still a card.
+      if (run.assistantMessageId && result.snapshots.length > 0) {
+        try {
+          setMessageArtifactHtmlVersionIds(
+            db,
+            run.assistantMessageId,
+            new Map(result.snapshots.map(({ fileName, version }) => [fileName, version.id])),
+          );
+        } catch (err) {
+          console.warn('[chat-artifacts] html version lineage backfill failed', err);
+        }
+      }
       if (origin) {
         const matching = result.snapshots.filter(({ version }) =>
           version.origin?.entrySurface === origin.entrySurface

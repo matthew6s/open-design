@@ -42,10 +42,12 @@ interface Props {
    *  to opt out of the existence check (button always shown). */
   projectFileNames?: Set<string> | undefined;
   /**
-   * 打开一份产物。第二个参数只有**图片**卡会带:它要求打开的是那一轮的那张
-   * 快照,而不是工作区里今天的同名文件(设计文档 §4.2)。
+   * 打开一份产物 —— **只交文件名**。
+   *
+   * 打开的永远是工作区里那份最新的,不管卡面画的是哪一轮的快照(用户 2026-09-02:
+   * 「html 和图片都是,产物缩略是快照,但跳过去产物永远指向最新的」)。
    */
-  onRequestOpenFile?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
+  onRequestOpenFile?: ((name: string) => void) | undefined;
   /** Enables the design's artifact cards (component 14, grids 30-33). The
    *  thumbnail and the export href are both project-scoped URLs, so without a
    *  project id every entry keeps rendering as a text row. */
@@ -450,21 +452,19 @@ export interface ArtifactCardItem {
    * 拿不到就读工作区当前同名文件 —— 旧会话就是这条,不出占位、不写「不可用」。
    */
   snapshotUrl?: string;
-  /** 快照的稳定身份;点击图片卡时交给宿主,用来开一个只读的历史 tab。 */
-  snapshotId?: string;
 }
 
-/**
- * 点击产物卡时,除了文件名之外还要交出去的东西。
+/*
+ * 这里**没有**「点击目标」这种东西。
  *
- * 只有**图片**卡会带上它:图片的点击语义是「打开那一轮的那张图」。HTML 系永远
- * 不带 —— 它的点击语义是「打开工作区最新版本」,和卡面故意不一致(产品
- * 2026-09-02:「点击行为就是可能不一致的,预期内的」)。
+ * 曾经有:图片卡会把 `{snapshotId, snapshotUrl}` 当第二个实参交给宿主,让它开
+ * 一个只读的历史 tab。宿主的 `onRequestOpenFile` 只收一个参数,把它悄悄丢了 ——
+ * 于是线上行为(点开最新)是**碰巧**对的。用户 2026-09-02 拍板点开永远是最新,
+ * 所以整条拆掉:留着它,下一个人会把那个「被丢掉的参数」当 bug 接回去,正好做出
+ * 被否掉的行为,而且 typecheck 不报、测试不红。
+ *
+ * 卡面那一半原样保留 —— 裁决的另一半是「产物缩略是快照」。
  */
-export interface ArtifactOpenTarget {
-  snapshotId: string;
-  snapshotUrl: string;
-}
 
 /** 文档卡封面上那枚图标 —— 只按后缀分「代码 / 普通文件」两档,不另立一套映射 */
 function docCardIcon(name: string): IconName {
@@ -513,7 +513,7 @@ export function ArtifactCards({
 }: {
   items: ArtifactCardItem[];
   projectId: string;
-  onOpen?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
+  onOpen?: ((name: string) => void) | undefined;
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
 }) {
@@ -546,7 +546,7 @@ function ArtifactCard({
 }: {
   item: ArtifactCardItem;
   projectId: string;
-  onOpen?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
+  onOpen?: ((name: string) => void) | undefined;
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
   anchorScope: string;
@@ -561,14 +561,6 @@ function ArtifactCard({
    * 不写「历史图片不可用」(产品 2026-09-02 推翻了设计文档 §8 里那条占位文案)。
    */
   const mediaSrc = item.snapshotUrl ?? src;
-  /*
-   * 只有图片卡把快照身份交给宿主。HTML 系的点击永远是「打开工作区最新版本」,
-   * 哪怕它自己也有一张当轮截图 —— 卡面和点击的这条不一致是产品要的。
-   */
-  const openTarget: ArtifactOpenTarget | undefined =
-    item.kind === 'image' && item.snapshotId && item.snapshotUrl
-      ? { snapshotId: item.snapshotId, snapshotUrl: item.snapshotUrl }
-      : undefined;
   // Publish is an HTML-only affordance, so a `.png` card carries one button and
   // an `.html` card carries two. The row is flex/end aligned precisely so that
   // unevenness stays right-aligned instead of shifting the export button.
@@ -664,7 +656,8 @@ function ArtifactCard({
         <button
           type="button"
           className="artifact-card-open"
-          onClick={() => onOpen(item.name, openTarget)}
+          /* 只交文件名:点开的永远是工作区最新那一份,卡面画的是哪一轮不影响它。 */
+          onClick={() => onOpen(item.name)}
           aria-label={`${t('assistant.openFile')}: ${item.name}`}
           data-testid={`artifact-card-open-${item.name}`}
         />

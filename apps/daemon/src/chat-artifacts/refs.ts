@@ -72,7 +72,6 @@ function toRef(
     label: row.labelAtCapture,
     kind: projectFileKind(row.kind),
     displayPolicy: row.displayPolicy,
-    openPolicy: row.openPolicy,
     snapshotState: refState(snapshot),
   };
   if (row.workspaceArtifactId) ref.workspaceArtifactId = row.workspaceArtifactId;

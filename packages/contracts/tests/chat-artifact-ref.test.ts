@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CHAT_ARTIFACT_DISPLAY_POLICIES,
-  CHAT_ARTIFACT_OPEN_POLICIES,
   CHAT_ARTIFACT_SNAPSHOT_STATES,
   chatArtifactStaticCoverUrl,
   isChatArtifactStaticCoverReady,
@@ -20,7 +19,6 @@ function ref(overrides: RefOverrides = {}): ChatArtifactRef {
     kind: 'html',
     label: 'Landing page',
     displayPolicy: 'latest_with_static_preview',
-    openPolicy: 'workspace_latest',
     snapshotState: 'ready',
     thumbnailUrl: '/api/projects/p1/snapshots/s1/thumbnail.png',
     snapshotId: 's1',
@@ -34,16 +32,18 @@ function ref(overrides: RefOverrides = {}): ChatArtifactRef {
 }
 
 describe('ChatArtifactRef policy vocabulary', () => {
-  it('separates what the card DRAWS from what a click OPENS', () => {
-    // The whole point of the ruling: the cover is the turn's frozen first
-    // viewport, the click goes to the workspace's latest version. Folding both
-    // into one flag is what made "card and click disagree" read as a bug
-    // instead of the intended behaviour.
+  it('says what the card DRAWS, and nothing about what a click opens', () => {
+    // The cover is the turn's frozen evidence; the click always goes to the
+    // workspace's latest file, for HTML and images alike (user ruling
+    // 2026-09-02). Only the first of those two is a decision, so only the first
+    // is modelled. The click target is already named by `workspaceArtifactId`,
+    // and a second field restating it as a one-value enum would read as a
+    // switch someone could flip.
     expect(CHAT_ARTIFACT_DISPLAY_POLICIES).toEqual([
       'latest_with_static_preview',
       'immutable_snapshot',
     ]);
-    expect(CHAT_ARTIFACT_OPEN_POLICIES).toEqual(['workspace_latest', 'snapshot']);
+    expect(Object.keys(ref())).not.toContain('openPolicy');
   });
 
   it('models the four snapshot outcomes the card has to draw', () => {
@@ -88,11 +88,11 @@ describe('isChatArtifactStaticCoverReady — the single fallback rule', () => {
   });
 
   it('draws an immutable snapshot from its own snapshot url', () => {
-    // A snapshot-policy ref (a shared/published turn) opens the snapshot, so
-    // the cover it draws is the snapshot's own render, not a workspace thumb.
+    // An immutable-snapshot ref paints the turn's exact bytes, so its cover is
+    // the snapshot's own content rather than a separately rendered thumb. What
+    // it OPENS is unaffected — that is the workspace's latest file either way.
     const immutable = ref({
       displayPolicy: 'immutable_snapshot',
-      openPolicy: 'snapshot',
       thumbnailUrl: undefined,
       snapshotUrl: '/api/snapshots/s1/cover.png',
     });
@@ -121,6 +121,6 @@ describe('ChatMessage.artifactRefs', () => {
       artifactRefs: [ref()],
     };
     expect(message.producedFiles).toHaveLength(1);
-    expect(message.artifactRefs?.[0]?.openPolicy).toBe('workspace_latest');
+    expect(message.artifactRefs?.[0]?.workspaceArtifactId).toBe('wa1');
   });
 });

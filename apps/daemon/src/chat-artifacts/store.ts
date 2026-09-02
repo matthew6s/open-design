@@ -11,7 +11,6 @@ import { randomUUID } from 'node:crypto';
 import type {
   ChatArtifactDisplayPolicy,
   ChatArtifactFailureCode,
-  ChatArtifactOpenPolicy,
   ChatArtifactSnapshotState,
 } from './types.js';
 
@@ -61,7 +60,6 @@ export interface MessageArtifactRow {
   snapshotId: string | null;
   workspaceArtifactId: string | null;
   displayPolicy: ChatArtifactDisplayPolicy;
-  openPolicy: ChatArtifactOpenPolicy;
   labelAtCapture: string;
   kind: string;
   htmlVersionId: string | null;
@@ -121,7 +119,6 @@ const MESSAGE_ARTIFACT_COLS = `
   snapshot_id AS snapshotId,
   workspace_artifact_id AS workspaceArtifactId,
   display_policy AS displayPolicy,
-  open_policy AS openPolicy,
   label_at_capture AS labelAtCapture,
   kind,
   html_version_id AS htmlVersionId,
@@ -228,8 +225,9 @@ export function migrateChatArtifacts(db: SqliteDb): void {
       workspace_artifact_id TEXT,
       display_policy TEXT NOT NULL CHECK (display_policy IN
         ('latest_with_static_preview','immutable_snapshot')),
-      open_policy TEXT NOT NULL CHECK (open_policy IN
-        ('workspace_latest','snapshot')),
+      -- No open_policy column, on purpose: every card opens the workspace's
+      -- latest file, so workspace_artifact_id above IS the click target.
+      -- See policy.ts for the ruling.
       label_at_capture TEXT NOT NULL,
       kind TEXT NOT NULL,
       html_version_id TEXT,
@@ -244,6 +242,58 @@ export function migrateChatArtifacts(db: SqliteDb): void {
 
     CREATE INDEX IF NOT EXISTS idx_message_artifacts_snapshot
       ON message_artifacts(snapshot_id);
+  `);
+  dropLegacyOpenPolicyColumn(db);
+}
+
+/**
+ * Rebuild `message_artifacts` without `open_policy`.
+ *
+ * The column was `NOT NULL` with a CHECK constraint, so a database created by
+ * an earlier build of this (unreleased) subsystem would reject every insert the
+ * current code makes, and SQLite refuses `DROP COLUMN` on a column a CHECK
+ * mentions. The rows themselves are still good — only the column is gone — so
+ * this copies them across rather than dropping the table.
+ */
+function dropLegacyOpenPolicyColumn(db: SqliteDb): void {
+  const columns = db
+    .prepare(`SELECT name FROM pragma_table_info('message_artifacts')`)
+    .all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === 'open_policy')) return;
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE message_artifacts__rebuild (
+      message_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      id TEXT NOT NULL UNIQUE,
+      snapshot_id TEXT,
+      workspace_artifact_id TEXT,
+      display_policy TEXT NOT NULL CHECK (display_policy IN
+        ('latest_with_static_preview','immutable_snapshot')),
+      label_at_capture TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      html_version_id TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, ordinal),
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY(snapshot_id)
+        REFERENCES chat_artifact_snapshots(id) ON DELETE SET NULL,
+      FOREIGN KEY(workspace_artifact_id)
+        REFERENCES workspace_artifacts(id) ON DELETE SET NULL
+    );
+    INSERT INTO message_artifacts__rebuild
+      (message_id, ordinal, id, snapshot_id, workspace_artifact_id,
+       display_policy, label_at_capture, kind, html_version_id, created_at)
+      SELECT message_id, ordinal, id, snapshot_id, workspace_artifact_id,
+             display_policy, label_at_capture, kind, html_version_id, created_at
+        FROM message_artifacts;
+    DROP TABLE message_artifacts;
+    ALTER TABLE message_artifacts__rebuild RENAME TO message_artifacts;
+    CREATE INDEX IF NOT EXISTS idx_message_artifacts_snapshot
+      ON message_artifacts(snapshot_id);
+    COMMIT;
+    PRAGMA foreign_keys = ON;
   `);
 }
 
@@ -572,7 +622,6 @@ export interface MessageArtifactInput {
   snapshotId?: string | null;
   workspaceArtifactId?: string | null;
   displayPolicy: ChatArtifactDisplayPolicy;
-  openPolicy: ChatArtifactOpenPolicy;
   label: string;
   kind: string;
   htmlVersionId?: string | null;
@@ -595,9 +644,9 @@ export function replaceMessageArtifacts(
       db.prepare(
         `INSERT INTO message_artifacts
            (message_id, ordinal, id, snapshot_id, workspace_artifact_id,
-            display_policy, open_policy, label_at_capture, kind,
+            display_policy, label_at_capture, kind,
             html_version_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         messageId,
         ordinal,
@@ -605,7 +654,6 @@ export function replaceMessageArtifacts(
         ref.snapshotId ?? null,
         ref.workspaceArtifactId ?? null,
         ref.displayPolicy,
-        ref.openPolicy,
         ref.label,
         ref.kind,
         ref.htmlVersionId ?? null,
@@ -657,4 +705,37 @@ export function getMessageArtifactRowById(
     .prepare(`SELECT ${MESSAGE_ARTIFACT_COLS} FROM message_artifacts WHERE id = ?`)
     .get(id) as MessageArtifactRow | undefined;
   return row ?? null;
+}
+
+/**
+ * Backfill the HTML version store's id onto the refs of one message.
+ *
+ * Lineage arrives LATE by construction: the refs are written at the terminal
+ * chokepoint, and the AI HTML versions are snapshotted right after, so at
+ * ref-write time the version does not exist yet. Rather than reorder two
+ * independent terminal passes, the second one tells the first what it produced.
+ *
+ * Only fills rows that have no lineage yet. A ref that already names a version
+ * is capture-time evidence and must not be re-pointed at a later one.
+ */
+export function setMessageArtifactHtmlVersionIds(
+  db: SqliteDb,
+  messageId: string,
+  versionIdByLabel: ReadonlyMap<string, string>,
+): number {
+  if (versionIdByLabel.size === 0) return 0;
+  const update = db.prepare(
+    `UPDATE message_artifacts
+        SET html_version_id = ?
+      WHERE message_id = ? AND label_at_capture = ? AND html_version_id IS NULL`,
+  );
+  let filled = 0;
+  const tx = db.transaction(() => {
+    for (const [label, versionId] of versionIdByLabel) {
+      if (!label || !versionId) continue;
+      filled += update.run(versionId, messageId, label).changes;
+    }
+  });
+  tx();
+  return filled;
 }

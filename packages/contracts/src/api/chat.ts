@@ -1065,18 +1065,21 @@ export const CHAT_ARTIFACT_DISPLAY_POLICIES = [
 
 export type ChatArtifactDisplayPolicy = (typeof CHAT_ARTIFACT_DISPLAY_POLICIES)[number];
 
-/**
- * What a click OPENS.
+/*
+ * There is deliberately NO open policy here.
  *
- * Deliberately separate from the display policy. Under
- * `latest_with_static_preview` + `workspace_latest` the cover and the opened
- * document genuinely differ, and that is the intended product behaviour — the
- * card is history, the workspace is the live document. Folding the two into one
- * flag is what made that difference read as a bug.
+ * A click always opens the workspace's LATEST file — HTML and image alike
+ * (user ruling 2026-09-02: "html 和图片都是,产物缩略是快照,但跳过去产物永远
+ * 指向最新的"). The ref already names that target: `workspaceArtifactId`.
+ *
+ * An earlier draft carried `openPolicy: 'workspace_latest' | 'snapshot'`, and
+ * the image branch announced `'snapshot'`. Nothing downstream honoured it — the
+ * host's open handler takes one argument and dropped the second — so the
+ * shipped behaviour was accidentally correct. That is exactly why the field is
+ * gone rather than pinned to one value: a constant that reads as a switch
+ * invites someone to "fix" the dropped argument, and fixing it would build the
+ * behaviour the user rejected. Neither typecheck nor tests would have caught it.
  */
-export const CHAT_ARTIFACT_OPEN_POLICIES = ['workspace_latest', 'snapshot'] as const;
-
-export type ChatArtifactOpenPolicy = (typeof CHAT_ARTIFACT_OPEN_POLICIES)[number];
 
 /**
  * Lifecycle of the turn's static cover.
@@ -1106,10 +1109,13 @@ export interface ChatArtifactRef {
   label: string;
   kind: ProjectFileKind;
   displayPolicy: ChatArtifactDisplayPolicy;
-  openPolicy: ChatArtifactOpenPolicy;
-  /** Workspace document a `workspace_latest` click opens. */
+  /** Workspace document this card's click opens. Always the latest file. */
   workspaceArtifactId?: string;
-  /** Frozen render this turn produced; the identity a `snapshot` click opens. */
+  /**
+   * Frozen evidence of this turn — what the CARD paints, never what the click
+   * opens. Addressed by the two URLs below; the id itself is for diagnostics
+   * and for the snapshot endpoints, not a navigation target.
+   */
   snapshotId?: string;
   /** Static cover for a `latest_with_static_preview` card. */
   thumbnailUrl?: string;

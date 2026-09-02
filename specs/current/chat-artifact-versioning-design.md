@@ -141,7 +141,7 @@ blob 文件必须从 `RUNTIME_DATA_DIR` 派生的专用 snapshot 根目录解析
 | `thumbnail_digest` | HTML/doc 静态假预览 PNG；图片可等于内容或另存缩略图 |
 | `source_size` / `source_mtime` | 捕获证据，不作为内容身份 |
 | `run_id` / `media_task_id` | 精确 lineage，均可空以兼容普通文件写入 |
-| `capture_state` | `pending / ready / failed / orphaned` |
+| `capture_state` | `pending / ready / failed / orphaned`（`orphaned` 是 GC 内部分类，不上线；上线的 wire 状态见下面 DTO 的 `snapshotState`） |
 | `failure_code` | renderer unavailable、source changed、timeout 等 |
 | `created_at` / `ready_at` | 生命周期 |
 
@@ -155,7 +155,7 @@ blob 文件必须从 `RUNTIME_DATA_DIR` 派生的专用 snapshot 根目录解析
 | `display_policy` | `latest_with_static_preview` 或 `immutable_snapshot` |
 | `open_policy` | `workspace_latest` 或 `snapshot` |
 | `label_at_capture` | 历史文件名 |
-| `html_version_id` | 可选 lineage；不能替代 dependency-complete snapshot |
+| `html_version_id` | 可选 lineage；不能替代 dependency-complete snapshot。**2026-09-02 起已启用**：`snapshotAiHtmlVersionsBeforeSuccess` 在版本落库后回填到本轮 refs 上 —— refs 写在前、版本写在后，所以是回填而不是同步写入 |
 
 `ChatMessage` 对外增加 `artifactRefs?: ChatArtifactRef[]`。`producedFiles` 保留兼容和 transcript 归属，不再驱动新卡的 URL 语义。
 
@@ -167,7 +167,10 @@ interface ChatArtifactRef {
   label: string;
   kind: ProjectFileKind;
   displayPolicy: 'latest_with_static_preview' | 'immutable_snapshot';
-  openPolicy: 'workspace_latest' | 'snapshot';
+  // ~~openPolicy: 'workspace_latest' | 'snapshot';~~
+  // 已作废（用户裁决 2026-09-02，见 §9.4）：点击一律打开工作区最新文件，
+  // 点击目标就是下面的 workspaceArtifactId，没有第二种取值。字段整个删掉，
+  // 不是收敛成单值 —— 理由同 §9.4。
   workspaceArtifactId?: string;
   snapshotId?: string;
   thumbnailUrl?: string;
@@ -196,16 +199,29 @@ URL 由 daemon response 生成或由 Web 用 id 构造；数据库绝不存带 a
 
 ### 4.2 图片
 
-消息完成时把图片原字节安装进 content-addressed blob，并让 `message_artifacts.open_policy='snapshot'`。卡面和右侧预览都读取 snapshot endpoint。
+> ~~消息完成时把图片原字节安装进 content-addressed blob，并让
+> `message_artifacts.open_policy='snapshot'`。卡面和右侧预览都读取 snapshot endpoint。~~
+>
+> **`open_policy='snapshot'` 与「点击开快照」已作废（用户裁决 2026-09-02，见 §9.4）：
+> 「html 和图片都是，产物缩略是快照，但跳过去产物永远指向最新的」。**
 
-工作区中仍保留/覆盖同名图片，Design Files 始终展示 latest。两者只通过 `workspaceArtifactId` 建 lineage，不共享读取 URL。
+消息完成时把图片原字节安装进 content-addressed blob。**卡面**读 snapshot endpoint；
+**点击**和 HTML 一样，打开工作区最新文件。
+
+工作区中仍保留/覆盖同名图片，Design Files 始终展示 latest。
 
 如果生成第二张图覆盖 `hero.png`：
 
-- 消息 A -> snapshot A digest，永远显示/打开 A。
+- 消息 A 的**卡面** -> snapshot A digest，永远是 A。
 - `workspace_artifacts.current_digest` 更新为 B。
-- 消息 B -> snapshot B digest，显示/打开 B。
-- Design Files 的 `hero.png` -> B。
+- 消息 B 的**卡面** -> snapshot B digest。
+- 两条消息**点开都是** Design Files 里当前的 `hero.png`（即 B）。
+
+> lineage 描述订正（2026-09-02，实现比原文更紧）：原文写「两者只通过
+> `workspaceArtifactId` 建 lineage」，读起来像事后配对。实际实现里图片走
+> `capturesContent` 分支，ref 上的 `workspaceArtifactId` 取的就是那次 capture 顺带
+> `ensureWorkspaceArtifactForPath` 出来的同一个 id —— 和 snapshot 同源，不存在配错的
+> 可能。见 `apps/daemon/src/chat-artifacts/run-capture.ts`。
 
 ## 5. Snapshot 创建与崩溃恢复
 
@@ -296,13 +312,48 @@ type DesktopArtifactCaptureMode = 'full_page_export' | 'first_viewport_thumbnail
 
 HTML version store 可以提供入口 HTML 文本，但不能保证依赖，合同也明确承认这一限制（`packages/contracts/src/api/export.ts:47-48`）。因此 `html_version_id` 只能做 lineage，不是完整 screenshot source。
 
+**落地方式（2026-09-02，`apps/daemon/src/chat-artifacts/cover.ts`）：**
+
+capture package 就是**一份自包含的 HTML 字符串**，在 terminal chokepoint 同步产出：
+
+1. 入口 HTML 和它引用到的每一个本地依赖，在同一个窗口内读完，逐个记 size+mtime 指纹。
+2. 用现有 standalone bundler（`artifacts/standalone-html.ts`）把整张图内联成一份文档。
+   本地依赖闭不上（missing-local-dependency / 超限）就**不出封面**，不降级。
+3. 窗口末尾把所有指纹**再核一遍**，任何一处漂了就作废 —— 否则拼出来的是一份跨两个
+   版本的缝合文档，那比没有封面更糟。
+4. 交给 renderer 时**不带 `baseHref`**。文档从 `data:` URL 加载，于是即便渲染发生在
+   几分钟之后，renderer 也**没有任何地址**能指回工作区。它不是「不许读 latest」，
+   而是根本无从读起。
+
+第 4 步是异步渲染能成立的原因，前 3 步是第 4 步诚实的原因。只有 freeze 是 await 的；
+render 故意不 await（一轮对话不该为了一张缩略图多等几秒）。
+
+原文的次选方案「无法形成 dependency-complete package 时立即 render」**没有实现**：
+它需要把 daemon 的 live raw endpoint 交回给 renderer，而那条路只对入口做了指纹，
+依赖仍然可以在渲染期间被改掉 —— 拿到的保证比看上去弱，所以宁可不出封面。
+
 ### 6.4 失败降级
 
-降级顺序必须诚实：
+> ~~降级顺序必须诚实：~~
+> ~~1. ready static thumbnail。~~
+> ~~2. 类型化 generic fake cover（HTML/prototype/slide/doc 图标 + 文件名 + 格式），状态记 `failed`。~~
+> ~~3. 不允许改回 live current iframe；那会让历史卡随 latest 漂移，也会重新引入动画与长会话性能成本。~~
+>
+> **已作废（产品 2026-09-02）。** 原依据是「历史卡不该随 latest 漂移」；推翻它的是
+> 产品原话：「不允许退回不就一个错误文案显示在上面了？这感觉更奇怪呢」。
+
+**现行裁决：**
 
 1. ready static thumbnail。
-2. 类型化 generic fake cover（HTML/prototype/slide/doc 图标 + 文件名 + 格式），状态记 `failed`。
-3. 不允许改回 live current iframe；那会让历史卡随 latest 漂移，也会重新引入动画与长会话性能成本。
+2. 拿不到就**静默回落 live iframe 显示最新**，不出占位、不出任何失败文案。
+3. 状态仍然照实记（`failed` / `legacy_unavailable`），但那是给遥测和诊断看的，**不上卡面**。
+
+这条和同日那条点击裁决（§9.4）是一致的：点击本来就一律打开工作区最新文件，所以
+卡面回落到 live 之后，卡面和点击指向同一份东西，不会出现「卡面说一套、点开是
+另一套」。
+
+实现见 `apps/daemon/src/chat-artifacts/cover.ts`（daemon 侧不产出占位）与
+`apps/web/src/components/FileOpsSummary.tsx`（卡面降级支）。
 
 ## 7. 存储预算与 GC
 
@@ -331,15 +382,28 @@ HTML version store 可以提供入口 HTML 文本，但不能保证依赖，合�
 
 核心原则：无法证明的历史不补造。
 
+> 下表原文**已作废（2026-09-02）**，三处：
+>
+> - **卡面**一列的 generic fake cover / 占位 / 「历史图片不可用」文案 —— 产品原话
+>   「不允许退回不就一个错误文案显示在上面了？这感觉更奇怪呢」（见 §6.4）。
+> - **点击**一列对 image 写的 read-only current / 不提供打开 —— 用户原话「html 和
+>   图片都是，产物缩略是快照，但跳过去产物永远指向最新的」（见 §9.4）；同一列的
+>   「按新 openPolicy」也随该字段一起作废。
+> - **`legacy_current_match` 这个状态从未实现，也不会实现。** 落地的 wire 状态是
+>   `pending / ready / failed / legacy_unavailable`（`packages/contracts` 的
+>   `CHAT_ARTIFACT_SNAPSHOT_STATES`），Web 端**只信 `ready`**，其余三态一律走降级支
+>   —— 也就不需要一个「未检测到变化」的中间态。
+
+现行兼容矩阵：
+
 | 旧数据 | 卡面 | 点击 | 说明 |
 | --- | --- | --- | --- |
-| HTML，只有 path | generic fake cover；可选标“历史预览未保存” | 打开 workspace latest | 符合 HTML 点击 latest；不能用 current live iframe伪装当时封面 |
-| HTML，能找到 version id 但依赖未版本化 | generic cover，或仅在已有当时 PNG 时显示 | 仍打开 workspace latest | version source 不足以重建视觉快照 |
-| image，当前 size+mtime 与旧 `ProjectFile` 一致 | 可展示 current，并把内部状态标 `legacy_current_match` | 打开 current read-only | 这是“未检测到变化”，不是 cryptographic 历史保证；UI/telemetry不得称 immutable snapshot |
-| image，current size/mtime 不同 | “历史图片不可用/已被更新”占位 | 不打开 current 冒充历史；可提供“查看最新文件”次级动作 | 不伪造历史 |
-| image，原路径已删除 | historical unavailable | 无 snapshot 可开；可提供 Design Files 导航 | 不猜同名/相似文件 |
-| 新消息，有 ready snapshot | static thumbnail / exact image | 按新 openPolicy | 完整语义 |
-| 新消息，snapshot failed | generic cover + 状态 | HTML 可开 latest；image 只提供 latest 次级动作并说明不是历史 | 明确失败 |
+| HTML，只有 path | live iframe 显示最新（静默降级） | 打开 workspace latest | 状态 `legacy_unavailable`；不出占位、不写文案 |
+| HTML，能找到 version id 但依赖未版本化 | 同上 | 打开 workspace latest | version source 不足以重建视觉快照 |
+| image，没有 snapshot | 显示 current 同名文件 | 打开 workspace latest | 这是「未检测到变化」，不是 cryptographic 历史保证；UI/telemetry 不得称 immutable snapshot |
+| image，原路径已删除 | 不出卡（已删除的文件在成卡之前就筛掉了） | — | 不猜同名/相似文件 |
+| 新消息，有 ready snapshot | static thumbnail / exact image | 打开 workspace latest | 完整语义 |
+| 新消息，snapshot failed | 走降级支，和上面同形 | 打开 workspace latest | 状态记 `failed`，只上遥测不上卡面 |
 
 不做 mtime -> HTML version 的自动 backfill。mtime 可以碰撞、拷贝可保留时间、普通 UI run 的 HTML versions 又未绑定 message；自动关联会制造并不存在的历史。
 
@@ -392,9 +456,24 @@ CLI 调同一 HTTP API，不直接读内部 storage；导出二进制时支持 `
 - `AssistantMessage` 优先用 `artifactRefs`；只有缺失时走 legacy `producedFiles` 分支。
 - `ArtifactCardItem` 从 `name/kind` 扩成 ref，不再在组件里拼 current URL。
 - HTML/doc card `<img src=thumbnailUrl>`；点击 `workspaceArtifactId`。
-- image card `<img src=snapshotUrl>`；点击打开 snapshot-backed readonly FileViewer tab。
-- snapshot tab 明确历史身份，可下载，不允许保存回同名 latest，除非用户显式“恢复/另存为”。
-- pending thumbnail 保持静态 placeholder；后台 ready 后消息投影更新，不影响滚动锚点尺寸。
+- image card `<img src=snapshotUrl>`；点击 `workspaceArtifactId`。
+
+> ~~image card 点击打开 snapshot-backed readonly FileViewer tab。~~
+> ~~snapshot tab 明确历史身份，可下载，不允许保存回同名 latest，除非用户显式“恢复/另存为”。~~
+>
+> **已作废（用户裁决 2026-09-02）。** 原话：「html 和图片都是，产物缩略是快照，但
+> 跳过去产物永远指向最新的」。
+>
+> **现行规则：卡面用快照，点击一律打开工作区最新文件，HTML 与图片同规则。**
+> 只读快照 tab 不做。
+>
+> 相应地 `openPolicy` 字段**整个删掉**，而不是收敛成单值 `workspace_latest`：
+> 这条链路当时唯一没在线上出问题的原因，是宿主的 `onRequestOpenFile` 只收一个参数、
+> 把第二个实参悄悄丢了。留一个恒定值的开关，下一个人看到「参数被丢了」会当成 bug
+> 去接上，正好做出被否掉的行为，而且 typecheck 不报、测试不红。点击目标本来就由
+> `workspaceArtifactId` 表达，再加一个单值枚举只是把同一件事说第二遍。
+
+- pending thumbnail 不出 placeholder，直接走 §6.4 的降级支；后台 ready 后消息投影更新，不影响滚动锚点尺寸。
 
 ## 10. Migration 与 rollout
 
@@ -532,14 +611,29 @@ schema migration 必须支持重新运行；blob store 初始化和 DB migration
 2. **HTML dependency-complete freeze。** standalone bundler 能覆盖多少本地构建/runtime 依赖，需要 corpus 验证。无法冻结时必须 generic fallback。
 3. **desktop renderer 可用性。** 当前 visual export 明确依赖 desktop，web-only 是 501/降级（`apps/daemon/src/import-export-routes.ts:876-909`）。是否引入 daemon headless Chromium 是独立成本决策。
 4. **团队同步。** snapshot blobs 是否属于项目共享资源、是否端到端加密、按谁的 quota 计费，需要平台决定。
-5. **视频/音频/大文档。**本裁决只明确图片和 HTML/doc 卡。通用 store 能承载，但保留原件可能显著增长容量，应单独拍 quota/retention。
+5. **视频/音频/大文档 —— 仍待拍板，但代码已经先行了，这是真实容量风险。**
+   本裁决只明确图片和 HTML/doc 卡。通用 store 能承载，但保留原件可能显著增长容量，
+   应单独拍 quota/retention。
+
+   ⚠️ 现状（2026-09-02 审计）：`apps/daemon/src/chat-artifacts/policy.ts` 的
+   `IMMUTABLE_ORIGINAL_KINDS` **已经把 `video` / `audio` 一起划进了不可变原件**，
+   也就是每一轮产出的视频/音频原件都会被整份复制进 blob store。代码注释自己标了
+   `OPEN PRODUCT QUESTION`，理由是「二进制原件的覆盖风险和图片一样」。
+
+   为什么这是容量风险而不只是口径问题：单 blob 上限 64 MiB、单项目上限 2 GiB
+   （`apps/daemon/src/chat-artifacts/quota.ts`）。一段几十 MB 的视频改三轮就吃掉
+   项目配额的一大块，而配额一满，**同一批次里的图片快照也会跟着 `quota_exceeded`
+   失败** —— 已经拍过板的图片语义会被没拍过板的视频语义挤掉。
+
+   在产品拍板前**不要改 `policy.ts`**（改哪个方向都是替产品下结论）。要拍的是两件事：
+   video/audio 是否保留原件；如果保留，它们是否走独立于图片的 quota/retention。
 6. **消息编辑/分叉。**分叉共享 snapshot 合理；若未来允许删除单条消息，GC 引用必须覆盖所有 fork。
 7. **“假预览图”是否要求当轮视觉还是通用模板。**本方案按用户提出的“拍快照”实现当轮静态首屏；若产品只要统一模板，可关闭 renderer，数据模型仍成立且成本更低。
 8. **完成延迟。**原图 snapshot 应在 terminal 前完成；HTML PNG 渲染可以异步，但 renderer input 必须先冻结。需要定义卡片 pending 最长时间与失败文案。
 
 ## 16. 实施顺序建议
 
-1. 先落 image immutable snapshot core 与 Web 打开语义，封住已确认的数据错误。
+1. 先落 image immutable snapshot core。~~与 Web 打开语义~~ —— **「Web 打开语义」这一步 2026-09-02 作废**：用户裁决点击一律打开工作区最新文件，而 Web 现状就是这样，这一步的答案是「保持现状即正确」，没有要改的东西。
 2. 再落 HTML 卡 `<img>` + generic cover，立即移除 live iframe 历史性能风险。
 3. 接 first-viewport renderer，把 generic cover 升级为当轮静态首屏。
 4. 最后启用 GC/quota、team sync、CLI 运维与完整 rollout。

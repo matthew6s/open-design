@@ -83,7 +83,6 @@ describe('chat artifact snapshot routes', () => {
       label: 'hero.png',
       kind: 'image',
       displayPolicy: 'immutable_snapshot',
-      openPolicy: 'snapshot',
       snapshotId,
       workspaceArtifactId,
     }]);
@@ -102,7 +101,9 @@ describe('chat artifact snapshot routes', () => {
     const body = await res.json() as { artifacts: Array<Record<string, unknown>> };
     expect(body.artifacts).toHaveLength(1);
     const ref = body.artifacts[0]!;
-    expect(ref.openPolicy).toBe('snapshot');
+    // No open policy on the wire: a click always opens the workspace's latest
+    // file, so there is nothing per-ref to announce.
+    expect(ref).not.toHaveProperty('openPolicy');
     expect(ref.snapshotState).toBe('ready');
     expect(ref.snapshotUrl)
       .toBe(`/api/projects/${projectId}/chat-artifact-snapshots/${snapshotId}/content`);

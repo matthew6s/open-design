@@ -1,0 +1,412 @@
+// HTML card covers: freeze the renderer's input at the chokepoint, render it
+// afterwards (spec §4.1 + §6.3).
+//
+// WHY A FREEZE AND NOT A JOB. The obvious implementation — "queue a screenshot
+// of this file, take it when the renderer is free" — is a version race, not an
+// optimization. Between the queue and the render the agent's next turn can
+// overwrite the file, and the cover then shows a version that message never
+// produced. Worse, it does so silently: a screenshot of the wrong bytes looks
+// exactly like a screenshot of the right ones.
+//
+// So the input is frozen while the daemon still owns the moment, and the freeze
+// is STRUCTURAL rather than advisory:
+//
+//   1. The entry HTML and every local dependency it references are read inside
+//      one window, and every file read is fingerprinted (size + mtime).
+//   2. The whole graph is inlined into ONE self-contained document. The result
+//      carries no relative URL that could resolve to a project file.
+//   3. The window is re-verified at the end. Any drift — a write that landed
+//      while we were reading — voids the freeze instead of producing a document
+//      torn across two versions.
+//   4. The renderer is handed that document with NO `baseHref`. It loads from a
+//      `data:` URL, so even a render that starts minutes later has no address
+//      for the live workspace. It cannot read latest; there is nothing to read.
+//
+// Step 4 is what makes the async render safe. Steps 1-3 are what make step 4
+// honest — a self-contained document assembled from a moving target would still
+// be a lie, just an unfalsifiable one.
+//
+// WHY FAILURE IS SILENT. Product ruling 2026-09-02: a cover that cannot be
+// rendered falls back to the card's live preview, with no placeholder and no
+// error copy ("不允许退回不就一个错误文案显示在上面了?这感觉更奇怪呢"). That is
+// coherent with the click ruling of the same day — clicking a card always opens
+// the workspace's LATEST file, for HTML and images alike — so a card that falls
+// back to live is showing the same thing the click would open. There is no
+// "cover says one thing, click shows another" state to explain away.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+import {
+  DESKTOP_ARTIFACT_CAPTURE_ERROR_CODES,
+  DESKTOP_ARTIFACT_CAPTURE_MODES,
+  type DesktopExportArtifactInput,
+  type DesktopExportArtifactResult,
+} from '@open-design/sidecar-proto';
+
+import {
+  bundleStandaloneHtml,
+  type StandaloneAssetHandle,
+} from '../artifacts/standalone-html.js';
+import type { ChatArtifactCaptureDeps } from './capture.js';
+import { mimeForArtifactPath } from './mime.js';
+import { chatArtifactPolicyForKind } from './policy.js';
+import { attachChatArtifactThumbnail } from './run-capture.js';
+import { insertSnapshotIntent, markSnapshotFailed, type MessageArtifactRow } from './store.js';
+import type { ChatArtifactFailureCode } from './types.js';
+
+export type ChatArtifactCoverRenderer = (
+  input: DesktopExportArtifactInput,
+) => Promise<DesktopExportArtifactResult>;
+
+/**
+ * Wall clock the daemon gives one cover. The desktop renderer enforces its own
+ * 8s budget; this is the outer guard for the case where the desktop process is
+ * wedged and the IPC call (600s) never comes back at all.
+ */
+export const CHAT_ARTIFACT_COVER_BUDGET_MS = 20_000;
+
+/**
+ * Per-turn ceiling. A run that rewrote forty pages is not worth forty renders —
+ * the renderer is a shared, single-window resource and the next turn's covers
+ * matter more than the tail of this one's.
+ */
+export const CHAT_ARTIFACT_COVER_MAX_PER_RUN = 8;
+
+export interface FreezeChatArtifactCoversInput {
+  /** Absolute project directory the run wrote into. */
+  projectRoot: string;
+  /** The refs the terminal capture just wrote for this message. */
+  rows: readonly MessageArtifactRow[];
+  /** Absent in a web-only daemon; no renderer means no cover, and no failure. */
+  renderer: ChatArtifactCoverRenderer | null | undefined;
+}
+
+export interface FreezeChatArtifactCoversReport {
+  /** Refs whose renderer input was frozen and handed to a render. */
+  frozen: number;
+  /** Refs this build cannot cover at all (no renderer, wrong kind, over cap). */
+  skipped: number;
+  /** Refs whose freeze failed and were recorded as a failed snapshot. */
+  failed: number;
+}
+
+/**
+ * Freeze every coverable ref on this message, then render them in the
+ * background.
+ *
+ * The AWAITED half is the freeze — it must complete before the terminal SSE
+ * frame goes out, because after that the next turn may start writing. The
+ * render is deliberately NOT awaited: it costs seconds, the frozen document
+ * makes it race-free, and a chat turn should not sit open waiting for a
+ * thumbnail. A card with no cover yet simply keeps its live preview.
+ */
+export async function freezeAndRenderChatArtifactCovers(
+  deps: ChatArtifactCaptureDeps,
+  input: FreezeChatArtifactCoversInput,
+): Promise<FreezeChatArtifactCoversReport> {
+  const report: FreezeChatArtifactCoversReport = { frozen: 0, skipped: 0, failed: 0 };
+  const projectRoot = path.resolve(input.projectRoot);
+  const pending: Array<{ row: MessageArtifactRow; render: DesktopExportArtifactInput }> = [];
+
+  for (const row of input.rows) {
+    if (!wantsRenderedCover(row)) {
+      report.skipped += 1;
+      continue;
+    }
+    // No renderer at all is not a failure of THIS turn — recording one would
+    // mark every HTML card in a web-only daemon as failed forever, which buries
+    // the real render failures the state is there to surface.
+    if (typeof input.renderer !== 'function' || pending.length >= CHAT_ARTIFACT_COVER_MAX_PER_RUN) {
+      report.skipped += 1;
+      continue;
+    }
+
+    const frozen = await freezeCoverDocument(projectRoot, row.labelAtCapture);
+    if (!frozen.ok) {
+      recordCoverFailure(deps, row, frozen.failureCode);
+      report.failed += 1;
+      continue;
+    }
+    pending.push({ row, render: frozen.render });
+    report.frozen += 1;
+  }
+
+  if (pending.length > 0 && typeof input.renderer === 'function') {
+    // Serial: the desktop renderer is one Electron window behind one IPC
+    // socket, so firing these in parallel would only queue them somewhere less
+    // observable.
+    void renderCoversSequentially(deps, input.renderer, pending);
+  }
+  return report;
+}
+
+/**
+ * Which refs today's renderer can actually serve.
+ *
+ * `wantsStaticCover` is the POLICY answer (every non-immutable kind wants one).
+ * `kind === 'html'` is the CAPABILITY answer: the renderer is a browser, so a
+ * .pdf or .docx ref has to keep waiting for a document renderer that does not
+ * exist yet. Keeping the two separate means adding that renderer later is a
+ * change here, not a change to the product policy.
+ */
+function wantsRenderedCover(row: MessageArtifactRow): boolean {
+  if (row.kind !== 'html') return false;
+  if (!chatArtifactPolicyForKind(row.kind).wantsStaticCover) return false;
+  // An immutable-original ref already carries its own bytes; a cover would be
+  // a second identity on a row that is supposed to have exactly one.
+  return row.snapshotId == null && row.workspaceArtifactId != null;
+}
+
+type FreezeOutcome =
+  | { ok: true; render: DesktopExportArtifactInput }
+  | { ok: false; failureCode: ChatArtifactFailureCode };
+
+/**
+ * Read the entry and its local dependency graph inside one verified window, and
+ * return a self-contained document.
+ *
+ * The witness map is the freeze: every file the bundler touched is fingerprinted
+ * when it is read and re-checked when the bundle is done. A single drift means
+ * the assembled document may mix two versions, and a mixed document is worse
+ * than no cover — it is a screenshot of something that never existed.
+ */
+async function freezeCoverDocument(
+  projectRoot: string,
+  relativePath: string,
+): Promise<FreezeOutcome> {
+  const entryAbsolute = resolveInsideProject(projectRoot, relativePath);
+  if (!entryAbsolute) return { ok: false, failureCode: 'source_missing' };
+
+  const witnesses = new Map<string, { size: number; mtimeMs: number }>();
+  let html: string;
+  try {
+    const stat = await fs.promises.stat(entryAbsolute);
+    witnesses.set(entryAbsolute, { size: stat.size, mtimeMs: stat.mtimeMs });
+    html = await fs.promises.readFile(entryAbsolute, 'utf8');
+  } catch {
+    return { ok: false, failureCode: 'source_missing' };
+  }
+
+  const readAsset = async (projectPath: string): Promise<StandaloneAssetHandle | null> => {
+    const absolute = resolveInsideProject(projectRoot, projectPath);
+    if (!absolute) return null;
+    let stat: fs.Stats;
+    try {
+      stat = await fs.promises.stat(absolute);
+    } catch {
+      return null;
+    }
+    if (!stat.isFile()) return null;
+    const buffer = await fs.promises.readFile(absolute);
+    witnesses.set(absolute, { size: stat.size, mtimeMs: stat.mtimeMs });
+    return {
+      buffer,
+      mime: mimeForArtifactPath(projectPath) ?? 'application/octet-stream',
+      size: buffer.byteLength,
+    };
+  };
+
+  let bundled: { html: string };
+  try {
+    bundled = await bundleStandaloneHtml({
+      entryPath: toProjectPath(relativePath),
+      html,
+      readAsset,
+    });
+  } catch (err) {
+    // A graph that cannot be closed (a missing local dependency, a document
+    // past the bundler's limits) has no dependency-complete freeze available.
+    // Spec §6.3's fallback — render the live file immediately while its
+    // fingerprint still matches — is deliberately NOT taken here: it would put
+    // the daemon's live raw endpoint back in the renderer's hands, which only
+    // fingerprints the entry and leaves every dependency free to move.
+    logCoverFailure(relativePath, err);
+    return { ok: false, failureCode: 'dependencies_incomplete' };
+  }
+
+  for (const [absolute, expected] of witnesses) {
+    try {
+      const stat = await fs.promises.stat(absolute);
+      if (stat.size !== expected.size || stat.mtimeMs !== expected.mtimeMs) {
+        return { ok: false, failureCode: 'source_changed' };
+      }
+    } catch {
+      return { ok: false, failureCode: 'source_changed' };
+    }
+  }
+
+  return {
+    ok: true,
+    render: {
+      captureMode: DESKTOP_ARTIFACT_CAPTURE_MODES.FIRST_VIEWPORT_THUMBNAIL,
+      deck: false,
+      format: 'image',
+      html: bundled.html,
+      imageFormat: 'png',
+      title: path.posix.basename(toProjectPath(relativePath)) || 'artifact',
+      // No baseHref, on purpose. See the module header: this is the last thing
+      // standing between an async render and the live workspace.
+    },
+  };
+}
+
+async function renderCoversSequentially(
+  deps: ChatArtifactCaptureDeps,
+  renderer: ChatArtifactCoverRenderer,
+  pending: ReadonlyArray<{ row: MessageArtifactRow; render: DesktopExportArtifactInput }>,
+): Promise<void> {
+  for (const item of pending) {
+    try {
+      await renderOneCover(deps, renderer, item.row, item.render);
+    } catch (err) {
+      // A cover is never allowed to take anything else down with it: the turn
+      // has already been reported as finished by the time this runs.
+      logCoverFailure(item.row.labelAtCapture, err);
+      try {
+        recordCoverFailure(deps, item.row, 'internal_error');
+      } catch {
+        // best effort
+      }
+    }
+  }
+}
+
+async function renderOneCover(
+  deps: ChatArtifactCaptureDeps,
+  renderer: ChatArtifactCoverRenderer,
+  row: MessageArtifactRow,
+  render: DesktopExportArtifactInput,
+): Promise<void> {
+  let result: DesktopExportArtifactResult;
+  try {
+    result = await withBudget(renderer(render), CHAT_ARTIFACT_COVER_BUDGET_MS);
+  } catch (err) {
+    logCoverFailure(row.labelAtCapture, err);
+    recordCoverFailure(deps, row, 'renderer_unavailable');
+    return;
+  }
+
+  if (!result?.ok || typeof result.path !== 'string' || result.path.length === 0) {
+    recordCoverFailure(deps, row, coverFailureCodeFor(result));
+    return;
+  }
+
+  try {
+    const bytes = await fs.promises.readFile(result.path);
+    await attachChatArtifactThumbnail(deps, {
+      messageArtifactId: row.id,
+      bytes,
+      mime: result.mime || 'image/png',
+    });
+  } finally {
+    // The renderer's temp file is the daemon's to clean up — the same contract
+    // the `od export` route follows.
+    await fs.promises.rm(result.path, { force: true }).catch(() => {});
+  }
+}
+
+function coverFailureCodeFor(result: DesktopExportArtifactResult | undefined): ChatArtifactFailureCode {
+  if (result?.code === DESKTOP_ARTIFACT_CAPTURE_ERROR_CODES.RENDER_TIMEOUT) return 'timeout';
+  return 'renderer_unavailable';
+}
+
+/**
+ * Record an honest miss.
+ *
+ * The ref keeps its `workspace_artifact_id`, so the card still opens the latest
+ * file; it just has no cover and the web falls back to a live preview. The row
+ * exists so a real render failure is distinguishable from a card that was never
+ * a cover candidate in the first place — otherwise every legacy message would
+ * look like a failure and the failures would look like nothing.
+ */
+function recordCoverFailure(
+  deps: ChatArtifactCaptureDeps,
+  row: MessageArtifactRow,
+  failureCode: ChatArtifactFailureCode,
+): void {
+  const projectId = projectIdForWorkspaceArtifact(deps, row.workspaceArtifactId);
+  if (!projectId) return;
+  const snapshotId = randomUUID();
+  const now = deps.now ? deps.now() : Date.now();
+  insertSnapshotIntent(deps.db, {
+    id: snapshotId,
+    projectId,
+    workspaceArtifactId: row.workspaceArtifactId,
+    sourcePathAtCapture: row.labelAtCapture,
+    kind: row.kind,
+    mime: mimeForArtifactPath(row.labelAtCapture) ?? null,
+    runId: null,
+    mediaTaskId: null,
+    expectedSize: null,
+    expectedMtime: null,
+    expectedDigest: null,
+    // Nothing was ever staged, so the reconciler has no temp to sweep.
+    tempKey: null,
+    now,
+  });
+  markSnapshotFailed(deps.db, snapshotId, failureCode);
+  deps.db
+    .prepare(`UPDATE message_artifacts SET snapshot_id = ? WHERE id = ? AND snapshot_id IS NULL`)
+    .run(snapshotId, row.id);
+}
+
+function projectIdForWorkspaceArtifact(
+  deps: ChatArtifactCaptureDeps,
+  workspaceArtifactId: string | null,
+): string | null {
+  if (!workspaceArtifactId) return null;
+  const row = deps.db
+    .prepare(`SELECT project_id AS projectId FROM workspace_artifacts WHERE id = ?`)
+    .get(workspaceArtifactId) as { projectId: string } | undefined;
+  return row?.projectId ?? null;
+}
+
+async function withBudget<T>(work: Promise<T>, budgetMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`chat artifact cover exceeded ${budgetMs}ms`)),
+          budgetMs,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Forward-slash, project-relative. The bundler speaks project paths only. */
+function toProjectPath(relativePath: string): string {
+  return relativePath.split(path.sep).join('/').replace(/^\/+/, '');
+}
+
+/**
+ * Containment-checked absolute path, or null. A dependency reference is agent
+ * output: it must never be able to pull a file from outside the project into a
+ * document the daemon is about to render.
+ */
+function resolveInsideProject(projectRoot: string, projectPath: string): string | null {
+  const cleaned = toProjectPath(projectPath);
+  if (!cleaned) return null;
+  const absolute = path.resolve(projectRoot, cleaned);
+  const relative = path.relative(projectRoot, absolute);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)) return null;
+  if (path.isAbsolute(relative)) return null;
+  return absolute;
+}
+
+function logCoverFailure(label: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  try {
+    // Project-relative label only — never bytes, never an absolute path.
+    console.warn(`[chat-artifacts] cover failed for ${label}: ${message}`);
+  } catch {
+    // logging is best effort
+  }
+}

@@ -159,7 +159,6 @@ describe('chat artifact schema', () => {
         label: 'hero.png',
         kind: 'image',
         displayPolicy: 'immutable_snapshot',
-        openPolicy: 'snapshot',
         workspaceArtifactId: artifact.id,
       },
     ]);

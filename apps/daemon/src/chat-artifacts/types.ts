@@ -26,6 +26,10 @@ export type ChatArtifactFailureCode =
   | 'source_changed'
   | 'source_missing'
   | 'source_unreadable'
+  // A cover-only code: the entry HTML exists, but its local dependency graph
+  // could not be closed into a self-contained document, so there is nothing the
+  // renderer could be handed that is guaranteed to be THIS turn's page.
+  | 'dependencies_incomplete'
   | 'blob_missing'
   | 'digest_mismatch'
   | 'quota_exceeded'
@@ -46,7 +50,6 @@ export type ChatArtifactFailureCode =
  */
 export type {
   ChatArtifactDisplayPolicy,
-  ChatArtifactOpenPolicy,
   ChatArtifactRef,
 } from '@open-design/contracts';
 

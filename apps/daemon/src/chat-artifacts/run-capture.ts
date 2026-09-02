@@ -29,6 +29,7 @@ import {
   markSnapshotReady,
   replaceMessageArtifacts,
   type MessageArtifactInput,
+  type MessageArtifactRow,
 } from './store.js';
 import { kindForArtifactPath, mimeForArtifactPath } from './mime.js';
 
@@ -52,6 +53,15 @@ export interface CaptureRunChatArtifactsReport {
   captured: number;
   reused: number;
   failed: number;
+  /**
+   * The ref rows as written, in card order.
+   *
+   * The cover pass needs the ref IDs it is about to attach to, and re-reading
+   * them would mean trusting that nothing rewrote this message's refs in
+   * between. Returning what was just written keeps the two passes talking about
+   * the same rows.
+   */
+  rows: MessageArtifactRow[];
 }
 
 const DEFAULT_MAX_REFS = 64;
@@ -65,6 +75,7 @@ export async function captureRunChatArtifactSnapshots(
     captured: 0,
     reused: 0,
     failed: 0,
+    rows: [],
   };
   const maxRefs = input.maxRefs ?? DEFAULT_MAX_REFS;
   const projectRoot = path.resolve(input.projectRoot);
@@ -99,7 +110,6 @@ export async function captureRunChatArtifactSnapshots(
       const ref: MessageArtifactInput = {
         workspaceArtifactId: workspace,
         displayPolicy: policy.displayPolicy,
-        openPolicy: policy.openPolicy,
         label: relative,
         kind,
       };
@@ -141,7 +151,6 @@ export async function captureRunChatArtifactSnapshots(
       snapshotId: result.snapshotId,
       workspaceArtifactId: result.workspaceArtifactId || null,
       displayPolicy: policy.displayPolicy,
-      openPolicy: policy.openPolicy,
       label: relative,
       kind,
     };
@@ -150,7 +159,7 @@ export async function captureRunChatArtifactSnapshots(
   }
 
   if (refs.length > 0) {
-    replaceMessageArtifacts(deps.db, input.messageId, refs);
+    report.rows = replaceMessageArtifacts(deps.db, input.messageId, refs);
   }
   return report;
 }

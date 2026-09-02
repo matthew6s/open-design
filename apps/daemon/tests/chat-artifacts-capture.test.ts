@@ -137,13 +137,11 @@ describe('chat artifact capture (two-phase commit)', () => {
 
     replaceMessageArtifacts(d.db, m1, [{
       label: 'a.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot',
-      snapshotId: a.snapshotId,
+      displayPolicy: 'immutable_snapshot',      snapshotId: a.snapshotId,
     }]);
     replaceMessageArtifacts(d.db, m2, [{
       label: 'b.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot',
-      snapshotId: b.snapshotId,
+      displayPolicy: 'immutable_snapshot',      snapshotId: b.snapshotId,
     }]);
 
     d.db.prepare(`DELETE FROM messages WHERE id = ?`).run(m1);

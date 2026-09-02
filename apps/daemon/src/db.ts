@@ -2900,14 +2900,12 @@ function seedMessageArtifactRefsIfAbsent(
         typeof ref?.label !== 'string' ||
         typeof ref.kind !== 'string' ||
         (ref.displayPolicy !== 'immutable_snapshot' &&
-          ref.displayPolicy !== 'latest_with_static_preview') ||
-        (ref.openPolicy !== 'snapshot' && ref.openPolicy !== 'workspace_latest')
+          ref.displayPolicy !== 'latest_with_static_preview')
       ) return [];
       return [{
         label: ref.label,
         kind: ref.kind,
         displayPolicy: ref.displayPolicy,
-        openPolicy: ref.openPolicy,
         snapshotId: typeof ref.snapshotId === 'string' ? ref.snapshotId : null,
         workspaceArtifactId:
           typeof ref.workspaceArtifactId === 'string' ? ref.workspaceArtifactId : null,

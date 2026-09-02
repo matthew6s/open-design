@@ -7,10 +7,13 @@
  * | 产物 | 卡面 | 点击 |
  * | --- | --- | --- |
  * | HTML / 原型 / slide / 文档 | 当轮**静态首屏截图**(冻结) | 工作区**最新版本** |
- * | 图片 | 当轮**不可变真图快照** | **那张快照** |
+ * | 图片 | 当轮**不可变真图快照**(冻结) | 工作区**最新版本** |
  *
- * HTML 系「卡面是当轮、点击是最新」是**故意不一致**的,产品明确说「点击行为就是
- * 可能不一致的,预期内的」。这里守的就是这条不一致本身 —— 有人把它当 bug「修平」,
+ * 点击那一列 2026-09-02 由用户统一:「html 和图片都是,产物缩略是快照,但跳过去
+ * 产物永远指向最新的」。**没有例外。**
+ *
+ * 「卡面是当轮、点击是最新」是**故意不一致**的,产品明确说「点击行为就是可能不
+ * 一致的,预期内的」。这里守的就是这条不一致本身 —— 有人把它当 bug「修平」,
  * 卡面就会跟着 latest 漂,历史消息里那张图会变成今天的样子。
  *
  * ── 没有当轮快照的时候 ──────────────────────────────────────────────────
@@ -119,7 +122,6 @@ const htmlRef = (over: Record<string, unknown> = {}) => ({
   label: 'landing.html',
   kind: 'html',
   displayPolicy: 'latest_with_static_preview',
-  openPolicy: 'workspace_latest',
   snapshotId: 'snap-html-1',
   thumbnailUrl: HTML_SHOT,
   snapshotState: 'ready',
@@ -131,6 +133,11 @@ const imageRef = (over: Record<string, unknown> = {}) => ({
   label: 'hero.png',
   kind: 'image',
   displayPolicy: 'immutable_snapshot',
+  /*
+   * 故意留着这个**已作废**的字段:线上还会有宣布 `openPolicy:'snapshot'` 的
+   * daemon / 旧消息。留着它,这几条断言测的才是「读取端无论如何都不交点击目标」,
+   * 而不是「我把字段从夹具里删了所以分支没走到」。
+   */
   openPolicy: 'snapshot',
   snapshotId: 'snap-img-1',
   snapshotUrl: IMAGE_SHOT,
@@ -181,10 +188,11 @@ describe('HTML 产物卡 · 有当轮快照', () => {
 
     expect(onRequestOpenFile).toHaveBeenCalledTimes(1);
     /*
-     * 显式钉住第二个实参是 `undefined`。加可选参数之后
-     * `not.toHaveBeenCalledWith(name)` 会永真 —— 那是一条永远不会红的断言。
+     * 钉的是**实参个数**,不是「没带快照」。否定式断言在这里是废的:多一个可选
+     * 参数就会让 `not.toHaveBeenCalledWith(name)` 恒真,那条断言永远不会红。
      */
-    expect(onRequestOpenFile.mock.calls[0]).toEqual(['landing.html', undefined]);
+    expect(onRequestOpenFile.mock.calls[0]).toHaveLength(1);
+    expect(onRequestOpenFile.mock.calls[0]).toEqual(['landing.html']);
   });
 
   it('快照占的是和 live iframe 同一个盒子 —— 换的只是卡面的实现', async () => {
@@ -263,7 +271,14 @@ describe('图片产物卡 · 有当轮快照', () => {
     expect(img.getAttribute('data-preview-fit')).toBe('contain');
   });
 
-  it('点击打开的是那张快照,不是工作区最新文件', () => {
+  /*
+   * 用户 2026-09-02:「html 和图片都是,产物缩略是快照,但跳过去产物永远指向最新的」。
+   *
+   * 在这之前这里断言的是相反的事(点击开快照 tab)。那条链路当时之所以没在产品里
+   * 显形,只是因为宿主的 `onRequestOpenFile` 只收一个参数、把第二个悄悄丢了 ——
+   * 看起来像个待修的 bug,接上去正好做出用户否掉的行为。所以现在钉的是**实参个数**。
+   */
+  it('点击打开工作区最新文件,一个快照身份都不交出去', () => {
     stubHeadProbeAsReachable();
     const onRequestOpenFile = vi.fn();
     renderPanel([fileOpEntry('hero.png')], {
@@ -272,10 +287,8 @@ describe('图片产物卡 · 有当轮快照', () => {
     });
 
     fireEvent.click(screen.getByTestId('artifact-card-open-hero.png'));
-    expect(onRequestOpenFile.mock.calls[0]).toEqual([
-      'hero.png',
-      { snapshotId: 'snap-img-1', snapshotUrl: IMAGE_SHOT },
-    ]);
+    expect(onRequestOpenFile.mock.calls[0]).toHaveLength(1);
+    expect(onRequestOpenFile.mock.calls[0]).toEqual(['hero.png']);
   });
 
   it('导出下的也是卡面上那一版', () => {
@@ -316,7 +329,8 @@ describe('图片产物卡 · 没有当轮快照(旧会话)', () => {
     expect(img.getAttribute('src')).toBe(raw('hero.png'));
 
     fireEvent.click(screen.getByTestId('artifact-card-open-hero.png'));
-    expect(onRequestOpenFile.mock.calls[0]).toEqual(['hero.png', undefined]);
+    expect(onRequestOpenFile.mock.calls[0]).toHaveLength(1);
+    expect(onRequestOpenFile.mock.calls[0]).toEqual(['hero.png']);
   });
 
   it('不出占位、不写任何「历史图片不可用」', () => {
@@ -335,7 +349,7 @@ describe('图片产物卡 · 没有当轮快照(旧会话)', () => {
  * 5 · 卡片按名字配 ref
  * ------------------------------------------------------------------ */
 describe('refs 与卡片的配对', () => {
-  it('一轮里 HTML 和图片各走各的语义,互不串味', async () => {
+  it('一轮里 HTML 和图片卡面各认各的快照,点击都走最新', async () => {
     stubHeadProbeAsReachable();
     const onRequestOpenFile = vi.fn();
     renderPanel([fileOpEntry('landing.html'), fileOpEntry('hero.png')], {
@@ -349,10 +363,8 @@ describe('refs 与卡片的配对', () => {
 
     fireEvent.click(screen.getByTestId('artifact-card-open-landing.html'));
     fireEvent.click(screen.getByTestId('artifact-card-open-hero.png'));
-    expect(onRequestOpenFile.mock.calls).toEqual([
-      ['landing.html', undefined],
-      ['hero.png', { snapshotId: 'snap-img-1', snapshotUrl: IMAGE_SHOT }],
-    ]);
+    // 卡面两张各认各的快照(上面两行),点击两张都只交文件名 —— 一个参数。
+    expect(onRequestOpenFile.mock.calls).toEqual([['landing.html'], ['hero.png']]);
   });
 
   it('ref 配不上任何一张卡时不影响这一轮的卡片', async () => {
@@ -379,12 +391,9 @@ describe('ArtifactCards 直接接收快照字段', () => {
         <ArtifactCards
           items={[
             { name: 'deck.html', kind: 'html', coverUrl: HTML_SHOT },
-            {
-              name: 'poster.png',
-              kind: 'image',
-              snapshotUrl: IMAGE_SHOT,
-              snapshotId: 'snap-img-1',
-            },
+            // 只给 snapshotUrl:卡面就该由它定。快照 id 已经不是卡片的入参了 ——
+            // 「点开走快照」那条路整条撤掉之后,卡片再也拿不到、也不需要那个 id。
+            { name: 'poster.png', kind: 'image', snapshotUrl: IMAGE_SHOT },
           ]}
           projectId={PROJECT_ID}
         />

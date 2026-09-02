@@ -70,8 +70,7 @@ describe('chat artifact mark-sweep GC', () => {
     });
     replaceMessageArtifacts(d.db, message, [{
       label: 'hero.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot',
-      snapshotId: captured.snapshotId,
+      displayPolicy: 'immutable_snapshot',      snapshotId: captured.snapshotId,
     }]);
     age(d.db, captured.snapshotId, 48 * HOUR);
 
@@ -91,8 +90,7 @@ describe('chat artifact mark-sweep GC', () => {
     });
     replaceMessageArtifacts(d.db, message, [{
       label: 'hero.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot',
-      snapshotId: captured.snapshotId,
+      displayPolicy: 'immutable_snapshot',      snapshotId: captured.snapshotId,
     }]);
     // Message delete drops the ref (FK cascade) but not the blob — GC does that.
     d.db.prepare(`DELETE FROM messages WHERE id = ?`).run(message);
@@ -134,11 +132,11 @@ describe('chat artifact mark-sweep GC', () => {
     });
     replaceMessageArtifacts(d.db, m1, [{
       label: 'a.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot', snapshotId: a.snapshotId,
+      displayPolicy: 'immutable_snapshot', snapshotId: a.snapshotId,
     }]);
     replaceMessageArtifacts(d.db, m2, [{
       label: 'b.png', kind: 'image',
-      displayPolicy: 'immutable_snapshot', openPolicy: 'snapshot', snapshotId: b.snapshotId,
+      displayPolicy: 'immutable_snapshot', snapshotId: b.snapshotId,
     }]);
     d.db.prepare(`DELETE FROM messages WHERE id = ?`).run(m1);
     age(d.db, a.snapshotId, 48 * HOUR);

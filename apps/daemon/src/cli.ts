@@ -7407,9 +7407,10 @@ Common options:
         }
         for (const ref of artifacts) {
           console.log(
+            // No `opens:` column: every card opens the workspace's latest
+            // file, so printing it per row would only imply it varies.
             `${ref.label}\t${ref.kind}\tshows:${ref.displayPolicy}`
-              + `\topens:${ref.openPolicy}\t${ref.snapshotState}`
-              + `\t${ref.snapshotId ?? '-'}`,
+              + `\t${ref.snapshotState}\t${ref.snapshotId ?? '-'}`,
           );
         }
         return;
