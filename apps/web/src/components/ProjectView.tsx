@@ -177,6 +177,7 @@ import {
 } from '../runtime/amr-balance-branch';
 import { AmrBalanceDialog } from './AmrBalanceDialog';
 import { AmrOwnerTopUpDialog } from './chat/AmrOwnerTopUpDialog';
+import { markHistoryReplayLanded } from './chat/useCharReveal';
 import { workspaceAutoRechargeUrl, workspaceUpgradeUrl } from './EntryNavRail';
 import {
   amrHandoffDeviceId,
@@ -6303,6 +6304,10 @@ export function ProjectView({
           persistSoon,
           flushAndPersistNow: () => persistNow({ keepalive: true }),
           onContentDelta: applyContentDelta,
+          // 这两种情况下面会把 `initialLastEventId` 设成 null,daemon 于是从第 0 条
+          // 重推 —— 开头那一段是用户已经看过的历史,攒住一次性铺出来,别一段一段
+          // 重新走一遍流式(OPEND-2590)。
+          replayingHistory: needsFullReplay || taskRunAdvanced,
         });
         reattachTextBuffersRef.current.add(textBuffer);
         const unregisterTextBuffer = () => {
@@ -13987,11 +13992,29 @@ export function finalizeActiveAssistantMessagesOnStop(
 
 type BufferedTextUpdates = ReturnType<typeof createBufferedTextUpdates>;
 
+/**
+ * 重放窗口关掉的判据:这条流安静这么久,就当 daemon 的缓冲已经放完了。
+ *
+ * 为什么是「安静多久」而不是某个信号:`/api/runs/:id/events` 上**没有**历史与直播的
+ * 分界。daemon(`runtimes/runs.ts` 的 `stream`)是先同步把 `run.events` 整个写出去,
+ * 写完才把这条连接加进 `run.clients` 收直播 —— 两段同一个通道、同一套 `id`、同一种帧。
+ * 客户端唯一能如实观察到的差别是**到货节奏**:重放那一段是一次灌下来的,直播那一段
+ * 按模型出字的速度来。所以这里造的分界就是「第一次安静下来」。
+ */
+export const HISTORY_REPLAY_SETTLE_MS = 160;
+/**
+ * 兜底:模型此刻正在密集出字时,重放和直播的节奏可能一直分不开。窗口最多开这么久,
+ * 到点无论如何都切回逐块直播 —— 宁可把开头那一小段直播也一次性铺出来,
+ * 也不能把「运行中、agent 新输出」的流式效果永久关掉。
+ */
+export const HISTORY_REPLAY_MAX_MS = 1_200;
+
 export function createBufferedTextUpdates({
   updateMessage,
   persistSoon,
   flushAndPersistNow,
   onContentDelta,
+  replayingHistory = false,
 }: {
   updateMessage: (updater: (prev: ChatMessage) => ChatMessage) => void;
   persistSoon: () => void;
@@ -14000,6 +14023,12 @@ export function createBufferedTextUpdates({
   // last buffered chunk isn't lost when the user reloads mid-stream.
   flushAndPersistNow?: () => void;
   onContentDelta?: (delta: string) => void;
+  /**
+   * 这条流开头是 daemon 从缓冲里重推的历史(重挂时 `?after=` 不带游标,从第 0 条起)。
+   * 开着的时候,落地动作全部攒住,窗口关掉时一次性提交 —— 历史不该一段一段地
+   * 走一遍入场动画,那是「运行中、agent 新输出」才有的样子(OPEND-2590)。
+   */
+  replayingHistory?: boolean;
 }) {
   let pendingContentDelta = '';
   let pendingTextEventDelta = '';
@@ -14024,7 +14053,78 @@ export function createBufferedTextUpdates({
     }
   };
 
-  const flush = () => {
+  // ── 重放窗口(OPEND-2590)────────────────────────────────────────────────
+  // 窗口开着时,每一次「提交给 React」都改成排队。攒住的是 updater 函数本身,
+  // 所以去重、合并、事件与正文的先后全部保持原样;关窗口时按顺序叠成一次提交。
+  let replayOpen = replayingHistory;
+  let replayQueue: Array<(prev: ChatMessage) => ChatMessage> = [];
+  let replayContentDelta = '';
+  let replaySettleTimer: ReturnType<typeof setTimeout> | null = null;
+  let replayCapTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearReplayTimers = () => {
+    if (replaySettleTimer !== null) {
+      clearTimeout(replaySettleTimer);
+      replaySettleTimer = null;
+    }
+    if (replayCapTimer !== null) {
+      clearTimeout(replayCapTimer);
+      replayCapTimer = null;
+    }
+  };
+
+  /** 把攒住的历史一次性交出去。队列空就什么都不做。 */
+  const drainReplayQueue = () => {
+    if (replayQueue.length === 0) {
+      replayContentDelta = '';
+      return;
+    }
+    const queued = replayQueue;
+    const contentDelta = replayContentDelta;
+    replayQueue = [];
+    replayContentDelta = '';
+    // 化开只服务「模型此刻正在吐的字」。这一整块是 daemon 从缓冲里重推的旧内容,
+    // 打个标记让 `useCharReveal` 把它直接落地,不走入场动画。
+    markHistoryReplayLanded();
+    updateMessage((prev) => queued.reduce((message, updater) => updater(message), prev));
+    persistSoon();
+    if (contentDelta) onContentDelta?.(contentDelta);
+  };
+
+  const closeReplayWindow = () => {
+    clearReplayTimers();
+    if (!replayOpen) return;
+    replayOpen = false;
+    drainReplayQueue();
+  };
+
+  /** 又有东西到货:窗口还开着就把「安静」的判定往后推。 */
+  const noteReplayActivity = () => {
+    if (!replayOpen || disposed) return;
+    if (replaySettleTimer !== null) clearTimeout(replaySettleTimer);
+    replaySettleTimer = setTimeout(closeReplayWindow, HISTORY_REPLAY_SETTLE_MS);
+  };
+
+  /** 落地一次改动:窗口开着就排队,否则照旧直接提交。 */
+  const commit = (updater: (prev: ChatMessage) => ChatMessage) => {
+    if (replayOpen) {
+      replayQueue.push(updater);
+      return;
+    }
+    updateMessage(updater);
+  };
+
+  const commitPersistSoon = () => {
+    if (replayOpen) return;
+    persistSoon();
+  };
+
+  if (replayOpen) {
+    replayCapTimer = setTimeout(closeReplayWindow, HISTORY_REPLAY_MAX_MS);
+    noteReplayActivity();
+  }
+
+  const flushPending = () => {
     if (disposed) return;
     if (flushing) {
       needsFlush = true;
@@ -14046,7 +14146,7 @@ export function createBufferedTextUpdates({
     pendingTextEventDelta = '';
     pendingThinkingEventDelta = '';
     try {
-      updateMessage((prev) => ({
+      commit((prev) => ({
         ...prev,
         content: prev.content + contentDelta,
         events: appendBufferedAgentDeltas(
@@ -14055,8 +14155,12 @@ export function createBufferedTextUpdates({
           thinkingEventDelta,
         ),
       }));
-      persistSoon();
-      if (contentDelta) onContentDelta?.(contentDelta);
+      if (replayOpen) {
+        replayContentDelta += contentDelta;
+      } else {
+        persistSoon();
+        if (contentDelta) onContentDelta?.(contentDelta);
+      }
     } finally {
       flushing = false;
     }
@@ -14070,27 +14174,39 @@ export function createBufferedTextUpdates({
     if (disposed || flushFrame !== null || flushTimer !== null) return;
     flushFrame = requestAnimationFrame(() => {
       flushFrame = null;
-      flush();
+      flushPending();
     });
     flushTimer = setTimeout(() => {
       flushTimer = null;
-      flush();
+      flushPending();
     }, 250);
+  };
+
+  /**
+   * 对外的 `flush()` 是「**现在**就要看到已落地的状态」—— 落盘、卸载、收尾都靠它,
+   * 所以它连重放队列一起交出去。模块内部为了排序而做的 flush 走 `flushPending()`,
+   * 那种只是把待定的正文变成一条 text 事件,不该把重放窗口提前关掉。
+   */
+  const flush = () => {
+    flushPending();
+    drainReplayQueue();
   };
 
   const appendContent = (delta: string) => {
     if (disposed) return;
     pendingContentDelta += delta;
     needsFlush = true;
+    noteReplayActivity();
     scheduleFlush();
   };
 
   const appendTextEvent = (delta: string) => {
     if (disposed) return;
-    if (pendingThinkingEventDelta) flush();
+    if (pendingThinkingEventDelta) flushPending();
     nonDeltaEventDeduper.reset();
     pendingTextEventDelta += delta;
     needsFlush = true;
+    noteReplayActivity();
     scheduleFlush();
   };
 
@@ -14101,26 +14217,33 @@ export function createBufferedTextUpdates({
       return;
     }
     if (ev.kind === 'thinking') {
-      if (pendingTextEventDelta) flush();
+      if (pendingTextEventDelta) flushPending();
       nonDeltaEventDeduper.reset();
       pendingThinkingEventDelta += ev.text;
       needsFlush = true;
+      noteReplayActivity();
       scheduleFlush();
       return;
     }
-    flush();
+    flushPending();
+    noteReplayActivity();
     if (nonDeltaEventDeduper.isDuplicate(ev)) return;
-    updateMessage((prev) => {
+    commit((prev) => {
       const previousEvents = prev.events ?? [];
       const nextEvents = appendCoalescedAgentEvent(previousEvents, ev);
       return nextEvents === previousEvents
         ? prev
         : { ...prev, events: nextEvents };
     });
-    persistSoon();
+    commitPersistSoon();
   };
 
   const cancel = () => {
+    // 攒住的历史不能跟着 buffer 一起消失:重挂开始时这条消息已经被清空了,
+    // 丢掉队列等于把正文留在空白上。先交出去再拆。
+    clearReplayTimers();
+    replayOpen = false;
+    drainReplayQueue();
     disposed = true;
     cancelScheduledFlush();
     pendingContentDelta = '';

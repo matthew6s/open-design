@@ -78,6 +78,41 @@ export const REVEAL_BUDGET_MS = 2000;
 export const MAX_UNITS = Math.floor((REVEAL_BUDGET_MS - CHAR_MS) / STAGGER_MS) + 1;
 
 const OWNED = 'data-char-reveal';
+
+/**
+ * 上一次「历史整段落地」的时刻(`performance.now()` 同一时钟),0 = 没有待认领的。
+ *
+ * OPEND-2590:重挂一个还在跑的 Run 时,daemon 会把缓冲里的旧事件从第 0 条重推一遍。
+ * 那一段字用户早就看过了,不该再化开一次 —— 但它和直播走的是同一条流、同一个
+ * `updateMessage`,渲染层分不出来。所以由攒住这段历史的那一侧(`ProjectView` 的
+ * `createBufferedTextUpdates` 重放窗口)在提交前打一个标记,下一次化开计算认领掉它。
+ */
+let historyReplayLandedAt = 0;
+/**
+ * 标记的有效期。正常路径上「打标记 → 提交 → React 渲染 → layout effect」就在同一
+ * 拍里走完,这个窗口只是兜底:万一那条消息此刻根本没在渲染(切走了、被卸载了),
+ * 标记也不能一直挂着,否则它会去吃掉后面某一段**真正**该化开的直播。
+ */
+const HISTORY_REPLAY_CLAIM_WINDOW_MS = 1_000;
+
+/**
+ * 「接下来这一次落地是重放的历史,不是模型此刻在吐字」。
+ *
+ * 必须在那一次 `updateMessage` **之前**同步调用:中间不能插进别的渲染,
+ * 标记才认得准那一次提交。
+ */
+export function markHistoryReplayLanded(): void {
+  historyReplayLandedAt = performance.now();
+}
+
+/** 认领标记:属于这一次化开计算就返回 true,并把标记消掉(只认一次)。 */
+function claimHistoryReplayLanded(now: number): boolean {
+  if (historyReplayLandedAt === 0) return false;
+  const fresh = now - historyReplayLandedAt < HISTORY_REPLAY_CLAIM_WINDOW_MS;
+  historyReplayLandedAt = 0;
+  return fresh;
+}
+
 /** 打了这个标记的子树整个不参与化开(流式 artifact 的代码面板那种) */
 const SKIP = '[data-no-reveal]';
 
@@ -156,6 +191,22 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
     restore(host);                                    // ② 先把上一帧加的 span 收走
     const nodes = collect(host);
     const len = nodes.reduce((n, t) => n + (t.nodeValue ?? '').length, 0);
+
+    /*
+     * ⑤ 这一次长出来的字是**重放的历史**,不是模型此刻在吐字 —— 直接算成「已经显示过」,
+     *    一个 span 都不拆(OPEND-2590)。
+     *
+     *    光靠攒住重放、一次性提交是**不够的**:整段一次到货时,这里看到的仍然是一次
+     *    巨大的长度增量,预算会把它铺成一批(实测 144 个单位、约 2 秒),用户看到的
+     *    还是「历史又流了一遍」,只是从几十次变成一次。判据必须来自「这段字是哪来的」,
+     *    而不是「它有多长」——长度判不得:非流式的 agent 本来就是整段一次吐出来的,
+     *    那种才正是要保留化开效果的场景(用户 2026-08-27)。
+     */
+    if (claimHistoryReplayLanded(now)) {
+      host.removeAttribute('data-reveal');
+      states.set(host, { shown: len, len, until: 0, touched: [], timer: 0 });
+      return;
+    }
 
     // ③ 只认长度增量。markdown 闭合会让可见文字变短,那时把「已显示」压到新长度即可
     const shown = Math.min(prev?.shown ?? 0, len);
