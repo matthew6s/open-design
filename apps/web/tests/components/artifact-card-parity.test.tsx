@@ -413,7 +413,14 @@ describe('动作胶囊的字形', () => {
     // OPEND-2560 only supersedes the old pill's outer height: it must match
     // the compact file-toolbar action. Internal spacing/type remains the
     // PR7170 artifact specification rather than inheriting toolbar styling.
+    //
+    // 先把参照物钉死再比:两边同时算出 `auto` 的话 `toBe(reference.height)` 会
+    // 恒真,这条断言就成了一句空话。28px 来自 `workspace/drawer.css` 的
+    // `.app .ws-tabs-actions .chrome-action`,也就是截图里被圈住的那一组。
+    expect(reference.height, '参照的右上角按钮没有量到高度,下面那条比较是空的').toBe('28px');
+    expect(artifact.height).toBe('28px');
     expect(artifact.height).toBe(reference.height);
+    expect(artifact.minHeight).toBe('28px');
     expect({
       paddingBlock: [artifact.paddingTop, artifact.paddingBottom],
       paddingInline: [artifact.paddingLeft, artifact.paddingRight],
@@ -441,6 +448,65 @@ describe('动作胶囊的字形', () => {
       actions.getPropertyValue('inset-inline-end'),
       actions.gap,
     ]).toEqual(['8px', '8px', '4px']);
+  });
+
+  /*
+   * PR #7170 `components.css` 把动作浮层整块改了:12px 边距收到 8px、实底
+   * `#353535` 换成半透明玻璃 + 背景模糊 + 内描边,并补了一条不支持 backdrop-filter
+   * 时的兜底。逐条量**计算样式**,不 diff CSS 文本 —— 层叠反转在文本里看不见,
+   * 而这块浮层压在 `primitives.css` 的裸 `button` 规则上面,本来就是要抢层叠的。
+   */
+  it('动作浮层逐条对齐最新设计稿(玻璃底 / 模糊 / 内描边 / 药丸圆角)', () => {
+    render(
+      <CollabProvider value={projectCollabValue()}>
+        <FileOpsSummary
+          entries={[fileOpEntry('landing.html')]}
+          projectId={PROJECT_ID}
+          onRequestOpenFile={vi.fn()}
+          onPublish={vi.fn()}
+          onExport={vi.fn()}
+        />
+      </CollabProvider>,
+    );
+
+    const act = getComputedStyle(screen.getByTestId('artifact-card-export-landing.html'));
+    expect({
+      display: act.display,
+      alignItems: act.alignItems,
+      borderRadius: act.borderRadius,
+      background: act.backgroundColor,
+      color: act.color,
+      backdropFilter: act.getPropertyValue('backdrop-filter'),
+      boxShadow: act.boxShadow,
+      whiteSpace: act.whiteSpace,
+      textDecoration: act.textDecorationLine || act.textDecoration,
+    }).toEqual({
+      display: 'inline-flex',
+      alignItems: 'center',
+      borderRadius: 'var(--radius-pill)',
+      background: 'rgba(18, 18, 18, 0.6)',
+      color: 'rgb(255, 255, 255)',
+      backdropFilter: 'blur(var(--glass-regular-blur)) saturate(140%)',
+      boxShadow: 'inset 0 0 0 1px color-mix(in srgb, #fff 16%, transparent), 0 2px 8px rgb(0 0 0 / 12%)',
+      whiteSpace: 'nowrap',
+      textDecoration: 'none',
+    });
+
+    // 动作可达性:整张卡是「打开」的热区,动作那一排必须压在它**上面**,
+    // 否则两枚胶囊点下去只会打开文件。
+    const cardEl = screen.getByTestId('artifact-card-landing.html');
+    const openLayer = getComputedStyle(cardEl.querySelector('.artifact-card-open')!);
+    const actsLayer = getComputedStyle(cardEl.querySelector('.artifact-card-acts')!);
+    expect(Number(actsLayer.zIndex)).toBeGreaterThan(Number(openLayer.zIndex));
+    // 而且它只占右上角一小块 —— 不是铺满整张卡把预览挡掉。
+    expect(actsLayer.position).toBe('absolute');
+    expect(actsLayer.bottom === 'auto' || actsLayer.bottom === '').toBe(true);
+
+    // 卡壳与缩略图的圆角仍走共享 radius 令牌 —— 没有人往这块塞裸 16px。
+    const card = getComputedStyle(cardEl);
+    const thumb = getComputedStyle(cardEl.querySelector('.artifact-card-thumb')!);
+    expect(card.borderRadius).toBe('var(--radius-lg)');
+    expect(thumb.borderRadius).toBe('calc(var(--radius) - 1px)');
   });
 });
 

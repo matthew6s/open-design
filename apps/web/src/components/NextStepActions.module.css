@@ -62,6 +62,19 @@
   width: 100%;
   padding: 9px 11px;
   font-size: 12px;
+  /*
+   * 稿子 `.nexts button { … font-weight: 500 … }`(PR #7170 @ `8015870`)。
+   * OPEND-2558「视觉重心加强」补的就是这一档:三行建议原来继承 400,和它们
+   * 上面那段正文一样轻,收在整轮最末尾压不住。medium 让它们成为一组可点的
+   * 东西,又停在这一块标题行(`.label`,600)下面 —— 稿子对这一块的分寸是
+   * 「不画框、不画分割线……静止时不显形」,再重就抢产物卡的注意力了。
+   *
+   * 裸数值不是遗漏:仓库里没有字重 token(`styles/tokens.css` 没有字重梯度),
+   * 稿子本身也是裸数值,同族的 QuoteBar / SupportDialog / RunErrorCard /
+   * `packages/components` 全部照抄数值。为这一条新造一枚全局 token 等于
+   * 顺手立一条新约定,不在本次范围内。
+   */
+  font-weight: 500;
   color: var(--text);
   background: none;
   border: 0;

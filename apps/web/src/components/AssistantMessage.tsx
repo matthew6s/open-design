@@ -1690,20 +1690,36 @@ function summaryArtifactOpsForProducedFiles(
   const artifactOps = fileOps.filter(
     (entry) => entry.ops.includes('write') || entry.ops.includes('edit'),
   );
+  /*
+   * 这一轮**有没有**产物,判据只有一个:本轮自己的 write/edit 工具行。
+   * 没有工具行就没有卡 —— 声明(`<od-focus show=…>`)只能收窄本轮真写过的
+   * 东西,不能凭空造出一张卡。
+   */
   if (artifactOps.length === 0) return artifactOps;
-  // `undefined` means the live run (or its just-terminal UI) has not completed
-  // the asynchronous produced-files reconciliation yet. Keep its own
-  // Write/Edit evidence visible in that gap; an optional focus declaration may
-  // still narrow it. By contrast, `[]` is the daemon's authoritative verdict
-  // that the turn produced nothing and must not fall back to tool rows.
-  if (produced === undefined) {
+  /*
+   * 空清单**不是**否决票。
+   *
+   * `producedFiles` 是客户端拿「回合前后的项目文件名」做差算出来的
+   * (`ProjectView.computeProducedFiles`:`next.filter(f => !before.has(f.name))`),
+   * 所以它为空有一大堆与「这轮没产物」无关的原因:
+   *   · 改的是**已存在**的文件 —— 名字本来就在 before 里,差集天然为空;
+   *   · 算不出基线时 `computeProducedFiles` 返回 `undefined`,而五个落库点
+   *     一律 `?? []`,把「不知道」直接写成了「空」;
+   *   · 文件列表读取与 daemon 退出赛跑,陈旧快照会让这一轮落库成空清单 ——
+   *     这条竞态就写在 `ProjectView.tsx` 那句注释里,是 OPEND-2550 的现场。
+   *
+   * 所以 `[]` 和 `undefined` 在这里是**同一件事**:没有可用的权威清单。
+   * 两者都回落到本轮的工具行证据,再按声明收窄一次。权威清单只在**非空**时
+   * 才参与,用来补路径和元数据、并把工具行没记全的产物带回来 —— 它是补充项,
+   * 不是否决项。把 `[]` 当权威空,正是「生成完了却没有产物卡」的成因。
+   */
+  if (produced === undefined || produced.length === 0) {
     if (!declared?.length) return artifactOps;
     return declaredArtifactCards(
       artifactOps.map((entry) => ({ name: entry.path, path: entry.fullPath, entry })),
       declared,
     ).map((candidate) => candidate.entry);
   }
-  if (produced.length === 0) return [];
 
   const unused = new Set(artifactOps);
   return produced.map((file) => {
