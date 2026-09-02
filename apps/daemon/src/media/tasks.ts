@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { MEDIA_FAILURE_NEXT_STEPS, type MediaFailureNextStep } from '@open-design/contracts';
 
 export type MediaTaskStatus =
   | 'queued'
@@ -27,6 +28,12 @@ export interface MediaTaskError {
    * `false` licenses telling a user that retrying is pointless.
    */
   retryable?: boolean;
+  /**
+   * What the reader should do next. This is the field a user-facing sentence
+   * and an agent's retry decision are both built from -- `code` names the
+   * failure, `nextStep` answers it.
+   */
+  nextStep?: MediaFailureNextStep;
 }
 
 export interface MediaTaskRow {
@@ -365,6 +372,18 @@ function isMediaTaskErrorSubject(value: unknown): value is MediaTaskErrorSubject
 }
 
 /**
+ * Validated on read for the same reason `subject` is: the value crosses a JSON
+ * column, and a row written by a newer daemon must not smuggle a next step
+ * this build has no copy for into an API response.
+ */
+function isMediaFailureNextStep(value: unknown): value is MediaFailureNextStep {
+  return (
+    typeof value === 'string'
+    && (MEDIA_FAILURE_NEXT_STEPS as readonly string[]).includes(value)
+  );
+}
+
+/**
  * Rebuild a persisted error. Every field the write path stores has to be
  * reconstructed here or it silently disappears the moment a task is read back
  * from SQLite -- which is every daemon restart and every cache rehydration,
@@ -385,6 +404,7 @@ function normalizeError(value: unknown): MediaTaskError | null {
   // "the producer did not say" and "the producer said retrying is pointless"
   // are different answers to a client.
   if (typeof obj.retryable === 'boolean') error.retryable = obj.retryable;
+  if (isMediaFailureNextStep(obj.nextStep)) error.nextStep = obj.nextStep;
   return error;
 }
 

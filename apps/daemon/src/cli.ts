@@ -17,7 +17,7 @@ import { splitResearchSubcommand } from './research/cli-args.js';
 import { resolveDaemonUrl } from './daemon-url.js';
 import { requestJsonIpc } from '@open-design/sidecar';
 import { SIDECAR_ENV, SIDECAR_MESSAGES } from '@open-design/sidecar-proto';
-import { EXPORT_FORMATS, EXPORT_IMAGE_FORMATS } from '@open-design/contracts';
+import { EXPORT_FORMATS, EXPORT_IMAGE_FORMATS, mediaFailureNextStep } from '@open-design/contracts';
 import type { ArtifactLintFinding, LintArtifactCliResultEnvelope, LintArtifactResponse, LintFailOn } from '@open-design/contracts';
 import { buildExportCliRequestBody, buildExportCliResultEnvelope, resolveExportCliDeckMode } from './export-cli-request.js';
 import { exportRoutePath } from './export-cli-routing.js';
@@ -1914,11 +1914,19 @@ async function runMediaGenerate(rawArgs) {
   });
 }
 
+// A dispatch that never produced a media task still has to answer "so what
+// now?" -- the caller reads the same `nextStep` here as it does off a failed
+// task snapshot, so one branch in the agent covers both shapes.
 async function exitWithMediaError(error, exitCode) {
   const safeError = {
     code: error.code,
     message: error.message,
     ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
+    nextStep: mediaFailureNextStep({
+      code: error.code,
+      message: error.message,
+      retryable: typeof error.retryable === 'boolean' ? error.retryable : undefined,
+    }),
   };
   process.stderr.write(JSON.stringify({ error: safeError }) + '\n');
   await flushStreamsAndExit(exitCode);

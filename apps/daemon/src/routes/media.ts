@@ -12,7 +12,6 @@ import type { AnalyticsContext } from '../analytics.js';
 import { defaultMediaExecutionPolicy, mediaPolicyDenial } from '../media/policy.js';
 import { formatMediaTaskDiagnostic } from '../media/diagnostics.js';
 import { findMediaModel } from '../media/models.js';
-import type { MediaTaskError } from '../media/tasks.js';
 import type { ImageGenerationRequestSummary } from '../media/image-generation-retry.js';
 import type { RouteDeps } from '../server-context.js';
 import type {
@@ -37,6 +36,7 @@ import {
 } from '../tool-tokens.js';
 import { scaffoldHyperFramesComposition } from '../media/hyperframes-scaffold.js';
 import { assignMediaTaskBatches } from '../media/task-batches.js';
+import { mediaTaskErrorFromFailure } from '../media/task-error.js';
 import { normalizePersistedAutomationWorkspaceScope } from '../automations/workspace-scope.js';
 
 const LONG_MEDIA_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -220,34 +220,7 @@ export function resolveLegacyMediaRouteGrant(input: {
   return { ok: true, grant: input.grant };
 }
 
-
-/**
- * Build the persisted failure record for a media task.
- *
- * A media failure is the only thing the client has left to explain itself
- * with, so anything the producer proved must survive into the snapshot: the
- * stable `code` the web client keys its copy on, the optional `subject`
- * naming what a safety policy objected to, and `retryable` so the UI can stop
- * inviting a retry that cannot succeed. Absent fields stay absent rather than
- * being defaulted — `retryable: false` invented here would tell a user a
- * transient outage is permanent.
- */
-export function mediaTaskErrorFromFailure(err: any): MediaTaskError {
-  const subject = err?.subject;
-  const retryable = err?.retryable;
-  const code = typeof err?.code === 'string' && err.code.trim()
-    ? err.code.trim()
-    : undefined;
-  return {
-    message: String(err && err.message ? err.message : err),
-    status: typeof err?.status === 'number' ? err.status : 400,
-    ...(code ? { code } : {}),
-    ...(subject === 'prompt' || subject === 'input_image' || subject === 'output_image'
-      ? { subject }
-      : {}),
-    ...(typeof retryable === 'boolean' ? { retryable } : {}),
-  };
-}
+export { mediaTaskErrorFromFailure };
 
 export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) {
   const { db, design } = ctx;
@@ -484,7 +457,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         })
         .catch((err: any) => {
           task.status = 'failed';
-          task.error = mediaTaskErrorFromFailure(err);
+          task.error = mediaTaskErrorFromFailure(err, { model });
           task.endedAt = Date.now();
           persistMediaTask(task);
           if (analyticsContext && providerRequestSummary) {
@@ -520,7 +493,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
     } catch (err: any) {
       if (task) {
         task.status = 'failed';
-        task.error = mediaTaskErrorFromFailure(err);
+        task.error = mediaTaskErrorFromFailure(err, { model });
         task.endedAt = Date.now();
         persistMediaTask(task);
         notifyTaskWaiters(task);
