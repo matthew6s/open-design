@@ -2868,6 +2868,7 @@ export interface Dict {
   'chat.runError.title.cpuUnsupported': string;
   'chat.runError.title.cliSessionRefused': string;
   'chat.runError.title.strategyTaskHalted': string;
+  'chat.runError.title.clientEnvironment': string;
   'chat.runError.title.generic': string;
   'chat.runError.title.artifactMissing': string;
   'chat.runError.signInMessage.amr': string;
@@ -2899,6 +2900,12 @@ export interface Dict {
   'chat.runError.fallbackMessage': string;
   'chat.runError.cliSessionRefusedMessage': string;
   'chat.runError.strategyTaskStateMismatchMessage': string;
+  'chat.runError.clientEnvironmentMessage': string;
+  'chat.runError.clientEnvironmentCause.certificate': string;
+  'chat.runError.clientEnvironmentCause.proxy': string;
+  'chat.runError.clientEnvironmentCause.network': string;
+  'chat.runError.clientEnvironmentCause.hostPolicy': string;
+  'chat.runError.clientEnvironmentCause.localStorage': string;
   'chat.runError.agentFallback': string;
   'chat.runError.sourceLabel': string;
   'chat.runError.sourceExpandAria': string;
@@ -4350,6 +4357,7 @@ export interface Dict {
   'chat.runError.contactSupportCta': string;
   'chat.runError.exportLogsCta': string;
   'chat.runError.switchModelCta': string;
+  'chat.runError.openSettingsCta': string;
   'chat.support.channel.feishu': string;
   'chat.support.channel.discord': string;
   'chat.amrBalanceOwner.title': string;

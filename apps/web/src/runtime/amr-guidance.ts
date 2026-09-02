@@ -8,6 +8,7 @@ import {
   readMembershipConcurrencyResetAt,
   readModelWindowResetAt,
 } from '@open-design/contracts';
+import type { RunFailureAction } from '@open-design/contracts';
 
 // AMR model-gateway console (account, balance, top-up, plans).
 // `source=open_design` tags the landing page_view so vela analytics can
@@ -204,6 +205,20 @@ const PROMOTE_AMR_CODES = new Set<string>([
 //                                  daemon spawns the same terminal as
 //                                  launch-terminal-auth — the button
 //                                  label is the only thing that changes.
+//   - open-settings:               S30. The failure is in the user's own machine
+//                                  or network path — a corporate proxy, a
+//                                  rewritten TLS chain, an unreachable route, a
+//                                  host policy, a broken local store. Nothing
+//                                  upstream changes on a re-run, and the only
+//                                  lever we own is the place those overrides are
+//                                  entered: Settings → Local CLI → "Advanced:
+//                                  proxy & custom paths", whose `configuredEnv`
+//                                  outranks the inherited process env
+//                                  (`apps/daemon/src/runtimes/env.ts`). Pairs
+//                                  with `secondaryRetry: true` because the
+//                                  upstream string this classifies on also
+//                                  covers a genuine handshake flake — design
+//                                  keeps 〔重试〕 on this card deliberately.
 //   - switch-to-cloud:             ladder rung 3. This local path cannot work at
 //                                  all (nothing installed, nothing signed in,
 //                                  the provider's quota is spent) and none of
@@ -225,6 +240,7 @@ export type RunFailurePrimaryAction =
   | 'recharge'
   | 'upgrade'
   | 'switch-model'
+  | 'open-settings'
   | 'launch-terminal-auth'
   | 'launch-terminal-switch-model'
   | 'switch-to-cloud'
@@ -264,7 +280,25 @@ export type RunFailureMessageKey =
   | 'chat.runError.fallbackMessage'
   | 'chat.runError.cliSessionRefusedMessage'
   | 'chat.runError.strategyTaskStateMismatchMessage'
+  | 'chat.runError.clientEnvironmentMessage'
   | null;
+
+/**
+ * The `{cause}` half of S30's sentence — the parenthesis the design writes as
+ * 「{地区不支持 / 证书校验失败}」, i.e. a slot, not a fixed phrase.
+ *
+ * It is a KEY rather than a string because this module has no `t`: the card
+ * resolves it at render time next to `{agent}` (see ChatPane's
+ * `runFailureMessageVars`). Keeping the five causes in one sentence — instead
+ * of five near-identical sentences — is also what keeps the copy honest across
+ * 19 locales: only the noun changes.
+ */
+export type RunFailureCauseKey =
+  | 'chat.runError.clientEnvironmentCause.certificate'
+  | 'chat.runError.clientEnvironmentCause.proxy'
+  | 'chat.runError.clientEnvironmentCause.network'
+  | 'chat.runError.clientEnvironmentCause.hostPolicy'
+  | 'chat.runError.clientEnvironmentCause.localStorage';
 
 /**
  * The one sentence a failure card falls back to when its mapping carries no
@@ -310,6 +344,7 @@ export type RunFailureTitleKey =
   | 'chat.runError.title.accountSuspended'
   | 'chat.runError.title.cliSessionRefused'
   | 'chat.runError.title.strategyTaskHalted'
+  | 'chat.runError.title.clientEnvironment'
   | 'chat.runError.title.generic';
 
 export interface RunFailureUi {
@@ -323,6 +358,9 @@ export interface RunFailureUi {
   // something the daemon read off the failure (e.g. when a rolling model window
   // reopens). Absent for every message that is a fixed sentence.
   messageVars?: Record<string, string>;
+  // A `{cause}` the copy names but that is itself localized, so it arrives as a
+  // key and is translated next to `{agent}` at render time. Only S30 uses it.
+  messageCauseKey?: RunFailureCauseKey;
   // Show a secondary plain "retry" button alongside the primary action (used
   // by the recharge case, where retry is manual after topping up).
   secondaryRetry: boolean;
@@ -444,6 +482,7 @@ export type RunFailureDirectFix = Extract<
   | 'recharge'
   | 'upgrade'
   | 'switch-model'
+  | 'open-settings'
   | 'launch-terminal-auth'
   | 'launch-terminal-switch-model'
 >;
@@ -501,6 +540,95 @@ export function primaryActionForFailure(
 }
 
 /**
+ * The daemon's own reading of a failed run: can it be re-run, and what should
+ * the user do. Both are already computed at finalize time
+ * (`apps/daemon/src/run-failure-classification.ts` → `retryable` /
+ * `user_action`) and both are already on `GET /api/runs/:id`
+ * (`ChatRunStatusResponse.failureAction`).
+ *
+ * ⚠️ They do NOT reach the card today. The chat reads its failure off the
+ * persisted `status`/`error` event, and the streaming layer only stamps
+ * `failureCategory` + `failureDetail` onto it. Carrying these two the same way
+ * is a three-file change outside this module — the SSE `end` frame /
+ * `PersistedAgentEvent` shape in contracts, `providers/daemon.ts`'s
+ * `markErrorRunFailure`, and `runtime/chat-events.ts`'s
+ * `appendErrorStatusEvent` — so this parameter is written to be inert until
+ * they land, and correct the moment they do.
+ */
+export interface RunFailureDaemonVerdict {
+  /** Daemon's `retryable`. */
+  retryable?: boolean | null;
+  /** Daemon's `user_action`, as published on the run-status response. */
+  failureAction?: RunFailureAction | null;
+}
+
+/**
+ * Did the daemon put a NAME on this failure?
+ *
+ * The two cases the fallback used to merge are separable in the data, and this
+ * is the whole of the test: the classifier emits a specific `failure_detail`
+ * when it recognised the cause, and the literal `'unknown'` when it did not
+ * (the last `classification('unknown', 'unknown', …)` in
+ * `run-failure-classification.ts`). An absent detail is an older daemon that
+ * classified nothing at all, which is the same situation.
+ *
+ * What it does NOT settle is the button. Among the causes the daemon names but
+ * this module has no row for there are both futile ones (`spawn_enoexec`,
+ * `cli_version_incompatible`) and genuinely transient ones (`upstream_5xx`,
+ * `provider_high_demand`), so "named" alone cannot demote a Retry without
+ * taking it away from failures that deserve it. That call belongs to the
+ * daemon's own verdict — see {@link RunFailureDaemonVerdict}.
+ */
+export function daemonNamedTheFailure(detail: string | null | undefined): boolean {
+  return typeof detail === 'string' && detail.length > 0 && detail !== 'unknown';
+}
+
+/**
+ * Did the daemon already decide that running this again cannot help?
+ *
+ * Either half is sufficient and they are written independently upstream:
+ * `retryable: false` is the classifier's verdict, `failureAction: 'none'` is
+ * the same verdict expressed as an instruction. An absent verdict answers no,
+ * which is what keeps an older daemon on today's behaviour.
+ */
+function daemonSaysRetryIsFutile(
+  verdict: RunFailureDaemonVerdict | null | undefined,
+): boolean {
+  if (!verdict) return false;
+  return verdict.retryable === false || verdict.failureAction === 'none';
+}
+
+/**
+ * Read the daemon's verdict off whatever the chat has for this failure.
+ *
+ * Deliberately structural rather than typed against the event: the fields are
+ * not on `PersistedAgentEvent` yet (see {@link RunFailureDaemonVerdict}), and
+ * the same shape of defensive read is how `runFailureFieldsFromError` already
+ * picks the classification off a surfaced error. Returns undefined when neither
+ * field is present, so a caller passes nothing through rather than an object
+ * that says "we asked and the answer was nothing".
+ */
+export function daemonFailureVerdictFrom(
+  source: unknown,
+): RunFailureDaemonVerdict | undefined {
+  const value = source as
+    | { retryable?: unknown; failureAction?: unknown }
+    | null
+    | undefined;
+  if (!value || typeof value !== 'object') return undefined;
+  const retryable = typeof value.retryable === 'boolean' ? value.retryable : undefined;
+  const failureAction =
+    typeof value.failureAction === 'string'
+      ? (value.failureAction as RunFailureAction)
+      : undefined;
+  if (retryable === undefined && failureAction === undefined) return undefined;
+  return {
+    ...(retryable === undefined ? {} : { retryable }),
+    ...(failureAction === undefined ? {} : { failureAction }),
+  };
+}
+
+/**
  * Does THIS card draw a control that can push the failed run forward?
  *
  * Rung 3 and rung 4 both answer no: rung 3's button lives on the switch card
@@ -522,7 +650,12 @@ function failureCard(
   nature: RunFailureNature,
   titleKey: RunFailureTitleKey,
   messageKey: RunFailureMessageKey,
-  extra: Partial<Pick<RunFailureUi, 'secondaryRetry' | 'showSwitchCard' | 'messageVars'>> = {},
+  extra: Partial<
+    Pick<
+      RunFailureUi,
+      'secondaryRetry' | 'showSwitchCard' | 'messageVars' | 'messageCauseKey'
+    >
+  > = {},
 ): RunFailureUi {
   return {
     primaryAction: primaryActionForFailure(nature),
@@ -534,6 +667,7 @@ function failureCard(
     // for its own reasons, but has to ask for it.
     showSwitchCard: extra.showSwitchCard ?? Boolean(nature.localDeadEnd),
     ...(extra.messageVars ? { messageVars: extra.messageVars } : {}),
+    ...(extra.messageCauseKey ? { messageCauseKey: extra.messageCauseKey } : {}),
   };
 }
 
@@ -558,6 +692,37 @@ function switchModelWithGuidance(
   messageKey: RunFailureMessageKey,
 ): RunFailureUi {
   return failureCard({ directFix: 'switch-model' }, titleKey, messageKey);
+}
+
+/**
+ * S30 · the failure is in the user's own machine or network path.
+ *
+ * The daemon already names these five causes (`clientEnvironmentFailureDetail`
+ * in `apps/daemon/src/run-failure-classification.ts`) and already rules them
+ * `retryable: false` / `user_action: 'none'`. Web had no row for any of them,
+ * so all five landed on the unclassified fallback and were handed a 〔重试〕 —
+ * and a retry here is a whole new run against the same rewritten TLS chain or
+ * the same blocked route, i.e. the same answer.
+ *
+ * Copy is the design's, verbatim (`error-ux-design.md` S30): 「网络环境不对 ——
+ * 看起来走了代理或公司网络,{供应商} 拒绝了请求({地区不支持 / 证书校验失败})。
+ * 换一个网络出口,或在设置里调整代理。〔去设置 | 重试〕」 — note what it does NOT
+ * say: nothing here promises that installing a certificate makes it work, because
+ * upstream has measured builds where it does not.
+ *
+ * 〔重试〕 stays as the SECONDARY on purpose. The upstream sentence these
+ * classify on ("unknown certificate verification error") covers two different
+ * events: a corporate middlebox (deterministic) and a handshake cut mid-flight
+ * on a lossy link (a flake). Keeping a retry within reach costs nothing and
+ * covers the second; making it the primary is what the design forbids.
+ */
+function clientEnvironmentCard(causeKey: RunFailureCauseKey): RunFailureUi {
+  return failureCard(
+    { directFix: 'open-settings' },
+    'chat.runError.title.clientEnvironment',
+    'chat.runError.clientEnvironmentMessage',
+    { secondaryRetry: true, messageCauseKey: causeKey },
+  );
 }
 
 /**
@@ -845,6 +1010,30 @@ const AGENT_AGNOSTIC_DETAIL_FAILURE_UI: Record<string, RunFailureUi> = {
     'chat.runError.title.accountSuspended',
     'chat.runError.accountSuspendedMessage',
   ),
+  // S30 · the five client-environment causes. Agent-agnostic on purpose and
+  // resolved here, ahead of every agent branch: the proxy, the certificate
+  // store, the route and the host policy belong to the user's machine, so the
+  // card is the same one whichever agent happened to be running.
+  certificate_failure: clientEnvironmentCard(
+    'chat.runError.clientEnvironmentCause.certificate',
+  ),
+  proxy_configuration: clientEnvironmentCard(
+    'chat.runError.clientEnvironmentCause.proxy',
+  ),
+  network_configuration: clientEnvironmentCard(
+    'chat.runError.clientEnvironmentCause.network',
+  ),
+  host_policy_block: clientEnvironmentCard(
+    'chat.runError.clientEnvironmentCause.hostPolicy',
+  ),
+  // ⚠️ 待拍板 — this one is a local SQLite/WAL I/O failure, not a network path.
+  // The design gives the environment family exactly one card (S30) and W28's
+  // brief lists all five under it, so it renders here with its own cause noun;
+  // but S30's opening clause (「看起来走了代理或公司网络」) does not describe this
+  // failure. Either it needs its own sentence or it needs its own scenario.
+  local_storage_failure: clientEnvironmentCard(
+    'chat.runError.clientEnvironmentCause.localStorage',
+  ),
 };
 
 // Resolve the failure UI for a failed run:
@@ -871,8 +1060,15 @@ export function resolveRunFailureUi(
   detail: string | null | undefined,
   agentId: string | null | undefined,
   rawMessage?: string | null,
+  verdict?: RunFailureDaemonVerdict | null,
 ): RunFailureUi {
-  const ui = resolveRunFailureUiIgnoringSelfPromotion(code, detail, agentId, rawMessage);
+  const ui = resolveRunFailureUiIgnoringSelfPromotion(
+    code,
+    detail,
+    agentId,
+    rawMessage,
+    verdict,
+  );
   return agentId === CLOUD_NATIVE_AGENT_ID ? withoutCloudSelfPromotion(ui) : ui;
 }
 
@@ -881,6 +1077,7 @@ function resolveRunFailureUiIgnoringSelfPromotion(
   detail: string | null | undefined,
   agentId: string | null | undefined,
   rawMessage?: string | null,
+  verdict?: RunFailureDaemonVerdict | null,
 ): RunFailureUi {
   // An ACP agent CLI that answered `initialize` and then refused to open a
   // session. Resolved before every other branch, and before the static
@@ -1091,10 +1288,32 @@ function resolveRunFailureUiIgnoringSelfPromotion(
     );
   }
   const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
-  // Nothing named this failure. It still gets a retry (rung 2) because an
-  // unclassified failure is usually a one-off — but its copy now comes from
-  // RUN_FAILURE_FALLBACK_MESSAGE_KEY at render time, not from the upstream
-  // string, which stays in the collapsible diagnostic area.
+  // Nothing above claimed this failure — but two very different situations end
+  // up here, and until now they shared one answer.
+  //
+  // (a) The daemon NAMED the cause and this table has no row for it. The old
+  //     comment here read "Nothing named this failure", which was simply untrue
+  //     of `certificate_failure` and forty-odd siblings: the daemon named them,
+  //     ruled them non-retryable, and web handed out a Retry anyway. When its
+  //     verdict is available it decides, because it read the run and this is a
+  //     lookup table. Rung 4.
+  //
+  // (b) The daemon did not know either. Keep the retry — an unclassified
+  //     failure really is usually a one-off.
+  //
+  // The `daemonNamedTheFailure` guard is load-bearing, not decoration: the
+  // classifier's own last-resort row is `classification('unknown', 'unknown',
+  // 'finalize', retryableHint ?? false, retryableHint ? 'retry' : 'none')`, so
+  // a plain unknown failure carries `retryable: false` / `'none'` by DEFAULT.
+  // Reading the verdict without this guard would therefore strip the Retry from
+  // exactly the case that is supposed to keep it.
+  if (daemonNamedTheFailure(detail) && daemonSaysRetryIsFutile(verdict)) {
+    return failureCard({}, 'chat.runError.title.generic', null, {
+      showSwitchCard: promote,
+    });
+  }
+  // Copy comes from RUN_FAILURE_FALLBACK_MESSAGE_KEY at render time, not from
+  // the upstream string, which stays in the collapsible diagnostic area.
   return failureCard({ transient: true }, 'chat.runError.title.generic', null, {
     showSwitchCard: promote,
   });

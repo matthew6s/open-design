@@ -119,6 +119,7 @@ export const zhCN: Dict = {
   "chat.runError.title.modelWindowLimit": "高峰期繁忙",
   "chat.runError.title.membershipConcurrencyLimit": "并发任务已达上限",
   "chat.runError.title.strategyTaskHalted": "任务已被质量门拦下",
+  "chat.runError.title.clientEnvironment": "网络环境不对",
   "chat.runError.title.generic": "任务执行失败",
   "chat.runError.title.artifactMissing": "未生成文件产物",
   "chat.runError.signInMessage.amr":
@@ -171,6 +172,12 @@ export const zhCN: Dict = {
   "chat.runError.cliSessionRefusedMessage":
     "{agent} 拒绝开始会话。通常是当前版本与 Open Design 不兼容，换一个版本后重试。",
   "chat.runError.strategyTaskStateMismatchMessage": "该任务已被策略质量门拦下，本轮表单无法继续提交。请重试请求或重新发起一次任务。",
+  "chat.runError.clientEnvironmentMessage": "看起来走了代理或公司网络，{agent} 拒绝了请求（{cause}）。换一个网络出口，或在设置里调整代理。",
+  "chat.runError.clientEnvironmentCause.certificate": "证书校验失败",
+  "chat.runError.clientEnvironmentCause.proxy": "代理配置有问题",
+  "chat.runError.clientEnvironmentCause.network": "网络连不上",
+  "chat.runError.clientEnvironmentCause.hostPolicy": "被系统策略拦截",
+  "chat.runError.clientEnvironmentCause.localStorage": "本机存储读写失败",
   "common.cancel": "取消",
   "chat.selectFromLibrary": "从资源库导入",
   "chat.importFigma": "从 Figma 导入",
@@ -3667,6 +3674,7 @@ export const zhCN: Dict = {
   "chat.runError.contactSupportCta": "联系支持",
   "chat.runError.exportLogsCta": "导出日志",
   "chat.runError.switchModelCta": "换个模型",
+  "chat.runError.openSettingsCta": "去设置",
   "chat.support.channel.feishu": "飞书社群",
   "chat.support.channel.discord": "Discord",
   "chat.amrBalanceOwner.title": "工作区余额已用完",

@@ -122,6 +122,7 @@ import {
 import {
   amrPlansUrlForProfile,
   amrRechargeUrlForProfile,
+  daemonFailureVerdictFrom,
   formatModelWindowRetryAt,
   hasSelfContainedRecovery,
   isReconnectOwnedFailure,
@@ -1787,6 +1788,13 @@ export function ChatPane({
         // gateway reported (the instant a model window reopens) can read it back
         // out. Same string the card renders under 「查看详情」.
         failedRunErrorEvent?.detail,
+        // The daemon's own retryable / user_action verdict, when the failure
+        // event carries it. It does not yet — `RunFailureDaemonVerdict` names
+        // the three files that have to carry it — so this reads as undefined
+        // today and the fallback keeps its Retry. Wired now rather than later
+        // because the alternative is web re-deriving retryability from the
+        // detail name, which is the exact drift this is meant to end.
+        daemonFailureVerdictFrom(failedRunErrorEvent),
       )
     : null;
   const hasInlineAmrAuthorizeFailure = Boolean(
@@ -1983,12 +1991,20 @@ export function ChatPane({
     t('chat.runError.agentFallback');
   // Values the failure copy names, localized before interpolation: the gateway
   // reports a UTC instant, the reader waits on their own clock.
-  const runFailureMessageVars = runFailureUi?.messageVars?.retryAt
-    ? {
-        ...runFailureUi.messageVars,
-        retryAt: formatModelWindowRetryAt(runFailureUi.messageVars.retryAt, locale),
-      }
-    : runFailureUi?.messageVars;
+  //
+  // `{cause}` (S30) arrives as a KEY, not a string: the five client-environment
+  // causes are themselves translated, and `amr-guidance` has no `t`. Resolved
+  // here, next to `{agent}`, so the mapping table stays free of copy.
+  const runFailureMessageVars = (() => {
+    const base = runFailureUi?.messageVars?.retryAt
+      ? {
+          ...runFailureUi.messageVars,
+          retryAt: formatModelWindowRetryAt(runFailureUi.messageVars.retryAt, locale),
+        }
+      : runFailureUi?.messageVars;
+    if (!runFailureUi?.messageCauseKey) return base;
+    return { ...(base ?? {}), cause: t(runFailureUi.messageCauseKey) };
+  })();
   // 卡面上只放人话。命中映射表的用它自己的文案;没命中的用兜底那一句 ——
   // **不再把上游原文摊在卡上**(设计原则五)。卡上也不再收着它:曾经那个
   // 「错误详情」折叠已经整块下线(用户 2026-08-27),要原始日志走〔导出日志〕。
@@ -3835,6 +3851,28 @@ export function ChatPane({
                                 }}
                               >
                                 {t('chat.runError.switchModelCta')}
+                              </RunErrorCardAction>
+                            ) : runFailureUi.primaryAction === 'open-settings' ? (
+                              /*
+                               * S30 环境类。落点是现成的那一条:设置 → 本地 CLI →
+                               * 「高级:代理与自定义路径」,也就是 `execution` 这一节 ——
+                               * 那个折叠块就渲染在 `activeSection === 'execution'` 里
+                               * (`SettingsDialog.tsx` 的 `agent-cli-env`),而它填的
+                               * `configuredEnv` 在 `runtimes/env.ts` 里优先级最高。
+                               *
+                               * 不新造入口,也不新增一档 recovery 埋点:这颗不起新 run,
+                               * 和〔联系支持〕〔切到 Cloud〕同类。这张卡的重试仍按
+                               * `secondaryRetry` 走 `manual_retry`。
+                               */
+                              <RunErrorCardAction
+                                type="button"
+                                variant="primary"
+                                data-testid="chat-error-open-settings"
+                                onClick={() => {
+                                  onOpenSettings?.('execution');
+                                }}
+                              >
+                                {t('chat.runError.openSettingsCta')}
                               </RunErrorCardAction>
                             ) : runFailureUi.primaryAction === 'recharge' ? (
                               <RunErrorCardAction
