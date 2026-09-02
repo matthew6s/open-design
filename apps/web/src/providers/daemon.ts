@@ -1599,7 +1599,7 @@ async function consumeDaemonPhysicalRun({
           && (await fetchChatRunStatus(runId, workspaceContext))?.deliverableValid === true;
         if (!deliveredDespiteBlock) {
           endStatus = 'failed';
-          pendingStructuredError ??= new Error('The strategy task could not continue.');
+          pendingStructuredError ??= new Error(strategyBlockedErrorMessage(endStrategyTask));
         }
       } else if (endStrategyTask.outcome === 'completed') {
         endStatus = 'succeeded';
@@ -1707,6 +1707,26 @@ function markErrorResumable(err: Error, resumable: boolean): Error {
  *  error card can map `failureDetail` to a specific named failure type + fix
  *  (see resolveRunFailureUi). Only stamps present values so an older daemon that
  *  omits the fields leaves the error's classification undefined. */
+/**
+ * What the error card says about a blocked strategy task.
+ *
+ * The gate records why it stopped, and when the agent is the one that stopped
+ * the turn it writes that reasoning out for the user in their own language
+ * ("no second clarification is available, so this task is blocked"). Preferring
+ * it is the difference between naming the cause and asserting a generic
+ * failure: this used to be a fixed English sentence regardless of cause, so a
+ * clear explanation the agent had already produced was replaced by "the
+ * strategy task could not continue" (OPEND-2565).
+ *
+ * Falls back to that sentence when the verdict carried no text — a machine gate
+ * blocking on reason codes alone has nothing readable to show here, and its
+ * codes stay in the task projection for diagnostics.
+ */
+function strategyBlockedErrorMessage(strategyTask: StrategyTaskProjectionV2): string {
+  const visibleText = strategyTask.blockedContext?.visibleText?.trim();
+  return visibleText || 'The strategy task could not continue.';
+}
+
 function markErrorRunFailure(
   err: Error,
   fields: {
