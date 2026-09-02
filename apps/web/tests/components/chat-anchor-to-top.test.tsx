@@ -617,3 +617,124 @@ describe('用户自己滚开就松手', () => {
     expect(tailSpacerHeight()).toBe(508);
   });
 });
+
+/*
+ * ── 钉顶的目标必须是**画得出来**的那条用户消息 ────────────────────────
+ *
+ * 「该不该钉」的判据是「尾条用户消息换了身份」。但转录里有一类用户消息是
+ * **不画**的:意图澄清表单的答案(`^[form answers`)——`buildChatRenderItems`
+ * 按产品取向(#5496)把它收走了,答案以摘要形式长在上一条助手消息上。
+ *
+ * 于是答完表单那一拍,两件事同时成立:
+ *
+ *   · 尾条用户消息换了身份(换成了那条 `[form answers …]`)→ 判据说「钉」;
+ *   · 而它不在 DOM 里 → `lastUserMsgTopInContent` 查 `.msg.user` 查不到它,
+ *     拿回来的是**上一轮**那个气泡。
+ *
+ * 两件事凑在一起,结果是把上一轮的气泡拽到视口顶端 —— 用户没发过的那一轮。
+ * 判据认的东西和几何量的东西必须是同一批。
+ */
+describe('不画出来的那条用户消息,不能拿上一轮的气泡去钉', () => {
+  /** 答完表单那一拍:那条 `[form answers …]` 进了流水,但一个气泡都不会画。 */
+  function afterFormAnswers(replyText: string): ChatMessage[] {
+    const messages = history();
+    messages.push({
+      id: 'u-form-answers',
+      role: 'user',
+      // `formatFormAnswers` 的真实产物(`artifacts/question-form.ts`)。
+      content: '[form answers — discovery]\n- Platform: Desktop web\n- Tone: bold',
+      createdAt: 1_700_000_001_000,
+    });
+    messages.push({
+      id: 'a-form-reply', role: 'assistant', content: replyText,
+      createdAt: 1_700_000_001_001, runStatus: 'running',
+    });
+    return messages;
+  }
+
+  /**
+   * 答案那条不画,所以**最后一个用户气泡还在原地**(还是上一轮那个,3_800)。
+   * 长高的只有助手那一侧:上一条助手消息多了一块答案摘要,新回复的头也出来了。
+   */
+  function arriveFormAnswerTurn() {
+    geom.contentHeight = 4_000 + 60;
+  }
+
+  it('答完表单之后,视图不许被拽到上一轮那个气泡的顶端', async () => {
+    const { rerender } = render(chatPaneEl(history(), false));
+    await flushFrames();
+    expect(geom.scrollTop).toBe(3_400);
+    // 夹具自检:上一轮那个气泡的钉住位置和贴底位置确实是两个不同的数,
+    // 不然下面的断言在「什么都没做」时也会绿。
+    expect(anchoredScrollTop()).toBe(3_788);
+
+    arriveFormAnswerTurn();
+    await act(async () => {
+      rerender(chatPaneEl(afterFormAnswers(''), true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    // 夹具自检:那条答案确实一个气泡都没画出来 —— 这正是缺陷的前提。
+    expect(
+      document.querySelectorAll('.msg.user').length,
+      '八轮历史画八个气泡;表单答案那条不画',
+    ).toBe(8);
+
+    expect(
+      geom.scrollTop,
+      '把上一轮的用户气泡钉到了顶端 —— 用户这一轮根本没发过那条消息',
+    ).not.toBe(anchoredScrollTop());
+  });
+
+  it('也不许为这一轮凭空撑出一块尾部空白', async () => {
+    const { rerender } = render(chatPaneEl(history(), false));
+    await flushFrames();
+
+    arriveFormAnswerTurn();
+    await act(async () => {
+      rerender(chatPaneEl(afterFormAnswers(''), true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    // 占位块的定义是「让**被钉住的那条消息**够得到顶端」。没有被钉住的消息,
+    // 就没有要预留的东西 —— 撑出来的每一像素都是死空白。
+    expect(tailSpacerHeight()).toBe(0);
+  });
+
+  /*
+   * 反向对照:别用「干脆不钉了」把上面两条弄绿。
+   *
+   * 答完表单之后用户接着自己发一条 —— 那是一条**画得出来**的新用户消息,
+   * 照样要钉到顶端。
+   */
+  it('接在表单答案后面的下一条真用户消息,照样要钉到顶端', async () => {
+    const { rerender } = render(chatPaneEl(history(), false));
+    await flushFrames();
+
+    arriveFormAnswerTurn();
+    await act(async () => {
+      rerender(chatPaneEl(afterFormAnswers('here you go'), true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    // 用户接着敲了一条:内容再长一条消息的高度,新气泡排在 4_060。
+    const withFollowUp = afterFormAnswers('here you go');
+    withFollowUp.push({
+      id: 'u-follow-up', role: 'user', content: 'now make it dark',
+      createdAt: 1_700_000_002_000,
+    });
+    geom.contentHeight = 4_060 + USER_MSG_H;
+    geom.lastUserTopInContent = 4_060;
+    await act(async () => {
+      rerender(chatPaneEl(withFollowUp, true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    expect(geom.scrollTop).toBe(anchoredScrollTop());
+    expect(tailSpacerHeight()).toBe(VIEWPORT - USER_MSG_H - ANCHOR_TOP_PADDING);
+  });
+});

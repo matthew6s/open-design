@@ -1262,6 +1262,13 @@ export function ChatPane({
     ),
     [messages, projectMetadata],
   );
+  /**
+   * 转录**画得出来**的那一份 —— 正文、右侧导轨、钉顶三处共用这一个数组。
+   *
+   * 算一次往下发,而不是各自调一次 `buildChatRenderItems`:后者仍然是三份实现,
+   * 只是此刻长得一样。见 `buildChatRenderItems` 的注释。
+   */
+  const chatRenderItems = useMemo(() => buildChatRenderItems(displayMessages), [displayMessages]);
   const trackedMediaRunKey = useMemo(
     () => mediaTaskRunKey(displayMessages, streaming),
     [displayMessages, streaming],
@@ -2457,8 +2464,21 @@ export function ChatPane({
      * 判据只认结构(尾条用户消息的 id 换了),不认它是从哪个入口发出来的:
      * 输入框、question-form 交答案、首页发起、批注、队列排到、失败后的「继续」、
      * 生图重试,全都走这一条。见 `isNewTailUserTurn` 的注释。
+     *
+     * ## 【不变量】表决和几何必须问同一批消息
+     *
+     * 数的是**渲染项**里的尾条用户消息,不是 `displayMessages` 里的。
+     * 落点由 `lastUserMsgTopInContent` 查 `.msg.user` 量出来,而 DOM 里只有渲染项;
+     * 两边不同源时,一条不画的用户消息(意图澄清表单的答案,`^[form answers`)
+     * 会让表决说「钉」、几何却找不到它,于是拿**上一轮**的气泡顶上去 ——
+     * 用户这一轮根本没发过那条消息,画面却被拽走了。
+     *
+     * 表单答案那一轮因此不钉顶,退回贴底跟随(也就是这条改动之前的行为)。
+     * 那一轮屏幕上新增的是助手那一侧的内容,而钉顶这套机制的预留空白、落点、
+     * 松手容差全都是按「被钉住的那条**用户消息**」定义的 —— 没有那条消息,
+     * 不是「换个目标钉」,是这套机制的前提不成立。
      */
-    const lastUser = [...displayMessages].reverse().find((m) => m.role === 'user');
+    const lastUser = tailRenderedUserMessage(chatRenderItems);
     const tailUserId = lastUser?.id ?? null;
     const settledTailUserId = settledTailUserIdRef.current;
     settledTailUserIdRef.current = tailUserId;
@@ -2528,7 +2548,7 @@ export function ChatPane({
       writeLogScrollTop(el, el.scrollHeight);
     }
     syncFollowState();
-  }, [displayMessages, error, streaming]);
+  }, [chatRenderItems, displayMessages, error, streaming]);
 
   // Saved chat-log scroll state, preserved across tab switches. The
   // chat-log <div> is conditionally rendered so it unmounts when the
@@ -3540,7 +3560,7 @@ export function ChatPane({
             <div className={`chat-log-wrap${chatLogTray ? ' has-chat-log-tray' : ''}`}>
               <div className="chat-log-viewport">
                 <ChatMessageRail
-                  messages={displayMessages}
+                  items={chatRenderItems}
                   loading={loading}
                   logRef={logRef}
                   activeConversationKey={activeConversationId ?? 'no-conversation'}
@@ -3652,6 +3672,7 @@ export function ChatPane({
                   </div>
                 ) : null}
                 <ChatRows
+                  items={chatRenderItems}
                   messages={displayMessages}
                   streaming={streaming}
                   onResendUserMessage={onResendUserMessage}
@@ -4248,15 +4269,24 @@ type ChatRailMessage = {
   userIndex: number;
 };
 
+/**
+ * 右侧的用户消息导轨。
+ *
+ * **入参是渲染项,不是原始流水**:导轨上的每一个点都必须在正文里点得到一条真消息,
+ * 而「正文画哪些」只有 `buildChatRenderItems` 说了算。导轨从前自己按
+ * `role === 'user'` 数一遍,于是把表单答案那条(正文按 #5496 收走了)也数了进去 ——
+ * 导轨 2 个点、正文 1 个气泡,点那多出来的点跳向一条没渲染的消息。
+ * 两边吃同一个数组,这种漂移就不可能再发生。
+ */
 function ChatMessageRail({
-  messages,
+  items,
   loading,
   logRef,
   activeConversationKey,
   onNavigate,
   t,
 }: {
-  messages: ChatMessage[];
+  items: ChatRenderItem[];
   loading: boolean;
   logRef: MutableRefObject<HTMLDivElement | null>;
   activeConversationKey: string;
@@ -4265,16 +4295,16 @@ function ChatMessageRail({
 }) {
   const railMessages = useMemo<ChatRailMessage[]>(
     () =>
-      messages.reduce<ChatRailMessage[]>((items, message, messageIndex) => {
-        if (message.role !== 'user') return items;
-        items.push({
-          message,
-          messageIndex,
-          userIndex: items.length,
+      items.reduce<ChatRailMessage[]>((railItems, item) => {
+        if (item.message.role !== 'user') return railItems;
+        railItems.push({
+          message: item.message,
+          messageIndex: item.messageIndex,
+          userIndex: railItems.length,
         });
-        return items;
+        return railItems;
       }, []),
-    [messages],
+    [items],
   );
   /**
    * 导轨的输入认**内容**,不认数组引用。
@@ -4536,6 +4566,14 @@ type ChatRenderItem = {
   kind: 'message';
   key: string;
   message: ChatMessage;
+  /**
+   * 这条消息在**未过滤**的 `displayMessages` 里的下标。
+   *
+   * 导轨跳转的降级路径按「第几条 / 一共几条」估一个滚动比例
+   * (`scrollChatLogToMessage`),量的是整条流水,不是画出来的那一部分。
+   * 记在这里,是为了让导轨不必再拿着原数组自己数一遍 —— 它现在只认渲染项。
+   */
+  messageIndex: number;
 };
 
 function ChatConversationLoading({ t }: { t: TranslateFn }) {
@@ -4557,6 +4595,7 @@ function ChatConversationLoading({ t }: { t: TranslateFn }) {
 }
 
 function ChatRows({
+  items,
   messages,
   streaming,
   onResendUserMessage,
@@ -4616,6 +4655,17 @@ function ChatRows({
   onVirtualScrollTopWrite,
   highlightedUserMessageId,
 }: {
+  /**
+   * 要画的那些行 —— 由 `ChatPane` 算好递进来(`buildChatRenderItems`)。
+   *
+   * 不在这里自己算,是为了让正文、导轨、钉顶读到的是**同一个数组**,
+   * 而不是同一段逻辑的三份拷贝。见 `buildChatRenderItems` 的注释。
+   */
+  items: ChatRenderItem[];
+  /**
+   * **未过滤**的整条流水。跨轮推导要用到被 `items` 收走的那些消息:
+   * 「上一轮宣布过哪些待办」和「助手换没换人」数的是真实回合,不是画出来的行。
+   */
   messages: ChatMessage[];
   onResendUserMessage?: (message: ChatMessage) => void;
   /** 生图失败格的「重试」—— 见 ChatPane 的 handleRetryImage(D59) */
@@ -4687,10 +4737,6 @@ function ChatRows({
   onVirtualScrollTopWrite: (element: HTMLDivElement, top: number) => void;
   highlightedUserMessageId?: string | null;
 }) {
-  const items = useMemo(
-    () => buildChatRenderItems(messages),
-    [messages],
-  );
   /**
    * 每条助手消息「在它之前这场对话已经宣布过的那份清单」。
    *
@@ -4930,13 +4976,33 @@ function VirtualChatRow({
   );
 }
 
+/**
+ * 转录里**画得出来**的那些消息 —— 这是「哪些消息算数」的**唯一出处**。
+ *
+ * ## 为什么必须只有一处
+ *
+ * 这份流水有三个消费者:正文(`ChatRows`)、右侧导轨(`ChatMessageRail`)、
+ * 以及「新一轮钉顶」(`isNewTailUserTurn` + `lastUserMsgTopInContent`)。
+ * 它们从前各自拿着 `displayMessages` 自己判,于是口径必然漂:
+ *
+ *  · 导轨只看 `role === 'user'`,把表单答案那条也数了进去 —— 导轨 2 个点、
+ *    正文 1 个气泡,点那多出来的点跳向一条没渲染的消息(死链)。
+ *  · 钉顶按「尾条用户消息换了身份」表决,却拿 `.msg.user` 去量位置 ——
+ *    表决认的那条不在 DOM 里,量到的是**上一轮**的气泡,于是把上一轮拽到顶端。
+ *
+ * 所以这里返回的是一个**数组**,由 `ChatPane` 算一次、往下发,而不是导出一个
+ * 让每个消费者各调一次的谓词:谓词还是三份实现,只是长得一样,谁改都会漂。
+ *
+ * ## 谁被收走
+ *
+ * 意图澄清表单的答案(`^[form answers`)。答案已经以摘要形式长在上一条助手消息
+ * 上;再画一个用户气泡等于把同一个决定说两遍,还会把 `[form answers — <id>]`
+ * 这种机器载荷摆到用户脸上(#5496)。这是产品取向,不是权宜之计。
+ */
 function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i]!;
-    // Structured form answers are rendered as a compact summary on the
-    // preceding assistant message. Keeping the raw machine payload in a
-    // separate user bubble duplicates the same decision and exposes stable IDs.
     if (message.role === 'user' && /^\[form answers\b/i.test(message.content.trim())) {
       continue;
     }
@@ -4944,9 +5010,26 @@ function buildChatRenderItems(messages: ChatMessage[]): ChatRenderItem[] {
       kind: 'message',
       key: `message:${message.id}`,
       message,
+      messageIndex: i,
     });
   }
   return items;
+}
+
+/**
+ * 转录里画得出来的**最后一条用户消息**。
+ *
+ * 钉顶的两半必须问同一个人:「该不该钉」(尾条用户消息换没换身份)和
+ * 「钉到哪」(`lastUserMsgTopInContent` 查 `.msg.user`)。DOM 里只有渲染项,
+ * 所以表决也只能在渲染项里做 —— 否则就会出现「表决说钉、几何找不到人,
+ * 于是拿上一轮的气泡顶上」这种结果。
+ */
+function tailRenderedUserMessage(items: ChatRenderItem[]): ChatMessage | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const message = items[i]!.message;
+    if (message.role === 'user') return message;
+  }
+  return null;
 }
 
 function estimateChatRenderItemHeight(item: ChatRenderItem): number {
