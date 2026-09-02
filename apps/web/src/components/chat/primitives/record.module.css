@@ -996,6 +996,26 @@
 .shot.fail .retry svg { width: 14px; height: 14px; }
 .shot.fail .retry:hover { color: var(--chat-text-strong); }
 
+/* 轮次还在跑的失败格(OPEND-2544)。摆位和「重试」逐条相同 —— 一排格子里
+   这两态会前后脚互换,位置一动就成了跳动。**不同的只有能不能动手**:
+   没有 `cursor: pointer`、没有 `:hover` 换色、下面渲染的也不是 `<button>`。
+   它不是「暂时按不动的按钮」,是一条状态说明;长成按钮而点不动,人会读成界面卡了。
+   `border`/`background`/`padding`/`font-family` 那几条是 `<button>` 的 UA 默认值
+   要压掉才写的,`<span>` 本来就没有,所以这里不重复。 */
+.shot.fail .failNote {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  width: 100%;
+  height: 100%;
+  font-size: var(--chat-t-cap);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--chat-red);
+}
+.shot.fail .failNote svg { width: 14px; height: 14px; }
+
 .strip { display: flex; align-items: center; gap: 5px; }
 .strip .th {
   position: relative;
@@ -1118,11 +1138,32 @@
  * 这也是稿子那条「缩进不能落在盒子上」例外(`.fold.mod-flat … > .fold { padding-inline: 0 }`)
  * 的同一件事:容器是盒子,推的是盒子,不是盒子里的行。
  */
-/* 顶层:落在壳的内容边(行盒往左探出 7px,补回来正好是 0) */
-.fold.flat > .body.stack > .thoughts > .body { margin-inline-start: 7px; }
-/* 嵌在步骤里:落在步骤那一列(状态点 15 + 间距 7 = 22;行盒探出 7,所以写 29) */
-.fold .body.stack .body.stack > .thoughts > .body { margin-inline-start: 33px; }
-.fold.flat .body.stack .body.stack > .thoughts > .body { margin-inline-start: 29px; }
+/*
+ * 列的偏移挂在**抽屉自己**身上,不挂在正文上。
+ *
+ * 思考这一格是**一只面板**,不是一条裸行:标题栏是面板的顶、正文是面板的身子,
+ * 两者共用同一只盒子,底色的左右两边才对得齐。
+ *
+ * ⚠️ 上一版把偏移写成正文的 `margin-inline-start`,和行盒那条
+ * `margin-inline: -7px`(把悬停命中区撑到壳的两侧)**方向相反** ——
+ * 于是一 hover,标题栏的底比下面那块灰底往左多探出一截。
+ * 用户 2026-09-02:「这里怎么凸出来了,感觉很奇怪」,箭头指的就是这条边。
+ *
+ * 现在偏移由抽屉的 `padding-inline-start` 给、标题栏的那份归零:
+ *   标题文字 = 盒(-7)+ 抽屉内距(7 / 29)+ summary 内距(0)
+ * 和原来的「盒(-7)+ summary 内距(7 / 29)」算到**同一个数**,
+ * 所以字和图标一个像素都没动,动的只有底色那只盒子。
+ * 右边自动齐:两者都不带结束侧外边距,一起吃行盒那 -7。
+ *
+ * 那条 `-7px` 一个字没动 —— 它管的是**别的行**的悬停命中区。思考这一格的命中区
+ * 跟着面板收进来是对的:可点范围本来就该等于看得见的那只面板。
+ */
+.fold.flat > .body.stack > .fold.thoughts { padding-inline-start: 7px; }
+.fold.flat > .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
+.fold .body.stack .body.stack > .fold.thoughts { padding-inline-start: 33px; }
+.fold .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
+.fold.flat .body.stack .body.stack > .fold.thoughts { padding-inline-start: 29px; }
+.fold.flat .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
 /*
  * 盒子里的字**只吃容器那一份 `--stream-pad`**,不再叠第二层缩进。
  * 稿子逐字:容器 `padding: var(--stream-pad)`(8px),窗里的正文

@@ -272,6 +272,40 @@ function contentLeft(el: Element, stop: Element): number {
   return boxLeft(el, stop) + edge(el, 'padding');
 }
 
+/** 结束侧那一档(`margin-inline-end` / `padding-inline-end`),同样按特异性决胜 */
+function edgeEnd(el: Element, side: 'margin' | 'padding'): number {
+  const longhand = winnerOf(el, `${side}-inline-end`);
+  const shorthand = winnerOf(el, `${side}-inline`);
+  const box = winnerOf(el, side);
+  const candidates = [longhand, shorthand, box].filter(Boolean) as Win[];
+  if (!candidates.length) return 0;
+  let best = candidates[0] as Win;
+  for (const one of candidates.slice(1)) {
+    if (heavier(one.spec, best.spec) || (!heavier(best.spec, one.spec) && one.rule.order > best.rule.order)) best = one;
+  }
+  const raw = expandVars(el, best.value);
+  const parts = raw.trim().split(/\s+(?![^(]*\))/);
+  let pick: string;
+  if (best === box) pick = parts.length >= 2 ? (parts[1] as string) : (parts[0] as string);
+  else if (best === shorthand) pick = parts.length >= 2 ? (parts[1] as string) : (parts[0] as string);
+  else pick = parts[0] as string;
+  const n = pxStart(pick);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/**
+ * 盒**右**缘相对壳 body 内容右边的内缩量。
+ * 正数 = 往里收,**负数 = 往外探出**(行的悬停底就是靠这 -7 撑到壳的两侧的)。
+ */
+function boxRightInset(el: Element, stop: Element): number {
+  const parent = el.parentElement;
+  const base = !parent || parent === stop ? 0 : contentRightInset(parent, stop);
+  return base + edgeEnd(el, 'margin');
+}
+function contentRightInset(el: Element, stop: Element): number {
+  return boxRightInset(el, stop) + edgeEnd(el, 'padding');
+}
+
 /** 这一格头上挂没挂那条竖线(`::before` 规则真的命中了没有) */
 function hasRail(el: Element): boolean {
   for (const rule of CASCADE) {
@@ -588,6 +622,127 @@ describe('嵌在步骤里:灰底左缘和同层工具行对齐', () => {
     const root = mount(SCENE);
     expect(hasRail(stepChild(root, STEP, '执行 python3'))).toBe(false);
     expect(hasRail(stepChild(root, STEP, 'Optimizing single render pass'))).toBe(false);
+  });
+});
+
+/* ── 3b · 标题栏底色和正文灰底是同一只盒子 ────────────────────────── */
+
+/**
+ * 用户 2026-09-02 第三轮:「这里怎么凸出来了,感觉很奇怪」,箭头指的是
+ * **「思考中…」那一行底色的左边缘**比下面那块灰底更靠左。
+ *
+ * ## 那块灰是 hover,不是常驻
+ *
+ * `record.module.css` 里给 summary 上底的只有 `:hover`
+ * (`.fold > summary:hover` 与 `.fold .body.stack > .fold > summary:hover`,同一枚
+ * `--chat-bg-fill-tertiary`);行自己被 `.fold .body.stack > * { background: none }`
+ * 抹平了。所以这是**一 hover 就露馅**的错位,不是常驻画面 —— 但照样要修。
+ *
+ * ## 为什么错位
+ *
+ * 行盒挂着 `margin-inline: -7px`(把悬停命中区撑到壳的两侧),而上一轮把灰底的
+ * 左缘用 `margin-inline-start` 拉回**行内容那一列**。两者方向相反,于是
+ * 标题栏的底(行盒,-7)比正文的底(内容列,0 / 22)往左多探出一截。
+ *
+ * ## 修法:把那一列交给**抽屉自己**,不交给正文
+ *
+ * 思考这一格是**一只面板**,不是一条裸行 —— 标题栏是面板的顶,正文是面板的身子,
+ * 两者本来就该共用同一只盒子。所以列的偏移改挂在抽屉的 `padding-inline-start` 上,
+ * 标题栏的 `padding-inline-start` 归零、正文的 `margin-inline-start` 撤掉:
+ * 两块底自动落在同一条边上,而且**右边也自动齐**(两者都不带结束侧外边距)。
+ *
+ * 没有动那条 `-7px`:它管的是**别的行**的悬停命中区,删了是另一个回归
+ * (下面「反向守卫」那两条钉着)。思考这一格的命中区跟着面板收进来是对的 ——
+ * 它的可点范围本来就该等于它看得见的那只面板。
+ *
+ * 标题文字和图标的位置**一个像素都没动**:原来是「盒 -7 + summary 内距 7」,
+ * 现在是「盒 -7 + 抽屉内距 7 + summary 内距 0」,两条路算到同一个 0。
+ */
+describe('思考那一格:标题栏的底和正文的底是同一只盒子', () => {
+  const STEP = 'Run Design Jury review and apply';
+
+  it('顶层 · 标题栏的底左缘落在 0', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const summary = topChild(root, '顶层这一段推理').querySelector<HTMLElement>(':scope > summary')!;
+    expect(boxLeft(summary, body)).toBe(0);
+  });
+
+  it('顶层 · 正文灰底左缘也落在 0', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    expect(boxLeft(thoughtsBox(topChild(root, '顶层这一段推理')), body)).toBe(0);
+  });
+
+  it('顶层 · 两块底的**右**缘同样齐(都往外探出 7px)', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const drawer = topChild(root, '顶层这一段推理');
+    expect(boxRightInset(drawer.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(-7);
+    expect(boxRightInset(thoughtsBox(drawer), body)).toBe(-7);
+  });
+
+  it('顶层 · 标题文字仍然落在 0 —— 修的是底,不是字', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const summary = topChild(root, '顶层这一段推理').querySelector<HTMLElement>(':scope > summary')!;
+    expect(contentLeft(summary, body)).toBe(0);
+  });
+
+  it('嵌套 · 标题栏的底左缘落在 22', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const summary = stepChild(root, STEP, 'Optimizing single render pass')
+      .querySelector<HTMLElement>(':scope > summary')!;
+    expect(boxLeft(summary, body)).toBe(22);
+  });
+
+  it('嵌套 · 正文灰底左缘也落在 22', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    expect(boxLeft(thoughtsBox(stepChild(root, STEP, 'Optimizing single render pass')), body)).toBe(22);
+  });
+
+  it('嵌套 · 标题文字仍然落在 22', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const summary = stepChild(root, STEP, 'Optimizing single render pass')
+      .querySelector<HTMLElement>(':scope > summary')!;
+    expect(contentLeft(summary, body)).toBe(22);
+  });
+
+  it('还在想那一态也一样(灰底换成 `.stream`,盒子不换)', () => {
+    const root = mount(LIVE);
+    const body = bodyOf(root);
+    const drawer = topChild(root, '还在往里写的推理');
+    expect(boxLeft(drawer.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(0);
+    expect(boxLeft(thoughtsBox(drawer), body)).toBe(0);
+  });
+
+  /*
+   * ⚠️ **反向守卫**:那条 `-7px` 是别的行悬停命中区的来源,不许顺手删掉。
+   * 删了之后上面几条照样绿(思考那一格的列改由抽屉的内距给),
+   * 只有这两条会红 —— 它们是这次改动唯一的护栏。
+   */
+  it('反向守卫 · 顶层普通工具行的悬停底仍然撑到 -7', () => {
+    const root = mount(NO_STEPS);
+    const body = bodyOf(root);
+    expect(boxLeft(topChild(root, 'brand-spec.md'), body)).toBe(-7);
+    expect(boxRightInset(topChild(root, 'brand-spec.md'), body)).toBe(-7);
+  });
+
+  it('反向守卫 · 步骤里的命令行悬停底仍然撑到 -7,文字照旧在 22', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const row = stepChild(root, STEP, '执行 python3');
+    expect(boxLeft(row, body)).toBe(-7);
+    expect(contentLeft(row.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(22);
+  });
+
+  it('反向守卫 · 步骤抽屉自己的悬停底也仍然撑到 -7', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    expect(boxLeft(topChild(root, STEP), body)).toBe(-7);
   });
 });
 

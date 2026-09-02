@@ -256,8 +256,18 @@ describe('N8-c 顶层和清单抽屉是两套列,各自内部一致', () => {
     for (const [what, selector] of TOP_ROWS) {
       expect(declOf(selector, 'padding'), what).toBe('5px 7px');
     }
-    // 思考那一格不再有专属规则 —— 有专属规则就有各走各的余地
-    expect(declOf('.fold.flat > .body.stack > .fold.thoughts > summary', 'padding-inline-start')).toBeNull();
+    /*
+     * 思考那一格的**列**仍然和它们同一档,只是 2026-09-02 起换了个挂法:
+     * 它是一只面板(标题栏 + 灰底正文共用一只盒子),列因此挂在**抽屉**的
+     * `padding-inline-start` 上、标题栏那份归零 —— 两条加起来还是 7,
+     * 标题和图标一个像素没动,动的只有底色那只盒子的左边缘。
+     * (为什么必须这么挂:行盒的 `margin-inline: -7px` 把悬停底撑到壳的两侧,
+     *  而灰底要落在内容列上,方向相反;一 hover 两块底就错开 7px。
+     *  用户 2026-09-02:「这里怎么凸出来了」。)
+     * 所以这里钉的不再是「没有专属规则」,而是**两条加起来仍然等于同一档**。
+     */
+    expect(declOf('.fold.flat > .body.stack > .fold.thoughts', 'padding-inline-start')).toBe('7px');
+    expect(declOf('.fold.flat > .body.stack > .fold.thoughts > summary', 'padding-inline-start')).toBe('0');
   });
 
   it('抽屉里:三种行同为 29px', () => {
