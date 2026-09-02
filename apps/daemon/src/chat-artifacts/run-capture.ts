@@ -32,6 +32,7 @@ import {
   type MessageArtifactRow,
 } from './store.js';
 import { kindForArtifactPath, mimeForArtifactPath } from './mime.js';
+import type { ChatArtifactFailureCode } from './types.js';
 
 export interface CaptureRunChatArtifactsInput {
   projectId: string;
@@ -54,6 +55,17 @@ export interface CaptureRunChatArtifactsReport {
   reused: number;
   failed: number;
   /**
+   * Why the failures failed, counted by code.
+   *
+   * A bare `failed` total cannot separate "the store is full" from "the file
+   * changed under us", and those are different incidents: the first is a
+   * capacity problem, the second means the bytes on disk stopped being the
+   * bytes this turn produced — a timing failure that silently fabricates
+   * history if anything downstream decides to substitute the current file.
+   * `source_changed` therefore has to be countable on its own.
+   */
+  failureCodes: Partial<Record<ChatArtifactFailureCode, number>>;
+  /**
    * The ref rows as written, in card order.
    *
    * The cover pass needs the ref IDs it is about to attach to, and re-reading
@@ -75,6 +87,7 @@ export async function captureRunChatArtifactSnapshots(
     captured: 0,
     reused: 0,
     failed: 0,
+    failureCodes: {},
     rows: [],
   };
   const maxRefs = input.maxRefs ?? DEFAULT_MAX_REFS;
@@ -143,8 +156,19 @@ export async function captureRunChatArtifactSnapshots(
         absolutePath: absolute,
         ...(input.runId ? { runId: input.runId } : {}),
       });
-      if (result.state === 'ready') report.captured += 1;
-      else report.failed += 1;
+      if (result.state === 'ready') {
+        report.captured += 1;
+      } else if (result.state === 'failed') {
+        report.failed += 1;
+        // Every failure path in `capture.ts` names a code (`failed()` takes it
+        // as a required argument), so an uncoded failure would be a new,
+        // unclassified one. It stays in `failed` and out of the histogram
+        // rather than being filed under a code it does not have.
+        if (result.failureCode) {
+          report.failureCodes[result.failureCode] =
+            (report.failureCodes[result.failureCode] ?? 0) + 1;
+        }
+      }
     }
 
     const ref: MessageArtifactInput = {

@@ -43,6 +43,37 @@ export interface MediaGenerationResultProps {
   used_stub_fallback: boolean;
 }
 
+/**
+ * One chat turn's artifact-snapshot outcome, emitted at the run's terminal
+ * chokepoint — the moment the daemon decides what evidence this message will
+ * carry forever.
+ *
+ * `source_changed_count` is broken out of `failed_count` on purpose. Every
+ * other failure means "we could not keep a copy"; this one means the file on
+ * disk stopped being the file this turn produced BEFORE the copy was taken, so
+ * the capture window itself is wrong. It is the only counter here that
+ * indicates a correctness failure rather than a capacity or availability one,
+ * and it should alarm on its own rather than be averaged into a failure rate.
+ *
+ * Nothing here identifies content: no paths, no labels, no digests, no bytes.
+ */
+export interface ChatArtifactCaptureResultProps {
+  page_name: 'studio';
+  area: 'chat_artifact_capture';
+  project_id: string;
+  run_id: string;
+  /** Cards this turn will show. */
+  ref_count: number;
+  /** Snapshots this pass wrote. */
+  captured_count: number;
+  /** Snapshots the media path had already frozen for this run. */
+  reused_count: number;
+  failed_count: number;
+  /** Subset of `failed_count`. Alarms on its own; see above. */
+  source_changed_count: number;
+  result: 'success' | 'degraded';
+}
+
 export interface ProjectCreateResultProps {
   page_name: 'home';
   area: 'new_project';

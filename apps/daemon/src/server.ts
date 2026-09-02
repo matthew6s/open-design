@@ -620,7 +620,7 @@ import {
   bindOdNextExactSendPromptEvidence,
   buildPromptStackTelemetry,
 } from './prompt-telemetry.js';
-import { newInsertId, readAnalyticsContext, type AnalyticsService } from './analytics.js';
+import { newInsertId, readAnalyticsContext, type AnalyticsContext, type AnalyticsService } from './analytics.js';
 import {
   agentIdToTracking,
   modelIdForTracking,
@@ -879,9 +879,15 @@ import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFi
 import { registerProjectChatArtifactRoutes } from './routes/project/chat-artifacts.js';
 import { createChatArtifactBlobStore } from './chat-artifacts/blob-store.js';
 import { resolveChatArtifactQuota } from './chat-artifacts/quota.js';
-import { reconcileChatArtifactSnapshots } from './chat-artifacts/reconcile.js';
-import { sweepChatArtifactStorage } from './chat-artifacts/gc.js';
-import { captureRunChatArtifactSnapshots } from './chat-artifacts/run-capture.js';
+import {
+  resolveChatArtifactMaintenanceIntervalMs,
+  startChatArtifactMaintenance,
+} from './chat-artifacts/maintenance.js';
+import {
+  captureRunChatArtifactSnapshots,
+  type CaptureRunChatArtifactsReport,
+} from './chat-artifacts/run-capture.js';
+import { chatArtifactCaptureResultProps } from './chat-artifacts/telemetry.js';
 import { freezeAndRenderChatArtifactCovers } from './chat-artifacts/cover.js';
 import { setMessageArtifactHtmlVersionIds } from './chat-artifacts/store.js';
 import { registerVelaRoutes } from './routes/vela.js';
@@ -3391,46 +3397,29 @@ export async function startServer({
     mediaTaskStore.hydrateMediaTask(row);
   }
 
-  // Boot reconcile for chat-artifact snapshots. Blob-store initialization is
-  // deliberately separate from the SQLite migration and never blocks startup:
-  // a broken snapshot store must degrade the cards, not the daemon.
-  void (async () => {
-    try {
-      const report = await reconcileChatArtifactSnapshots({
-        db,
-        blobs: CHAT_ARTIFACT_BLOBS,
-        quota: CHAT_ARTIFACT_QUOTA,
-        resolveSourcePath: (projectId, relativePath) => {
-          try {
-            const project = getProject(db, projectId);
-            const dir = resolveProjectDir(PROJECTS_DIR, projectId, project?.metadata);
-            return path.join(dir, relativePath.split('/').join(path.sep));
-          } catch {
-            return null;
-          }
-        },
-      });
-      if (report.completed > 0 || report.failed > 0 || report.blobMissing > 0 || report.tempsSwept > 0) {
-        console.warn(
-          `[chat-artifacts] reconcile completed=${report.completed} failed=${report.failed} ` +
-            `blobMissing=${report.blobMissing} tempsSwept=${report.tempsSwept}`,
-        );
+  // Chat-artifact snapshot maintenance: one pass now, then a pass per period
+  // for as long as the daemon lives. Blob-store initialization is deliberately
+  // separate from the SQLite migration and never blocks startup: a broken
+  // snapshot store must degrade the cards, not the daemon.
+  //
+  // The period defaults to 0 (boot-only, today's behaviour) because no period
+  // has been ruled on yet — see `resolveChatArtifactMaintenanceIntervalMs`.
+  const chatArtifactMaintenance = startChatArtifactMaintenance({
+    db,
+    blobs: CHAT_ARTIFACT_BLOBS,
+    quota: CHAT_ARTIFACT_QUOTA,
+    resolveSourcePath: (projectId, relativePath) => {
+      try {
+        const project = getProject(db, projectId);
+        const dir = resolveProjectDir(PROJECTS_DIR, projectId, project?.metadata);
+        return path.join(dir, relativePath.split('/').join(path.sep));
+      } catch {
+        return null;
       }
-      const swept = await sweepChatArtifactStorage({
-        db,
-        blobs: CHAT_ARTIFACT_BLOBS,
-        dryRun: process.env.OD_CHAT_ARTIFACT_GC !== '1',
-      });
-      if (swept.blobsSwept > 0 || swept.snapshotsSwept > 0 || swept.orphanFilesSwept > 0) {
-        console.info(
-          `[chat-artifacts] gc${swept.dryRun ? ' (dry-run)' : ''} snapshots=${swept.snapshotsSwept} ` +
-            `blobs=${swept.blobsSwept} bytes=${swept.bytesReclaimed} orphans=${swept.orphanFilesSwept}`,
-        );
-      }
-    } catch (err) {
-      console.warn('[chat-artifacts] boot reconcile failed', err);
-    }
-  })();
+    },
+    gcDryRun: process.env.OD_CHAT_ARTIFACT_GC !== '1',
+    intervalMs: resolveChatArtifactMaintenanceIntervalMs(process.env),
+  });
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {
     console.log('[od] Codex plugins disabled via OD_CODEX_DISABLE_PLUGINS=1');
@@ -11334,6 +11323,33 @@ export async function startServer({
       const afterSnapshot = await snapshotProjectArtifactsAsync(artifactBaseline.cwd);
       return resolveRunArtifactOutcomeBeforeFinish(afterSnapshot);
     };
+    // Design §10.3. The properties object is the builder's return value
+    // VERBATIM — nothing is spread in or added here, so what the builder's own
+    // tests assert on is exactly what reaches the sink.
+    const emitChatArtifactCaptureTelemetry = (
+      captureRun: { id: string; projectId?: string; analyticsContext?: AnalyticsContext | null },
+      report: CaptureRunChatArtifactsReport,
+    ) => {
+      try {
+        const context = captureRun.analyticsContext ?? null;
+        if (!context || !captureRun.projectId || !design?.analytics?.capture) return;
+        const properties = chatArtifactCaptureResultProps({
+          projectId: captureRun.projectId,
+          runId: captureRun.id,
+          report,
+        });
+        if (!properties) return;
+        design.analytics.capture({
+          eventName: 'chat_artifact_capture_result',
+          context,
+          appVersion: design.getAppVersion?.() ?? 'unknown',
+          properties,
+          insertId: `chat_artifact_capture_result:${captureRun.id}`,
+        });
+      } catch {
+        // Telemetry never changes the turn's outcome.
+      }
+    };
     // Freeze this turn's artifact evidence while the daemon still owns the
     // moment: at the terminal chokepoint, BEFORE the terminal SSE frame goes
     // out and before any client can see the message as done. A snapshot taken
@@ -11356,6 +11372,7 @@ export async function startServer({
           runId: run.id,
           touchedPaths,
         });
+        emitChatArtifactCaptureTelemetry(run, captured);
         // Same chokepoint, same reason (spec §6.3). The image path above froze
         // BYTES here; this freezes the HTML card's RENDERER INPUT here, so the
         // cover render that follows can take its seconds without the file it is
@@ -17348,6 +17365,10 @@ export async function startServer({
       orbitService.stop();
       routineService?.stop();
       clearInterval(teamResourcesPollTimer);
+      // Disarms synchronously; the returned promise drains an in-flight pass.
+      // Nothing here awaits it — the point is that no NEW pass can start once
+      // the daemon is coming down.
+      void chatArtifactMaintenance.stop();
       workspaceHubSubscriptions?.dispose();
       hubEventRefreshes.dispose();
       workspaceDirectoryRefreshes.dispose();

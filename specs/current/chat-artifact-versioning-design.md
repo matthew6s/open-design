@@ -256,6 +256,31 @@ URL 由 daemon response 生成或由 Web 用 id 构造；数据库绝不存带 a
 - 有 blob 行但文件缺失/校验失败：置相关 snapshot `failed/blob_missing`，记录 telemetry，卡片诚实降级。
 - 有 blob 文件但无任何 DB 行：标 orphan，经过 grace period 后回收，避免刚提交与扫描并发。
 
+> **落地补充（2026-09-02）。** 「启动与定时」原先只落地了「启动」那一半：reconcile
+> 和 §7.2 的 mark-sweep 都只在 `startServer` 里跑一次，长跑 daemon 从此不再跑第二次。
+> 现已抽出 `apps/daemon/src/chat-artifacts/maintenance.ts`，启动那一遍和定时那一遍
+> 走同一个 `runChatArtifactMaintenancePass`（两份实现必然漂移，而漂移只在最少被观察
+> 的长跑场景暴露）。
+>
+> 一遍之内**先 reconcile 后 sweep**，顺序不是装饰：sweep 有意跳过 `pending` 行（字节
+> 可能正在安装，只有 reconciler 有权裁决在飞捕获），所以先 sweep 会让一条早该被判死的
+> 中断捕获被「pending」这个本该定它罪的状态保护住，白白多活一个周期。
+>
+> **重入**：跳过，不排队。一遍是幂等的、每次从头重扫，所以丢掉的那一拍不损失任何东西；
+> 排队会在慢盘上堆出永远排不完的积压，而两遍并发还会对同一个 grace window 各自下结论，
+> 输的那次 delete 被记成 sweep 失败。跳过的拍数记在 `overlappedTicks` 上，不静默吞掉。
+>
+> **关停**：`stop()` 同步 `clearInterval`（此后不会有新的一遍开始），返回的 promise
+> 等在飞的那一遍跑完。这不是客气 —— daemon 关停下一步就是关数据库，在飞的一遍撞上
+> `closeDatabase()` 是 SQLite 硬错误，不是「降级一张卡」。定时器另外 `unref()`，
+> 保证一个还没到点的 tick 不会成为进程（或测试文件）退不掉的原因。
+>
+> **周期值仍未拍板。** 本文档 §5.3 和 §7.2 都只说「定时」「周期性」，两处都没有给数。
+> 所以默认值是 `0`（关闭，等同今天的只在启动跑一次），唯一的打开方式是显式设置
+> `OD_CHAT_ARTIFACT_MAINTENANCE_INTERVAL_MS`。仓库内最近的先例是插件快照 GC 的
+> `OD_SNAPSHOT_GC_INTERVAL_MS`（默认 6 小时，同一形状的活、同一形状的存储），
+> 列在这里作为起点而不是答案。
+
 ### 5.4 生命周期
 
 - **overwrite：**只更新 workspace latest；任何 snapshot 不变。
@@ -377,6 +402,10 @@ render 故意不 await（一轮对话不该为了一张缩略图多等几秒）�
 4. 每次 sweep 有扫描数、回收 bytes、失败数 telemetry；任务可分批、可续跑。
 
 项目删除/会话删除只删除 refs 并 enqueue GC，不在 UI 请求里遍历大目录。
+
+> **落地补充（2026-09-02）。** 「周期性」这一条见 §5.3 的落地补充：sweep 和 reconcile
+> 现在同属一个 maintenance pass，周期值同一个未拍板的开关，`OD_CHAT_ARTIFACT_GC=1`
+> 仍是「真删」与「只报告」的开关（默认只报告）。
 
 ## 8. 旧会话兼容矩阵
 
@@ -511,6 +540,25 @@ schema migration 必须支持重新运行；blob store 初始化和 DB migration
 - `source_changed_before_capture` 必须单独告警，它表示时序正确性失败。
 
 不得上报文件内容、prompt、绝对路径或 snapshot URL token。
+
+> **落地补充（2026-09-02）。** 首条埋点已落地：`chat_artifact_capture_result`，在 run
+> 终点 chokepoint 每轮发一条（该轮没产物就不发 —— 绝大多数轮次没产物，给它们各发一行
+> 零值会把这条事件本来要看的失败率淹没成舍入误差）。走的是仓库现成的那条通道
+> （`design.analytics.capture`，和 `run_finished` / `media_generation_result` 同一条），
+> 事件名与 props 已注册进 `packages/contracts/src/analytics/events/`；那两个文件里的
+> catalog parity 断言会让漏注册直接 typecheck 失败。
+>
+> 字段只有计数和 id：`ref_count` / `captured_count` / `reused_count` / `failed_count`
+> / `source_changed_count` / `result`。**`source_changed_count` 单列**，正是本节点名的
+> 那条：其余 failure code 说的是「没能留下副本」（容量、可用性），只有它说的是**捕获窗口
+> 本身错了** —— 盘上那个文件在拷贝之前就已经不是这一轮产出的那个文件。混进失败率里它
+> 会消失（存储用了 2% 和正在伪造历史，读数一模一样），所以它必须能单独告警；同时它是
+> `failed_count` 的**透镜而不是从中切走的一块**，总数仍然包含它，看板不需要把互斥列加起来。
+> 它还是必填字段：可选计数在传输里和「被丢掉」无法区分，而告警需要一个真实的分母。
+>
+> 未覆盖（后续）：capture duration、bytes、dedupe hit、HTML renderer availability /
+> resource timeout / blank retry、legacy fallback 分类、historical open 命中率、
+> GC marked/swept/orphan bytes、quota exceeded。
 
 ## 11. Security 与隐私
 
