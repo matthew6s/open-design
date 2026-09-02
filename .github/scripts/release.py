@@ -232,9 +232,9 @@ def legacy_release(request: dict[str, Any], receipt_path: Path) -> None:
 
 
 def self_check() -> None:
-    version = lambda number: {"releaseVersion": f"0.1.0-betahyx.{number}"}
+    version = lambda number: {"releaseVersion": f"0.1.0-somechan.{number}"}
     validate_lane_transition({"content": version(1), "terminal": version(1)},
-                             {"content": version(2), "terminal": version(2), "electron": version(2)}, "betahyx")
+                             {"content": version(2), "terminal": version(2), "electron": version(2)}, "somechan")
     rejected = 0
     for current, incoming in (
         ({"content": version(2), "terminal": version(2)}, {"content": version(3)}),
@@ -242,7 +242,7 @@ def self_check() -> None:
         ({"content": version(2)}, {"content": version(2)}),
     ):
         try:
-            validate_lane_transition(current, incoming, "betahyx")
+            validate_lane_transition(current, incoming, "somechan")
         except SystemExit:
             rejected += 1
     if rejected != 3:

@@ -15,7 +15,7 @@ const later = "2026-08-25T00:00:30.000Z";
 const generation = "a".repeat(64);
 const shell = { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64), digest: "c".repeat(64) };
 const attachment = { id: "terminal", shell };
-const scope = { channel: "betahyx", namespace: "shared" };
+const scope = { channel: "somechan", namespace: "shared" };
 
 function running(): SharedLifecycleState {
   return reduceSharedLifecycleState(initialSharedLifecycleState(scope), {
@@ -33,7 +33,7 @@ function running(): SharedLifecycleState {
 function handoff(): StandaloneShellUpdaterSnapshot["handoff"] {
   return {
     interaction: "restart-and-install",
-    releaseVersion: "0.2.0-betahyx.1",
+    releaseVersion: "0.2.0-somechan.1",
     target: "darwin-arm64",
     shell: { type: "terminal", version: "0.2.0", buildHash: "e".repeat(64) },
     artifact: { path: "/tmp/candidate", sha256: "f".repeat(64), size: 1, mediaType: "application/gzip" },

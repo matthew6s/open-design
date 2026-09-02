@@ -38,9 +38,9 @@ const terminal = Object.freeze({ type: "terminal", version: "0.1.0", buildHash: 
 
 function metadata(
   bytes: Uint8Array,
-  releaseVersion = "0.1.0-betahyx.1",
+  releaseVersion = "0.1.0-somechan.1",
   minVersion = "0.1.0",
-  channel = "betahyx",
+  channel = "somechan",
   shellRequirements: StandaloneMetadata["shellRequirements"] = [{ type: "terminal", minVersion, buildHash: "b".repeat(64) }],
 ): StandaloneMetadata {
   const digest = sha256Hex(bytes);
@@ -86,7 +86,7 @@ class FixturePort implements LifecyclePort {
 
   private snapshot(state: "running" | "stopped" = this.generationId == null ? "stopped" : "running"): LifecycleStatus {
     return {
-      scope: this.scope ?? { channel: "betahyx", namespace: "shared" },
+      scope: this.scope ?? { channel: "somechan", namespace: "shared" },
       state,
       generationId: this.generationId,
       bindingDigest: this.bindingDigest,
@@ -150,17 +150,17 @@ class FixturePort implements LifecyclePort {
   }
 }
 
-const fixtureScope = Object.freeze({ channel: "betahyx", namespace: "shared" });
+const fixtureScope = Object.freeze({ channel: "somechan", namespace: "shared" });
 
 async function stopFixture(lifecycle: FixturePort): Promise<void> {
   const status = await lifecycle.status(fixtureScope);
   await lifecycle.stop(fixtureScope, status.fence);
 }
 
-async function fixtureStore(root: string, bytes: Buffer, releaseVersion = "0.1.0-betahyx.1") {
+async function fixtureStore(root: string, bytes: Buffer, releaseVersion = "0.1.0-somechan.1") {
   const keys = generateKeyPairSync("ed25519");
   const trusted = new Map([["test", keys.publicKey]]);
-  const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
+  const store = new StandaloneStore(root, { channel: "somechan", namespace: "shared" });
   const generation = await store.prepare(signStandaloneMetadata(metadata(bytes, releaseVersion), "test", keys.privateKey), trusted, await blobOptions(root, bytes));
   return { generation, keys, store, trusted };
 }
@@ -187,8 +187,8 @@ async function activate(store: StandaloneStore, shell: StandaloneShellIdentity) 
 
 describe("standalone exact lifecycle", () => {
   it("shares the repository namespace character and length contract", () => {
-    expect(new StandaloneStore("/unused", { channel: "betahyx", namespace: "Team.Shared_01" }).namespace).toBe("Team.Shared_01");
-    expect(() => new StandaloneStore("/unused", { channel: "betahyx", namespace: `n${"x".repeat(128)}` })).toThrow("invalid standalone namespace");
+    expect(new StandaloneStore("/unused", { channel: "somechan", namespace: "Team.Shared_01" }).namespace).toBe("Team.Shared_01");
+    expect(() => new StandaloneStore("/unused", { channel: "somechan", namespace: `n${"x".repeat(128)}` })).toThrow("invalid standalone namespace");
   });
 
   it("keeps preparation non-authoritative until explicit activation and health confirmation", async () => {
@@ -225,8 +225,8 @@ describe("standalone exact lifecycle", () => {
     const bytes = Buffer.from("fixture");
     const keys = generateKeyPairSync("ed25519");
     const envelope = signStandaloneMetadata(metadata(bytes), "test", keys.privateKey);
-    envelope.metadata.releaseVersion = "0.1.0-betahyx.2";
-    const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
+    envelope.metadata.releaseVersion = "0.1.0-somechan.2";
+    const store = new StandaloneStore(root, { channel: "somechan", namespace: "shared" });
     await expect(store.prepare(envelope, new Map([["test", keys.publicKey]]), await blobOptions(root, bytes))).rejects.toThrow("signature verification failed");
     expect(await store.readState()).toEqual({ schemaVersion: 4, revision: 0, prepared: null, activationIntent: null, activationAttempt: null, active: null, lastHealthy: null });
   });
@@ -247,7 +247,7 @@ describe("standalone exact lifecycle", () => {
     await new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "first-shell")).start();
     const first = await store.activeGeneration();
     const secondBytes = Buffer.from("second");
-    const second = await store.prepare(signStandaloneMetadata(metadata(secondBytes, "0.1.0-betahyx.2"), "test", keys.privateKey), trusted, await blobOptions(root, secondBytes));
+    const second = await store.prepare(signStandaloneMetadata(metadata(secondBytes, "0.1.0-somechan.2"), "test", keys.privateKey), trusted, await blobOptions(root, secondBytes));
     await authorize(store, "silent-policy");
     await activate(store, terminal);
     await store.beginActiveAttempt(terminal);
@@ -290,7 +290,7 @@ describe("standalone exact lifecycle", () => {
     const keys = generateKeyPairSync("ed25519");
     const store = new StandaloneStore(root, fixtureScope);
     await store.prepare(
-      signStandaloneMetadata(metadata(artifact, "0.1.0-betahyx.1", "0.1.0", "betahyx", [
+      signStandaloneMetadata(metadata(artifact, "0.1.0-somechan.1", "0.1.0", "somechan", [
         { type: "terminal", minVersion: "0.1.0", buildHash: "b".repeat(64) },
         { type: "electron", minVersion: "1.0.0", buildHash: "c".repeat(64) },
       ]), "test", keys.privateKey),
@@ -317,8 +317,8 @@ describe("standalone exact lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "standalone-min-shell-")); roots.push(root);
     const bytes = Buffer.from("fixture");
     const keys = generateKeyPairSync("ed25519");
-    const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
-    await store.prepare(signStandaloneMetadata(metadata(bytes, "0.1.0-betahyx.1", "0.2.0"), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
+    const store = new StandaloneStore(root, { channel: "somechan", namespace: "shared" });
+    await store.prepare(signStandaloneMetadata(metadata(bytes, "0.1.0-somechan.1", "0.2.0"), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
     await authorize(store, "initial-bootstrap");
     const fossil = new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, new FixturePort(), terminal, "terminal"));
     await expect(fossil.start()).rejects.toMatchObject({ code: "installer-required" } satisfies Partial<StandaloneBootstrapError>);
@@ -329,7 +329,7 @@ describe("standalone exact lifecycle", () => {
     const bytes = Buffer.from("fixture");
     const keys = generateKeyPairSync("ed25519");
     const store = new StandaloneStore(root, fixtureScope);
-    const generation = await store.prepare(signStandaloneMetadata(metadata(bytes, "0.1.0-betahyx.1", "0.2.0", "betahyx", [
+    const generation = await store.prepare(signStandaloneMetadata(metadata(bytes, "0.1.0-somechan.1", "0.2.0", "somechan", [
       { type: "terminal", minVersion: "0.2.0", buildHash: "b".repeat(64) },
       { type: "electron", minVersion: "1.0.0", buildHash: "c".repeat(64) },
     ]), "test", keys.privateKey), new Map([["test", keys.publicKey]]), await blobOptions(root, bytes));
@@ -352,7 +352,7 @@ describe("standalone exact lifecycle", () => {
     const active = await store.activeGeneration();
     await stopFixture(lifecycle);
     const secondBytes = Buffer.from("second");
-    const prepared = await store.prepare(signStandaloneMetadata(metadata(secondBytes, "0.1.0-betahyx.2"), "test", keys.privateKey), trusted, await blobOptions(root, secondBytes));
+    const prepared = await store.prepare(signStandaloneMetadata(metadata(secondBytes, "0.1.0-somechan.2"), "test", keys.privateKey), trusted, await blobOptions(root, secondBytes));
     await expect(new FossilBootloader(store, terminal, async () => new VersionedLauncher(store, lifecycle, terminal, "second")).start()).resolves.toMatchObject({ generationId: active.id });
     expect(await store.readState()).toMatchObject({ prepared: prepared.id, activationIntent: null, active: active.id, lastHealthy: active.id });
   });
@@ -366,14 +366,14 @@ describe("standalone exact lifecycle", () => {
     const metadataBytes = Buffer.from(canonicalJson(envelope));
     const head = signStandaloneChannelHead({
       schemaVersion: 1,
-      channel: "betahyx",
+      channel: "somechan",
       publishedAt: "2026-08-24T00:00:00.000Z",
-      lanes: { content: { releaseVersion: "0.1.0-betahyx.1", url: "https://fixtures.invalid/metadata.json", sha256: sha256Hex(metadataBytes), size: metadataBytes.byteLength } },
+      lanes: { content: { releaseVersion: "0.1.0-somechan.1", url: "https://fixtures.invalid/metadata.json", sha256: sha256Hex(metadataBytes), size: metadataBytes.byteLength } },
     }, [{ keyId: "old", privateKey: oldKeys.privateKey }, { keyId: "next", privateKey: nextKeys.privateKey }]);
     const trusted = new Map([["next", nextKeys.publicKey]]);
     expect(verifyStandaloneChannelHead(head, trusted)).toBe("next");
-    const store = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
-    const updater = new StandaloneUpdater("betahyx", "content", terminal, trusted, store, {
+    const store = new StandaloneStore(root, { channel: "somechan", namespace: "shared" });
+    const updater = new StandaloneUpdater("somechan", "content", terminal, trusted, store, {
       readChannelHead: async () => head,
       readDocument: async () => metadataBytes,
       prepare: await blobOptions(root, artifact),
@@ -387,16 +387,16 @@ describe("standalone exact lifecycle", () => {
       const candidateBytes = Buffer.from(canonicalJson(candidate));
       const candidateHead = signStandaloneChannelHead({
         schemaVersion: 1,
-        channel: "betahyx",
+        channel: "somechan",
         publishedAt: "2026-08-24T00:00:01.000Z",
         lanes: { content: { releaseVersion: candidate.metadata.releaseVersion, url: "https://fixtures.invalid/candidate.json", sha256: sha256Hex(candidateBytes), size: candidateBytes.byteLength } },
       }, [{ keyId: "next", privateKey: nextKeys.privateKey }]);
-      return new StandaloneUpdater("betahyx", "content", terminal, trusted, store, {
+      return new StandaloneUpdater("somechan", "content", terminal, trusted, store, {
         readChannelHead: async () => candidateHead,
         readDocument: async () => candidateBytes,
       });
     };
-    const downgrade = signStandaloneMetadata(metadata(artifact, "0.1.0-betahyx.0"), "next", nextKeys.privateKey);
+    const downgrade = signStandaloneMetadata(metadata(artifact, "0.1.0-somechan.0"), "next", nextKeys.privateKey);
     await expect(updaterFor(downgrade).prepareLatest("observe")).rejects.toThrow("would downgrade");
     const collision = signStandaloneMetadata(metadata(Buffer.from("collision")), "next", nextKeys.privateKey);
     await expect(updaterFor(collision).prepareLatest("observe")).rejects.toThrow("immutable release metadata collision");
@@ -406,8 +406,8 @@ describe("standalone exact lifecycle", () => {
     const keys = generateKeyPairSync("ed25519");
     const envelope = signStandaloneShellMetadata({
       schemaVersion: 1,
-      channel: "betahyx",
-      releaseVersion: "0.1.0-betahyx.1",
+      channel: "somechan",
+      releaseVersion: "0.1.0-somechan.1",
       sourceCommit: "7a4175c86fe305b6432081c3dc269cd4bd4ec04d",
       publishedAt: "2026-08-24T00:00:00.000Z",
       distributions: [{
@@ -427,12 +427,12 @@ describe("standalone exact lifecycle", () => {
     const artifact = Buffer.from("same immutable closure");
     const keys = generateKeyPairSync("ed25519");
     const trusted = new Map([["test", keys.publicKey]]);
-    const beta = new StandaloneStore(root, { channel: "betahyx", namespace: "shared" });
-    const preview = new StandaloneStore(root, { channel: "previewhyx", namespace: "shared" });
+    const beta = new StandaloneStore(root, { channel: "somechan", namespace: "shared" });
+    const preview = new StandaloneStore(root, { channel: "somepreview", namespace: "shared" });
     const betaGeneration = await beta.prepare(signStandaloneMetadata(metadata(artifact), "test", keys.privateKey), trusted, await blobOptions(root, artifact));
     await expect(preview.prepare(signStandaloneMetadata(metadata(artifact), "test", keys.privateKey), trusted, await blobOptions(root, artifact))).rejects.toThrow("escaped Store channel");
     const previewGeneration = await preview.prepare(
-      signStandaloneMetadata(metadata(artifact, "0.1.0-previewhyx.1", "0.1.0", "previewhyx"), "test", keys.privateKey),
+      signStandaloneMetadata(metadata(artifact, "0.1.0-somepreview.1", "0.1.0", "somepreview"), "test", keys.privateKey),
       trusted,
       await blobOptions(root, artifact),
     );

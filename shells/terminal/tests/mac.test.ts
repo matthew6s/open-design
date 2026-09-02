@@ -24,13 +24,13 @@ describe("Terminal macOS carrier", () => {
       const sceneSha = JSON.parse(readFileSync(sceneReceipt, "utf8")).sceneManifestSha256 as string;
       expect(JSON.parse(readFileSync(join(scene, "scene.json"), "utf8"))).toMatchObject({ shellBuildHash: expectedShellBuildHash(scene, target, locked.sha256) });
       const distributionRequest = join(work, "distribution-request.json");
-      writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-betahyx.2" }, outputDirectory: directories.output });
+      writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-somechan.2" }, outputDirectory: directories.output });
       const mismatched = run("sh", [join(terminalRoot, "sh/distribution.sh"), "--request", distributionRequest, "--receipt", join(work, "mismatched-distribution-receipt.json")], { allowFailure: true });
       expect(mismatched.status).not.toBe(0);
       writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: releases.beta1.release, outputDirectory: directories.output });
       const distributionReceipt = join(work, "distribution-receipt.json");
       run("sh", [join(terminalRoot, "sh/distribution.sh"), "--request", distributionRequest, "--receipt", distributionReceipt]);
-      const distribution = join(directories.output, `nexu-terminal-${target}-0.1.0-betahyx.1.tar.gz`);
+      const distribution = join(directories.output, `nexu-terminal-${target}-0.1.0-somechan.1.tar.gz`);
       expect(JSON.parse(readFileSync(distributionReceipt, "utf8"))).toMatchObject({ operation: "terminal.distribution.build", target, archive: { file: distribution } });
       run("tar", ["-xzf", distribution, "-C", directories.unpacked]);
       const root = join(directories.unpacked, "nexu-terminal");
@@ -43,16 +43,16 @@ describe("Terminal macOS carrier", () => {
           ...(options.feedbackFile == null ? [] : ["--feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };
-      const rejected = run("sh", [join(root, "sh/terminal.sh"), "--root", root, "--store-root", directories.store, "--channel", "betahyx", "--namespace", "shared", "--operation", "heartbeat", "--attachment-id", "missing"], { allowFailure: true });
+      const rejected = run("sh", [join(root, "sh/terminal.sh"), "--root", root, "--store-root", directories.store, "--channel", "somechan", "--namespace", "shared", "--operation", "heartbeat", "--attachment-id", "missing"], { allowFailure: true });
       expect(rejected.status).not.toBe(0);
       expect(JSON.parse(rejected.stdout)).toMatchObject({ outcome: "rejected", operation: "heartbeat", error: { code: "operation-failed" } });
       verifyExactLifecycle(root, directories.store, terminal, releases);
 
       const installed = join(work, "installed");
-      run("sh", [join(root, "sh/install.sh"), "--root", installed, "--channel", "betahyx", "--namespace", "installed"]);
-      const before = terminal(installed, join(work, "installed-store"), "betahyx", "installed", "probe");
+      run("sh", [join(root, "sh/install.sh"), "--root", installed, "--channel", "somechan", "--namespace", "installed"]);
+      const before = terminal(installed, join(work, "installed-store"), "somechan", "installed", "probe");
       writeFileSync(join(installed, "runtime/fossil.mjs"), `${readFileSync(join(installed, "runtime/fossil.mjs"), "utf8")}\n`);
-      const tampered = run("sh", [join(installed, "sh/terminal.sh"), "--root", installed, "--channel", "betahyx", "--namespace", "installed", "--operation", "probe"], { allowFailure: true });
+      const tampered = run("sh", [join(installed, "sh/terminal.sh"), "--root", installed, "--channel", "somechan", "--namespace", "installed", "--operation", "probe"], { allowFailure: true });
       expect(tampered.status).not.toBe(0);
       expect(before.shell.digest).toMatch(/^[a-f0-9]{64}$/);
     },

@@ -171,8 +171,8 @@ metadata and changed Closure bytes from it, so update coverage cannot pass by
 reusing only the installed seed blob. Before its first launch, the installed beta
 also replaces an unrelated prepared generation and receives the first health
 proof under its exact signed identity. The same mutable
-`betahyx/latest/channel-head.json` object is promoted across three beta rounds;
-`previewhyx/latest` proves that another non-stable channel remains isolated.
+`somechan/latest/channel-head.json` object is promoted across three beta rounds;
+`somepreview/latest` proves that another non-stable channel remains isolated.
 The fixture Shell updater additionally proves that a ready Electron installer is
 blocked by a live Terminal reference, can be deferred, and can take the explicit
 forced-stop handoff; the old Shell is rejected as installation proof and the

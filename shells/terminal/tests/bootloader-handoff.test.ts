@@ -32,8 +32,8 @@ function generation(path: string, digest: string, id = "a".repeat(64)): Generati
   return {
     schemaVersion: 4,
     id,
-    channel: "betahyx",
-    releaseVersion: "0.1.0-betahyx.1",
+    channel: "somechan",
+    releaseVersion: "0.1.0-somechan.1",
     standaloneVersion: "0.1.0",
     sourceCommit: "d".repeat(40),
     minimumShellVersions: { terminal: "0.1.0", electron: "1.0.0" },
@@ -89,7 +89,7 @@ describe("Terminal bootloader handoff host", () => {
     const launcherPath = join(root, "launcher.mjs");
     copyFileSync(join(repoRoot, "packages/standalone/dist/index.mjs"), launcherPath);
     const launcherDigest = sha256Hex(readFileSync(launcherPath));
-    const binding = createStandaloneGenerationBinding(generation(launcherPath, launcherDigest), { channel: "betahyx", namespace: "shared" });
+    const binding = createStandaloneGenerationBinding(generation(launcherPath, launcherDigest), { channel: "somechan", namespace: "shared" });
     const starts = vi.fn(async (initial: StandaloneHandoffRequest) => runtime(initial));
     const imports = vi.fn(async (selected): Promise<StandaloneGenerationHandoff> => {
       expect(selected.launcher.path).toBe(launcherPath);

@@ -31,7 +31,7 @@ describe("Standalone blob repository", () => {
     await mkdir(join(root, "carrier"), { recursive: true });
     await writeFile(candidate, bytes);
     const events: unknown[] = [];
-    const feedback = new StandaloneFeedbackEmitter("fixture", { channel: "betahyx", namespace: "shared" }, (event) => { events.push(event); });
+    const feedback = new StandaloneFeedbackEmitter("fixture", { channel: "somechan", namespace: "shared" }, (event) => { events.push(event); });
     const blob = { sha256: digest, size: bytes.length, mediaType: "application/octet-stream", sources: [{ kind: "remote" as const, url: "https://fixtures.invalid/resource.bin" }] };
     const first = await ensureStandaloneBlob(root, blob, { candidates: [{ path: candidate, source: "shell" }], feedback, resourceId: "resource" });
     expect(first).toMatchObject({ reused: false, source: "shell" });
@@ -71,9 +71,9 @@ describe("Standalone blob repository", () => {
   });
 
   it("orders non-stable Shell versions using SemVer precedence", () => {
-    expect(compareVersions("1.2.3-betahyx.2", "1.2.3-betahyx.10")).toBeLessThan(0);
-    expect(compareVersions("1.2.3-betahyx.10", "1.2.3")).toBeLessThan(0);
-    expect(compareVersions("1.2.3", "1.2.3-betahyx.10")).toBeGreaterThan(0);
+    expect(compareVersions("1.2.3-somechan.2", "1.2.3-somechan.10")).toBeLessThan(0);
+    expect(compareVersions("1.2.3-somechan.10", "1.2.3")).toBeLessThan(0);
+    expect(compareVersions("1.2.3", "1.2.3-somechan.10")).toBeGreaterThan(0);
   });
 
   it("refuses to discard paths outside the Store", async () => {

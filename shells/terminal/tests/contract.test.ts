@@ -54,7 +54,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-fixture-lifecycle-"));
     try {
       const lifecycle = fixtureLifecycle(root);
-      const scope = { channel: "betahyx", namespace: "shared" };
+      const scope = { channel: "somechan", namespace: "shared" };
       const generation = { id: "a".repeat(64) } as any;
       const first = await lifecycle.start(scope, generation, { id: "terminal", shell: { type: "terminal", version: "0.1.0", buildHash: "d".repeat(64), digest: "b".repeat(64) } }, exactBinding(scope, generation));
       const second = await lifecycle.start(scope, generation, { id: "electron", shell: { type: "electron", version: "1.0.0", buildHash: "e".repeat(64), digest: "c".repeat(64) } }, exactBinding(scope, generation));
@@ -71,7 +71,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-fixture-concurrency-"));
     try {
       const lifecycle = fixtureLifecycle(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 2_000 });
-      const scope = { channel: "betahyx", namespace: "concurrent" };
+      const scope = { channel: "somechan", namespace: "concurrent" };
       const generation = { id: "d".repeat(64) } as any;
       const shell = { type: "terminal", version: "0.1.0", buildHash: "f".repeat(64), digest: "e".repeat(64) };
       const starts = await Promise.all(
@@ -85,7 +85,7 @@ describe("Terminal native contract", () => {
       expect(released).toMatchObject({ state: "running", references: 0 });
 
       const expiringLifecycle = fixtureLifecycle(root, { heartbeatIntervalMs: 1_000, leaseDurationMs: 20 });
-      const expiringScope = { channel: "betahyx", namespace: "expiring" };
+      const expiringScope = { channel: "somechan", namespace: "expiring" };
       const expiring = await expiringLifecycle.start(expiringScope, generation, { id: "terminal-expiring", shell }, exactBinding(expiringScope, generation));
       await expiringLifecycle.release(expiringScope, "terminal-expiring");
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 30));
@@ -104,7 +104,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-updater-"));
     try {
       const lifecycle = fixtureLifecycle(root);
-      const scope = { channel: "betahyx", namespace: "shared" };
+      const scope = { channel: "somechan", namespace: "shared" };
       const generation = { id: "f".repeat(64) } as any;
       await lifecycle.start(scope, generation, { id: "terminal-active", shell: { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64), digest: "a".repeat(64) } }, exactBinding(scope, generation));
       const retirementStates: string[] = [];
@@ -150,7 +150,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-handoff-recovery-"));
     try {
       const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 2_000 });
-      const scope = { channel: "betahyx", namespace: "handoff-recovery" };
+      const scope = { channel: "somechan", namespace: "handoff-recovery" };
       const generation = { id: "6".repeat(64) } as any;
       await lifecycle.start(scope, generation, {
         id: "terminal-active",
@@ -191,7 +191,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-missing-commit-"));
     try {
       const lifecycle = fixtureLifecycle(root);
-      const scope = { channel: "betahyx", namespace: "missing-commit" };
+      const scope = { channel: "somechan", namespace: "missing-commit" };
       const updater = new FixtureShellUpdaterPort(root, scope, lifecycle, {
         algebra: SHELL_UPDATE_ALGEBRA,
         shellType: "electron",
@@ -214,7 +214,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-expired-handoff-"));
     try {
       const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 40 });
-      const scope = { channel: "betahyx", namespace: "expired-handoff" };
+      const scope = { channel: "somechan", namespace: "expired-handoff" };
       const generation = { id: "9".repeat(64) } as any;
       await lifecycle.start(scope, generation, {
         id: "terminal-active",
@@ -252,7 +252,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-shell-transition-"));
     try {
       const lifecycle = fixtureLifecycle(root);
-      const scope = { channel: "betahyx", namespace: "transition" };
+      const scope = { channel: "somechan", namespace: "transition" };
       const generation = { id: "1".repeat(64) } as any;
       const terminal = { type: "terminal", version: "0.1.0", buildHash: "4".repeat(64), digest: "2".repeat(64) };
       await lifecycle.start(scope, generation, { id: "terminal-active", shell: terminal }, exactBinding(scope, generation));
@@ -280,7 +280,7 @@ describe("Terminal native contract", () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-transition-expiry-"));
     try {
       const lifecycle = fixtureLifecycle(root, { transitionLeaseDurationMs: 40 });
-      const scope = { channel: "betahyx", namespace: "abandoned-transition" };
+      const scope = { channel: "somechan", namespace: "abandoned-transition" };
       const generation = { id: "a".repeat(64) } as any;
       const result = await lifecycle.beginTransition(scope, "shell-install", { ownerShellType: "electron", force: true });
       if (result.state !== "acquired") throw new Error("fixture transition was not acquired");

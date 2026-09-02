@@ -26,8 +26,8 @@ function generation(id = "a".repeat(64)): GenerationRecord {
   return {
     schemaVersion: 4,
     id,
-    channel: "betahyx",
-    releaseVersion: "0.1.0-betahyx.1",
+    channel: "somechan",
+    releaseVersion: "0.1.0-somechan.1",
     standaloneVersion: "0.1.0",
     sourceCommit: "d".repeat(40),
     minimumShellVersions: { terminal: "0.1.0" },
@@ -65,7 +65,7 @@ function request(
   })),
 ): StandaloneHandoffRequest {
   return {
-    binding: createStandaloneGenerationBinding(generation(generationId), { channel: "betahyx", namespace: "shared" }),
+    binding: createStandaloneGenerationBinding(generation(generationId), { channel: "somechan", namespace: "shared" }),
     attachment: { id, shell: terminal },
     capabilities: { invoke: capability },
   };
@@ -106,9 +106,9 @@ function body(bindingDigest: string, generationId: string) {
 
 describe("immutable bootloader handoff", () => {
   it("binds one typed standalone.launcher to an exact generation and scope", () => {
-    const first = createStandaloneGenerationBinding(generation(), { channel: "betahyx", namespace: "shared" });
-    const same = createStandaloneGenerationBinding(generation(), { channel: "betahyx", namespace: "shared" });
-    const otherScope = createStandaloneGenerationBinding(generation(), { channel: "betahyx", namespace: "other" });
+    const first = createStandaloneGenerationBinding(generation(), { channel: "somechan", namespace: "shared" });
+    const same = createStandaloneGenerationBinding(generation(), { channel: "somechan", namespace: "shared" });
+    const otherScope = createStandaloneGenerationBinding(generation(), { channel: "somechan", namespace: "other" });
     expect(first).toEqual(same);
     expect(first.digest).not.toBe(otherScope.digest);
     expect(first.launcher).toMatchObject({ resourceId: "standalone-launcher", blobSha256: "e".repeat(64) });

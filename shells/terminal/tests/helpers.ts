@@ -175,13 +175,13 @@ function releaseDocuments(root: string, closure: Uint8Array, launcher: Uint8Arra
   const preview1 = Buffer.concat([closure, Buffer.from("\n// terminal exact preview 1\n")]);
   const releases = {
     trustFile: join(root, "trust.json"),
-    beta1: create("betahyx", "0.1.0-betahyx.1", "0.1.0", closure),
-    beta2: create("betahyx", "0.1.0-betahyx.2", "0.1.0", beta2),
-    beta3: create("betahyx", "0.1.0-betahyx.3", "0.2.0", beta3),
-    preview1: create("previewhyx", "0.1.0-previewhyx.1", "0.1.0", preview1),
+    beta1: create("somechan", "0.1.0-somechan.1", "0.1.0", closure),
+    beta2: create("somechan", "0.1.0-somechan.2", "0.1.0", beta2),
+    beta3: create("somechan", "0.1.0-somechan.3", "0.2.0", beta3),
+    preview1: create("somepreview", "0.1.0-somepreview.1", "0.1.0", preview1),
     latestUrls: {
-      betahyx: `${baseUrl}/betahyx/latest/channel-head.json`,
-      previewhyx: `${baseUrl}/previewhyx/latest/channel-head.json`,
+      somechan: `${baseUrl}/somechan/latest/channel-head.json`,
+      somepreview: `${baseUrl}/somepreview/latest/channel-head.json`,
     },
   };
   for (const release of [releases.beta1, releases.beta2, releases.beta3, releases.preview1]) {
@@ -221,58 +221,58 @@ export function prepareExactFixture(target: string) {
 }
 
 export function verifyExactLifecycle(root: string, store: string, terminal: TerminalRunner, releases: ReturnType<typeof releaseDocuments>): void {
-  for (const [channel, namespace] of [["betahyx", "shared"], ["betahyx", "updater-scenario"], ["previewhyx", "shared"]]) {
+  for (const [channel, namespace] of [["somechan", "shared"], ["somechan", "updater-scenario"], ["somepreview", "shared"]]) {
     const stamp = { channel, namespace, source: "standalone", mode: "runtime", app: "standalone" };
     terminalSidecars.set(JSON.stringify(stamp), stamp);
   }
   const feedbackFile = join(dirname(store), "terminal-feedback.jsonl");
-  expect(terminal(root, store, "betahyx", "shared", "probe")).toMatchObject({ outcome: "ready", result: { channel: "betahyx" } });
-  const first = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
+  expect(terminal(root, store, "somechan", "shared", "probe")).toMatchObject({ outcome: "ready", result: { channel: "somechan" } });
+  const first = terminal(root, store, "somechan", "shared", "start", { attachmentId: "terminal-a", feedbackFile });
   expect(first).toMatchObject({ outcome: "ready", result: { state: "running", references: 1, attachmentCapability: expect.any(String), sidecar: { bootstrapPid: expect.any(Number), generationPid: expect.any(Number), hostPid: expect.any(Number), status: "ready" } } });
   expect(first.result.sidecar.bootstrapPid).not.toBe(first.result.sidecar.hostPid);
-  const second = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-b" });
+  const second = terminal(root, store, "somechan", "shared", "start", { attachmentId: "terminal-b" });
   expect(second.result).toMatchObject({ instanceId: first.result.instanceId, references: 2, attachmentCapability: expect.any(String), sidecar: { generationPid: first.result.sidecar.generationPid, status: "ready" } });
-  expect(terminal(root, store, "betahyx", "shared", "heartbeat", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result.references).toBe(2);
-  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: first.result.attachmentCapability }).result.references).toBe(1);
-  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result).toMatchObject({ state: "running", references: 0 });
-  const reattached = terminal(root, store, "betahyx", "shared", "start", { attachmentId: "terminal-a" });
+  expect(terminal(root, store, "somechan", "shared", "heartbeat", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result.references).toBe(2);
+  expect(terminal(root, store, "somechan", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: first.result.attachmentCapability }).result.references).toBe(1);
+  expect(terminal(root, store, "somechan", "shared", "release", { attachmentId: "terminal-b", attachmentCapability: second.result.attachmentCapability }).result).toMatchObject({ state: "running", references: 0 });
+  const reattached = terminal(root, store, "somechan", "shared", "start", { attachmentId: "terminal-a" });
   expect(reattached.result).toMatchObject({
     generationId: first.result.generationId,
     references: 1,
     sidecar: { generationPid: first.result.sidecar.generationPid, status: "ready" },
   });
   expect(reattached.result.sidecar.hostPid).not.toBe(first.result.sidecar.hostPid);
-  expect(terminal(root, store, "betahyx", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: reattached.result.attachmentCapability }).result.references).toBe(0);
-  expect(terminal(root, store, "betahyx", "updater-scenario", "start", { attachmentId: "terminal-active" }).result).toMatchObject({ state: "running" });
-  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-check").result).toMatchObject({ outcome: "accepted", snapshot: { state: "available" } });
-  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-download").result).toMatchObject({ snapshot: { state: "ready" } });
-  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-install").result).toMatchObject({ outcome: "blocked", snapshot: { blockedBy: [{ attachmentId: "terminal-active" }] } });
-  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-later").result).toMatchObject({ snapshot: { state: "ready" } });
-  expect(terminal(root, store, "betahyx", "updater-scenario", "shell-update-force").result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
+  expect(terminal(root, store, "somechan", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: reattached.result.attachmentCapability }).result.references).toBe(0);
+  expect(terminal(root, store, "somechan", "updater-scenario", "start", { attachmentId: "terminal-active" }).result).toMatchObject({ state: "running" });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-check").result).toMatchObject({ outcome: "accepted", snapshot: { state: "available" } });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-download").result).toMatchObject({ snapshot: { state: "ready" } });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-install").result).toMatchObject({ outcome: "blocked", snapshot: { blockedBy: [{ attachmentId: "terminal-active" }] } });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-later").result).toMatchObject({ snapshot: { state: "ready" } });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-force").result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
   releases.promote(releases.beta2);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "authorize-silent", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
+  expect(terminal(root, store, "somechan", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.somechan, activationPolicy: "authorize-silent", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.launcherSha256))).toEqual(readFileSync(releases.beta2.launcherFile));
-  const applied = terminal(root, store, "betahyx", "shared", "apply-update");
+  const applied = terminal(root, store, "somechan", "shared", "apply-update");
   expect(applied.result).toMatchObject({ status: "applied", lifecycle: { state: "running" } });
   expect(applied.result.lifecycle.generationId).not.toBe(first.result.generationId);
-  const handedOff = terminal(root, store, "betahyx", "shared", "status");
+  const handedOff = terminal(root, store, "somechan", "shared", "status");
   expect(handedOff.result.sidecar).toMatchObject({
     generationPid: first.result.sidecar.generationPid,
     previousHostPid: reattached.result.sidecar.hostPid,
     status: "ready",
   });
   expect(handedOff.result.sidecar.hostPid).not.toBe(reattached.result.sidecar.hostPid);
-  expect(terminal(root, store, "betahyx", "shared", "stop").result.state).toBe("stopped");
+  expect(terminal(root, store, "somechan", "shared", "stop").result.state).toBe("stopped");
   releases.promote(releases.beta3);
-  expect(terminal(root, store, "betahyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.betahyx, activationPolicy: "observe" }).result).toMatchObject({
+  expect(terminal(root, store, "somechan", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.somechan, activationPolicy: "observe" }).result).toMatchObject({
     state: "update-required",
     minimumVersion: "0.2.0",
     snapshot: { state: "failed", error: { message: expect.stringContaining("lacks Shell lane") } },
   });
   releases.promote(releases.preview1);
-  expect(terminal(root, store, "previewhyx", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.previewhyx, activationPolicy: "authorize-user" }).result).toMatchObject({ status: "prepared", authorized: true });
-  expect(terminal(root, store, "previewhyx", "shared", "apply-update").result).toMatchObject({ status: "applied", lifecycle: { state: "running", scope: { channel: "previewhyx", namespace: "shared" } } });
+  expect(terminal(root, store, "somepreview", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.somepreview, activationPolicy: "authorize-user" }).result).toMatchObject({ status: "prepared", authorized: true });
+  expect(terminal(root, store, "somepreview", "shared", "apply-update").result).toMatchObject({ status: "applied", lifecycle: { state: "running", scope: { channel: "somepreview", namespace: "shared" } } });
   const feedback = readFileSync(feedbackFile, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
   const phases = feedback.map((event) => event.phase);
   expect(phases).toContain("node-verification");

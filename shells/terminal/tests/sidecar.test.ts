@@ -29,8 +29,8 @@ function generation(path: string, digest: string, id: string): GenerationRecord 
   return {
     schemaVersion: 4,
     id,
-    channel: "betahyx",
-    releaseVersion: "0.1.0-betahyx.1",
+    channel: "somechan",
+    releaseVersion: "0.1.0-somechan.1",
     standaloneVersion: "0.1.0",
     sourceCommit: "d".repeat(40),
     minimumShellVersions: { terminal: "0.1.0" },
@@ -82,7 +82,7 @@ describe("Terminal Sidecar refinement", () => {
     copyFileSync(standaloneEntrypoint, launcherB);
     const firstGeneration = generation(launcherA, sha256Hex(readFileSync(launcherA)), "a".repeat(64));
     const secondGeneration = generation(launcherB, sha256Hex(readFileSync(launcherB)), "b".repeat(64));
-    const scope = { channel: "betahyx", namespace: `handoff-${process.pid}` };
+    const scope = { channel: "somechan", namespace: `handoff-${process.pid}` };
     const firstBinding = createStandaloneGenerationBinding(firstGeneration, scope);
     const secondBinding = createStandaloneGenerationBinding(secondGeneration, scope);
     const stamp = { ...scope, source: "standalone", mode: "runtime", app: "standalone" };

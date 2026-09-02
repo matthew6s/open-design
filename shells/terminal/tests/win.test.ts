@@ -24,13 +24,13 @@ describe("Terminal Windows carrier", () => {
       const sceneSha = JSON.parse(readFileSync(sceneReceipt, "utf8")).sceneManifestSha256 as string;
       expect(JSON.parse(readFileSync(join(scene, "scene.json"), "utf8"))).toMatchObject({ shellBuildHash: expectedShellBuildHash(scene, target, locked.sha256) });
       const distributionRequest = join(work, "distribution-request.json");
-      writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-betahyx.2" }, outputDirectory: directories.output });
+      writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: { ...releases.beta1.release, releaseVersion: "0.1.0-somechan.2" }, outputDirectory: directories.output });
       const mismatched = powershell(join(terminalRoot, "ps1/distribution.ps1"), ["-Request", distributionRequest, "-Receipt", join(work, "mismatched-distribution-receipt.json")], { allowFailure: true });
       expect(mismatched.status).not.toBe(0);
       writeDistributionRequest(distributionRequest, { target, sceneDirectory: scene, sceneManifestSha256: sceneSha, releaseDocumentsDirectory: directories.documents, trustFile: releases.trustFile, release: releases.beta1.release, outputDirectory: directories.output });
       const distributionReceipt = join(work, "distribution-receipt.json");
       powershell(join(terminalRoot, "ps1/distribution.ps1"), ["-Request", distributionRequest, "-Receipt", distributionReceipt]);
-      const distribution = join(directories.output, `nexu-terminal-${target}-0.1.0-betahyx.1.zip`);
+      const distribution = join(directories.output, `nexu-terminal-${target}-0.1.0-somechan.1.zip`);
       expect(JSON.parse(readFileSync(distributionReceipt, "utf8"))).toMatchObject({ operation: "terminal.distribution.build", target, archive: { file: distribution } });
       run("powershell.exe", ["-NoProfile", "-Command", "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1]", distribution, directories.unpacked]);
       const root = join(directories.unpacked, "nexu-terminal");
@@ -43,16 +43,16 @@ describe("Terminal Windows carrier", () => {
           ...(options.feedbackFile == null ? [] : ["-Feedback", options.feedbackFile])]);
         return JSON.parse(result.stdout) as Record<string, any>;
       };
-      const rejected = powershell(join(root, "ps1/terminal.ps1"), ["-Root", root, "-StoreRoot", directories.store, "-Channel", "betahyx", "-Namespace", "shared", "-Operation", "heartbeat", "-AttachmentId", "missing"], { allowFailure: true });
+      const rejected = powershell(join(root, "ps1/terminal.ps1"), ["-Root", root, "-StoreRoot", directories.store, "-Channel", "somechan", "-Namespace", "shared", "-Operation", "heartbeat", "-AttachmentId", "missing"], { allowFailure: true });
       expect(rejected.status).not.toBe(0);
       expect(JSON.parse(rejected.stdout)).toMatchObject({ outcome: "rejected", operation: "heartbeat", error: { code: "operation-failed" } });
       verifyExactLifecycle(root, directories.store, terminal, releases);
 
       const installed = join(work, "installed");
-      powershell(join(root, "ps1/install.ps1"), ["-Root", installed, "-Channel", "betahyx", "-Namespace", "installed"]);
-      const before = terminal(installed, join(work, "installed-store"), "betahyx", "installed", "probe");
+      powershell(join(root, "ps1/install.ps1"), ["-Root", installed, "-Channel", "somechan", "-Namespace", "installed"]);
+      const before = terminal(installed, join(work, "installed-store"), "somechan", "installed", "probe");
       writeFileSync(join(installed, "runtime/fossil.mjs"), `${readFileSync(join(installed, "runtime/fossil.mjs"), "utf8")}\n`);
-      const tampered = powershell(join(installed, "ps1/terminal.ps1"), ["-Root", installed, "-Channel", "betahyx", "-Namespace", "installed", "-Operation", "probe"], { allowFailure: true });
+      const tampered = powershell(join(installed, "ps1/terminal.ps1"), ["-Root", installed, "-Channel", "somechan", "-Namespace", "installed", "-Operation", "probe"], { allowFailure: true });
       expect(tampered.status).not.toBe(0);
       expect(before.shell.digest).toMatch(/^[a-f0-9]{64}$/);
     },
