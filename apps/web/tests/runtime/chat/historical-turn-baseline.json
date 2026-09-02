@@ -17,6 +17,7 @@
         {
           "kind": "tool",
           "id": "t1",
+          "pending": false,
           "tool": "read",
           "name": "Read",
           "title": "Read",
@@ -57,6 +58,7 @@
               {
                 "kind": "tool",
                 "id": "t2",
+                "pending": false,
                 "tool": "write",
                 "name": "Write",
                 "title": "Write",
@@ -106,6 +108,7 @@
             {
               "kind": "tool",
               "id": "t2",
+              "pending": false,
               "tool": "write",
               "name": "Write",
               "title": "Write",
@@ -175,6 +178,7 @@
               {
                 "kind": "tool",
                 "id": "t1",
+                "pending": false,
                 "tool": "write",
                 "name": "Write",
                 "title": "Write",
@@ -224,6 +228,7 @@
             {
               "kind": "tool",
               "id": "t1",
+              "pending": false,
               "tool": "write",
               "name": "Write",
               "title": "Write",
@@ -292,6 +297,7 @@
               {
                 "kind": "tool",
                 "id": "t1",
+                "pending": false,
                 "tool": "edit",
                 "name": "Edit",
                 "title": "Edit",
@@ -329,6 +335,7 @@
             {
               "kind": "tool",
               "id": "t1",
+              "pending": false,
               "tool": "edit",
               "name": "Edit",
               "title": "Edit",

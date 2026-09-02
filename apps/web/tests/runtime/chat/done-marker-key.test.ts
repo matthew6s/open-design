@@ -207,8 +207,27 @@ describe('旧数据兼容 · 没有 key 的历史消息落块与改动前一致'
    *    重复行(3 行只对应 2 条 segment),正是用户指认的「为什么有两个一模一样的 todo」。
    *    这一条是**修复**落进基线,不是裁决。
    *
+   * **2026-09-02 又刷了一次,只动一个字段**:七行工具行各补一个 `"pending": false`。
+   * 推翻旧基线的是 **D3 作废**(产品 2026-09-02,OPEND-2419;裁决见
+   * `specs/current/chat-panel-next.md` D3 行与 B8 行,实现见 `e8bd2a726d`):
+   * 「调用跑完才落行」改成「调用发出去就落行」,`ToolRow` 因此多了一个必填的 `pending`。
+   *
+   * 为什么这次是**基线过时**、不是实现跑偏 —— 三条都核过:
+   *  1. 九条 fixture 里每个 `tool_use` 都配着 `tool_result`(见 `historical-turn-fixtures.ts`
+   *     的 `call()` 助手),所以历史轮次里**没有一行是 pending 的**,七处新增值全是 `false`;
+   *  2. 落块的数量、顺序、归属、耗时、todo 状态**一处没变** —— 逐路径深比较过全部九条,
+   *     差异有且只有这七个新字段。`e8bd2a726d` 里那句 `else if (row.pending) stamp(...)`
+   *     只在 pending 为真时改壳的跨度,历史数据走不到;
+   *  3. `pending: false` 在渲染层是**空操作**:`ToolRow.tsx` 三处 `row.pending` 分支全走
+   *     else,画出来和改动前逐像素相同。
+   * 也就是说这条测试守的东西(历史消息看起来不能变)并没有被破坏,只是基线欠了一个
+   * 新字段。所以这次**只补字段、不整体重导** —— 整体重导会把「实现现在输出什么」
+   * 直接抄成「实现应该输出什么」,尺子就废了。
+   *
    * 顺带记一笔:重刷之前这条测试在 HEAD 上**本来就是红的** —— 上一次修重复行时没有
    * 同步重刷基线。基线一旦欠着,它就从「守护栏」退化成「噪音」,下次真回归也拦不住。
+   * 2026-09-02 这次也一样:`e8bd2a726d` 同步改了 `build-turn-blocks.test.ts`、新写了
+   * `pending-tool-row.test.ts` 和 `tool-row-running.test.tsx`,唯独漏了这个基线。
    */
   it('九种历史轮次:落块与改动前逐字一致', () => {
     for (const [name, input] of Object.entries(HISTORICAL_TURN_FIXTURES)) {
