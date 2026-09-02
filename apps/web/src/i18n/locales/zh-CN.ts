@@ -119,6 +119,7 @@ export const zhCN: Dict = {
   "chat.runError.title.modelWindowLimit": "高峰期繁忙",
   "chat.runError.title.membershipConcurrencyLimit": "并发任务已达上限",
   "chat.runError.title.strategyTaskHalted": "任务已被质量门拦下",
+  "chat.runError.title.agentReplyIncomplete": "回复已收到，但没能记录下来",
   "chat.runError.title.clientEnvironment": "网络环境不对",
   "chat.runError.title.generic": "任务执行失败",
   "chat.runError.title.artifactMissing": "未生成文件产物",
@@ -172,6 +173,7 @@ export const zhCN: Dict = {
   "chat.runError.cliSessionRefusedMessage":
     "{agent} 拒绝开始会话。通常是当前版本与 Open Design 不兼容，换一个版本后重试。",
   "chat.runError.strategyTaskStateMismatchMessage": "该任务已被策略质量门拦下，本轮表单无法继续提交。请重试请求或重新发起一次任务。",
+  "chat.runError.agentReplyIncompleteMessage": "智能体的回复里缺少 Open Design 记录这一步所需的标记，任务因此没能继续。你提交的内容没有丢失；这属于偶发情况，重试一次通常就好了。",
   "chat.runError.clientEnvironmentMessage": "看起来走了代理或公司网络，{agent} 拒绝了请求（{cause}）。换一个网络出口，或在设置里调整代理。",
   "chat.runError.clientEnvironmentCause.certificate": "证书校验失败",
   "chat.runError.clientEnvironmentCause.proxy": "代理配置有问题",

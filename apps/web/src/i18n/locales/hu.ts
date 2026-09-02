@@ -115,6 +115,7 @@ export const hu: Dict = {
   'chat.runError.title.modelWindowLimit': 'Nagy a terhelés',
   'chat.runError.title.membershipConcurrencyLimit': 'Elérted a párhuzamos feladatok korlátját',
   'chat.runError.title.strategyTaskHalted': "A feladatot a minőségi kapu leállította",
+  'chat.runError.title.agentReplyIncomplete': "A válasz megjött, de nem rögzült",
   'chat.runError.title.clientEnvironment': 'Hálózati környezeti probléma',
   'chat.runError.title.generic': 'A feladat sikertelen',
   'chat.runError.title.artifactMissing': 'Nem készült átadható fájl',
@@ -166,6 +167,7 @@ export const hu: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "A(z) {agent} megtagadta a munkamenet indítását. A telepített verzió általában nem kompatibilis az Open Designnal — válts másik verzióra, majd próbáld újra.",
   'chat.runError.strategyTaskStateMismatchMessage': "Ezt a feladatot a stratégia minőségi kapuja már leállította, ezért az űrlap e köre nem folytatható. Próbáld újra a kérést, vagy indíts egy újat.",
+  'chat.runError.agentReplyIncompleteMessage': "Az ügynök válasza megérkezett, de hiányzott belőle az a jelölés, amelyre az Open Designnak szüksége van ehhez a lépéshez, így a feladat nem tudott továbbmenni. Semmi nem veszett el abból, amit elküldtél; ez időnként előfordul, és az újrapróbálkozás általában sikerül.",
   'chat.runError.clientEnvironmentMessage': 'Úgy tűnik, a kérés proxyn vagy céges hálózaton ment át, és a(z) {agent} elutasította ({cause}). Próbálj másik hálózati kijáratot, vagy állítsd be a proxyt a Beállításokban.',
   'chat.runError.clientEnvironmentCause.certificate': 'a tanúsítvány ellenőrzése sikertelen',
   'chat.runError.clientEnvironmentCause.proxy': 'proxykonfigurációs probléma',

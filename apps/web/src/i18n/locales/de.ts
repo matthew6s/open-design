@@ -115,6 +115,7 @@ export const de: Dict = {
   'chat.runError.title.modelWindowLimit': 'Hohe Auslastung',
   'chat.runError.title.membershipConcurrencyLimit': 'Limit gleichzeitiger Aufgaben erreicht',
   'chat.runError.title.strategyTaskHalted': "Aufgabe vom Qualitäts-Gate gestoppt",
+  'chat.runError.title.agentReplyIncomplete': "Antwort da, aber nicht erfasst",
   'chat.runError.title.clientEnvironment': 'Netzwerkumgebung stimmt nicht',
   'chat.runError.title.generic': 'Aufgabe fehlgeschlagen',
   'chat.runError.title.artifactMissing': 'Kein Ergebnis erzeugt',
@@ -166,6 +167,7 @@ export const de: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} hat den Start einer Sitzung verweigert. Meist ist die installierte Version nicht mit Open Design kompatibel — wechsle zu einer anderen Version und versuche es erneut.",
   'chat.runError.strategyTaskStateMismatchMessage': "Diese Aufgabe wurde bereits vom Qualitäts-Gate der Strategie gestoppt, daher kann diese Formularrunde nicht fortgesetzt werden. Wiederhole die Anfrage oder starte eine neue.",
+  'chat.runError.agentReplyIncompleteMessage': "Die Antwort des Agenten kam ohne die Markierung zurück, die Open Design braucht, um diesen Schritt zu erfassen — deshalb konnte die Aufgabe nicht weiterlaufen. Nichts von dem, was du geschickt hast, ist verloren; das passiert nur sporadisch, und ein erneuter Versuch klappt meistens.",
   'chat.runError.clientEnvironmentMessage': 'Die Anfrage lief offenbar über einen Proxy oder ein Firmennetzwerk, und {agent} hat sie abgelehnt ({cause}). Nutze eine andere Netzwerkverbindung oder passe den Proxy in den Einstellungen an.',
   'chat.runError.clientEnvironmentCause.certificate': 'Zertifikatsprüfung fehlgeschlagen',
   'chat.runError.clientEnvironmentCause.proxy': 'Problem mit der Proxy-Konfiguration',

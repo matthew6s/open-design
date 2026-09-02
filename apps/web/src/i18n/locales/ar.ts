@@ -115,6 +115,7 @@ export const ar: Dict = {
   'chat.runError.title.modelWindowLimit': 'ازدحام في الاستخدام',
   'chat.runError.title.membershipConcurrencyLimit': 'تم بلوغ حد المهام المتزامنة',
   'chat.runError.title.strategyTaskHalted': "أُوقفت المهمة بواسطة بوابة الجودة",
+  'chat.runError.title.agentReplyIncomplete': "وصل الرد لكنه لم يُسجَّل",
   'chat.runError.title.clientEnvironment': 'مشكلة في بيئة الشبكة',
   'chat.runError.title.generic': 'فشلت المهمة',
   'chat.runError.title.artifactMissing': 'لم يتم إنشاء أي مخرجات',
@@ -166,6 +167,7 @@ export const ar: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "رفض {agent} بدء جلسة. عادةً ما يكون الإصدار المثبَّت غير متوافق مع Open Design، فانتقل إلى إصدار آخر ثم أعد المحاولة.",
   'chat.runError.strategyTaskStateMismatchMessage': "أوقفت بوابة جودة الاستراتيجية هذه المهمة بالفعل، لذا لا يمكن متابعة هذه الجولة من النموذج. أعد محاولة الطلب أو ابدأ طلبًا جديدًا.",
+  'chat.runError.agentReplyIncompleteMessage': "جاء رد الوكيل بلا العلامة التي يحتاجها Open Design لتسجيل هذه الخطوة، فلم تستطع المهمة المتابعة. لم يضِع شيء مما أرسلته؛ يحدث هذا بين الحين والآخر، وغالبًا ما تنجح إعادة المحاولة.",
   'chat.runError.clientEnvironmentMessage': 'يبدو أن الطلب مرّ عبر وكيل أو شبكة الشركة، وقد رفضه {agent} ({cause}). جرّب مخرج شبكة آخر، أو اضبط الوكيل من الإعدادات.',
   'chat.runError.clientEnvironmentCause.certificate': 'فشل التحقق من الشهادة',
   'chat.runError.clientEnvironmentCause.proxy': 'مشكلة في إعداد الوكيل',

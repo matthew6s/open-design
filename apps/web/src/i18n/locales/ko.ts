@@ -115,6 +115,7 @@ export const ko: Dict = {
   'chat.runError.title.modelWindowLimit': '사용량이 많습니다',
   'chat.runError.title.membershipConcurrencyLimit': '동시 작업 한도 도달',
   'chat.runError.title.strategyTaskHalted': "품질 게이트가 작업을 중단함",
+  'chat.runError.title.agentReplyIncomplete': "답변은 왔지만 기록되지 않음",
   'chat.runError.title.clientEnvironment': '네트워크 환경 문제',
   'chat.runError.title.generic': '작업 실패',
   'chat.runError.title.artifactMissing': '결과물이 생성되지 않음',
@@ -166,6 +167,7 @@ export const ko: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent}이(가) 세션 시작을 거부했습니다. 보통 현재 버전이 Open Design과 호환되지 않습니다. 다른 버전으로 바꾼 뒤 다시 시도하세요.",
   'chat.runError.strategyTaskStateMismatchMessage': "이 작업은 이미 전략 품질 게이트에 의해 중단되어 이번 양식 단계를 계속할 수 없습니다. 요청을 다시 시도하거나 새로 시작하세요.",
+  'chat.runError.agentReplyIncompleteMessage': "에이전트의 답변에 Open Design이 이 단계를 기록하는 데 필요한 표시가 빠져 있어 작업을 이어가지 못했습니다. 보내신 내용은 사라지지 않았습니다. 가끔 생기는 문제라 다시 시도하면 대개 넘어갑니다.",
   'chat.runError.clientEnvironmentMessage': '프록시나 회사 네트워크를 거친 것으로 보이며, {agent}이(가) 요청을 거부했습니다({cause}). 다른 네트워크 경로를 사용하거나 설정에서 프록시를 조정하세요.',
   'chat.runError.clientEnvironmentCause.certificate': '인증서 검증 실패',
   'chat.runError.clientEnvironmentCause.proxy': '프록시 설정 문제',

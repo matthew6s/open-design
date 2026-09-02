@@ -280,6 +280,7 @@ export type RunFailureMessageKey =
   | 'chat.runError.fallbackMessage'
   | 'chat.runError.cliSessionRefusedMessage'
   | 'chat.runError.strategyTaskStateMismatchMessage'
+  | 'chat.runError.agentReplyIncompleteMessage'
   | 'chat.runError.clientEnvironmentMessage'
   | null;
 
@@ -344,6 +345,7 @@ export type RunFailureTitleKey =
   | 'chat.runError.title.accountSuspended'
   | 'chat.runError.title.cliSessionRefused'
   | 'chat.runError.title.strategyTaskHalted'
+  | 'chat.runError.title.agentReplyIncomplete'
   | 'chat.runError.title.clientEnvironment'
   | 'chat.runError.title.generic';
 
@@ -840,7 +842,54 @@ const AGENT_AGNOSTIC_FAILURE_UI: Record<string, RunFailureUi> = {
     'chat.runError.title.strategyTaskHalted',
     'chat.runError.strategyTaskStateMismatchMessage',
   ),
+  // The agent answered — completely, readably, and the reply is already on
+  // screen — but the reply carried no usable Runtime State block, and the OD
+  // Next clarification stage admits only `plan_ready` (which needs a Plan
+  // Contract this reply never had), `blocked`, or `canceled`. So the turn
+  // settles terminal-`blocked`.
+  //
+  // Refusing it is CORRECT and is not what these rows change. What they change
+  // is what the user is told. Without a row here the failure fell through to
+  // the generic fallback, whose `messageKey: null` renders
+  // RUN_FAILURE_FALLBACK_MESSAGE_KEY — a blank "the task failed" — while the
+  // user is looking at their submitted answers and a full prose plan. The one
+  // sentence that actually described the failure lived only in the English
+  // diagnostic text. That is design principle 5 inverted twice over: it
+  // explains nothing, and it lets the user suspect their own answers.
+  //
+  // Ladder rung 2. The omission is intermittent — the same prompt re-run
+  // usually emits the block — so Retry is the honest action, and
+  // `retryWithGuidance` keeps exactly the button the fallback already gave.
+  //
+  // ⚠️ `docs/design/run-errors/error-ux-design.md` HAS NO CELL FOR THIS. The
+  // nearest, S21, covers an empty / malformed / looping model response, which
+  // this is not. The copy below is W41's draft for a cell product has yet to
+  // write — replace the wording, not the routing, when they do.
+  //
+  // All four Runtime State issue codes (`strategies/od-next/protocol.ts:16-19`)
+  // share the row: to the user they are one story — the reply came back without
+  // the marker — and splitting them would only ask product for four wordings of
+  // the same sentence.
+  od_next_protocol_runtime_state_missing: agentReplyIncomplete(),
+  od_next_protocol_runtime_state_duplicate: agentReplyIncomplete(),
+  od_next_protocol_runtime_state_invalid_json: agentReplyIncomplete(),
+  od_next_protocol_runtime_state_invalid_schema: agentReplyIncomplete(),
 };
+
+/**
+ * The card for "the agent replied, but the reply could not be recorded".
+ *
+ * A function rather than a shared constant because `AGENT_AGNOSTIC_FAILURE_UI`
+ * hands its values straight to callers; four references to one frozen-by-
+ * convention object would let a future mutation of one code's card silently
+ * rewrite the other three.
+ */
+function agentReplyIncomplete(): RunFailureUi {
+  return retryWithGuidance(
+    'chat.runError.title.agentReplyIncomplete',
+    'chat.runError.agentReplyIncompleteMessage',
+  );
+}
 
 // Ladder rung 3: this local path cannot work at all — the provider's quota is
 // spent, and topping it up / changing keys isn't something we can do for the

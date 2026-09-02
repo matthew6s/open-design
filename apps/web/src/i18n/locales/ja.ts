@@ -115,6 +115,7 @@ export const ja: Dict = {
   'chat.runError.title.modelWindowLimit': 'アクセスが集中しています',
   'chat.runError.title.membershipConcurrencyLimit': '同時実行タスクの上限に達しました',
   'chat.runError.title.strategyTaskHalted': "タスクは品質ゲートで停止されました",
+  'chat.runError.title.agentReplyIncomplete': "返信は届きましたが記録できませんでした",
   'chat.runError.title.clientEnvironment': 'ネットワーク環境の問題',
   'chat.runError.title.generic': 'タスクが失敗しました',
   'chat.runError.title.artifactMissing': '成果物が生成されませんでした',
@@ -166,6 +167,7 @@ export const ja: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} がセッションの開始を拒否しました。多くの場合、現在のバージョンが Open Design と互換性がありません。別のバージョンに変更してから再試行してください。",
   'chat.runError.strategyTaskStateMismatchMessage': "このタスクはストラテジーの品質ゲートによってすでに停止されているため、このラウンドのフォームは続行できません。リクエストを再試行するか、新しく開始してください。",
+  'chat.runError.agentReplyIncompleteMessage': "エージェントの返信に、Open Design がこのステップを記録するために必要なマークが含まれていなかったため、タスクを先に進められませんでした。送信した内容は失われていません。まれに起きる現象で、もう一度実行すれば大抵は通ります。",
   'chat.runError.clientEnvironmentMessage': 'プロキシまたは社内ネットワーク経由のようで、{agent} がリクエストを拒否しました（{cause}）。別のネットワーク経路に切り替えるか、設定でプロキシを調整してください。',
   'chat.runError.clientEnvironmentCause.certificate': '証明書の検証に失敗',
   'chat.runError.clientEnvironmentCause.proxy': 'プロキシ設定の問題',

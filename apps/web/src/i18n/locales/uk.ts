@@ -115,6 +115,7 @@ export const uk: Dict = {
   'chat.runError.title.modelWindowLimit': 'Високе навантаження',
   'chat.runError.title.membershipConcurrencyLimit': 'Досягнуто ліміту паралельних завдань',
   'chat.runError.title.strategyTaskHalted': "Завдання зупинено контролем якості",
+  'chat.runError.title.agentReplyIncomplete': "Відповідь надійшла, але не записана",
   'chat.runError.title.clientEnvironment': 'Проблема з мережевим середовищем',
   'chat.runError.title.generic': 'Завдання не виконано',
   'chat.runError.title.artifactMissing': 'Результат не створено',
@@ -166,6 +167,7 @@ export const uk: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} відмовився почати сеанс. Зазвичай встановлена версія несумісна з Open Design — перейдіть на іншу версію та повторіть спробу.",
   'chat.runError.strategyTaskStateMismatchMessage': "Це завдання вже зупинено контролем якості стратегії, тому цей етап форми не можна продовжити. Повторіть запит або почніть новий.",
+  'chat.runError.agentReplyIncompleteMessage': "Відповідь агента надійшла без позначки, яка потрібна Open Design, щоб записати цей крок, тому завдання не змогло рухатися далі. Нічого з надісланого вами не втрачено; таке трапляється час від часу, і повторна спроба зазвичай спрацьовує.",
   'chat.runError.clientEnvironmentMessage': 'Схоже, запит пройшов через проксі або корпоративну мережу, і {agent} відхилив його ({cause}). Змініть мережевий вихід або налаштуйте проксі в Налаштуваннях.',
   'chat.runError.clientEnvironmentCause.certificate': 'не вдалося перевірити сертифікат',
   'chat.runError.clientEnvironmentCause.proxy': 'проблема з налаштуванням проксі',

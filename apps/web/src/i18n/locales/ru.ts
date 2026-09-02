@@ -115,6 +115,7 @@ export const ru: Dict = {
   'chat.runError.title.modelWindowLimit': 'Высокая нагрузка',
   'chat.runError.title.membershipConcurrencyLimit': 'Достигнут лимит параллельных задач',
   'chat.runError.title.strategyTaskHalted': "Задача остановлена контролем качества",
+  'chat.runError.title.agentReplyIncomplete': "Ответ получен, но не записан",
   'chat.runError.title.clientEnvironment': 'Проблема с сетевой средой',
   'chat.runError.title.generic': 'Задача не выполнена',
   'chat.runError.title.artifactMissing': 'Результат не создан',
@@ -166,6 +167,7 @@ export const ru: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} отказался начать сессию. Обычно установленная версия несовместима с Open Design — перейдите на другую версию и повторите попытку.",
   'chat.runError.strategyTaskStateMismatchMessage': "Эта задача уже остановлена контролем качества стратегии, поэтому этот этап формы нельзя продолжить. Повторите запрос или начните новый.",
+  'chat.runError.agentReplyIncompleteMessage': "Ответ агента вернулся без пометки, которая нужна Open Design, чтобы записать этот шаг, поэтому задача не смогла продолжиться. Ничего из отправленного вами не потерялось; такое случается время от времени, и повторная попытка обычно проходит.",
   'chat.runError.clientEnvironmentMessage': 'Похоже, запрос прошёл через прокси или корпоративную сеть, и {agent} отклонил его ({cause}). Смените сетевой выход или настройте прокси в Настройках.',
   'chat.runError.clientEnvironmentCause.certificate': 'не удалось проверить сертификат',
   'chat.runError.clientEnvironmentCause.proxy': 'проблема с настройкой прокси',

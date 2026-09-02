@@ -115,6 +115,7 @@ export const id: Dict = {
   'chat.runError.title.modelWindowLimit': 'Sedang ramai',
   'chat.runError.title.membershipConcurrencyLimit': 'Batas tugas bersamaan tercapai',
   'chat.runError.title.strategyTaskHalted': "Tugas dihentikan oleh gerbang kualitas",
+  'chat.runError.title.agentReplyIncomplete': "Balasan diterima, tetapi tidak tercatat",
   'chat.runError.title.clientEnvironment': 'Masalah lingkungan jaringan',
   'chat.runError.title.generic': 'Tugas gagal',
   'chat.runError.title.artifactMissing': 'Tidak ada hasil yang dibuat',
@@ -166,6 +167,7 @@ export const id: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} menolak memulai sesi. Versi yang terpasang biasanya tidak kompatibel dengan Open Design — ganti ke versi lain, lalu coba lagi.",
   'chat.runError.strategyTaskStateMismatchMessage': "Tugas ini sudah dihentikan oleh gerbang kualitas strategi, sehingga putaran formulir ini tidak dapat dilanjutkan. Coba lagi permintaannya atau mulai yang baru.",
+  'chat.runError.agentReplyIncompleteMessage': "Balasan agen kembali tanpa penanda yang dibutuhkan Open Design untuk mencatat langkah ini, sehingga tugas tidak dapat dilanjutkan. Tidak ada yang hilang dari apa yang Anda kirim; ini kadang terjadi, dan mencoba lagi biasanya berhasil.",
   'chat.runError.clientEnvironmentMessage': 'Sepertinya permintaan melewati proxy atau jaringan perusahaan, dan {agent} menolaknya ({cause}). Coba jalur jaringan lain, atau atur proxy di Pengaturan.',
   'chat.runError.clientEnvironmentCause.certificate': 'verifikasi sertifikat gagal',
   'chat.runError.clientEnvironmentCause.proxy': 'masalah konfigurasi proxy',

@@ -115,6 +115,7 @@ export const ptBR: Dict = {
   'chat.runError.title.modelWindowLimit': 'Alta demanda',
   'chat.runError.title.membershipConcurrencyLimit': 'Limite de tarefas simultâneas atingido',
   'chat.runError.title.strategyTaskHalted': "Tarefa interrompida pelo controle de qualidade",
+  'chat.runError.title.agentReplyIncomplete': "Resposta recebida, mas não registrada",
   'chat.runError.title.clientEnvironment': 'Problema no ambiente de rede',
   'chat.runError.title.generic': 'A tarefa falhou',
   'chat.runError.title.artifactMissing': 'Nenhum entregável gerado',
@@ -166,6 +167,7 @@ export const ptBR: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} recusou-se a iniciar uma sessão. Normalmente a versão instalada é incompatível com o Open Design: mude para outra versão e tente novamente.",
   'chat.runError.strategyTaskStateMismatchMessage': "Esta tarefa já foi interrompida pelo controle de qualidade da estratégia, então esta rodada do formulário não pode continuar. Tente a solicitação novamente ou inicie uma nova.",
+  'chat.runError.agentReplyIncompleteMessage': "A resposta do agente voltou sem a marca de que o Open Design precisa para registrar esta etapa, então a tarefa não pôde seguir. Nada do que você enviou foi perdido; isso acontece de vez em quando, e tentar de novo costuma dar certo.",
   'chat.runError.clientEnvironmentMessage': 'Parece que a solicitação passou por um proxy ou rede corporativa e {agent} a recusou ({cause}). Tente outra saída de rede ou ajuste o proxy em Configurações.',
   'chat.runError.clientEnvironmentCause.certificate': 'falha na verificação do certificado',
   'chat.runError.clientEnvironmentCause.proxy': 'problema na configuração do proxy',

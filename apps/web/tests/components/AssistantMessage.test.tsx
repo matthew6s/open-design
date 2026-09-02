@@ -177,12 +177,17 @@ describe('AssistantMessage feedback gate', () => {
     expect(screen.queryByText('poster.png')).toBeNull();
     fireEvent.click(screen.getByTestId('artifact-card-open-poster.png'));
     /*
-     * 第二个实参是产物的**快照身份**(设计文档 §4.2):图片卡拿到当轮不可变快照
-     * 时会带上它,点击就开那一张而不是工作区今天的同名文件。这条夹具没有 refs
-     * (旧会话形态),所以必须**显式**是 `undefined` —— 写成
-     * `toHaveBeenCalledWith('poster.png')` 在多了一个可选参数之后会永远为真。
+     * **只传文件名,没有第二个实参。**
+     *
+     * 这里原来钉的是 `('poster.png', undefined)`,并在注释里解释第二个实参是
+     * 产物的快照身份(设计 §4.2:图片卡点击开当轮那一张)。用户 2026-09-02
+     * 裁决**缩略图是快照、点开永远是最新**,那条路整条撤掉了,连字段一起 ——
+     * 所以现在不是「传了 undefined」,是**根本没有第二个实参**。
+     *
+     * `toHaveBeenCalledWith` 对多余实参是敏感的:真要有人把快照身份接回来,
+     * 这条当场红。这正是它该做的事 —— 那个行为已经被否掉了。
      */
-    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png', undefined);
+    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png');
   });
 
   it('does not turn the whole assistant reply into a persistent focus target', () => {
@@ -216,7 +221,8 @@ describe('AssistantMessage feedback gate', () => {
     const open = screen.getByRole('button', { name: 'Open: poster.png' });
     expect(open.tagName).toBe('BUTTON');
     fireEvent.click(open);
-    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png', undefined);
+    // 同上:点击只带文件名,快照身份那条路已撤(用户裁决 2026-09-02)
+    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png');
   });
 
   it('renders plugin suggestions as compact user decisions with secondary actions in details', () => {

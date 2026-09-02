@@ -115,6 +115,7 @@ export const tr: Dict = {
   'chat.runError.title.modelWindowLimit': 'Yoğunluk var',
   'chat.runError.title.membershipConcurrencyLimit': 'Eşzamanlı görev sınırına ulaşıldı',
   'chat.runError.title.strategyTaskHalted': "Görev kalite kapısı tarafından durduruldu",
+  'chat.runError.title.agentReplyIncomplete': "Yanıt geldi ama kaydedilemedi",
   'chat.runError.title.clientEnvironment': 'Ağ ortamı sorunu',
   'chat.runError.title.generic': 'Görev başarısız',
   'chat.runError.title.artifactMissing': 'Teslim edilebilir çıktı oluşturulmadı',
@@ -166,6 +167,7 @@ export const tr: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} bir oturum başlatmayı reddetti. Yüklü sürüm genellikle Open Design ile uyumlu değildir; farklı bir sürüme geçip yeniden deneyin.",
   'chat.runError.strategyTaskStateMismatchMessage': "Bu görev, strateji kalite kapısı tarafından zaten durdurulduğundan formun bu turu devam edemiyor. İsteği yeniden deneyin veya yeni bir istek başlatın.",
+  'chat.runError.agentReplyIncompleteMessage': "Aracının yanıtı, bu adımı kaydetmek için Open Design tarafından beklenen işaret olmadan geldi; bu yüzden görev ilerleyemedi. Gönderdiklerinizin hiçbiri kaybolmadı, bu ara sıra olan bir durum ve yeniden denemek genelde işe yarar.",
   'chat.runError.clientEnvironmentMessage': 'İstek bir proxy veya kurumsal ağ üzerinden gitmiş görünüyor ve {agent} onu reddetti ({cause}). Farklı bir ağ çıkışı deneyin ya da Ayarlardan proxy ayarını değiştirin.',
   'chat.runError.clientEnvironmentCause.certificate': 'sertifika doğrulaması başarısız',
   'chat.runError.clientEnvironmentCause.proxy': 'proxy yapılandırması sorunu',

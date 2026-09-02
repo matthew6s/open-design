@@ -115,6 +115,7 @@ export const th: Dict = {
   'chat.runError.title.modelWindowLimit': 'มีผู้ใช้งานจำนวนมาก',
   'chat.runError.title.membershipConcurrencyLimit': 'ถึงขีดจำกัดงานพร้อมกันแล้ว',
   'chat.runError.title.strategyTaskHalted': "งานถูกหยุดโดยด่านตรวจคุณภาพ",
+  'chat.runError.title.agentReplyIncomplete': "ได้รับคำตอบแล้ว แต่บันทึกไม่สำเร็จ",
   'chat.runError.title.clientEnvironment': 'ปัญหาสภาพแวดล้อมเครือข่าย',
   'chat.runError.title.generic': 'งานล้มเหลว',
   'chat.runError.title.artifactMissing': 'ไม่มีไฟล์ผลงานที่สร้างขึ้น',
@@ -166,6 +167,7 @@ export const th: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} ปฏิเสธการเริ่มเซสชัน โดยทั่วไปเวอร์ชันที่ติดตั้งอยู่ไม่รองรับ Open Design โปรดเปลี่ยนเป็นเวอร์ชันอื่นแล้วลองอีกครั้ง",
   'chat.runError.strategyTaskStateMismatchMessage': "งานนี้ถูกหยุดโดยด่านตรวจคุณภาพของกลยุทธ์แล้ว จึงไม่สามารถดำเนินการฟอร์มรอบนี้ต่อได้ โปรดลองส่งคำขออีกครั้งหรือเริ่มคำขอใหม่",
+  'chat.runError.agentReplyIncompleteMessage': "คำตอบของเอเจนต์กลับมาโดยไม่มีเครื่องหมายที่ Open Design ต้องใช้บันทึกขั้นตอนนี้ งานจึงไปต่อไม่ได้ สิ่งที่คุณส่งไปไม่ได้สูญหาย เรื่องนี้เกิดขึ้นเป็นครั้งคราว และลองใหม่มักจะผ่านไปได้",
   'chat.runError.clientEnvironmentMessage': 'ดูเหมือนคำขอผ่านพร็อกซีหรือเครือข่ายองค์กร และ {agent} ปฏิเสธคำขอ ({cause}) ลองเปลี่ยนเส้นทางเครือข่าย หรือปรับพร็อกซีในการตั้งค่า',
   'chat.runError.clientEnvironmentCause.certificate': 'ตรวจสอบใบรับรองไม่ผ่าน',
   'chat.runError.clientEnvironmentCause.proxy': 'การตั้งค่าพร็อกซีมีปัญหา',

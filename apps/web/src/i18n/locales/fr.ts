@@ -115,6 +115,7 @@ export const fr: Dict = {
   'chat.runError.title.modelWindowLimit': 'Forte affluence',
   'chat.runError.title.membershipConcurrencyLimit': 'Limite de tâches simultanées atteinte',
   'chat.runError.title.strategyTaskHalted': "Tâche arrêtée par le contrôle qualité",
+  'chat.runError.title.agentReplyIncomplete': "Réponse reçue, mais non enregistrée",
   'chat.runError.title.clientEnvironment': 'Problème d’environnement réseau',
   'chat.runError.title.generic': 'Échec de la tâche',
   'chat.runError.title.artifactMissing': 'Aucun livrable généré',
@@ -166,6 +167,7 @@ export const fr: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} a refusé de démarrer une session. La version installée est généralement incompatible avec Open Design : passez à une autre version, puis réessayez.",
   'chat.runError.strategyTaskStateMismatchMessage': "Cette tâche a déjà été arrêtée par le contrôle qualité de la stratégie, ce tour de formulaire ne peut donc pas continuer. Réessayez la demande ou lancez-en une nouvelle.",
+  'chat.runError.agentReplyIncompleteMessage': "La réponse de l'agent est revenue sans le repère dont Open Design a besoin pour enregistrer cette étape, la tâche n'a donc pas pu continuer. Rien de ce que vous avez envoyé n'est perdu ; c'est intermittent, et réessayer suffit généralement.",
   'chat.runError.clientEnvironmentMessage': 'La requête semble être passée par un proxy ou un réseau d’entreprise, et {agent} l’a rejetée ({cause}). Essayez une autre sortie réseau ou ajustez le proxy dans les Paramètres.',
   'chat.runError.clientEnvironmentCause.certificate': 'échec de la vérification du certificat',
   'chat.runError.clientEnvironmentCause.proxy': 'problème de configuration du proxy',

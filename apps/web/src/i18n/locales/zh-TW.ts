@@ -119,6 +119,7 @@ export const zhTW: Dict = {
   "chat.runError.title.modelWindowLimit": "高峰期繁忙",
   "chat.runError.title.membershipConcurrencyLimit": "並行任務已達上限",
   "chat.runError.title.strategyTaskHalted": "任務已被品質門攔下",
+  "chat.runError.title.agentReplyIncomplete": "回覆已收到，但沒能記錄下來",
   "chat.runError.title.clientEnvironment": "網路環境不對",
   "chat.runError.title.generic": "任務執行失敗",
   "chat.runError.title.artifactMissing": "未產生檔案產物",
@@ -172,6 +173,7 @@ export const zhTW: Dict = {
   "chat.runError.cliSessionRefusedMessage":
     "{agent} 拒絕開始工作階段。通常是目前版本與 Open Design 不相容，換一個版本後重試。",
   "chat.runError.strategyTaskStateMismatchMessage": "該任務已被策略品質門攔下，本輪表單無法繼續提交。請重試請求或重新發起一次任務。",
+  "chat.runError.agentReplyIncompleteMessage": "智慧體的回覆裡缺少 Open Design 記錄這一步所需的標記，任務因此沒能繼續。你提交的內容沒有遺失；這屬於偶發情況，重試一次通常就好了。",
   "chat.runError.clientEnvironmentMessage": "看起來走了代理或公司網路，{agent} 拒絕了請求（{cause}）。換一個網路出口，或在設定裡調整代理。",
   "chat.runError.clientEnvironmentCause.certificate": "憑證驗證失敗",
   "chat.runError.clientEnvironmentCause.proxy": "代理設定有問題",

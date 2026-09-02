@@ -115,6 +115,7 @@ export const pl: Dict = {
   'chat.runError.title.modelWindowLimit': 'Duże obciążenie',
   'chat.runError.title.membershipConcurrencyLimit': 'Osiągnięto limit równoległych zadań',
   'chat.runError.title.strategyTaskHalted': "Zadanie zatrzymane przez bramkę jakości",
+  'chat.runError.title.agentReplyIncomplete': "Odpowiedź dotarła, ale nie została zapisana",
   'chat.runError.title.clientEnvironment': 'Problem ze środowiskiem sieciowym',
   'chat.runError.title.generic': 'Zadanie nie powiodło się',
   'chat.runError.title.artifactMissing': 'Nie utworzono rezultatu',
@@ -166,6 +167,7 @@ export const pl: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} odmówił rozpoczęcia sesji. Zwykle zainstalowana wersja jest niezgodna z Open Design — przejdź na inną wersję i spróbuj ponownie.",
   'chat.runError.strategyTaskStateMismatchMessage': "To zadanie zostało już zatrzymane przez bramkę jakości strategii, więc tej rundy formularza nie można kontynuować. Ponów żądanie lub rozpocznij nowe.",
+  'chat.runError.agentReplyIncompleteMessage': "Odpowiedź agenta wróciła bez znacznika, którego Open Design potrzebuje do zapisania tego kroku, więc zadanie nie mogło ruszyć dalej. Nic z przesłanych treści nie przepadło; zdarza się to sporadycznie, a ponowna próba zwykle przechodzi.",
   'chat.runError.clientEnvironmentMessage': 'Wygląda na to, że żądanie przeszło przez proxy lub sieć firmową, a {agent} je odrzucił ({cause}). Spróbuj innego wyjścia sieciowego albo dostosuj proxy w Ustawieniach.',
   'chat.runError.clientEnvironmentCause.certificate': 'weryfikacja certyfikatu nie powiodła się',
   'chat.runError.clientEnvironmentCause.proxy': 'problem z konfiguracją proxy',

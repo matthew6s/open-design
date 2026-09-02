@@ -115,6 +115,7 @@ export const en: Dict = {
   'chat.runError.title.modelWindowLimit': 'High demand right now',
   'chat.runError.title.membershipConcurrencyLimit': 'Concurrent task limit reached',
   'chat.runError.title.strategyTaskHalted': "Task halted by quality gate",
+  'chat.runError.title.agentReplyIncomplete': "Reply received, but not recorded",
   'chat.runError.title.clientEnvironment': 'Network environment problem',
   'chat.runError.title.generic': 'Task failed',
   'chat.runError.title.artifactMissing': 'No deliverable produced',
@@ -166,6 +167,7 @@ export const en: Dict = {
   'chat.runError.cliSessionRefusedMessage':
     "{agent} refused to start a session. The installed version is usually incompatible with Open Design — switch to a different version and retry.",
   'chat.runError.strategyTaskStateMismatchMessage': "This task was already halted by the strategy quality gate, so this round of the form can't continue. Retry the request or start a new one.",
+  'chat.runError.agentReplyIncompleteMessage': "The agent's reply came back without the marker Open Design needs to record this step, so the task couldn't move on. Nothing you sent was lost — this one is intermittent, and retrying usually goes through.",
   'chat.runError.clientEnvironmentMessage': 'Looks like the request went through a proxy or a corporate network, and {agent} rejected it ({cause}). Try a different network route, or adjust the proxy in Settings.',
   'chat.runError.clientEnvironmentCause.certificate': 'certificate verification failed',
   'chat.runError.clientEnvironmentCause.proxy': 'proxy configuration problem',

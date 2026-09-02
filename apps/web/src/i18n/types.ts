@@ -2868,6 +2868,8 @@ export interface Dict {
   'chat.runError.title.cpuUnsupported': string;
   'chat.runError.title.cliSessionRefused': string;
   'chat.runError.title.strategyTaskHalted': string;
+  'chat.runError.title.agentReplyIncomplete': string;
+  'chat.runError.agentReplyIncompleteMessage': string;
   'chat.runError.title.clientEnvironment': string;
   'chat.runError.title.generic': string;
   'chat.runError.title.artifactMissing': string;

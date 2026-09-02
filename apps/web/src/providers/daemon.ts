@@ -660,15 +660,31 @@ export function createGenericDaemonDisconnectError(): Error & { code: string } {
 }
 
 /**
- * WORDING IS A DRAFT — `docs/design/run-errors/error-ux-design.md` has no cell
- * for "the agent answered and Open Design refused the answer". S21 covers an
- * empty or malformed model response, which this is not: the reply is complete,
- * readable, and already on screen. Replace this sentence, and give the card its
- * buttons, once product writes the cell; the reason code below is what a cell
- * would key on.
+ * The DIAGNOSTIC sentence, not the card.
+ *
+ * What the user reads is now localized copy, resolved from the reason code this
+ * error carries: `runtime/amr-guidance.ts` maps the four Runtime State issue
+ * codes to `chat.runError.title.agentReplyIncomplete` +
+ * `chat.runError.agentReplyIncompleteMessage`, present in all 19 locales.
+ * Before that mapping existed this failure fell through to the generic
+ * fallback, so the card said "the task failed" and nothing else while the user
+ * was looking at their answers and a complete plan.
+ *
+ * This string stays English on purpose: it lands in the collapsible diagnostic
+ * area and in `error.message`, which is engineering-facing surface. It is
+ * written to say what the daemon actually refused, without implying the user
+ * or the reply was at fault.
+ *
+ * ⚠️ THE CARD COPY IS STILL A DRAFT — W41's, not product's.
+ * `docs/design/run-errors/error-ux-design.md` has no cell for "the agent
+ * answered and Open Design could not record the answer". S21, the nearest,
+ * covers an empty / malformed / looping model response, which this is not: the
+ * reply is complete, readable, and already on screen. Product should rewrite
+ * the two locale strings; the routing and the reason codes are settled.
  */
 export const STRATEGY_TASK_BLOCKED_MESSAGE =
-  "Open Design could not accept the agent's reply as this task's next step.";
+  "The agent's reply did not carry the machine-readable state Open Design needs "
+  + 'to record this step, so the task could not continue.';
 
 /**
  * Hand the user the daemon's OWN verdict on a blocked strategy task.
