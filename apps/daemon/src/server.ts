@@ -825,6 +825,7 @@ import {
   upsertDeployment,
   upsertMessage,
   upsertPreviewComment,
+  userRequestBeforeAssistantMessage,
 } from './db.js';
 import {
   computeIncludeStable,
@@ -833,6 +834,7 @@ import {
   resolveAgentResumeContext,
   resolveAgentResumeFailurePolicy,
   resolveAgentResumePromptPolicy,
+  resolveResumeContinuationSeed,
 } from './agent-session-resume.js';
 import {
   initialNativeSessionRecoveryMetadata,
@@ -2077,11 +2079,45 @@ function formAnswerTransitionForCurrentPrompt(currentPrompt) {
   return lines.join('\n');
 }
 
+/**
+ * Background block that tells a FRESH session which request it is continuing.
+ *
+ * Only ever rendered for a turn whose message is a continuation directive AND
+ * whose stored session the daemon refused (see `resolveResumeContinuationSeed`).
+ * Absent for every other turn, so no existing prompt moves by a byte — and so
+ * no upstream cached prefix moves either.
+ */
+export function renderResumeContinuationContext(
+  originalRequest: string | null | undefined,
+): string | null {
+  const request = typeof originalRequest === 'string' ? originalRequest.trim() : '';
+  if (!request) return null;
+  return [
+    '## Continuing an interrupted turn',
+    'The previous attempt could not be continued in its original agent session,'
+      + ' so this is a fresh session with no memory of it. The request that turn'
+      + ' was working on:',
+    '',
+    request,
+    '',
+    'Any files it already wrote are still in the project — inspect them before'
+      + ' redoing work.',
+  ].join('\n');
+}
+
 export function composeChatUserRequestForAgent(
   message,
   currentPrompt,
   options: {
     skipTranscript?: boolean;
+    /**
+     * The request a refused upstream session was working on, when this turn is
+     * a continuation directive the daemon could not resume. Rides the per-turn
+     * user body for the same reason the todo recall below does: a resumed
+     * session throws the rendered transcript away, and the system prompt is the
+     * cached stable prefix. Omitted/empty leaves the composed body unchanged.
+     */
+    resumeContinuationOriginalRequest?: string | null;
     /**
      * Task-list items the conversation left open on an earlier turn (see
      * `latestTodoWriteInputForConversation` + `unfinishedTodosFromTodoWriteInput`).
@@ -2122,7 +2158,13 @@ export function composeChatUserRequestForAgent(
   // Stated before the turn's own words, the same way the form-answer transition
   // is: it is background the agent reads first, not something the user said.
   const recall = renderUnfinishedTodoRecall(options.unfinishedTodosFromPreviousTurn);
+  // Stated before everything else: a fresh session must learn what it is
+  // continuing before it reads the directive telling it to continue.
+  const continuationContext = renderResumeContinuationContext(
+    options.resumeContinuationOriginalRequest,
+  );
   const parts: string[] = [];
+  if (continuationContext) parts.push(continuationContext);
   if (recall) parts.push(recall);
   if (!transition) {
     parts.push(body);
@@ -10484,6 +10526,7 @@ export async function startServer({
       message,
       currentPrompt,
       priorTranscript,
+      resumeContinuation,
       systemPrompt,
       imagePaths = [],
       projectId,
@@ -11495,6 +11538,26 @@ export async function startServer({
         })()
       : [];
     const agentResumePromptPolicy = resolveAgentResumePromptPolicy(agentResumeCtx);
+    // A continuation directive whose stored session the daemon just refused has
+    // to be told which request it is continuing; see
+    // `resolveResumeContinuationSeed`. Callers that ship their own transcript
+    // never set `resumeContinuation`, so this stays null for them.
+    const resumeContinuationSeed = resolveResumeContinuationSeed({
+      isContinuation: resumeContinuation === true,
+      requiresFullTranscript: agentResumePromptPolicy.requiresFullTranscript,
+      storedSessionId: agentResumeCtx.storedSessionId,
+      storedLastMessageId: agentResumeCtx.storedLastMessageId,
+    });
+    const resumeContinuationOriginalRequest =
+      resumeContinuationSeed.required
+      && run.conversationId
+      && resumeContinuationSeed.anchorAssistantMessageId
+        ? userRequestBeforeAssistantMessage(
+            db,
+            run.conversationId,
+            resumeContinuationSeed.anchorAssistantMessageId,
+          )
+        : null;
     const userRequestPrompt = isOdNextRequestStage
       ? resolveOdNextRequestUserPrompt({
           message,
@@ -11511,6 +11574,7 @@ export async function startServer({
           {
             skipTranscript: agentResumePromptPolicy.skipTranscript,
             unfinishedTodosFromPreviousTurn,
+            resumeContinuationOriginalRequest,
           },
         );
     // The stable instruction slice (daemon prompt + tool contract + system

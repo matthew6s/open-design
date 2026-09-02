@@ -2646,6 +2646,35 @@ export function latestCompletedAssistantMessageId(
 }
 
 /**
+ * The user request that produced `assistantMessageId` — i.e. what the upstream
+ * session that ended on that assistant turn was working on.
+ *
+ * Anchored on the stored resume cursor rather than "the newest user message",
+ * because by prompt-composition time the current turn's own user row is already
+ * seeded (`seedRunUserMessage`) and would win a naive lookup. Returns null when
+ * the anchor row is gone or nothing precedes it — the caller must then
+ * synthesize no context at all rather than guess at one.
+ */
+export function userRequestBeforeAssistantMessage(
+  db: SqliteDb,
+  conversationId: string,
+  assistantMessageId: string,
+): string | null {
+  const row = db
+    .prepare(
+      // A missing anchor makes the subquery NULL, so `position < NULL` matches
+      // nothing and the caller correctly gets null instead of the latest turn.
+      `SELECT content FROM messages
+        WHERE conversation_id = ? AND role = 'user'
+          AND position < (SELECT position FROM messages WHERE id = ?)
+        ORDER BY position DESC LIMIT 1`,
+    )
+    .get(conversationId, assistantMessageId) as DbRow | undefined;
+  const content = row && typeof row.content === 'string' ? row.content.trim() : '';
+  return content.length > 0 ? content : null;
+}
+
+/**
  * How far back a run start looks for the conversation's last declared task
  * list. A plan is recalled from the RECENT past, not from the whole
  * conversation — and the bound is also the cost ceiling: 21 of the 27 runtimes

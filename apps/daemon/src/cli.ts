@@ -7840,6 +7840,12 @@ Common options:
         projectId: status.projectId,
         conversationId: status.conversationId,
         message,
+        // This message is a continuation directive, not a self-contained
+        // request, and this command ships no transcript with it. Declaring that
+        // lets the daemon — the only layer that knows whether the stored
+        // session survived its model/cwd/cursor guard — decide whether to send
+        // the directive alone or reseed the original request alongside it.
+        resumeContinuation: true,
         analyticsHints: { entryFrom: 'resume_continue' },
         ...(status.agentId ? { agentId: status.agentId } : {}),
       };

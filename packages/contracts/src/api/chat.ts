@@ -93,6 +93,31 @@ export interface ChatRequest {
    * message; ordinary runs continue to consume message unchanged.
    */
   priorTranscript?: string;
+  /**
+   * True when `message` is a continuation directive for this conversation's
+   * last failed run ("continue where you left off; otherwise complete the
+   * original request") rather than a self-contained request.
+   *
+   * Such a directive is only answerable inside the session that heard the
+   * original request — and whether that session is actually continued is
+   * decided by the DAEMON, not the caller. `evaluateResumeInvalidation` also
+   * compares the stored model / cwd / resume cursor, none of which a caller can
+   * see: the chat client checks `resumable` + agent identity, and
+   * `od run continue` checks only `resumable`. So a caller can legitimately ask
+   * to continue a turn the daemon then refuses to resume (changing the model in
+   * Settings between the failure and the click is the common path).
+   *
+   * Setting this hands the "what do we actually send" decision to the layer
+   * that knows the answer: when the daemon resumes, the directive is sent
+   * alone; when it refuses the stored session, the daemon restates the original
+   * request from persisted history so the fresh session can act on it.
+   *
+   * Callers that already ship the full rendered transcript in `message` (the
+   * web client, which sends the transcript AND `currentPrompt`) do not need
+   * this — their context survives either branch. Callers that send only the
+   * directive (`od run continue`, external agents driving the daemon) do.
+   */
+  resumeContinuation?: boolean;
   systemPrompt?: string;
   projectId?: string | null;
   conversationId?: string | null;
