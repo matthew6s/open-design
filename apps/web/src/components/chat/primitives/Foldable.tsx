@@ -16,6 +16,7 @@
  */
 import {
   type ReactElement,
+  type Ref,
   type SyntheticEvent,
   useCallback,
   useEffect,
@@ -36,9 +37,10 @@ export function Foldable({
   scroll,
   stream,
   deferBody = false,
+  bodyRef,
   className,
   children,
-}: FoldableProps & { stream?: boolean; className?: string }): ReactElement {
+}: FoldableProps & { stream?: boolean; bodyRef?: Ref<HTMLDivElement>; className?: string }): ReactElement {
   const [selfOpen, setSelfOpen] = useState(Boolean(defaultOpen));
   const [bodyActivated, setBodyActivated] = useState(Boolean(defaultOpen || open));
   const controlled = open != null;
@@ -89,6 +91,7 @@ export function Foldable({
       </summary>
       {expandable && hasBody && shouldMountBody ? (
         <div
+          ref={bodyRef}
           className={[styles.body, stream ? styles.stream : styles.stack, scroll ? styles.scroll : null]
             .filter(Boolean).join(' ')}
         >

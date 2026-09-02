@@ -23,6 +23,7 @@ import { groupThinking, type GroupedShellItem } from '../../runtime/chat/group-t
 import type { RecordFileScope } from '../../runtime/chat/record-file-open';
 import { Foldable } from './primitives/Foldable';
 import { ImageRow } from './primitives/ImageRow';
+import { useThinkingFollow } from './primitives/useThinkingFollow';
 import { ThinkingMarkdown } from './ThinkingMarkdown';
 import { Orb } from './primitives/Orb';
 import { SayText } from './primitives/SayText';
@@ -352,6 +353,13 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
   deferBody: boolean;
 }): ReactElement {
   const elapsed = live ? null : formatElapsed(elapsedMs);
+  /*
+   * 还在写的时候贴底跟随(用户 2026-09-02)。判据复用 ChatPane 那一套
+   * (`runtime/chat/stick-to-bottom.ts`),这里只负责把限高盒子交给它。
+   * 想完了那一档不跟随 —— 那是用户专程点开来读的。
+   */
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useThinkingFollow(bodyRef, live);
 
   /*
    * 两态的行首都占**同一只 15px 图标槽**(`.icon`)。这是「左边缘不会跳」的另一半:
@@ -385,11 +393,15 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
       className={styles.thoughts}
       defaultOpen={live}
       stream={live}
-      /* 想完了那一格是用户**专程点开来读**的,所以是 `max-height` + 正常滚动条,
-         不是上面那只 96px 定高 + 渐隐 + 自己往上走的窗(用户 2026-08-27:
-         「thought 展开应该有个最高高度, 可以滚动」)。两者互斥,见 `.scroll` 的注释。 */
-      scroll={!live}
+      /* **两态共用同一套限高**:`max-height` + 普通滚动条,用户自己滚。
+         用户 2026-08-27:「thought 展开应该有个最高高度, 可以滚动」;
+         2026-09-02 又确认进行中那一档同样要:「但我记得 thinking 下面文本不是有最大
+         高度吗?就跟那个 thinking 完成后的展示那样,有最大高度」。
+         这里曾经写 `scroll={!live}`,把限高当成「想完了」才有的东西 —— 那是把「限高」
+         和被推翻的「定高 + 慢速分步滚 + 渐隐」混成了一件事。详见 `.scroll` 的注释。 */
+      scroll
       deferBody={deferBody && !live}
+      bodyRef={bodyRef}
       /* 一段都没有就不出箭头也不出 body。claude 的 thinking 全是空串(真实数据:
          本机 14 条 claude 共 1786 帧、非空 0 帧),此时这一行只报「在想」,
          给一只空的 96px 窗是在骗人。 */

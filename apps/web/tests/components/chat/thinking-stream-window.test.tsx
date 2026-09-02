@@ -10,13 +10,20 @@
  * 「很难看清」指的就是那两道渐隐 —— 窗口上下各 32px 把首尾两行淡到读不出来,
  * 而那两行恰恰是刚落下的字。
  *
- * 于是这一格现在只剩两件事:
- *   · 一只灰底容器(用户没说要去掉,截图里就是它)
- *   · 逐字化开的流式效果 —— 走**和普通正文同一套** `useCharReveal`,不另造一份
+ * ⚠️ **被推翻的只有三样:定高、慢速分步滚、渐隐遮罩。** 这三件事我一度混成一件,
+ * 来回绕了两轮,所以在这里逐条写死:
+ *   高度   ✗ 定高(短内容也撑满一屏)         ✓ `max-height` —— 短内容完全不限高
+ *   滚动   ✗ 一步一停的慢速分步滚(「太慢了」)✓ 贴底跟随,但**一次到底**,正常速度
+ *   遮罩   ✗ 上下渐隐(用户:「很难看清」)    ✓ 一律没有
+ * 用户 2026-09-02 的两句原话分别管后两行:「但我记得 thinking 下面文本不是有最大高度吗?
+ * 就跟那个 thinking 完成后的展示那样,有最大高度」;「thinking 要自动跟随的,agent 一边写
+ * 一边滚,但是用户如果手动滚动到上面…不能自动跟随滚动了」。
  *
- * 这个文件的正反两面都要钉,因为「去掉」比「加上」更容易假绿:
- *   正:灰底容器还在、推理直接躺在它上面、逐字效果还在
- *   反:没有定高、没有遮罩、没有中间那层滚动视口、没有自动滚的生命周期
+ * 限高**复用**「想完了」那一档现成的 `.body.scroll`(`max-height: 96px; overflow-y: auto`),
+ * 不另写一份 —— 两处说的是同一件事(「够看但不占屏」),同一件事不该有两套机制。
+ *
+ * 跟随那四态(跟随 / 上滚逃逸 / 滚回底部恢复 / 折叠再展开恢复)在
+ * `thinking-follow.test.tsx` 里钉,这个文件只管**容器形态**。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
@@ -100,9 +107,10 @@ describe('还在想的那一格:一只灰底容器,里面是普通正文', () =>
     expect(decls).toMatch(/margin-block: var\(--stream-gap\)/);
   });
 
-  it('自然高度:不定高、不裁剪、不遮罩', () => {
+  it('不定高、不裁剪、不遮罩', () => {
     const decls = declsOf('.stream');
-    expect(decls).not.toMatch(/height:/);
+    // 定高是被推翻的那一档:短内容也撑满一屏
+    expect(decls).not.toMatch(/(^|[^-])height:/);
     expect(decls).not.toMatch(/overflow: hidden/);
     expect(decls).not.toMatch(/mask-image/);
     // 中间那层视口的规则也不该再有
@@ -111,10 +119,41 @@ describe('还在想的那一格:一只灰底容器,里面是普通正文', () =>
     expect(CSS).not.toMatch(/--stream-fade/);
   });
 
-  it('自动滚那套生命周期整个删掉,不留死代码', () => {
+  it('限高走「想完了」那一档现成的那套,不另写一份', () => {
+    /*
+     * jsdom 不做布局,`scrollHeight` / `clientHeight` 恒为 0,「短内容不出滚动条」
+     * 在这一层量不出来。能钉的是**机制**:用 `max-height` 而不是 `height` ——
+     * 这正是「短的时候完全不限高、长了才截住」的 CSS 语义本身。
+     * 真实几何要在 Chrome 里量。
+     */
+    const { container } = render(show(shellOf([think(LONG)], { status: 'running', thinking: true })));
+    const body = thoughtsBody(container);
+    expect(body?.textContent).toContain('第 14 段推理');
+    // 灰底容器 + 限高,两个类挂在同一只 body 上
+    expect(body?.className).toMatch(/stream/);
+    expect(body?.className).toMatch(/scroll/);
+
+    const cap = declsOf('.fold .body.scroll');
+    expect(cap, '找不到 .fold .body.scroll 规则').not.toBe('');
+    expect(cap).toMatch(/max-height: 96px/);
+    expect(cap).toMatch(/overflow-y: auto/);
+    // 同一件事只能有一套机制:限高不许在 `.stream` 上再写一遍
+    expect(declsOf('.stream')).not.toMatch(/max-height/);
+  });
+
+  it('那只慢速分步滚的窗整个删掉了,写滚动位置的路径只剩跟随那一条', () => {
+    // 被推翻的那一版(rAF 分步 + 缓动 + 定高窗)不许以任何形式留着
     expect(existsSync(resolve(SRC, 'primitives/useThinkingStream.ts'))).toBe(false);
-    const shellSrc = readFileSync(resolve(SRC, 'ExecutionShell.tsx'), 'utf8');
-    expect(shellSrc).not.toMatch(/useThinkingStream/);
+    /*
+     * 「替用户滚」现在**只允许**存在于 `useThinkingFollow` 一处。渲染层散落的
+     * `scrollTop` 写入是上一版的形态,散回去就等于又有了第二套判据。
+     */
+    for (const file of ['ExecutionShell.tsx', 'ThinkingMarkdown.tsx', 'useCharReveal.ts']) {
+      const src = readFileSync(resolve(SRC, file), 'utf8');
+      expect(src, file).not.toMatch(/useThinkingStream/);
+      expect(src, file).not.toMatch(/\.scrollTop\s*=/);
+      expect(src, file).not.toMatch(/scrollIntoView|scrollBy|scrollTo\(/);
+    }
   });
 
   it('反向对照:想完了那一档仍然是「点开来读」的限高滚动,不受这条裁决影响', () => {

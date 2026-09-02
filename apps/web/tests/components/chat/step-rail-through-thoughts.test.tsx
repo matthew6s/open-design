@@ -205,7 +205,24 @@ describe('N8-b 线的横向位置不再是写死的常量', () => {
   });
 
   it('缺口只留给行首那一格;夹心正文没有行首格,所以通高', () => {
-    for (const rule of rowRails) expect(rule.body).toMatch(/top:\s*25px/);
+    /*
+     * 缺口的**大小**曾经写死成 `top: 25px`(照抄稿子)。OPEND-2417 之后改成算出来的:
+     * `--row-pad-block + 1.5px + --row-slot + --chain-gap`。25 是这几个数的和,不是原因 ——
+     * 写死的话,字号 / 行高 / 内边距任何一处一动,线就和行首那枚标记错身
+     * (用户:「竖的灰线,有时候会覆盖到绿色带勾号的 icon 上」)。
+     * 所以这里钉的是「有缺口、而且缺口盖得住行首那一格」,不再钉那个字面值;
+     * 具体算式和两行行的对照在 `rail-clears-status-mark.test.tsx` 里。
+     */
+    const padBlock = px(declOf('.fold.flat > .body.stack', '--row-pad-block'));
+    const slot = px(declOf('.fold.flat > .body.stack', '--row-slot'));
+    const gap = px(declOf('.fold.flat > .body.stack', '--chain-gap'));
+    for (const rule of rowRails) {
+      expect(rule.body).toMatch(/top:\s*calc\(/);
+      expect(rule.body).toMatch(/--row-slot/);
+    }
+    // 缺口必须真的把行首那一格整个让出来
+    expect(padBlock + 1.5 + slot + gap).toBeGreaterThan(padBlock + 1.5 + slot);
+    // 反向对照:夹心正文没有行首格,通高,一点缺口都不留
     for (const rule of proseRails) expect(rule.body).toMatch(/top:\s*0\s*;/);
   });
 });
