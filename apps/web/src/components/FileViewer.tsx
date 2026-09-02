@@ -25,6 +25,12 @@ import {
   type SocialShareResponse,
   type WorkspaceCollabContext,
 } from '@open-design/contracts';
+import {
+  DECK_PRESENTATION_NAVIGATE_MESSAGE_TYPE,
+  createDeckPresentationSetMessage,
+  deckPresentationMessageMatchesDocument,
+  parseDeckPresentationMessage,
+} from '@open-design/contracts/runtime/deck-presentation';
 import { PREVIEW_OBSERVABILITY_HOST_STATE_MESSAGE_TYPE } from '@open-design/contracts/runtime/preview-observability';
 import {
   replayPreviewBridgeModes as replayPreviewBridgeModeState,
@@ -395,7 +401,11 @@ const MAX_BRIDGE_COORDINATE = 1_000_000;
 // `allow` list delegates the permissions a GPU/compute artifact typically
 // wants, including `cross-origin-isolated` so the isolated document keeps
 // SharedArrayBuffer.
-const BASE_PREVIEW_BRIDGE_QUERY = 'odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability';
+// `presentation` is requested on every settled document rather than only when
+// the user presents. The bridge is inert until the host tells it to present, and
+// asking for it later would change the URL — which is a navigation, exactly what
+// entering presentation must not cause.
+const BASE_PREVIEW_BRIDGE_QUERY = 'odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewBridge=presentation';
 const HTML_PASSIVE_PREVIEW_FULL_TEXT_LIMIT = 2 * 1024 * 1024;
 const HTML_ROUTING_TEXT_PREVIEW_LIMIT = 96 * 1024;
 const HTML_PREVIEW_ASSET_PREFLIGHT_LIMIT = 32;
@@ -14208,45 +14218,74 @@ function HtmlViewer({
     }, '*');
   }, [activeDeckSlideIndex, deckSlideCount, speakerNotes, projectId, file.name, workspaceActive]);
 
-  // Keep the fullscreen present overlay in lockstep with the active slide. The
-  // overlay is a SEPARATE iframe from the background preview, so host-side
-  // navigation (arrow keys, thumbnail clicks, or a move driven from the
-  // presenter popup) has to be forwarded to it explicitly — otherwise the big
-  // presented slide stays frozen while the counter and popup move on. The
-  // overlay opens on the right slide via buildSrcdoc's initialSlideIndex, so
-  // this only drives subsequent moves.
+  // Presenting a deck used to mean a second srcdoc document with
+  // `hideDeckChrome` and `deckClickNavigation` baked in, which is why the two
+  // effects that used to live here existed: one forwarded every host-side slide
+  // move into that separate document, the other adopted moves it made on its
+  // own. Neither is needed now. The presented document IS the active preview
+  // frame, so the ordinary slide driving and the main `od:slide-state` listener
+  // already cover both directions.
+  //
+  // What the document cannot infer by itself is that it is being presented.
+  // Chrome hiding and click-to-advance are authored-page concerns behind a
+  // sandbox with no allow-same-origin, so the host cannot reach in; it asks the
+  // injected presentation bridge instead. The bridge is requested on every
+  // settled document (see BASE_PREVIEW_BRIDGE_QUERY) and stays inert until this
+  // message arrives, so entering presentation changes no URL and navigates
+  // nothing.
+  // The exact document the bridge must agree it is acting on. Both the set
+  // message and every receipt carry it, so a reply that arrives after the
+  // document was replaced can be discarded instead of being applied to the
+  // wrong version.
+  const previewRuntimeDocumentIdentity = useMemo(() => {
+    const navigation = previewRuntimeNavigation.navigation;
+    return navigation
+      ? { sessionId: navigation.sessionId, documentVersion: navigation.documentVersion }
+      : null;
+  }, [previewRuntimeNavigation.navigation]);
+  const deckPresentationRevisionRef = useRef(0);
   useEffect(() => {
-    if (!workspaceActive || !inTabPresent || !effectiveDeck) return;
-    const frame = presentOverlayRef.current?.querySelector('iframe');
-    frame?.contentWindow?.postMessage(
-      { type: 'od:slide', action: 'go', index: activeDeckSlideIndex },
+    if (!workspaceActive || !effectiveDeck) return;
+    const frame = iframeRef.current;
+    const target = frame?.contentWindow;
+    if (!target) return;
+    const identity = previewRuntimeDocumentIdentity;
+    if (!identity) return;
+    deckPresentationRevisionRef.current += 1;
+    target.postMessage(
+      createDeckPresentationSetMessage({
+        sessionId: identity.sessionId,
+        documentVersion: identity.documentVersion,
+        presenting: inTabPresent,
+        revision: deckPresentationRevisionRef.current,
+      }),
       '*',
     );
-  }, [inTabPresent, effectiveDeck, activeDeckSlideIndex, workspaceActive]);
+  }, [inTabPresent, effectiveDeck, previewRuntimeDocumentIdentity, workspaceActive]);
 
-  // The reverse direction: the fullscreen overlay is its own iframe and drives
-  // its own slide when clicked (deckClickNavigation), so adopt the moves it
-  // reports as the host's active slide. That makes the counter, thumbnail rail
-  // and presenter popup all follow a slide advanced from the big stage. The
-  // main slide-state listener only trusts the ACTIVE preview iframe (the
-  // background one), so the overlay needs its own source-matched listener; the
-  // lockstep effect above re-posts the adopted index back as a no-op, so there
-  // is no feedback loop.
+  // The bridge reports the user's intent rather than moving the deck itself:
+  // which slide comes next depends on the authored deck's own navigation
+  // protocol, and that knowledge lives here, not in the injected script.
   useEffect(() => {
     if (!workspaceActive || !inTabPresent || !effectiveDeck) return;
-    function onOverlaySlideState(ev: MessageEvent) {
-      const frame = presentOverlayRef.current?.querySelector('iframe');
+    function onPresentationNavigate(ev: MessageEvent) {
+      const frame = iframeRef.current;
       if (!frame || ev.source !== frame.contentWindow) return;
-      const data = ev.data as { type?: string; active?: number; count?: number } | null;
-      if (!data || data.type !== 'od:slide-state') return;
-      if (typeof data.active !== 'number' || typeof data.count !== 'number') return;
-      const next = { active: data.active, count: data.count };
-      setSlideStateCached(previewStateKey, next);
-      setSlideState(next);
+      const message = parseDeckPresentationMessage(ev.data);
+      if (!message || message.type !== DECK_PRESENTATION_NAVIGATE_MESSAGE_TYPE) return;
+      const identity = previewRuntimeDocumentIdentity;
+      if (identity && !deckPresentationMessageMatchesDocument(message, identity)) return;
+      goToSlide(activeDeckSlideIndex + (message.direction === 'prev' ? -1 : 1));
     }
-    window.addEventListener('message', onOverlaySlideState);
-    return () => window.removeEventListener('message', onOverlaySlideState);
-  }, [inTabPresent, effectiveDeck, previewStateKey, workspaceActive]);
+    window.addEventListener('message', onPresentationNavigate);
+    return () => window.removeEventListener('message', onPresentationNavigate);
+  }, [
+    inTabPresent,
+    effectiveDeck,
+    activeDeckSlideIndex,
+    previewRuntimeDocumentIdentity,
+    workspaceActive,
+  ]);
 
   // The Esc hint is a momentary confirmation, not a persistent chrome: fade it
   // out a few seconds after the presentation starts. (closeInTabPresentation
@@ -14349,7 +14388,9 @@ function HtmlViewer({
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { type?: string } | null;
       if (!data || data.type !== 'od:present-escape') return;
-      const frame = presentOverlayRef.current?.querySelector('iframe');
+      // The presented document is the active preview frame now, not a frame of
+      // the overlay's own, so Esc from inside the artifact arrives from there.
+      const frame = iframeRef.current;
       if (frame?.contentWindow && ev.source !== frame.contentWindow) return;
       closeInTabPresentation();
     };
@@ -14382,13 +14423,18 @@ function HtmlViewer({
 
   useEffect(() => {
     if (!workspaceActive || !inTabPresent || !presentFullscreenPending) return;
-    const overlay = presentOverlayRef.current;
-    if (!overlay || typeof overlay.requestFullscreen !== 'function') {
+    // The root element, not the overlay. The overlay no longer owns a document —
+    // the preview stays where it is and is promoted by CSS — and the two live in
+    // different trees (the overlay is portaled to <body>, the preview sits in
+    // `.viewer`), so their only common ancestor is the root. Fullscreening the
+    // overlay alone would render a black layer with the presentation missing.
+    const stage = typeof document === 'undefined' ? null : document.documentElement;
+    if (!stage || typeof stage.requestFullscreen !== 'function') {
       setPresentFullscreenPending(false);
       return;
     }
     let cancelled = false;
-    overlay.requestFullscreen()
+    stage.requestFullscreen()
       .catch(() => undefined)
       .finally(() => {
         if (!cancelled) setPresentFullscreenPending(false);
@@ -18132,21 +18178,15 @@ function HtmlViewer({
           role="dialog"
           aria-label={t('fileViewer.present')}
         >
-          {effectiveDeck || !useUrlLoadPreview ? (
-            <iframe
-              title="present"
-              sandbox="allow-scripts allow-downloads"
-              data-od-render-mode="srcdoc"
-              srcDoc={effectiveDeck ? presentationSrcDoc : srcDoc}
-            />
-          ) : (
-            <iframe
-              title="present"
-              sandbox="allow-scripts allow-downloads"
-              data-od-render-mode="url-load"
-              src={activePreviewSrcUrl}
-            />
-          )}
+          {/* No iframe of its own. Presenting is a view change, so it must not
+              navigate: the document the user was already looking at is promoted
+              to fill the window by `.viewer.is-tab-present`, and this layer only
+              carries host-document chrome (exit control, Esc hint) above it. A
+              second <iframe> here — even pointed at the same real URL — would be
+              a second browsing context, dropping the JS heap, Canvas/WebGL
+              contexts, timers and closures the page is holding. Deck
+              presentation chrome arrives as a runtime message instead; see
+              `deckPresentationRevision` below. */}
           {/* The overlay covers the whole window, so this is the only exit the
               user can still reach. Esc is not a substitute: the moment they
               click a slide to advance, focus moves into the sandboxed preview

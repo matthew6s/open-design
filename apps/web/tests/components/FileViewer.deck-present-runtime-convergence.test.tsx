@@ -170,14 +170,21 @@ async function enterPresentation() {
 /**
  * The contract under test.
  *
- * The overlay must show the very frame that was already running. A second
- * <iframe> element is a second browsing context: even pointed at the same real
- * URL it starts a fresh document and drops everything the page was holding.
+ * Presenting must show the very document that was already running. A second
+ * <iframe> element anywhere is a second browsing context: even pointed at the
+ * same real URL it starts a fresh document and drops everything the page was
+ * holding. So the overlay owns no frame of its own, the frame that was running
+ * before is still the frame on screen, and it was never swapped for a different
+ * transport on the way in.
  */
 function expectPresentationReusesTheLiveRuntimeFrame(live: HTMLIFrameElement) {
-  const overlayFrame = overlay()!.querySelector('iframe');
-  expect(overlayFrame).not.toBeNull();
-  expect(overlayFrame).toBe(live);
+  // We really are presenting — otherwise the assertions below pass vacuously.
+  expect(overlay()).not.toBeNull();
+  expect(document.querySelector('.viewer.is-tab-present')).not.toBeNull();
+
+  expect(overlay()!.querySelector('iframe')).toBeNull();
+  expect(liveRuntimeFrame()).toBe(live);
+  expect(liveRuntimeFrame().getAttribute('data-od-render-mode')).toBe('runtime-url');
 }
 
 beforeEach(() => {

@@ -1613,8 +1613,16 @@ body:has(.artifact-version-panel) .ws-tabs-file-actions-before {
 .viewer.is-tab-present .live-artifact-refresh-notice {
   display: none;
 }
+/* Presenting promotes the document the user is already looking at, in place.
+   The alternative — a second iframe inside the overlay — would start a fresh
+   browsing context and drop the running page's JS heap, canvases and timers, so
+   the preview never moves and never renavigates; only its box changes. */
 .viewer.is-tab-present .viewer-body {
+  position: fixed;
   inset: 0;
+  z-index: 1050;
+  overflow: hidden;
+  background: #000;
 }
 .viewer .present-exit-btn {
   position: absolute;
