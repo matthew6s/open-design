@@ -1,5 +1,14 @@
-// HTML card covers: freeze the renderer's input at the chokepoint, render it
-// afterwards (spec §4.1 + §6.3).
+// Card covers: freeze what the card will show at the chokepoint (spec §4.1 +
+// §6.3).
+//
+// TWO COVER PATHS LIVE HERE, and they differ only in what "freeze" can mean:
+//
+//   * HTML gets its RENDERER INPUT frozen now and rendered later, because a
+//     self-contained document is portable evidence — see the four steps below.
+//   * VIDEO gets its FIRST FRAME decoded now, inside a verified window, because
+//     there is no portable freeze for a video short of copying it, and the
+//     capacity ruling forbids that. The mechanics live in `video-cover.ts`;
+//     this file owns the per-ref bookkeeping both paths share.
 //
 // WHY A FREEZE AND NOT A JOB. The obvious implementation — "queue a screenshot
 // of this file, take it when the renderer is free" — is a version race, not an
@@ -55,6 +64,11 @@ import { chatArtifactPolicyForKind } from './policy.js';
 import { attachChatArtifactThumbnail } from './run-capture.js';
 import { insertSnapshotIntent, markSnapshotFailed, type MessageArtifactRow } from './store.js';
 import type { ChatArtifactFailureCode } from './types.js';
+import {
+  CHAT_ARTIFACT_VIDEO_FRAME_MAX_PER_RUN,
+  freezeVideoFirstFrame,
+  type ChatArtifactVideoFrameExtractor,
+} from './video-cover.js';
 
 export type ChatArtifactCoverRenderer = (
   input: DesktopExportArtifactInput,
@@ -81,6 +95,11 @@ export interface FreezeChatArtifactCoversInput {
   rows: readonly MessageArtifactRow[];
   /** Absent in a web-only daemon; no renderer means no cover, and no failure. */
   renderer: ChatArtifactCoverRenderer | null | undefined;
+  /**
+   * Seam for the video first-frame decoder. Defaults to the bundled ffmpeg;
+   * only tests that want a deterministic failure pass anything else.
+   */
+  videoFrameExtractor?: ChatArtifactVideoFrameExtractor;
 }
 
 export interface FreezeChatArtifactCoversReport {
@@ -97,10 +116,15 @@ export interface FreezeChatArtifactCoversReport {
  * background.
  *
  * The AWAITED half is the freeze — it must complete before the terminal SSE
- * frame goes out, because after that the next turn may start writing. The
- * render is deliberately NOT awaited: it costs seconds, the frozen document
+ * frame goes out, because after that the next turn may start writing. For HTML
+ * the render is deliberately NOT awaited: it costs seconds, the frozen document
  * makes it race-free, and a chat turn should not sit open waiting for a
  * thumbnail. A card with no cover yet simply keeps its live preview.
+ *
+ * A video's frame extraction IS awaited, because for video the extraction is
+ * the freeze — there is nothing to hand a later worker that is still guaranteed
+ * to be this turn's bytes. `video-cover.ts` keeps that cost bounded (one frame,
+ * a 10s budget, a handful per turn).
  */
 export async function freezeAndRenderChatArtifactCovers(
   deps: ChatArtifactCaptureDeps,
@@ -109,8 +133,20 @@ export async function freezeAndRenderChatArtifactCovers(
   const report: FreezeChatArtifactCoversReport = { frozen: 0, skipped: 0, failed: 0 };
   const projectRoot = path.resolve(input.projectRoot);
   const pending: Array<{ row: MessageArtifactRow; render: DesktopExportArtifactInput }> = [];
+  let videoFrames = 0;
 
   for (const row of input.rows) {
+    if (wantsFrozenVideoFrame(row)) {
+      if (videoFrames >= CHAT_ARTIFACT_VIDEO_FRAME_MAX_PER_RUN) {
+        report.skipped += 1;
+        continue;
+      }
+      videoFrames += 1;
+      const outcome = await freezeVideoFrameCover(deps, projectRoot, row, input.videoFrameExtractor);
+      if (outcome === 'frozen') report.frozen += 1;
+      else report.failed += 1;
+      continue;
+    }
     if (!wantsRenderedCover(row)) {
       report.skipped += 1;
       continue;
@@ -143,20 +179,85 @@ export async function freezeAndRenderChatArtifactCovers(
 }
 
 /**
- * Which refs today's renderer can actually serve.
+ * Which refs today's BROWSER renderer can actually serve.
  *
  * `wantsStaticCover` is the POLICY answer (every non-immutable kind wants one).
- * `kind === 'html'` is the CAPABILITY answer: the renderer is a browser, so a
+ * `kind === 'html'` is the CAPABILITY answer: this renderer is a browser, so a
  * .pdf or .docx ref has to keep waiting for a document renderer that does not
  * exist yet. Keeping the two separate means adding that renderer later is a
- * change here, not a change to the product policy.
+ * change here, not a change to the product policy — which is exactly how video
+ * arrived: a second capability answer below, with the policy untouched.
  */
 function wantsRenderedCover(row: MessageArtifactRow): boolean {
   if (row.kind !== 'html') return false;
+  return coverable(row);
+}
+
+/**
+ * Which refs get a decoded first frame.
+ *
+ * Video only. Audio shares video's policy row but has no frames, and its card
+ * is a waveform pill rather than a thumbnail, so there is nothing for a cover
+ * to occupy — asking ffmpeg for a frame of an mp3 would spend a subprocess to
+ * learn that.
+ */
+function wantsFrozenVideoFrame(row: MessageArtifactRow): boolean {
+  if (row.kind !== 'video') return false;
+  return coverable(row);
+}
+
+/**
+ * The part both paths share: the policy says this kind wants a static cover,
+ * and the ref does not already own a snapshot. An immutable-original ref
+ * carries its own bytes; a cover would be a second identity on a row that is
+ * supposed to have exactly one.
+ */
+function coverable(row: MessageArtifactRow): boolean {
   if (!chatArtifactPolicyForKind(row.kind).wantsStaticCover) return false;
-  // An immutable-original ref already carries its own bytes; a cover would be
-  // a second identity on a row that is supposed to have exactly one.
   return row.snapshotId == null && row.workspaceArtifactId != null;
+}
+
+/**
+ * Decode this turn's first frame and attach it as the card's cover.
+ *
+ * Returns which bucket the ref landed in; the caller owns the counters. A
+ * failure is recorded the same way a failed HTML render is — as an honest miss
+ * on the ref, never as a substituted frame from the current file.
+ */
+async function freezeVideoFrameCover(
+  deps: ChatArtifactCaptureDeps,
+  projectRoot: string,
+  row: MessageArtifactRow,
+  extractor: ChatArtifactVideoFrameExtractor | undefined,
+): Promise<'frozen' | 'failed'> {
+  const absolute = resolveInsideProject(projectRoot, row.labelAtCapture);
+  if (!absolute) {
+    recordCoverFailure(deps, row, 'source_missing');
+    return 'failed';
+  }
+  const frozen = extractor
+    ? await freezeVideoFirstFrame(absolute, extractor)
+    : await freezeVideoFirstFrame(absolute);
+  if (!frozen.ok) {
+    recordCoverFailure(deps, row, frozen.failureCode);
+    return 'failed';
+  }
+  try {
+    await attachChatArtifactThumbnail(deps, {
+      messageArtifactId: row.id,
+      bytes: frozen.bytes,
+      mime: frozen.mime,
+    });
+  } catch (err) {
+    logCoverFailure(row.labelAtCapture, err);
+    try {
+      recordCoverFailure(deps, row, 'internal_error');
+    } catch {
+      // best effort
+    }
+    return 'failed';
+  }
+  return 'frozen';
 }
 
 type FreezeOutcome =

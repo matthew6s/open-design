@@ -132,14 +132,26 @@ export async function captureChatArtifactSnapshotFromBytes(
   const digest = `sha256:${createHash('sha256').update(input.bytes).digest('hex')}`;
   const byteSize = input.bytes.byteLength;
 
+  // `advanceWorkspaceLatest: false` means these bytes are a rendering OF the
+  // file, not the file — a cover. So every fact that describes the file's
+  // CONTENT stays out, MIME INCLUDED. `image/jpeg` is true of a video's poster
+  // and false of the video; letting it through would restamp the mutable Design
+  // Files identity that the card's click resolves through, and `mime` is written
+  // with COALESCE, so a non-null value overwrites rather than fills in. The row
+  // is still ensured to EXIST, because that identity must survive a cover that
+  // never lands.
   const workspaceArtifact = ensureWorkspaceArtifactForPath(deps.db, {
     projectId: input.projectId,
     path: input.projectRelativePath,
     kind: input.kind,
-    mime: input.mime ?? null,
     ...(input.advanceWorkspaceLatest === false
       ? {}
-      : { digest, size: byteSize, mtime: input.sourceMtime ?? now }),
+      : {
+          mime: input.mime ?? null,
+          digest,
+          size: byteSize,
+          mtime: input.sourceMtime ?? now,
+        }),
     now,
   });
 

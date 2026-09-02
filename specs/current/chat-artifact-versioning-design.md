@@ -138,7 +138,7 @@ blob 文件必须从 `RUNTIME_DATA_DIR` 派生的专用 snapshot 根目录解析
 | `source_path_at_capture` | 历史显示/诊断，不参与读取 current |
 | `kind` / `mime` | 捕获时类型 |
 | `content_digest` | ~~image/video/audio/doc~~ image/sketch 原字节 blob（视频/音频 2026-09-02 起不存，见 §15.5） |
-| `thumbnail_digest` | HTML/doc 静态假预览 PNG；图片可等于内容或另存缩略图 |
+| `thumbnail_digest` | HTML/doc 静态假预览 PNG；**视频的当轮首帧 JPEG（§15.5.1）**；图片可等于内容或另存缩略图 |
 | `source_size` / `source_mtime` | 捕获证据，不作为内容身份 |
 | `run_id` / `media_task_id` | 精确 lineage，均可空以兼容普通文件写入 |
 | `capture_state` | `pending / ready / failed / orphaned`（`orphaned` 是 GC 内部分类，不上线；上线的 wire 状态见下面 DTO 的 `snapshotState`） |
@@ -683,14 +683,19 @@ schema migration 必须支持重新运行；blob store 初始化和 DB migration
 
    - **卡面**：视频卡拿工作区最新文件当 `<video preload="metadata">` 的源，浏览器
      自己出首帧；不出封面图、不出占位、不出错误文案 —— 和旧会话降级支同一条路。
+     （**视频那一半当天晚些被追加裁决改写，见下面的 §15.5.1**；音频不变。）
      音频**根本不进产物卡**（`FileOpsSummary#artifactCardKind` 把它排除，走独立的
      胶囊横条），那条横条一直读的就是工作区最新文件，从没读过 `snapshotUrl`。
      也就是说音频快照此前存下来的字节，UI 从来没有任何一处读过。
    - **点击**：不变，仍然打开工作区最新文件。
    - **`snapshotState`**：`legacy_unavailable`（从没尝试过捕获），不是 `failed`。
      把「产品排除」和「配额满/渲染失败」记成同一个状态会把真失败埋掉。
+     （视频在 §15.5.1 之后会有一行**只带 thumbnail** 的 snapshot，因此状态变成
+     `ready`；音频仍然是 `legacy_unavailable`。）
    - **静态封面**：不会误落到 HTML 那条渲染路 —— `cover.ts#wantsRenderedCover`
      还有一道 `kind === 'html'` 的能力判据，视频/音频直接 skip，既不渲染也不记失败。
+     （**视频这一句已被 §15.5.1 取代**：视频现在走一条独立的首帧抽取路，不经过
+     desktop renderer；音频仍然 skip。）
 
    **落点不止 `policy.ts`。** 原注释说「从这个集合里删掉即可 —— 数据模型不用改」，
    这句是错的：`apps/daemon/src/routes/media.ts#onBytesWritten` 把 provider 字节
@@ -711,9 +716,68 @@ schema migration 必须支持重新运行；blob store 初始化和 DB migration
    **仍未拍板**：大文档（pdf / docx / pptx）的原件保留策略。它们目前走
    `latest_with_static_preview`，本来就不存原件，但也还没有文档 renderer 能出封面，
    所以卡面是「图标 + 文件名」。这条不在本次裁决范围内。
+
+### 15.5.1 追加裁决（同日晚）：视频要冻**首帧**
+
+用户原话：**「视频这个东西，那看起来视频还是要快照一下首帧的..先显示首帧吧」**，
+并且同一句里把版式排除在外：「具体的视频产物卡片样式我再问问同事」。
+
+**这条不推翻 §15.5，它补上 §15.5 漏掉的那一半。** 两件事必须分开读：
+
+| | 视频原件 | 视频首帧 |
+| --- | --- | --- |
+| 存不存 | **不存**（§15.5 的容量裁决，一字未改） | **存** |
+| 走哪条路 | 原件路（`content_digest`） | **封面路**（`thumbnail_digest`） |
+| 量级 | 几十～上百 MB | 一张静止图，和 HTML 首屏截图同量级 |
+
+漏掉的那一半是什么：排除原件之后视频落进 `latest_with_static_preview`，
+`wantsStaticCover` 是 `true` —— 但 `cover.ts#wantsRenderedCover` 那道
+`kind === 'html'` 的能力判据把它挡在门外，于是视频被计成 `skipped`，
+**永远拿不到封面**。卡面就退化成 `<video preload="metadata">` 指向工作区当前文件，
+浏览器自己画第一帧 —— 文件一被覆盖，老消息里那张卡的首帧就跟着变。
+**这就是图片卡当初那个 overwrite bug 的视频版。**
+
+**首帧怎么抽。** ffmpeg，`apps/daemon/src/chat-artifacts/video-cover.ts`。
+不是新依赖：`@ffmpeg-installer/ffmpeg` 已经是 daemon 的运行时依赖
+（`media/index.ts` 用同一个二进制编 HyperFrames 的 MP4），
+`tools/pack` 的 mac / win prebundle 已把它列为 external 并随包分发，
+linux 整包 `node_modules`。所以这里**没有新的打包决策**。
+不走 desktop renderer：那条路是浏览器截图，为一帧视频先把文件加载进 Electron 窗口
+再截，代价和可靠性都不对。产物是 `mjpeg -q:v 4`（原分辨率）——
+解出来的视频帧是照片，PNG 会是几 MB 的无损噪声去撞 `quota.ts` 8 MiB 的
+thumbnail 上限，JPEG 同画质只有几百 KB；`image/jpeg` 在快照路由的
+inline-safe 名单里。
+
+**版本竞态怎么防。** HTML 那条路能「先冻结、后渲染」，是因为自包含文档是可搬运的
+证据；视频没有等价的冻结手段——除非把文件整份复制，而那正是 §15.5 禁止的。
+**所以对视频来说，抽帧本身就是冻结**：它跑在 run-terminal 那个窗口里，
+并且按 `capture.ts` 拷字节的同一套做法在两端核指纹（stat → 抽帧 → stat，
+size/mtime 任一漂了就 `source_changed` 作废）。
+代价是这一步**会被计进这一轮的耗时**：单次 10s 预算、每轮最多 4 个视频。
+
+**抽不出来怎么办。** 静默回落，和 §15.5 / §9.x 同一条口径：不出占位、不写失败文案
+（产品原话「不允许退回不就一个错误文案显示在上面了？这感觉更奇怪呢」）。
+回落就是今天的行为——`<video>` 指向工作区最新文件，浏览器自己画当前的第一帧。
+失败按原因记一行 honest-miss（`renderer_unavailable` / `timeout` /
+`source_changed` / `source_missing`），和 HTML 封面失败共用
+`cover.ts#recordCoverFailure`：把「从来不是候选」和「真失败」分开，
+否则真失败会被历史消息淹掉。
+
+**卡面怎么接。** `FileOpsSummary.tsx` 里视频那一格**仍然是 `<video>`**，
+只是多了一个 `poster={item.coverUrl}`；同时 `coverUrl` 那条 `<img>` 分支加一道
+`item.kind !== 'video'`，免得视频被那条通用分支接走、把元素换成 `<img>`。
+`poster` 是平台自带的「首帧位」，所以版式、尺寸、9:16 letterbox 一律没动 ——
+用户明说版式要另外问同事，这里只接封面。
+Web 读取端（`runtime/chat/artifact-refs.ts`）**一个字没改**：它本来就是按
+daemon 宣布的 `displayPolicy` 取 `thumbnailUrl`，视频和 HTML 走的是同一条。
+
+**仍未拍板**：视频产物卡的版式（播放按钮、时长角标、比例）。用户说要问同事。
+
 6. **消息编辑/分叉。**分叉共享 snapshot 合理；若未来允许删除单条消息，GC 引用必须覆盖所有 fork。
 7. **“假预览图”是否要求当轮视觉还是通用模板。**本方案按用户提出的“拍快照”实现当轮静态首屏；若产品只要统一模板，可关闭 renderer，数据模型仍成立且成本更低。
 8. **完成延迟。**原图 snapshot 应在 terminal 前完成；HTML PNG 渲染可以异步，但 renderer input 必须先冻结。需要定义卡片 pending 最长时间与失败文案。
+   **视频首帧是唯一同步的那条**（§15.5.1）：抽帧就是它的冻结，没有可以搬到后台的
+   中间产物，所以它记在这一轮的耗时里（单次 10s，每轮最多 4 个）。
 
 ## 16. 实施顺序建议
 

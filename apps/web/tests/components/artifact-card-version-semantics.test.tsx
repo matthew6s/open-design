@@ -66,6 +66,9 @@ const raw = (name: string) => `/api/projects/${PROJECT_ID}/raw/${name}`;
 
 const HTML_SHOT = '/api/projects/p1/chat-artifact-snapshots/snap-html-1/thumbnail';
 const IMAGE_SHOT = '/api/projects/p1/chat-artifact-snapshots/snap-img-1/content';
+/* 视频的当轮**首帧**。和 HTML 首屏截图走同一条 thumbnail 路 —— 都是「一张渲染出来
+   的封面」,不是原件(视频原件按 2026-09-02 的容量裁决根本不进快照库)。 */
+const VIDEO_SHOT = '/api/projects/p1/chat-artifact-snapshots/snap-vid-1/thumbnail';
 
 /** 让 HTML 降级支那道 HEAD 探测**通过** —— 见文件头的假绿说明。 */
 function stubHeadProbeAsReachable() {
@@ -141,6 +144,19 @@ const imageRef = (over: Record<string, unknown> = {}) => ({
   openPolicy: 'snapshot',
   snapshotId: 'snap-img-1',
   snapshotUrl: IMAGE_SHOT,
+  snapshotState: 'ready',
+  ...over,
+});
+
+const videoRef = (over: Record<string, unknown> = {}) => ({
+  id: 'ref-3',
+  label: 'clip.mp4',
+  kind: 'video',
+  // 视频和 HTML 同一档:卡面冻结、点击最新。它**没有** snapshotUrl ——
+  // 原件不进快照库,卡上那张只是首帧。
+  displayPolicy: 'latest_with_static_preview',
+  snapshotId: 'snap-vid-1',
+  thumbnailUrl: VIDEO_SHOT,
   snapshotState: 'ready',
   ...over,
 });
@@ -338,6 +354,60 @@ describe('图片产物卡 · 没有当轮快照(旧会话)', () => {
     renderPanel([fileOpEntry('hero.png')]);
 
     const card = cardOf('hero.png');
+    expect(card.querySelector('.artifact-card-mini')).toBeNull();
+    expect(card.textContent ?? '').not.toMatch(
+      /失败|不可用|错误|无法|unavailable|failed|error/i,
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 4b · 视频:卡面是当轮**首帧**,元素仍然是 <video>
+ * ------------------------------------------------------------------ */
+describe('视频产物卡 · 当轮首帧', () => {
+  it('首帧挂在 poster 上,src 仍指向工作区当前文件', () => {
+    stubHeadProbeAsReachable();
+    renderPanel([fileOpEntry('clip.mp4')], { artifactRefs: [videoRef()] });
+
+    const media = mediaOf('clip.mp4')!;
+    /*
+     * 元素身份是**这条断言的正文**,不是顺带检查的。
+     * 用户 2026-09-02 只拍了「先显示首帧」,并且明说「具体的视频产物卡片样式我再
+     * 问问同事」—— 把 `<video>` 换成 `<img>` 就是替他把版式那一半也拍了。
+     */
+    expect(media.tagName).toBe('VIDEO');
+    // 卡面:当轮那一帧。文件被下一轮覆盖也不跟着变 —— 这就是冻结。
+    expect(media.getAttribute('poster')).toBe(VIDEO_SHOT);
+    // 点击 / 播放:仍然是工作区最新那一份(和 HTML、图片同一条规则)。
+    expect(media.getAttribute('src')).toBe(raw('clip.mp4'));
+  });
+
+  it('同名视频被下一轮覆盖后,两条消息各显示各的首帧', () => {
+    stubHeadProbeAsReachable();
+    const { unmount } = renderPanel([fileOpEntry('clip.mp4')], {
+      artifactRefs: [videoRef()],
+    });
+    expect(mediaOf('clip.mp4')!.getAttribute('poster')).toBe(VIDEO_SHOT);
+    unmount();
+
+    const later = '/api/projects/p1/chat-artifact-snapshots/snap-vid-2/thumbnail';
+    renderPanel([fileOpEntry('clip.mp4')], {
+      artifactRefs: [videoRef({ snapshotId: 'snap-vid-2', thumbnailUrl: later })],
+    });
+    expect(mediaOf('clip.mp4')!.getAttribute('poster')).toBe(later);
+  });
+
+  it('没有当轮首帧时回落成今天的行为,不出占位、不写失败文案', () => {
+    stubHeadProbeAsReachable();
+    renderPanel([fileOpEntry('clip.mp4')]);
+
+    const media = mediaOf('clip.mp4')!;
+    expect(media.tagName).toBe('VIDEO');
+    // 抽帧失败 / 旧会话:让浏览器自己去画当前文件的第一帧,就是今天的样子。
+    expect(media.getAttribute('poster')).toBeNull();
+    expect(media.getAttribute('src')).toBe(raw('clip.mp4'));
+
+    const card = cardOf('clip.mp4');
     expect(card.querySelector('.artifact-card-mini')).toBeNull();
     expect(card.textContent ?? '').not.toMatch(
       /失败|不可用|错误|无法|unavailable|failed|error/i,

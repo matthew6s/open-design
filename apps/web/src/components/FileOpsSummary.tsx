@@ -441,10 +441,12 @@ export interface ArtifactCardItem {
    *  artifact out of nowhere. */
   pending?: boolean;
   /**
-   * 这一轮的**静态首屏截图**(HTML / 原型 / slide / 文档)。
+   * 这一轮的**静态封面**:HTML / 原型 / slide / 文档是首屏截图,视频是**首帧**
+   * (用户 2026-09-02:「视频这个东西,那看起来视频还是要快照一下首帧的」)。
    *
    * 卡面读它 —— 于是历史消息里那张卡是**当时**的样子,不跟工作区最新版本漂移。
-   * 拿不到就走降级支:live iframe 显示最新(见 `ArtifactCard`)。
+   * 拿不到就走降级支:HTML 用 live iframe 显示最新、视频让浏览器自己画当前文件的
+   * 第一帧(见 `ArtifactCard`)。
    */
   coverUrl?: string;
   /**
@@ -584,9 +586,13 @@ function ArtifactCard({
           <span className="artifact-card-mini is-loading">
             <PixelLiquid />
           </span>
-        ) : item.coverUrl ? (
+        ) : item.coverUrl && item.kind !== 'video' ? (
           /*
            * **当轮的静态首屏截图**(HTML / 原型 / slide / 文档)。
+           *
+           * 视频**不走这一支**:它的封面挂在下面那个 `<video>` 的 `poster` 上。
+           * 换成 `<img>` 会把视频卡的版式一起换掉,而版式这次不动
+           * (用户 2026-09-02:「具体的视频产物卡片样式我再问问同事」)。
            *
            * 这是这张卡的正解:它冻结在这一轮,三天后回看这条消息,卡面还是当时
            * 那个样子。点击才去开工作区最新版本 —— 两者不一致是产品要的
@@ -632,9 +638,18 @@ function ArtifactCard({
             <span className="artifact-card-doc-name" title={item.name}>{item.name}</span>
           </span>
         ) : item.kind === 'video' ? (
+          /*
+           * `poster` 是**当轮的首帧**。没有它的时候浏览器自己去画 `src` 的第一帧
+           * —— 画的是**工作区当前那份**,所以文件一被覆盖,老消息里那张卡的首帧
+           * 就跟着变了(图片卡当初那个 bug 的视频版)。
+           *
+           * 元素仍然是 `<video>`:这次只接封面,不动版式。拿不到 poster 就是今天
+           * 的行为,不出占位、不写失败文案(产品 2026-09-02)。
+           */
           <video
             className="artifact-card-media"
             src={mediaSrc}
+            poster={item.coverUrl}
             muted
             preload="metadata"
             playsInline
