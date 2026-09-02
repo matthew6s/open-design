@@ -21,11 +21,15 @@
     "src"
   ],
   "scripts": {
-    "dev": "next dev --turbopack",
     "build": "next build",
     "build:sidecar": "tsc -p tsconfig.sidecar.json",
-    "typecheck": "tsc -b --noEmit",
-    "test": "vitest run -c vitest.config.ts --maxWorkers=2"
+    "dev": "next dev --turbopack",
+    "postinstall": "pnpm run stage:react-runtime",
+    "prebuild": "pnpm run stage:react-runtime",
+    "predev": "pnpm run stage:react-runtime",
+    "stage:react-runtime": "tsx ./scripts/copy-react-runtime.ts",
+    "test": "vitest run -c vitest.config.ts --maxWorkers=2",
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.32.1",

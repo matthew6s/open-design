@@ -63,7 +63,11 @@ describe('buildReactComponentSrcdoc', () => {
       title: 'App',
     });
     expect(doc).toContain('<!doctype html>');
-    expect(doc).toContain('react@18/umd/react.development.js');
+    // Served by this application. A CDN reference here is the defect, not the
+    // implementation detail: the preview document is its own browsing context
+    // and cannot borrow the host's React, so where it fetches from decides
+    // whether the surface works offline.
+    expect(doc).toContain('/vendor/react-runtime/react.production.min.js');
     expect(doc).toContain('sandboxed iframe');
     // Compiled in the host: the document carries plain JavaScript, so it neither
     // fetches a compiler nor evals a string it built at runtime.

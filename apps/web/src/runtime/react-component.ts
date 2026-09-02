@@ -4,12 +4,16 @@ interface ReactComponentSrcdocOptions {
   title: string;
 }
 
-// React and ReactDOM still come from the CDN. The compiler no longer does:
-// Sucrase runs here, in the host, so the sandbox receives plain JavaScript and
-// never downloads @babel/standalone. Serving React locally is the remaining
-// half of making this surface work offline.
-const REACT_DEV_URL = 'https://unpkg.com/react@18/umd/react.development.js';
-const REACT_DOM_DEV_URL = 'https://unpkg.com/react-dom@18/umd/react-dom.development.js';
+// Served from this application, not a CDN. The preview document is a separate
+// browsing context with no allow-same-origin, so it cannot borrow the host's
+// React and has to load its own copy — and loading it over the public internet
+// is what made this surface fail in the packaged client offline and behind
+// firewalls. `apps/web/scripts/copy-react-runtime.ts` stages these from the
+// installed react packages at install, dev and build time; they are generated,
+// not committed. Relative to the embedding document, so a preview served from
+// any origin resolves them against that origin.
+const REACT_URL = '/vendor/react-runtime/react.production.min.js';
+const REACT_DOM_URL = '/vendor/react-runtime/react-dom.production.min.js';
 
 export function buildReactComponentSrcdoc(
   source: string,
@@ -58,8 +62,8 @@ export function buildReactComponentSrcdoc(
   </head>
   <body>
     <div id="root"></div>
-    <script src="${REACT_DEV_URL}"></script>
-    <script src="${REACT_DOM_DEV_URL}"></script>
+    <script src="${REACT_URL}"></script>
+    <script src="${REACT_DOM_URL}"></script>
     <script>
       (function(){
         var root = document.getElementById('root');

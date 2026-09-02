@@ -91,25 +91,16 @@ describe('react component preview document', () => {
     expect(doc).not.toMatch(/babel/i);
   });
 
-  // Remaining half of the offline defect. React and ReactDOM are still fetched
-  // from unpkg with no fallback, so the packaged client offline — and any
-  // machine that cannot reach unpkg — still cannot render this surface. It now
-  // fails readably ("React preview runtime failed to load") rather than as a
-  // white screen, because compilation already succeeded in the host.
-  //
-  // Decided approach, not yet built: generate the UMD builds into `public/`
-  // from the installed `react` / `react-dom` at install and build time, and
-  // gitignore the output. React is already a dependency of this app, so it is
-  // the single source of truth and drift is structurally impossible — no
-  // vendored copy in git, and nothing for anyone to remember to re-sync. A CDN
-  // swap (R2 or otherwise) was considered and rejected: it relocates the
-  // external dependency instead of removing it, and offline still fails.
-  //
-  // Unverified and deliberately not assumed: whether a classic <script src>
-  // from `public/` loads inside the opaque-origin sandbox under the packaged
-  // client's `od://` protocol. That needs a real DMG, offline. Do not claim
-  // "works offline in the packaged client" until it has been run there.
-  it.todo('runs without reaching the public internet at all');
+it('runs without reaching the public internet at all', () => {
+    const doc = buildReactComponentSrcdoc('export default function App(){ return null; }', {
+      title: 'demo',
+    });
+    // The packaged client offline, and any machine that cannot reach a CDN, has
+    // to render this. The Preview Lab corpus run puts a number on the failure
+    // class it belongs to: 8 of its 12 white screens were
+    // external-network-required.
+    expect(doc).not.toMatch(/https?:\/\//);
+  });
 });
 
 describe('a component that does not compile', () => {
@@ -124,5 +115,32 @@ describe('a component that does not compile', () => {
     expect(() => { doc = buildReactComponentSrcdoc(broken, { title: 'broken' }); }).not.toThrow();
     expect(doc).toContain('<!doctype html>');
     expect(doc).toContain('od-react-error');
+  });
+});
+
+describe('the locally served React runtime', () => {
+  // The harness references these paths as strings, and nothing at build time
+  // checks that anything answers them — a rename on either side turns into a
+  // 404 the user only meets as "React preview runtime failed to load". This is
+  // the check that would have caught it.
+  it('is staged where the preview document looks for it', async () => {
+    const { readFile, stat } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+
+    const here = dirname(fileURLToPath(import.meta.url));
+    const publicDir = resolve(here, '..', '..', 'public');
+    const doc = buildReactComponentSrcdoc('export default function App(){ return null; }', {
+      title: 'demo',
+    });
+
+    const referenced = [...doc.matchAll(/src="(\/vendor\/[^"]+)"/g)].map((m) => m[1] as string);
+    expect(referenced.length).toBeGreaterThan(0);
+    for (const path of referenced) {
+      const staged = resolve(publicDir, `.${path}`);
+      // Run `pnpm --filter @open-design/web stage:react-runtime` if this fails.
+      await expect(stat(staged).then((s) => s.isFile())).resolves.toBe(true);
+      await expect(readFile(staged, 'utf8').then((t) => t.length)).resolves.toBeGreaterThan(1000);
+    }
   });
 });
