@@ -1997,8 +1997,8 @@ export const MODEL_RANKINGS: RankedModel[] = [
       },
     },
     note: {
-      zh: "：37 个产物里有 8 个是空产物（渲染失败），拉低了总分；剔除空产物后剩余产物的均分约 76。",
-      en: ": 8 of 37 artifacts failed to render and scored zero, pulling down the average; the mean over the remaining artifacts is about 76.",
+      zh: "：约五分之一的产物没能渲染出来，按 0 分计入，把平均分拉了下来；只看渲染成功的部分，均分约 76。",
+      en: ": about a fifth of its artifacts failed to render and scored zero, dragging the average down; across the ones that did render, the mean is about 76.",
     },
   },
 ];

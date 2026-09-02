@@ -82,7 +82,7 @@ const decisionCopy = isZh ? {
   },
   overallSignals: ['综合表现', '成本效率', '完成速度'],
   scenarioHeading: '分场景排名',
-  scenarioDescription: '五类场景分开看。每个模型在单个场景只有 6 个产物，误差比总榜大得多，适合看倾向，不适合当排名。',
+  scenarioDescription: '五类场景分开看。单个场景的样本比总榜小得多，误差也大得多，适合看倾向，不适合当排名。',
   sceneChoice: '场景领先模型',
 } : {
   heading: 'Choose by use case',
@@ -96,7 +96,7 @@ const decisionCopy = isZh ? {
   },
   overallSignals: ['Overall performance', 'Cost efficiency', 'Completion speed'],
   scenarioHeading: 'Rankings by scenario',
-  scenarioDescription: 'Compare average score, delivery rate, and cost per artifact across five design scenarios. Only 6 artifacts per model per scenario, so treat these as indicative.',
+  scenarioDescription: 'The five scenarios, split out. Each one rests on a much smaller sample than the overall board, with correspondingly wider error, so read them as tendencies rather than rankings.',
   sceneChoice: 'Scenario leader',
 };
 const methodCards = copy.methods as Array<[string, string, string, string, string[]]>;
@@ -161,15 +161,10 @@ const scenarios = orderedScenarios.map((scenario, index) => ({
   id: scenario.id,
   label: scenario.label[isZh ? 'zh' : 'en'],
   detail: scenario.detail[isZh ? 'zh' : 'en'],
-  fit: isZh
-    ? `${scenario.cases} 道题 · ${scenario.n} 个产物 · 可交付率 ${scenario.pdr}%`
-    : `${scenario.cases} tasks · ${scenario.n} artifacts · ${scenario.pdr}% delivery rate`,
   color: ['#ef7442', '#6756d8', '#4f43bb', '#319d6a', '#1589e8'][index] ?? '#6756d8',
   area: ['1 / 1 / 3 / 4', '1 / 4 / 2 / 7', '2 / 4 / 3 / 7', '1 / 7 / 3 / 9', '1 / 9 / 3 / 11'][index] ?? 'auto',
   score: scenario.score,
   pdr: scenario.pdr,
-  cases: scenario.cases,
-  sampleSize: scenario.n,
 }));
 
 /** 每个模型在每个场景 / 每档难度下的实测成绩，直接来自评测数据，不做任何推导。 */
@@ -659,7 +654,6 @@ const clientCopyJson = JSON.stringify({
                 <div class="scenario-verdict" style={`--scenario-color:${scene.color}`}>
                   <small>{decisionCopy.sceneChoice}</small>
                   <strong><span class="model-icon"><img src={winner.icon} alt="" width="24" height="24" /></span>{winner.name}</strong>
-                  <p>{scene.fit}</p>
                   <dl><span>{winner.score.toFixed(1)} {isZh ? '分' : 'score'}</span><span>{winner.pdr.toFixed(1)}% {isZh ? '可交付' : 'delivered'}</span><span>${formatCost(winner.cost)} / {isZh ? '份' : 'run'}</span></dl>
                 </div>
               </header>
