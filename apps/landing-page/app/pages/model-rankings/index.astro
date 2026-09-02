@@ -60,11 +60,14 @@ const copy = isZh ? {
     ['EFF', '单独报告', '模型效率与成本', '展示模型拿到这个结果花了多少资源，不影响评分。成本按各家官网标价乘实测 token 用量计算。', ['完成耗时与工具调用次数', '缓存命中率', '输入输出 Token 与单次成本']],
   ],
   disclosures: [['公平对比', '所有模型跑同一套私有任务集，统一走同一条 OpenDesign 执行链路，由同一批设计师按同一套标准打分。同一道题的所有模型由同一位评审评判，横向对比不受个人宽严影响。'], ['样本量与误差', '每个模型至少 30 个产物，均分的 95% 置信区间在 ±5.8 到 ±11.5 分之间。相差 10 分以内的名次，这批数据分不出高下。本轮每个产物只有一位评审，评审间一致性尚未校准。'], ['基准边界', '任务集保持私有以降低数据污染，只公布模型级结果，不公开题目提示词。'], ['如何解读', '分数描述指定版本模型在 OpenDesign 原型生成任务上的表现，不代表通用智能水平排名。']],
+  gapHeading: '跟场均差多少',
+  gapAxis: '相对场均（分）',
+  gapInconclusiveTag: '与场均无显著差异',
   reportLink: '点击查看评测报告原文',
   ctaDownload: '下载 OpenDesign 试用模型',
   ctaDiscord: '加入社群参与讨论',
 } : {
-  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', heading: 'OpenDesign Arena', intro: 'Which model should you reach for when you are prototyping a front end? We ran 12 leading models through the same real design tasks, on the same OpenDesign execution path, scored by the same designers against the same rubric.', introMetrics: 'Every artifact gets two scores. Requirement fulfillment, out of 30, asks whether the pages, content, states, and interactions the brief called for are actually there. Design quality, out of 70, judges layout, hierarchy, color, and whether the style carries the task. Together they make one artifact\u2019s total score.', findings: [['Highest score', 'GPT-5.6 Sol, 77.6. It also tops the two hardest scenarios, web apps and mobile apps.'], ['Fastest', 'Muse Spark 1.2, 2.9 minutes per artifact on average, scoring 72.5.'], ['Cheapest', 'DeepSeek V4 Flash, $0.026 per artifact \u2014 about 1/21 of what GPT-5.6 Sol costs, for 91% of its score.']], overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing average score, delivery rate, and cost per run.', metricAria: 'Ranking metric', metrics: [['pdr', 'Delivery rate', 'Artifacts scoring 80+'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['Artifact score · 100', 'D1 + D2'], ['Delivery rate', 'Artifacts scoring 80+'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality']], valueFormatAria: 'Leaderboard value format', percentage: 'Delivery rate', score: 'Avg. score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Five scenarios, three tasks each, two runs per task. A single model has only 6 artifacts per scenario, so per-scenario figures are indicative rather than a ranking.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare completion time, cache hit rate, and token consumption. All figures are measured medians.', analysisAria: 'Model efficiency metric', profile: 'Score profile', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'Average score vs speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'Average score (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Average score and delivery rate', pdrDesc: "One artifact's total score is D1 plus D2 out of 100; the average score on the leaderboard is the mean across all of that model's artifacts, its direct result on the OpenDesign benchmark. Delivery rate is the share of artifacts reaching 80, answering how often a model hands you something usable on the first try.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set, same OpenDesign execution path, two runs per task'], ['Gate', 'D0 checks whether the artifact opens at all'], ['Score', '11 designers score every artifact: D1 requirement 30 points, D2 design 70 points'], ['Pass', 'A total of 80 or above counts as ready to hand off'], ['Report', 'Ranked by average score, with efficiency and cost reported separately']], methods: [['D0', 'Hard gate', 'Artifact renderability', 'Confirms the artifact opens as a usable webpage before quality is judged. Artifacts that fail score zero and stay in the statistics rather than being re-run.', ['Page opens successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points', 'Requirement fulfillment', 'Six to nine checklist items per task, each rated met, partly met, or not met (1, 0.5, 0).', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Efficiency and cost', 'Shows the resources a model spent reaching this result. It does not affect the score. Cost is list price multiplied by measured token usage.', ['Completion time and tool calls', 'Cache hit rate', 'Input/output tokens and cost per run']]], disclosures: [['Fair comparison', 'Every model runs the same private task set through the same OpenDesign execution path, scored by the same designers against the same rubric. All models on a given task are judged by the same reviewer, so head-to-head comparison is not skewed by individual strictness.'], ['Sample size and error', 'At least 30 artifacts per model; the 95% confidence interval of the mean runs from plus-minus 5.8 to plus-minus 11.5 points. Gaps under 10 points are not separable in this dataset. Each artifact was scored by a single reviewer this round, so inter-rater agreement is not yet calibrated.'], ['Benchmark boundary', 'Tasks stay private to reduce contamination. Only model-level results are published, not the prompts.'], ['How to interpret it', 'Scores describe the evaluated model version on OpenDesign prototype generation. This is not a general intelligence ranking.']], reportLink: 'Read the full evaluation report', ctaDownload: 'Download OpenDesign to try these models', ctaDiscord: 'Join the community discussion',
+  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', heading: 'OpenDesign Arena', intro: 'Which model should you reach for when you are prototyping a front end? We ran 12 leading models through the same real design tasks, on the same OpenDesign execution path, scored by the same designers against the same rubric.', introMetrics: 'Every artifact gets two scores. Requirement fulfillment, out of 30, asks whether the pages, content, states, and interactions the brief called for are actually there. Design quality, out of 70, judges layout, hierarchy, color, and whether the style carries the task. Together they make one artifact\u2019s total score.', findings: [['Highest score', 'GPT-5.6 Sol, 77.6. It also tops the two hardest scenarios, web apps and mobile apps.'], ['Fastest', 'Muse Spark 1.2, 2.9 minutes per artifact on average, scoring 72.5.'], ['Cheapest', 'DeepSeek V4 Flash, $0.026 per artifact \u2014 about 1/21 of what GPT-5.6 Sol costs, for 91% of its score.']], overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing average score, delivery rate, and cost per run.', metricAria: 'Ranking metric', metrics: [['pdr', 'Delivery rate', 'Artifacts scoring 80+'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['Artifact score · 100', 'D1 + D2'], ['Delivery rate', 'Artifacts scoring 80+'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality']], valueFormatAria: 'Leaderboard value format', percentage: 'Delivery rate', score: 'Avg. score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Five scenarios, three tasks each, two runs per task. A single model has only 6 artifacts per scenario, so per-scenario figures are indicative rather than a ranking.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare completion time, cache hit rate, and token consumption. All figures are measured medians.', analysisAria: 'Model efficiency metric', profile: 'Score profile', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'Average score vs speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'Average score (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Average score and delivery rate', pdrDesc: "One artifact's total score is D1 plus D2 out of 100; the average score on the leaderboard is the mean across all of that model's artifacts, its direct result on the OpenDesign benchmark. Delivery rate is the share of artifacts reaching 80, answering how often a model hands you something usable on the first try.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set, same OpenDesign execution path, two runs per task'], ['Gate', 'D0 checks whether the artifact opens at all'], ['Score', '11 designers score every artifact: D1 requirement 30 points, D2 design 70 points'], ['Pass', 'A total of 80 or above counts as ready to hand off'], ['Report', 'Ranked by average score, with efficiency and cost reported separately']], methods: [['D0', 'Hard gate', 'Artifact renderability', 'Confirms the artifact opens as a usable webpage before quality is judged. Artifacts that fail score zero and stay in the statistics rather than being re-run.', ['Page opens successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points', 'Requirement fulfillment', 'Six to nine checklist items per task, each rated met, partly met, or not met (1, 0.5, 0).', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Efficiency and cost', 'Shows the resources a model spent reaching this result. It does not affect the score. Cost is list price multiplied by measured token usage.', ['Completion time and tool calls', 'Cache hit rate', 'Input/output tokens and cost per run']]], disclosures: [['Fair comparison', 'Every model runs the same private task set through the same OpenDesign execution path, scored by the same designers against the same rubric. All models on a given task are judged by the same reviewer, so head-to-head comparison is not skewed by individual strictness.'], ['Sample size and error', 'At least 30 artifacts per model; the 95% confidence interval of the mean runs from plus-minus 5.8 to plus-minus 11.5 points. Gaps under 10 points are not separable in this dataset. Each artifact was scored by a single reviewer this round, so inter-rater agreement is not yet calibrated.'], ['Benchmark boundary', 'Tasks stay private to reduce contamination. Only model-level results are published, not the prompts.'], ['How to interpret it', 'Scores describe the evaluated model version on OpenDesign prototype generation. This is not a general intelligence ranking.']], gapHeading: 'Distance from the field average', gapAxis: 'vs. field average (points)', gapInconclusiveTag: 'Not separable from average', reportLink: 'Read the full evaluation report', ctaDownload: 'Download OpenDesign to try these models', ctaDiscord: 'Join the community discussion',
 };
 
 const decisionCopy = isZh ? {
@@ -382,6 +385,40 @@ const EFFICIENCY_DURATION_MAX = 2100;
 const efficiencyX = (model: Model) => Math.max(5, Math.min(95, 5 + (model.time / EFFICIENCY_DURATION_MAX) * 90));
 const efficiencyY = (model: Model) => Math.max(6, Math.min(94, 6 + ((model.score - 55) / 25) * 88));
 
+/*
+ * 「跟场均差多少」：每个模型的平均分减去 12 个模型的场均，配 95% 置信区间。
+ * 这张图的意义在于把免责说明里那句「相差 10 分以内分不出高下」画出来 ——
+ * 置信区间跨过 0 的模型，跟场均的差距还在噪声范围内。
+ */
+const GAP_AXIS_MIN = -25;
+const GAP_AXIS_MAX = 15;
+const fieldAverage = rankedModels.reduce((sum, model) => sum + model.score, 0) / rankedModels.length;
+const gapX = (value: number) =>
+  Number((((clamp(value, GAP_AXIS_MIN, GAP_AXIS_MAX) - GAP_AXIS_MIN) / (GAP_AXIS_MAX - GAP_AXIS_MIN)) * 100).toFixed(2));
+const gapZero = gapX(0);
+const gapTicks = [-20, -10, 0, 10];
+const gapRows = [...rankedModels].sort((a, b) => b.score - a.score).map((model) => {
+  const delta = model.score - fieldAverage;
+  const low = delta - model.ci95;
+  const high = delta + model.ci95;
+  return {
+    name: model.name, icon: model.icon, ci95: model.ci95, delta,
+    /** 置信区间跨过 0：这个模型和场均的差距，这批数据说不准 */
+    inconclusive: low < 0 && high > 0,
+    barStart: Math.min(gapZero, gapX(delta)),
+    barWidth: Math.abs(gapX(delta) - gapZero),
+    whiskerStart: gapX(low),
+    whiskerWidth: gapX(high) - gapX(low),
+  };
+});
+const gapInconclusive = gapRows.filter((row) => row.inconclusive).length;
+const gapDesc = isZh
+  ? `每个模型的平均分减去 ${rankedModels.length} 个模型的场均（${fieldAverage.toFixed(1)} 分），横线是 95% 置信区间。`
+  : `Each model's average score minus the ${rankedModels.length}-model field average (${fieldAverage.toFixed(1)}). The whisker is the 95% confidence interval.`;
+const gapNote = isZh
+  ? `${rankedModels.length} 个模型里有 ${gapInconclusive} 个的置信区间跨过 0 —— 它们和场均的差距还在噪声范围内。所以榜单上相邻的名次，别当成确定的高下。`
+  : `${gapInconclusive} of the ${rankedModels.length} confidence intervals cross zero — those models are not separable from the field average in this dataset. Treat adjacent leaderboard positions as unranked.`;
+
 /** 综合榜顶部的三项高亮，各自独立取最优，不跟推荐区的五个维度共用。 */
 const overallRows = decisionRowsFor('overall');
 const leaderboardHighlights = [
@@ -550,6 +587,43 @@ const clientCopyJson = JSON.stringify({
           ))}
         </ul>
       )}
+    </section>
+
+    <section class="model-section gap-section" aria-labelledby="gap-title">
+      <div class="section-heading">
+        <div><h2 id="gap-title">{copy.gapHeading}</h2><p>{gapDesc}</p></div>
+      </div>
+      <div class="gap-chart" style={`--gap-zero:${gapZero}%`}>
+        <div class="gap-row gap-head" aria-hidden="true">
+          <span></span><span>{copy.model}</span><span>{copy.gapAxis}</span>
+          <span class="gap-track">
+            {gapTicks.map((tick) => (
+              <i class:list={['gap-tick', { 'is-zero': tick === 0 }]} style={`left:${gapX(tick)}%`}>
+                <b>{tick > 0 ? `+${tick}` : tick}</b>
+              </i>
+            ))}
+          </span>
+        </div>
+        {gapRows.map((row, index) => (
+          <div class:list={['gap-row', { 'is-inconclusive': row.inconclusive, 'is-below': row.delta < 0 }]}>
+            <span class="gap-rank">{index + 1}</span>
+            <span class="gap-model">
+              <span class="model-icon"><img src={row.icon} alt="" width="24" height="24" /></span>
+              <strong>{row.name}</strong>
+            </span>
+            <span class="gap-value">
+              <strong>{row.delta >= 0 ? `+${row.delta.toFixed(1)}` : row.delta.toFixed(1)}</strong>
+              <small>±{row.ci95.toFixed(1)}</small>
+            </span>
+            <span class="gap-track">
+              <i class="gap-bar" style={`left:${row.barStart}%;width:${row.barWidth}%`}></i>
+              <i class="gap-whisker" style={`left:${row.whiskerStart}%;width:${row.whiskerWidth}%`}></i>
+              {row.inconclusive ? <span class="sr-only">{copy.gapInconclusiveTag}</span> : null}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p class="gap-note">{gapNote}</p>
     </section>
 
     <section class="model-section scenario-rankings-section" aria-labelledby="task-title">
