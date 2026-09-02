@@ -173,6 +173,8 @@ export function expand(prop: string, value: string): Array<[string, string]> {
     case 'font-weight':
     case 'font-size':
     case 'color':
+    case 'cursor':
+    case 'opacity':
     case 'width':
     case 'height':
     case 'min-width':

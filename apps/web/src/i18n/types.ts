@@ -4433,6 +4433,12 @@ export interface Dict {
   'qf.answered': string;
   /** 「已回答」陈述块的标题(交付稿 `.answered .k`) */
   'qf.answeredConfirmed': string;
+  /**
+   * 「已回答」陈述块里,被跳过那道题的值。提交出去的文本给它写的是 `(skipped)`,
+   * 这一行就是同一件事的人话版本 —— 不能整行吞掉,吞掉之后收口会退回
+   * 「答案已发送」那句兜底,而实际上一个答案都没发。
+   */
+  'qf.answeredSkipped': string;
   'chat.att.cancelUpload': string;
   'chat.att.retry': string;
   'chat.attachments.preview': string;

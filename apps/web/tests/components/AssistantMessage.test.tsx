@@ -1220,6 +1220,45 @@ describe('AssistantMessage question forms', () => {
     expect(screen.queryByText('Quick brief — tailored')).toBeNull();
   });
 
+  /**
+   * 跳过的题在回放里要占一行,写「已跳过」—— 而不是让整块退回那句「答案已发送」。
+   *
+   * 这条钉的是**接线**,不是语义:共享的 summarizer 早就会念跳过了
+   * (`question-form-skipped-answer-row.test.tsx` 覆盖它),但这里的历史回放块
+   * 曾经不给它那个标签,于是被跳的行照旧被吞掉。整张表都跳时一行不剩,
+   * 兜底分支(`flat.length === 0 && visualItems.length === 0`)就画出
+   * `qf.lockedSubmitted`「答案已发送」—— 而这一分支里那句话必然是假的:
+   * `formatFormAnswers` 明明给每道题都写了 `(skipped)` 发出去了。
+   */
+  it('replays a skipped question as a row instead of the answers-sent fallback', () => {
+    const form = [
+      '<question-form id="discovery" title="Quick brief">',
+      JSON.stringify({
+        questions: [{ id: 'audience', label: 'Who is this for?', type: 'text' }],
+      }),
+      '</question-form>',
+    ].join('\n');
+
+    render(
+      <AssistantMessage
+        message={baseMessage({
+          events: [{ kind: 'text', text: form } as ChatMessage['events'][number]],
+        })}
+        streaming={false}
+        projectId="proj-1"
+        nextUserContent={'[form answers for discovery]\n- Who is this for?: (skipped)'}
+      />,
+    );
+
+    expect(screen.getByText('Who is this for?')).toBeTruthy();
+    expect(screen.getByText('Skipped')).toBeTruthy();
+    expect(
+      screen.queryByText(
+        'Answers sent — agent is using these for the rest of the session.',
+      ),
+    ).toBeNull();
+  });
+
   it('keeps ordinary checkbox answers on one replay-summary row', () => {
     const form = [
       '<question-form id="pages" title="Pages">',

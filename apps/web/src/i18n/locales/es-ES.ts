@@ -3550,6 +3550,7 @@ export const esES: Dict = {
   'assistant.verbCalling': 'Llamando',
   'qf.answered': 'respondido',
   'qf.answeredConfirmed': 'Confirmado',
+  'qf.answeredSkipped': 'Omitida',
   "chat.att.cancelUpload": "Cancelar la subida de {name}",
   "chat.att.retry": "Reintentar",
   "chat.attachments.scrollNext": "Ver los archivos adjuntos siguientes",

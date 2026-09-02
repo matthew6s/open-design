@@ -3550,6 +3550,7 @@ export const ko: Dict = {
   'assistant.verbCalling': '호출 중',
   'qf.answered': '답변 완료',
   'qf.answeredConfirmed': '확인됨',
+  'qf.answeredSkipped': '건너뜀',
   "chat.att.cancelUpload": "{name} 업로드 취소",
   "chat.att.retry": "다시 시도",
   "chat.attachments.scrollNext": "다음 첨부 파일 보기",

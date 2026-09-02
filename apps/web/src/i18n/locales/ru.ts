@@ -3550,6 +3550,7 @@ export const ru: Dict = {
   'assistant.verbCalling': 'Вызов',
   'qf.answered': 'отвечено',
   'qf.answeredConfirmed': 'Подтверждено',
+  'qf.answeredSkipped': 'Пропущено',
   "chat.att.cancelUpload": "Отменить загрузку {name}",
   "chat.att.retry": "Повторить",
   "chat.attachments.scrollNext": "Показать следующие вложения",

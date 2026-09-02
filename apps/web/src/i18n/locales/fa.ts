@@ -3550,6 +3550,7 @@ export const fa: Dict = {
   'assistant.verbCalling': 'در حال فراخوانی',
   'qf.answered': 'پاسخ داده شده',
   'qf.answeredConfirmed': 'تأیید شد',
+  'qf.answeredSkipped': 'رد شده',
   "chat.att.cancelUpload": "لغو بارگذاری {name}",
   "chat.att.retry": "تلاش دوباره",
   "chat.attachments.scrollNext": "نمایش پیوست‌های بعدی",

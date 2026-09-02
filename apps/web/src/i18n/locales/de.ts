@@ -3550,6 +3550,7 @@ export const de: Dict = {
   'assistant.verbCalling': 'Ruft auf',
   'qf.answered': 'beantwortet',
   'qf.answeredConfirmed': 'Bestätigt',
+  'qf.answeredSkipped': 'Übersprungen',
   "chat.att.cancelUpload": "Upload von {name} abbrechen",
   "chat.att.retry": "Erneut versuchen",
   "chat.attachments.scrollNext": "Weitere Anhänge anzeigen",

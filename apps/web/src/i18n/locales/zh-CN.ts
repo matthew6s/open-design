@@ -3736,6 +3736,7 @@ export const zhCN: Dict = {
   "assistant.verbCalling": "调用",
   "qf.answered": "已回答",
   "qf.answeredConfirmed": "已确认",
+  "qf.answeredSkipped": "已跳过",
   "chat.att.cancelUpload": "取消上传 {name}",
   "chat.att.retry": "重试",
   "chat.attachments.scrollNext": "看后面的附件",

@@ -3550,6 +3550,7 @@ export const ar: Dict = {
   'assistant.verbCalling': 'اتصال',
   'qf.answered': 'تمت الإجابة',
   'qf.answeredConfirmed': 'تم التأكيد',
+  'qf.answeredSkipped': 'تم التخطي',
   "chat.att.cancelUpload": "إلغاء رفع {name}",
   "chat.att.retry": "إعادة المحاولة",
   "chat.attachments.scrollNext": "عرض المرفقات التالية",

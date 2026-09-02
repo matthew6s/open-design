@@ -3550,6 +3550,7 @@ export const uk: Dict = {
   'assistant.verbCalling': 'Виклик',
   'qf.answered': 'відповідь дано',
   'qf.answeredConfirmed': 'Підтверджено',
+  'qf.answeredSkipped': 'Пропущено',
   "chat.att.cancelUpload": "Скасувати завантаження {name}",
   "chat.att.retry": "Повторити",
   "chat.attachments.scrollNext": "Показати наступні вкладення",

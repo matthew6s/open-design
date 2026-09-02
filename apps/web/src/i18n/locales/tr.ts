@@ -3550,6 +3550,7 @@ export const tr: Dict = {
   'assistant.verbCalling': 'Çağırıyor',
   'qf.answered': 'cevapladı',
   'qf.answeredConfirmed': 'Onaylandı',
+  'qf.answeredSkipped': 'Atlandı',
   "chat.att.cancelUpload": "{name} yüklemesini iptal et",
   "chat.att.retry": "Tekrar dene",
   "chat.attachments.scrollNext": "Sonraki ekleri göster",

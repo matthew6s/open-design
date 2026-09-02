@@ -3550,6 +3550,7 @@ export const ja: Dict = {
   'assistant.verbCalling': '呼び出し中',
   'qf.answered': '回答済み',
   'qf.answeredConfirmed': '確定しました',
+  'qf.answeredSkipped': 'スキップ',
   "chat.att.cancelUpload": "{name} のアップロードをキャンセル",
   "chat.att.retry": "再試行",
   "chat.attachments.scrollNext": "次の添付ファイルを表示",

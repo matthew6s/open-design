@@ -3550,6 +3550,7 @@ export const ptBR: Dict = {
   'assistant.verbCalling': 'Chamando',
   'qf.answered': 'respondido',
   'qf.answeredConfirmed': 'Confirmado',
+  'qf.answeredSkipped': 'Ignorada',
   "chat.att.cancelUpload": "Cancelar o envio de {name}",
   "chat.att.retry": "Tentar novamente",
   "chat.attachments.scrollNext": "Ver próximos anexos",

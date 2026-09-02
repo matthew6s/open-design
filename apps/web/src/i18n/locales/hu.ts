@@ -3550,6 +3550,7 @@ export const hu: Dict = {
   'assistant.verbCalling': 'Hívás',
   'qf.answered': 'megválaszolva',
   'qf.answeredConfirmed': 'Megerősítve',
+  'qf.answeredSkipped': 'Kihagyva',
   "chat.att.cancelUpload": "{name} feltöltésének megszakítása",
   "chat.att.retry": "Újra",
   "chat.attachments.scrollNext": "Következő mellékletek megtekintése",

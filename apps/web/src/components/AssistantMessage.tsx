@@ -3288,8 +3288,17 @@ function FormBlock({
   );
   const submittedSummary = useMemo(() => {
     if (!submittedFromHistory) return { items: [], visualItems: [] };
-    return summarizeQuestionFormAnswers(form, submittedFromHistory, visualStyleContext);
-  }, [form, submittedFromHistory, visualStyleContext]);
+    // 跳过的题也要占一行。`formatFormAnswers` 已经把它们写成 `(skipped)` 发给模型了,
+    // 收口不念出来的话,用户看不出自己跳过了什么;整张表都跳时更会一行不剩,
+    // 退回那句「答案已发送」—— 而那一分支恰恰是「一个答案都没有」才成立的。
+    return summarizeQuestionFormAnswers(
+      form,
+      submittedFromHistory,
+      visualStyleContext,
+      false,
+      t('qf.answeredSkipped'),
+    );
+  }, [form, submittedFromHistory, t, visualStyleContext]);
   useEffect(() => {
     const syncSubmitLock = () => {
       const outstanding = readInlineQuestionFormSubmitted(formKey);

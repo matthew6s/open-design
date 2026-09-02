@@ -989,6 +989,10 @@
 .qf-chip-on .qf-chip-check {
   display: none;
 }
+/* 禁用的 `<button>` 在浏览器里照样命中 `:hover`(点击事件没了,伪类还在),
+   所以这条对「已经选不了」的选项同样成立。它的底色由后面那条
+   `.qf-chip:disabled` 收回去 —— 同为 (0,2,0),靠**写在后面**取胜。
+   这两条的相对顺序是有意的,别把 `:disabled` 那条挪到这条前面。 */
 .qf-chip:hover {
   background: var(--bg-panel);
 }
@@ -1012,7 +1016,10 @@
   background: var(--bg);
   transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out);
 }
-.qf-chip:hover .qf-chip-box {
+/* 同上。这条还多担一件事:选中的勾是靠 `.qf-chip-on .qf-chip-box` 的
+   `border-color: transparent` + `--tick-img` 画出来的,而本条 (0,3,0) 压得过它。
+   不排除禁用态的话,一张**已锁的**表单在鼠标扫过时会把勾的底描回一圈灰边。 */
+.qf-chip:hover:not(:disabled) .qf-chip-box {
   border-color: var(--text-soft);
 }
 .qf-chip-on .qf-chip-box {
@@ -1025,7 +1032,18 @@
    real <button> so keyboard users can reach and toggle it; reset the UA
    button chrome to the shared chip look and give focus a visible ring. */
 .qf-chip:focus-visible { outline: 2px solid var(--accent, var(--border-strong)); outline-offset: 2px; }
-.qf-chip:disabled { cursor: default; }
+/* 选项行是 `<button>`(D52,照抄稿子的 `.opt`),于是一被 `disabled` 就吃到
+   `primitives.css` 的全局 `button:disabled { background: var(--bg-subtle) }` ——
+   特异性 (0,1,1),压过 `.qf-chip { background: transparent }` 的 (0,1,0),
+   把一行选项刷成一枚灰药丸。稿子的 `.opt` 从头到尾只有 `transparent` 一种底,
+   禁用态**没画过**,所以照静息还原。
+   写成 `.qf-chip:disabled` (0,2,0) 才压得回去 —— 和视觉方向卡那一路
+   (`.qf-visual-card.qf-visual-card-disabled`)是同一个做法,理由也是同一条。
+
+   这一条**同时**管住 hover:它和上面的 `.qf-chip:hover` 同为 (0,2,0),
+   写在后面所以指针停在禁用选项上时底色仍是 transparent —— 也就是稿子
+   `.btn:disabled:hover`「把静息值原样重述一遍」的那条规矩。位置是有意的。 */
+.qf-chip:disabled { background: transparent; cursor: default; }
 /* The collapsed custom field still occupies a slot in .qf-field's 6px
    column gap; cancel it so a closed accordion leaves no phantom spacing. */
 .qf-custom-collapsible:not(.open) { margin-top: -6px; }
@@ -1054,7 +1072,11 @@
   color: inherit;
   opacity: 0.72;
 }
-.qf-chip-disabled {
+/* 「选满了,这一项现在选不了」。**两个类** (0,2,0) 是必需的:只写一个类时
+   上面那条 `.qf-chip:disabled` 的 `cursor: default` 会压过它,这条声明的
+   `not-allowed` 从来没生效过。`not-allowed` 是仓库里「选不了」的既有口径
+   (稿子 `.btn:disabled`、产品 `.qf-visual-card-disabled` 都是它)。 */
+.qf-chip.qf-chip-disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }

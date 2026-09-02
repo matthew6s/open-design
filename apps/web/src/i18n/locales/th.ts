@@ -3550,6 +3550,7 @@ export const th: Dict = {
   'assistant.verbCalling': 'ตามสั่งเครื่องมือมาใช้',
   'qf.answered': 'ได้ส่งคำไปแล้ว',
   'qf.answeredConfirmed': 'ยืนยันแล้ว',
+  'qf.answeredSkipped': 'ข้ามแล้ว',
   "chat.att.cancelUpload": "ยกเลิกการอัปโหลด {name}",
   "chat.att.retry": "ลองอีกครั้ง",
   "chat.attachments.scrollNext": "ดูไฟล์แนบถัดไป",

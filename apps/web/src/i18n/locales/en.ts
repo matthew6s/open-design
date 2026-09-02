@@ -3564,6 +3564,7 @@ export const en: Dict = {
   'assistant.verbCalling': 'Calling',
   'qf.answered': 'answered',
   'qf.answeredConfirmed': 'Confirmed',
+  'qf.answeredSkipped': 'Skipped',
   "chat.att.cancelUpload": "Cancel upload of {name}",
   "chat.att.retry": "Retry",
   "chat.attachments.scrollNext": "Show next attachments",

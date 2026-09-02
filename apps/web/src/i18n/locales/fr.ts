@@ -3550,6 +3550,7 @@ export const fr: Dict = {
   'assistant.verbCalling': 'Appel',
   'qf.answered': 'répondu',
   'qf.answeredConfirmed': 'Confirmé',
+  'qf.answeredSkipped': 'Ignorée',
   "chat.att.cancelUpload": "Annuler l’envoi de {name}",
   "chat.att.retry": "Réessayer",
   "chat.attachments.scrollNext": "Voir les pièces jointes suivantes",

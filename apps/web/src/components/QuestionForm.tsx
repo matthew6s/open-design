@@ -2779,7 +2779,13 @@ function AnsweredSummary({
   // This locked-form renderer follows design frame #24: each checkbox value
   // gets its own `.al li`. Conversation replay keeps its pre-existing compact
   // one-row-per-question shape from FormBlock.
-  const summary = summarizeQuestionFormAnswers(form, answers, visualStyleContext, true);
+  const summary = summarizeQuestionFormAnswers(
+    form,
+    answers,
+    visualStyleContext,
+    true,
+    t('qf.answeredSkipped'),
+  );
   const flat = summary.items;
   const single = flat.length === 1 && summary.visualItems.length === 0;
 
@@ -2860,12 +2866,21 @@ export interface QuestionFormAnsweredSummary {
  * shows the catalog title and its selected preview. `splitMultiValueItems`
  * preserves the locked-form design's one-row-per-checkbox-value layout; the
  * replay path keeps its established one-row-per-question summary.
+ *
+ * `skippedLabel` 是「已跳过」的本地化说法(`qf.answeredSkipped`)。给了它,
+ * **提交过但没有值**的题就照 `formatFormAnswers` 写给模型的 `(skipped)` 念出来,
+ * 而不是整行吞掉 —— 收口必须和发出去的那份文本说同一件事。不给就保持旧行为。
+ *
+ * 「提交过但没有值」和「压根没这道题」是两档,只有前者算跳过:
+ * 回放时标签没对上、或表单还在流式长出来,那道题根本不在 `answers` 里,
+ * 那时不许替用户宣布「已跳过」。
  */
 export function summarizeQuestionFormAnswers(
   form: QuestionForm,
   answers: Record<string, string | string[]>,
   visualStyleContext?: VisualStyleContext,
   splitMultiValueItems = false,
+  skippedLabel?: string,
 ): QuestionFormAnsweredSummary {
   const items: QuestionFormAnsweredSummary['items'] = [];
   const visualItems: QuestionFormAnsweredSummary['visualItems'] = [];
@@ -2885,7 +2900,15 @@ export function summarizeQuestionFormAnswers(
     const raw = answers[question.id];
     const values = (Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [])
       .filter((value) => value.trim().length > 0);
-    if (values.length === 0) continue;
+    if (values.length === 0) {
+      // 这道题**提交过**(键在),只是没有值 —— `formatFormAnswers` 给模型
+      // 写的正是 `- <题目>: (skipped)`,收口照着念。`raw === undefined`
+      // 是另一档(根本没提交过),继续跳过。
+      if (skippedLabel !== undefined && raw !== undefined) {
+        items.push({ label: question.label, value: skippedLabel });
+      }
+      continue;
+    }
 
     /*
      * 颜色单独走一条 —— 它要带一块真色块回去。规范化仍旧只有

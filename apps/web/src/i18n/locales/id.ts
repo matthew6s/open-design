@@ -3550,6 +3550,7 @@ export const id: Dict = {
   'assistant.verbCalling': 'memanggil',
   'qf.answered': 'Terjawab',
   'qf.answeredConfirmed': 'Dikonfirmasi',
+  'qf.answeredSkipped': 'Dilewati',
   "chat.att.cancelUpload": "Batalkan unggahan {name}",
   "chat.att.retry": "Coba lagi",
   "chat.attachments.scrollNext": "Lihat lampiran berikutnya",
