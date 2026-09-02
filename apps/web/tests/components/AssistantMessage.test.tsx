@@ -176,7 +176,13 @@ describe('AssistantMessage feedback gate', () => {
 
     expect(screen.queryByText('poster.png')).toBeNull();
     fireEvent.click(screen.getByTestId('artifact-card-open-poster.png'));
-    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png');
+    /*
+     * 第二个实参是产物的**快照身份**(设计文档 §4.2):图片卡拿到当轮不可变快照
+     * 时会带上它,点击就开那一张而不是工作区今天的同名文件。这条夹具没有 refs
+     * (旧会话形态),所以必须**显式**是 `undefined` —— 写成
+     * `toHaveBeenCalledWith('poster.png')` 在多了一个可选参数之后会永远为真。
+     */
+    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png', undefined);
   });
 
   it('does not turn the whole assistant reply into a persistent focus target', () => {
@@ -210,7 +216,7 @@ describe('AssistantMessage feedback gate', () => {
     const open = screen.getByRole('button', { name: 'Open: poster.png' });
     expect(open.tagName).toBe('BUTTON');
     fireEvent.click(open);
-    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png');
+    expect(onRequestOpenFile).toHaveBeenCalledWith('poster.png', undefined);
   });
 
   it('renders plugin suggestions as compact user decisions with secondary actions in details', () => {

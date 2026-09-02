@@ -7,6 +7,7 @@ import type { ExecutionShell as ExecutionShellData } from "../runtime/chat/contr
 import { upstreamActivityAt } from "../runtime/chat/upstream-activity";
 import type { RecordFileScope } from "../runtime/chat/record-file-open";
 import { FileOpsSummary } from "./FileOpsSummary";
+import { messageArtifactRefs } from "../runtime/chat/artifact-refs";
 import {
   renderMarkdown,
   type MarkdownLinkClickHandler,
@@ -1404,6 +1405,17 @@ function AssistantMessageImpl({
             onPublish={onArtifactShare}
             onExport={onArtifactDownload}
             turnIsLive={streaming || turnRunStatus === 'running'}
+            /*
+             * 这一轮产物的**版本身份**。它决定卡面读当轮快照还是降级
+             * (HTML → live iframe 显示最新;图片 → 当前同名文件),以及图片卡
+             * 点击时开的是哪一张(设计文档 §4)。
+             *
+             * 走一个读取函数而不是 `message.artifactRefs`:这个字段的线上 DTO 在
+             * `packages/contracts`,和 daemon 侧同批次落地;落地之后旧消息里也仍然
+             * 可能没有它。收敛与「只信 ready」的判据都在
+             * `runtime/chat/artifact-refs.ts`。
+             */
+            artifactRefs={messageArtifactRefs(message)}
           />
         ) : null}
         {!streaming && projectId && pluginActionFolders.length > 0 ? (

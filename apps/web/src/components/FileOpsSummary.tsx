@@ -27,6 +27,7 @@ import {
   type FileOpKind,
 } from '../runtime/file-ops';
 import { artifactExportNeedsFormatChoice } from '../runtime/chat/artifact-export';
+import { indexArtifactRefs } from '../runtime/chat/artifact-refs';
 import { Icon, type IconName } from './Icon';
 import { PixelLiquid } from './PixelLiquid';
 import { RemixIcon } from './RemixIcon';
@@ -40,7 +41,11 @@ interface Props {
    *  only shows for entries whose basename is in the set. Pass undefined
    *  to opt out of the existence check (button always shown). */
   projectFileNames?: Set<string> | undefined;
-  onRequestOpenFile?: ((name: string) => void) | undefined;
+  /**
+   * 打开一份产物。第二个参数只有**图片**卡会带:它要求打开的是那一轮的那张
+   * 快照,而不是工作区里今天的同名文件(设计文档 §4.2)。
+   */
+  onRequestOpenFile?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
   /** Enables the design's artifact cards (component 14, grids 30-33). The
    *  thumbnail and the export href are both project-scoped URLs, so without a
    *  project id every entry keeps rendering as a text row. */
@@ -64,6 +69,21 @@ interface Props {
   onExport?: ((name: string, anchorId: string) => void) | undefined;
   /** 这一轮还在跑吗 —— 决定产物卡能不能是「还在写」的 loading 态(见 cardItems) */
   turnIsLive?: boolean;
+  /**
+   * 这条消息的产物**版本身份**(daemon 投影的 `ChatMessage.artifactRefs`)。
+   *
+   * 它决定两件事,按产物类型分两套(设计文档 §4):
+   *  · HTML / 原型 / slide / 文档 → 卡面读**当轮静态首屏截图**,点击仍开**最新**;
+   *  · 图片 → 卡面、点击、导出统统认**那一轮的不可变真图快照**。
+   *
+   * 拿不到(旧会话、截图失败、配额满)就整个不传,卡自己走降级支 ——
+   * HTML 降级成 live iframe 显示最新,图片降级成当前同名文件,两条都不出占位。
+   *
+   * 收 `unknown`:线上 DTO 在 `packages/contracts`,和 daemon 侧同批次落地;
+   * 而且落地之后旧消息里仍然可能没有这个字段。收敛在
+   * `runtime/chat/artifact-refs.ts`,那里守着「只信 ready」这条语义。
+   */
+  artifactRefs?: unknown;
 }
 
 type ArtifactOpKind = Extract<FileOpKind, 'write' | 'edit'>;
@@ -104,6 +124,7 @@ export function FileOpsSummary({
   onPublish,
   onExport,
   turnIsLive = false,
+  artifactRefs,
 }: Props) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -125,6 +146,8 @@ export function FileOpsSummary({
    * 删除掉的文件仍然不出卡(在这一行之前就被筛掉了):一张带预览的卡说的是
    * 「这份东西在这儿」,对一个已经不在的文件是假话。
    */
+  // 产物的版本身份按**文件名**配对:卡片自己也是按名字去重的(见下面的 `cardItems`)。
+  const refTargets = indexArtifactRefs(artifactRefs);
   const rawCardItems: ArtifactCardItem[] = projectId
     ? entries.flatMap((entry) => {
         if (entry.ops.includes('delete')) return [];
@@ -139,7 +162,14 @@ export function FileOpsSummary({
          * 被刻意丢掉 `runStatus`(那是**源会话**那次 run 的指针),于是没有任何东西
          * 宣布这一轮结束了,卡片就一直绿着。用户真机指认过。
          */
-        return [{ name: entry.path, kind, pending: turnIsLive && entry.status === 'running' }];
+        return [
+          {
+            name: entry.path,
+            kind,
+            pending: turnIsLive && entry.status === 'running',
+            ...(refTargets.get(entry.path) ?? {}),
+          },
+        ];
       })
     : [];
   // Historical runs can describe the same project-relative file through two
@@ -408,6 +438,32 @@ export interface ArtifactCardItem {
    *  asked for it on 2026-08-21 so a turn does not sit silent and then pop an
    *  artifact out of nowhere. */
   pending?: boolean;
+  /**
+   * 这一轮的**静态首屏截图**(HTML / 原型 / slide / 文档)。
+   *
+   * 卡面读它 —— 于是历史消息里那张卡是**当时**的样子,不跟工作区最新版本漂移。
+   * 拿不到就走降级支:live iframe 显示最新(见 `ArtifactCard`)。
+   */
+  coverUrl?: string;
+  /**
+   * 这一轮的**不可变真图快照**(图片)。卡面、点击、导出都认它。
+   * 拿不到就读工作区当前同名文件 —— 旧会话就是这条,不出占位、不写「不可用」。
+   */
+  snapshotUrl?: string;
+  /** 快照的稳定身份;点击图片卡时交给宿主,用来开一个只读的历史 tab。 */
+  snapshotId?: string;
+}
+
+/**
+ * 点击产物卡时,除了文件名之外还要交出去的东西。
+ *
+ * 只有**图片**卡会带上它:图片的点击语义是「打开那一轮的那张图」。HTML 系永远
+ * 不带 —— 它的点击语义是「打开工作区最新版本」,和卡面故意不一致(产品
+ * 2026-09-02:「点击行为就是可能不一致的,预期内的」)。
+ */
+export interface ArtifactOpenTarget {
+  snapshotId: string;
+  snapshotUrl: string;
 }
 
 /** 文档卡封面上那枚图标 —— 只按后缀分「代码 / 普通文件」两档,不另立一套映射 */
@@ -457,7 +513,7 @@ export function ArtifactCards({
 }: {
   items: ArtifactCardItem[];
   projectId: string;
-  onOpen?: ((name: string) => void) | undefined;
+  onOpen?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
 }) {
@@ -490,7 +546,7 @@ function ArtifactCard({
 }: {
   item: ArtifactCardItem;
   projectId: string;
-  onOpen?: ((name: string) => void) | undefined;
+  onOpen?: ((name: string, snapshot?: ArtifactOpenTarget) => void) | undefined;
   onPublish?: ((name: string, anchorId: string) => void) | undefined;
   onExport?: ((name: string, anchorId: string) => void) | undefined;
   anchorScope: string;
@@ -499,6 +555,20 @@ function ArtifactCard({
   const { workspaceContext } = useProjectCollabContext();
   const src = projectFileUrl(projectId, item.name, workspaceContext);
   const pending = item.pending === true;
+  /*
+   * 图片:这一轮那张**不可变快照**才是这张卡的正文 —— 卡面、点击、导出三处都读它。
+   * 没有快照(旧会话)就回落到工作区当前同名文件,而且**什么都不加**:不出占位、
+   * 不写「历史图片不可用」(产品 2026-09-02 推翻了设计文档 §8 里那条占位文案)。
+   */
+  const mediaSrc = item.snapshotUrl ?? src;
+  /*
+   * 只有图片卡把快照身份交给宿主。HTML 系的点击永远是「打开工作区最新版本」,
+   * 哪怕它自己也有一张当轮截图 —— 卡面和点击的这条不一致是产品要的。
+   */
+  const openTarget: ArtifactOpenTarget | undefined =
+    item.kind === 'image' && item.snapshotId && item.snapshotUrl
+      ? { snapshotId: item.snapshotId, snapshotUrl: item.snapshotUrl }
+      : undefined;
   // Publish is an HTML-only affordance, so a `.png` card carries one button and
   // an `.html` card carries two. The row is flex/end aligned precisely so that
   // unevenness stays right-aligned instead of shifting the export button.
@@ -522,7 +592,34 @@ function ArtifactCard({
           <span className="artifact-card-mini is-loading">
             <PixelLiquid />
           </span>
+        ) : item.coverUrl ? (
+          /*
+           * **当轮的静态首屏截图**(HTML / 原型 / slide / 文档)。
+           *
+           * 这是这张卡的正解:它冻结在这一轮,三天后回看这条消息,卡面还是当时
+           * 那个样子。点击才去开工作区最新版本 —— 两者不一致是产品要的
+           * (2026-09-02:「点击行为就是可能不一致的,预期内的」)。
+           *
+           * 截图按 1440×900 抓,和卡面 16:10 同比,所以走默认的 `cover`:铺满,
+           * 不裁不留边。图片卡那条 `data-preview-fit="contain"` 是为了竖图完整
+           * 显示,首屏截图不需要,挂上去反而会在卡里留两条空边。
+           */
+          <img
+            className="artifact-card-media"
+            src={item.coverUrl}
+            alt=""
+            loading="lazy"
+          />
         ) : item.kind === 'html' ? (
+          /*
+           * **没有当轮快照时的降级支** —— 旧会话、截图失败、desktop renderer 不在、
+           * 配额满,都走这里:live iframe 显示**最新** html。
+           *
+           * 产品 2026-09-02:「各种边界情况没有当轮的快照,才是我跟你说的用 live
+           * iframe 最新 html 降级方式」。降级必须仍然是一张**正常卡面** ——
+           * 不许换成占位或者「预览不可用」那种错误文案(「不允许退回不就一个错误
+           * 文案显示在上面了?这感觉更奇怪呢」)。
+           */
           <HtmlProjectCoverFrame
             src={src}
             initial=""
@@ -545,7 +642,7 @@ function ArtifactCard({
         ) : item.kind === 'video' ? (
           <video
             className="artifact-card-media"
-            src={src}
+            src={mediaSrc}
             muted
             preload="metadata"
             playsInline
@@ -553,7 +650,7 @@ function ArtifactCard({
         ) : (
           <img
             className="artifact-card-media"
-            src={src}
+            src={mediaSrc}
             alt=""
             loading="lazy"
             data-preview-fit="contain"
@@ -567,7 +664,7 @@ function ArtifactCard({
         <button
           type="button"
           className="artifact-card-open"
-          onClick={() => onOpen(item.name)}
+          onClick={() => onOpen(item.name, openTarget)}
           aria-label={`${t('assistant.openFile')}: ${item.name}`}
           data-testid={`artifact-card-open-${item.name}`}
         />
@@ -611,9 +708,11 @@ function ArtifactCard({
              * md / png / mp4 会走进预览区的导出菜单 —— 而那个菜单只发给
              * `HtmlViewer`,对这几类根本收不到,点下去只是把文件打开然后没下文。
              */
+            /* 导出下的是**卡面上那一版**:图片有快照就导快照,没有才导当前文件。
+               导出一个和卡面不同的版本,是在给人一份他没看见过的东西。 */
             <a
               className="artifact-card-act"
-              href={src}
+              href={mediaSrc}
               download={item.name}
               data-testid={`artifact-card-export-${item.name}`}
             >
