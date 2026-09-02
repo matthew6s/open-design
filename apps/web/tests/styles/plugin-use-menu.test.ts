@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { specificityTuple } from '../helpers/chat-mirror-cascade';
 import { describe, expect, it } from 'vitest';
 import { readExpandedIndexCss } from '../helpers/read-expanded-css';
 
@@ -9,7 +8,6 @@ const pluginsHomeCss = readFileSync(
   'utf8',
 );
 
-type Specificity = [ids: number, classes: number, types: number];
 
 function cssDeclarations(rawCss: string, selector: string): string {
   /*
@@ -35,24 +33,6 @@ function ruleValue(block: string, property: string): string {
   const match = matches.at(-1);
   if (!match) throw new Error(`Missing CSS property ${property}`);
   return match[1]!.trim();
-}
-
-/**
- * 特异性走校准过的共享量尺(`tests/helpers/chat-mirror-cascade.ts`)——
- * 逐条对 CSS 规范校过,用例见 `chat-mirror-cascade.specificity.test.ts`。
- * 原来这儿那份自带量尺把**每个类名也数了一格类型选择器**(`.plugins-home`
- * 读成 (0,1,1) 而不是 (0,1,0)),这张表里 164 条分支条条对不上。
- */
-function specificity(selector: string): Specificity {
-  return [...specificityTuple(selector)] as Specificity;
-}
-
-function compareSpecificity(left: Specificity, right: Specificity): number {
-  for (let index = 0; index < left.length; index += 1) {
-    const diff = left[index]! - right[index]!;
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
