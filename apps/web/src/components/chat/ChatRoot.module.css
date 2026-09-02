@@ -103,14 +103,39 @@
   --chat-lh-body: 1.7;
   --chat-lh-row: 1.5;
   /*
-   * 聊天面板的**基准行高 = 1.5**,和交付稿那张页面的 `body { line-height: 1.5 }` 一致。
+   * ── 聊天面板的排版基线 ────────────────────────────────────────────
    *
-   * 必须在这里显式写死,不能继承 app 的 `body`(它是 `125%`)——
-   * 凡是没自己设行高的紧凑行(壳头、状态行、各种标签)都吃这个值,
-   * 差一档就是每行差 2~3px,一沓步骤摞下来就是「间隔怎么这么大」。
-   * 需要 1.7 的地方(正文、抽屉 body)由稿子对应的规则显式给 `--chat-lh-body`,
-   * 和稿子的 `.fold .body { line-height: var(--lh-body) }` 一一对应。
+   * 三条一起,逐字对交付稿那张页面的 `body`
+   * (PR #7170 @ `8015870`,`docs/design/chat-panel/src/components.css`):
+   *
+   *     body { font-family: var(--sans); font-weight: 500;
+   *            font-size: var(--font-size-13); line-height: 1.5; … }
+   *
+   * 产品的全站 `body`(`styles/base.css`)是 **400 / 14px / 125%**,三条全不一样。
+   * 净效果:整个面板比稿子**轻一档、大一号、挤一行**。逐个组件量的时候每次都得出
+   * 「我们的 token 和稿子字节相同」,却仍然看着不一样 —— 真因就在这条基线上,
+   * 不在各个组件。
+   *
+   * 必须在这里显式写死,不能靠继承 app 的 `body`:凡是没自己设这三条的元素
+   * (壳头、状态行、各种标签、助手正文)全部吃错档 —— 行高差一档就是每行差
+   * 2~3px,一沓步骤摞下来就是「间隔怎么这么大」。
+   *
+   * 也不能反过来把这三条搬进全站 `body`:它管的是**全站**,而稿子只画了聊天面板,
+   * 侧栏 / 设置页 / 首页 / 工作区从来没按 13 / 500 设计过。
+   * `tests/components/chat/typography-baseline.test.ts` 有反向守卫钉住这一条。
+   *
+   * 需要别的档的地方由稿子对应的规则显式给:正文 / 抽屉 body 用 `--chat-lh-body`
+   * (对应稿子的 `.fold .body { line-height: var(--lh-body) }`),
+   * 组件名 / 卡片标题用 `--chat-t-lead`,阶段标题用 `--chat-t-head`。
+   *
+   * ⚠ 和这条绑死的还有一处:`styles/base.css` 里 `JiduMono Pro` 的 `@font-face`
+   * 描述符。那个字体只有一个静态字重文件(`JiduMonoPro-Regular.otf`),稿子把
+   * **同一份字节**的描述符写成 `500`。基线到 500 之后描述符也必须是 500,否则
+   * 耗时 / 文件路径 / Hex / 改动量这些走 mono 的位置就是「请求 500、可用面只有
+   * 400」,各浏览器的折算行为并不一致。两处只改一半就是坏的。
    */
+  font-weight: 500;
+  font-size: var(--chat-t-body);
   line-height: var(--chat-lh-row);
 
   /* ── 形 ── */
@@ -214,15 +239,10 @@
   --chat-lh-tight: 1.35;
   --chat-lh-body: 1.7;
   --chat-lh-row: 1.5;
-  /*
-   * 聊天面板的**基准行高 = 1.5**,和交付稿那张页面的 `body { line-height: 1.5 }` 一致。
-   *
-   * 必须在这里显式写死,不能继承 app 的 `body`(它是 `125%`)——
-   * 凡是没自己设行高的紧凑行(壳头、状态行、各种标签)都吃这个值,
-   * 差一档就是每行差 2~3px,一沓步骤摞下来就是「间隔怎么这么大」。
-   * 需要 1.7 的地方(正文、抽屉 body)由稿子对应的规则显式给 `--chat-lh-body`,
-   * 和稿子的 `.fold .body { line-height: var(--lh-body) }` 一一对应。
-   */
+  /* 排版基线,和亮色作用域同值 —— 原委见上面那段长注释。
+     接缝的约定是每条声明在亮暗两个作用域都要写,即使暂时同值。 */
+  font-weight: 500;
+  font-size: var(--chat-t-body);
   line-height: var(--chat-lh-row);
 
   --chat-radius-sm: var(--radius-sm);
