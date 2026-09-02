@@ -292,19 +292,27 @@ report most phases and would otherwise silently deflate the denominators.
 
 ## Wiring prerequisites
 
-This document defines the aggregation; the contract and the timing module exist; nothing
-emits yet. Before any panel is built:
+The runnable HogQL for every panel above lives in
+`specs/current/preview-observability-dashboard-queries.md`.
 
-1. Call sites must be added in the preview host (`FileViewer` / `PreviewSessionFrames` /
-   `IframeKeepAlivePool` and the `PreviewSession` callbacks), routing records to
-   `reportSafetyEvent(record.eventName, record.payload)`.
-2. `PreviewSession` already exposes the exact promotion callbacks this needs —
-   `onStandbyReady`, `onCapabilitiesApplied`, `onPromoted`, `onStandbyDiscarded`,
-   `onStandbyNavigationFailed` — which map onto phases 2, 3, 5, and 6 without inventing
-   new state.
-3. `beginSession` must be called once per attach *including warm attaches*. An attach that
-   only calls `recordPhase` produces nothing at all — the module fails closed rather than
-   fabricating an anchor — which will read as missing volume in row 2, not as a fast
-   preview.
-4. Do not build the dashboard before the coverage panels in row 2 have data. A latency
+`bootstrap_handshake`, `capabilities_applied`, `version_promoted`,
+`last_good_retained`, and `recovery_attempted` are wired in
+`apps/web/src/components/PreviewSessionFrames.tsx`; `cache_reclaimed` is wired in
+`apps/web/src/components/IframeKeepAlivePool.tsx`. Records go to the
+consent-gated product analytics channel — see
+`apps/web/src/runtime/preview-phase-reporter.ts` for why that channel and not the
+safety bypass.
+
+`navigation_start` and `first_visible_paint` are still unwired and are owned by
+`FileViewer`. Until `navigation_start` lands nothing emits at all, because the
+timing module fails closed on a phase with no anchor. Before any panel is built:
+
+1. `FileViewer` must call `beginPreviewAttach` once per attach, *including warm
+   attaches*, restarting the anchor rather than reusing the cold one. An attach
+   that only records later phases produces nothing, which reads as missing volume
+   in the validity row, not as a fast preview.
+2. `FileViewer` must record `first_visible_paint`. It is the only owner that can
+   observe paint, and metric 1, metric 2, and the paint-independence audit all
+   depend on it.
+3. Do not build the dashboard before the validity panels have data. A latency
    number without its coverage guard is worse than no number.

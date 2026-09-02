@@ -142,6 +142,7 @@ export const PREVIEW_PHASE_HANDSHAKE_OUTCOMES = [
   'protocol_unsupported',
   'abandoned',
 ] as const;
+export type PreviewPhaseHandshakeOutcome = typeof PREVIEW_PHASE_HANDSHAKE_OUTCOMES[number];
 
 export const PREVIEW_PHASE_CAPABILITY_OUTCOMES = [
   'applied',
@@ -149,6 +150,7 @@ export const PREVIEW_PHASE_CAPABILITY_OUTCOMES = [
   'rejected',
   'superseded',
 ] as const;
+export type PreviewPhaseCapabilityOutcome = typeof PREVIEW_PHASE_CAPABILITY_OUTCOMES[number];
 
 export const PREVIEW_PHASE_CAPABILITY_CHANGE_REASONS = [
   'initial',
@@ -157,6 +159,7 @@ export const PREVIEW_PHASE_CAPABILITY_CHANGE_REASONS = [
   'document_replace',
   'reconnect',
 ] as const;
+export type PreviewPhaseCapabilityChangeReason = typeof PREVIEW_PHASE_CAPABILITY_CHANGE_REASONS[number];
 
 /**
  * How the host learned a visible paint happened. `timeout` records that the
@@ -168,8 +171,10 @@ export const PREVIEW_PHASE_PAINT_DETECTORS = [
   'raf_probe',
   'timeout',
 ] as const;
+export type PreviewPhasePaintDetector = typeof PREVIEW_PHASE_PAINT_DETECTORS[number];
 
 export const PREVIEW_PHASE_PROMOTION_OUTCOMES = ['promoted', 'abandoned', 'failed'] as const;
+export type PreviewPhasePromotionOutcome = typeof PREVIEW_PHASE_PROMOTION_OUTCOMES[number];
 
 /**
  * The promotion gate, and only the promotion gate.
@@ -188,6 +193,7 @@ export const PREVIEW_PHASE_PROMOTION_GATES = [
   'dom_ready',
   'presentation_state',
 ] as const;
+export type PreviewPhasePromotionGate = typeof PREVIEW_PHASE_PROMOTION_GATES[number];
 
 export const PREVIEW_PHASE_RETENTION_REASONS = [
   'handoff_window',
@@ -198,6 +204,7 @@ export const PREVIEW_PHASE_RETENTION_REASONS = [
   'previous_evicted',
   'retention_budget',
 ] as const;
+export type PreviewPhaseRetentionReason = typeof PREVIEW_PHASE_RETENTION_REASONS[number];
 
 export const PREVIEW_PHASE_RECOVERY_TRIGGERS = [
   'handshake_timeout',
@@ -207,6 +214,7 @@ export const PREVIEW_PHASE_RECOVERY_TRIGGERS = [
   'promotion_timeout',
   'subresource_stall',
 ] as const;
+export type PreviewPhaseRecoveryTrigger = typeof PREVIEW_PHASE_RECOVERY_TRIGGERS[number];
 
 export const PREVIEW_PHASE_RECOVERY_OUTCOMES = [
   'recovered',
@@ -214,6 +222,7 @@ export const PREVIEW_PHASE_RECOVERY_OUTCOMES = [
   'exhausted',
   'superseded',
 ] as const;
+export type PreviewPhaseRecoveryOutcome = typeof PREVIEW_PHASE_RECOVERY_OUTCOMES[number];
 
 export const PREVIEW_PHASE_RECLAIM_REASONS = [
   'lru_budget',
@@ -223,6 +232,7 @@ export const PREVIEW_PHASE_RECLAIM_REASONS = [
   'memory_pressure',
   'manual',
 ] as const;
+export type PreviewPhaseReclaimReason = typeof PREVIEW_PHASE_RECLAIM_REASONS[number];
 
 // ---------------------------------------------------------------------------
 // Field specification
@@ -387,53 +397,53 @@ export interface PreviewPhaseAttachInput extends PreviewPhaseNavigationStartDeta
 }
 
 export interface PreviewPhaseBootstrapHandshakeDetail {
-  outcome: typeof PREVIEW_PHASE_HANDSHAKE_OUTCOMES[number];
+  outcome: PreviewPhaseHandshakeOutcome;
   protocol_version?: number;
   available_capability_count?: number;
   probe_count?: number;
 }
 
 export interface PreviewPhaseCapabilitiesAppliedDetail {
-  outcome: typeof PREVIEW_PHASE_CAPABILITY_OUTCOMES[number];
+  outcome: PreviewPhaseCapabilityOutcome;
   enabled_capabilities?: readonly PreviewRuntimeCapability[];
   enabled_capability_count?: number;
-  change_reason?: typeof PREVIEW_PHASE_CAPABILITY_CHANGE_REASONS[number];
+  change_reason?: PreviewPhaseCapabilityChangeReason;
 }
 
 export interface PreviewPhaseFirstVisiblePaintDetail {
-  detector?: typeof PREVIEW_PHASE_PAINT_DETECTORS[number];
+  detector?: PreviewPhasePaintDetector;
   paint_observed: boolean;
   visible_element_count?: number;
 }
 
 export interface PreviewPhaseVersionPromotedDetail {
-  outcome: typeof PREVIEW_PHASE_PROMOTION_OUTCOMES[number];
+  outcome: PreviewPhasePromotionOutcome;
   gate_runtime_identity: boolean;
   gate_capabilities: boolean;
   gate_dom_ready: boolean;
   gate_presentation_state: boolean;
-  blocked_gate?: typeof PREVIEW_PHASE_PROMOTION_GATES[number];
+  blocked_gate?: PreviewPhasePromotionGate;
   attempt?: number;
   paint_observed_at_decision?: boolean;
 }
 
 export interface PreviewPhaseLastGoodRetainedDetail {
   retained: boolean;
-  reason: typeof PREVIEW_PHASE_RETENTION_REASONS[number];
+  reason: PreviewPhaseRetentionReason;
   retained_ms?: number;
   previous_version_exposed?: boolean;
 }
 
 export interface PreviewPhaseRecoveryAttemptedDetail {
-  trigger: typeof PREVIEW_PHASE_RECOVERY_TRIGGERS[number];
+  trigger: PreviewPhaseRecoveryTrigger;
   attempt: number;
   max_attempts?: number;
-  outcome: typeof PREVIEW_PHASE_RECOVERY_OUTCOMES[number];
+  outcome: PreviewPhaseRecoveryOutcome;
   navigation_token_scoped?: boolean;
 }
 
 export interface PreviewPhaseCacheReclaimedDetail {
-  reason: typeof PREVIEW_PHASE_RECLAIM_REASONS[number];
+  reason: PreviewPhaseReclaimReason;
   retained_ms?: number;
   reuse_count?: number;
   retained_session_count?: number;

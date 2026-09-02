@@ -10,6 +10,16 @@ import type {
   PreviewRuntimeCapability,
   PreviewRuntimeDocumentIdentity,
 } from '@open-design/contracts/runtime/preview-runtime';
+import type {
+  PreviewPhasePromotionGate,
+  PreviewPhasePromotionOutcome,
+  PreviewPhaseRecoveryTrigger,
+} from '@open-design/contracts/runtime/preview-phase-events';
+import {
+  previewAttachPaintObserved,
+  recordPreviewPhase,
+  registerPreviewPoolKey,
+} from '../runtime/preview-phase-reporter';
 import { OPEN_DESIGN_PREVIEW_NAVIGATION_ATTEMPT_PARAM } from '@open-design/host';
 import {
   PreviewSession,
@@ -63,6 +73,11 @@ export interface PreviewSessionFramesProps extends Omit<
     navigationAttempt: number,
   ) => void;
   standbyTimeoutMs?: number;
+  /**
+   * The owner's bounded retry budget for one document version. Used only to
+   * distinguish a recovery attempt that will be retried from the last one.
+   */
+  recoveryAttemptBudget?: number;
 }
 
 interface RenderedPreviewDocument extends Omit<PreviewSessionNavigation, 'runtimeProtocol'> {
@@ -73,6 +88,128 @@ interface RenderedPreviewDocument extends Omit<PreviewSessionNavigation, 'runtim
 }
 
 const EMPTY_CAPABILITIES: readonly PreviewRuntimeCapability[] = [];
+/**
+ * How many navigation attempts the owner of this component is willing to spend
+ * on one document version before it stops retrying.
+ *
+ * This component does not retry — the owner bumps `navigationRetryToken` — so
+ * this is a statement about the owner's contract, not this component's
+ * behavior. It exists because `recovery_attempted.outcome = 'exhausted'` is
+ * the numerator of the recovery-exhaustion metric, and only a known bound can
+ * tell a retry that will be followed by another from the last one. An owner
+ * with a different bound must pass `recoveryAttemptBudget`.
+ */
+export const PREVIEW_SESSION_RECOVERY_ATTEMPT_BUDGET = 3;
+
+interface PromotionGateState {
+  runtimeIdentity: boolean;
+  capabilities: boolean;
+  domReady: boolean;
+  presentationState: boolean;
+}
+
+/**
+ * Name the first gate that was not met, in the order the gate is evaluated.
+ *
+ * The four gates are exact runtime identity, capability acknowledgement, DOM
+ * ready, and presentation-state acknowledgement. First visible paint is not
+ * among them and must never be added: it is observation, and a valid blank or
+ * broken authored page must still be promotable.
+ */
+function firstBlockedGate(gates: PromotionGateState): PreviewPhasePromotionGate {
+  if (!gates.runtimeIdentity) return 'runtime_identity';
+  if (!gates.capabilities) return 'capabilities';
+  if (!gates.domReady) return 'dom_ready';
+  if (!gates.presentationState) return 'presentation_state';
+  return 'none';
+}
+
+/** Per-attempt telemetry state; one entry per staged standby attempt. */
+interface StandbyAttemptTelemetry {
+  stagedAt: number;
+  helloAt: number | null;
+  availableCapabilityCount: number;
+  previousFrame: HTMLIFrameElement | null;
+  hadPreviousVersion: boolean;
+  settled: boolean;
+}
+
+/**
+ * Report the terminal outcome of one standby attempt.
+ *
+ * Every path out of a staged standby comes through here — promotion, refusal,
+ * and timeout alike. That is deliberate: if only the promotion path reported,
+ * the promotion-success metric would have no denominator and would read 100%
+ * forever, and the last-good retention rate would have no negative rows.
+ *
+ * Emits at most one `version_promoted` and one `last_good_retained` per
+ * attempt, plus a `recovery_attempted` row when this attempt is part of a
+ * bounded retry.
+ */
+function reportStandbyAttemptSettled(input: {
+  identity: PreviewRuntimeDocumentIdentity;
+  telemetry: StandbyAttemptTelemetry | undefined;
+  outcome: PreviewPhasePromotionOutcome;
+  gates: PromotionGateState;
+  /** Overrides the derived gate when the failure names one directly. */
+  blockedGate?: PreviewPhasePromotionGate;
+  attempt: number;
+  recoveryBudget: number;
+  recoveryTrigger: PreviewPhaseRecoveryTrigger | null;
+  presented: boolean;
+  now: number;
+}): void {
+  const { telemetry, identity } = input;
+  if (telemetry?.settled) return;
+  if (telemetry) telemetry.settled = true;
+
+  recordPreviewPhase(identity, 'version_promoted', {
+    outcome: input.outcome,
+    gate_runtime_identity: input.gates.runtimeIdentity,
+    gate_capabilities: input.gates.capabilities,
+    gate_dom_ready: input.gates.domReady,
+    gate_presentation_state: input.gates.presentationState,
+    blocked_gate: input.blockedGate ?? firstBlockedGate(input.gates),
+    attempt: input.attempt,
+    paint_observed_at_decision: previewAttachPaintObserved(identity),
+  });
+
+  const previousFrame = telemetry?.previousFrame ?? null;
+  const retained = previousFrame !== null && previousFrame.isConnected;
+  recordPreviewPhase(identity, 'last_good_retained', {
+    retained,
+    reason: !telemetry?.hadPreviousVersion
+      ? 'no_previous_version'
+      : retained
+        ? (input.outcome === 'promoted' ? 'released_after_promotion' : 'recovery_in_flight')
+        : 'previous_evicted',
+    retained_ms: telemetry ? Math.max(0, input.now - telemetry.stagedAt) : 0,
+    previous_version_exposed: retained && input.presented,
+  });
+
+  const isRetry = input.attempt > 1;
+  if (input.outcome === 'promoted') {
+    // A first attempt that simply worked is not a recovery. Only a promotion
+    // that followed at least one failed attempt closes a recovery loop.
+    if (!isRetry) return;
+    recordPreviewPhase(identity, 'recovery_attempted', {
+      ...(input.recoveryTrigger ? { trigger: input.recoveryTrigger } : {}),
+      attempt: input.attempt,
+      max_attempts: input.recoveryBudget,
+      outcome: 'recovered',
+      navigation_token_scoped: true,
+    });
+    return;
+  }
+  if (!input.recoveryTrigger) return;
+  recordPreviewPhase(identity, 'recovery_attempted', {
+    trigger: input.recoveryTrigger,
+    attempt: input.attempt,
+    max_attempts: input.recoveryBudget,
+    outcome: input.attempt >= input.recoveryBudget ? 'exhausted' : 'retrying',
+    navigation_token_scoped: true,
+  });
+}
 // This bounds a broken Runtime handshake. It is not a visual-content timeout:
 // authored blank/error output remains a valid current version once the exact
 // Runtime and presentation-state protocol has settled.
@@ -342,6 +479,7 @@ function PreviewSessionFramesForFile({
   onStandbyTimedOut,
   onStandbyVersionChanged,
   standbyTimeoutMs = PREVIEW_SESSION_STANDBY_TIMEOUT_MS,
+  recoveryAttemptBudget = PREVIEW_SESSION_RECOVERY_ATTEMPT_BUDGET,
   title = fileName,
   ...iframeProps
 }: PreviewSessionFramesProps) {
@@ -358,6 +496,12 @@ function PreviewSessionFramesForFile({
   const frameByTargetRef = useRef(new Map<PreviewRuntimeMessageTarget, HTMLIFrameElement>());
   const attemptByTargetRef = useRef(new Map<PreviewRuntimeMessageTarget, number>());
   const standbyTargetRef = useRef<PreviewRuntimeMessageTarget | null>(null);
+  const attemptTelemetryRef = useRef(new Map<string, StandbyAttemptTelemetry>());
+  const lastRecoveryTriggerRef = useRef<PreviewPhaseRecoveryTrigger | null>(null);
+  const presentedRef = useRef(presented);
+  presentedRef.current = presented;
+  const recoveryBudgetRef = useRef(recoveryAttemptBudget);
+  recoveryBudgetRef.current = recoveryAttemptBudget;
   callbacksRef.current = {
     onCurrentFrameChange,
     onStandbyFrameChange,
@@ -385,12 +529,43 @@ function PreviewSessionFramesForFile({
       onCapabilitiesApplied(document, capabilities) {
         const frame = frameByTargetRef.current.get(document.target);
         if (frame) callbacksRef.current.onCapabilitiesApplied?.(frame, capabilities);
+        recordPreviewPhase(document, 'capabilities_applied', {
+          outcome: 'applied',
+          enabled_capabilities: capabilities,
+          enabled_capability_count: capabilities.length,
+          // A set applied to the already-current document is a live toggle; a
+          // set applied to a standby is part of bringing a document up, and
+          // whether a previous version exists is what separates the two.
+          change_reason: currentRef.current?.target === document.target
+            ? 'user_toggle'
+            : currentRef.current
+              ? 'document_replace'
+              : 'initial',
+        });
       },
       onPromoted(document, previous) {
         const frame = frameByTargetRef.current.get(document.target);
         const navigationAttempt = attemptByTargetRef.current.get(document.target);
         if (!frame || navigationAttempt === undefined) return;
         const next = { ...document, frame, navigationAttempt };
+        const attemptKey = `${identityKey(document)}\0retry:${navigationAttempt}`;
+        reportStandbyAttemptSettled({
+          identity: document,
+          telemetry: attemptTelemetryRef.current.get(attemptKey),
+          outcome: 'promoted',
+          gates: {
+            runtimeIdentity: true,
+            capabilities: true,
+            domReady: true,
+            presentationState: true,
+          },
+          attempt: navigationAttempt + 1,
+          recoveryBudget: recoveryBudgetRef.current,
+          recoveryTrigger: lastRecoveryTriggerRef.current,
+          presented: presentedRef.current,
+          now: Date.now(),
+        });
+        attemptTelemetryRef.current.delete(attemptKey);
         setCurrent(next);
         callbacksRef.current.onPromoted?.(
           navigationOf(document),
@@ -414,6 +589,28 @@ function PreviewSessionFramesForFile({
         const failureKey = `${identityKey(document)}\0retry:${expectedAttempt}`;
         if (failedAttemptKeyRef.current === failureKey) return;
         failedAttemptKeyRef.current = failureKey;
+        reportStandbyAttemptSettled({
+          identity: document,
+          telemetry: attemptTelemetryRef.current.get(failureKey),
+          outcome: 'failed',
+          gates: {
+            // The daemon refused to serve this exact version, so the identity
+            // the host asked for does not exist. A hello from whatever was
+            // previously in this browsing context does not make it exist.
+            runtimeIdentity: false,
+            capabilities: false,
+            domReady: false,
+            presentationState: false,
+          },
+          blockedGate: 'runtime_identity',
+          attempt: expectedAttempt + 1,
+          recoveryBudget: recoveryBudgetRef.current,
+          recoveryTrigger: 'navigation_failed',
+          presented: presentedRef.current,
+          now: Date.now(),
+        });
+        attemptTelemetryRef.current.delete(failureKey);
+        lastRecoveryTriggerRef.current = 'navigation_failed';
         session.discardStandby(document);
         setFailedAttemptKey(failureKey);
         callbacksRef.current.onStandbyVersionChanged?.(
@@ -436,7 +633,27 @@ function PreviewSessionFramesForFile({
   }, [active, current, session]);
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => session.handleMessage(event);
+    const handleMessage = (event: MessageEvent) => {
+      const message = session.handleMessage(event);
+      if (!message || message.type !== 'od:preview:hello') return;
+      const attempt = attemptByTargetRef.current.get(
+        event.source as PreviewRuntimeMessageTarget,
+      );
+      if (attempt === undefined) return;
+      const entry = attemptTelemetryRef.current.get(
+        `${identityKey(message)}\0retry:${attempt}`,
+      );
+      // Only the first hello of an attempt is the handshake; the bootstrap
+      // answers probes idempotently and will say hello again.
+      if (!entry || entry.helloAt !== null) return;
+      entry.helloAt = Date.now();
+      entry.availableCapabilityCount = message.availableCapabilities.length;
+      recordPreviewPhase(message, 'bootstrap_handshake', {
+        outcome: 'acknowledged',
+        protocol_version: message.protocolVersion,
+        available_capability_count: message.availableCapabilities.length,
+      });
+    };
     window.addEventListener('message', handleMessage);
     // A cached scoped URL can execute the bootstrap during the child iframe's
     // layout effects, before this passive host listener exists. The bootstrap
@@ -473,6 +690,31 @@ function PreviewSessionFramesForFile({
       || standbyAttemptKey === null
     ) return undefined;
     const timeout = window.setTimeout(() => {
+      // Snapshot before discardStandby() clears the standby gate state; the
+      // whole point of this row is naming which gate was still open.
+      const snapshot = session.snapshot();
+      const entry = attemptTelemetryRef.current.get(standbyAttemptKey);
+      if (entry && entry.helloAt === null) {
+        recordPreviewPhase(standby, 'bootstrap_handshake', { outcome: 'timeout' });
+      }
+      reportStandbyAttemptSettled({
+        identity: standby,
+        telemetry: entry,
+        outcome: 'abandoned',
+        gates: {
+          runtimeIdentity: entry?.helloAt !== null && entry !== undefined,
+          capabilities: snapshot.standbyCapabilitiesApplied,
+          domReady: snapshot.standbyReady,
+          presentationState: snapshot.standbyPresentationStateApplied,
+        },
+        attempt: navigationRetryToken + 1,
+        recoveryBudget: recoveryBudgetRef.current,
+        recoveryTrigger: 'handshake_timeout',
+        presented: presentedRef.current,
+        now: Date.now(),
+      });
+      attemptTelemetryRef.current.delete(standbyAttemptKey);
+      lastRecoveryTriggerRef.current = 'handshake_timeout';
       session.discardStandby(standby);
       setFailedAttemptKey(standbyAttemptKey);
       callbacksRef.current.onStandbyTimedOut?.(
@@ -485,6 +727,7 @@ function PreviewSessionFramesForFile({
   }, [
     active,
     current,
+    navigationRetryToken,
     pool,
     session,
     standby,
@@ -512,9 +755,28 @@ function PreviewSessionFramesForFile({
     standbyTargetRef.current = target;
     frameByTargetRef.current.set(target, frame);
     attemptByTargetRef.current.set(target, navigationRetryToken);
+    const attemptKey = `${identityKey(standby)}\0retry:${navigationRetryToken}`;
+    if (!attemptTelemetryRef.current.has(attemptKey)) {
+      const previous = currentRef.current;
+      attemptTelemetryRef.current.set(attemptKey, {
+        stagedAt: Date.now(),
+        helloAt: null,
+        availableCapabilityCount: 0,
+        // Captured now, while the previous version is still the one on screen.
+        // Whether that frame is still connected when this attempt settles is
+        // exactly what `last_good_retained` reports.
+        previousFrame: previous?.frame ?? null,
+        hadPreviousVersion: previous !== null,
+        settled: false,
+      });
+    }
+    registerPreviewPoolKey(
+      documentKeepAliveKey(projectId, fileName, standby, navigationRetryToken),
+      standby,
+    );
     session.stageDocument({ ...standby, runtimeProtocol: 'universal', target });
     callbacksRef.current.onStandbyFrameChange?.(frame);
-  }, [navigationRetryToken, session, standby]);
+  }, [fileName, navigationRetryToken, projectId, session, standby]);
 
   const retainCurrentFrame = useCallback((frame: HTMLIFrameElement | null) => {
     if (!current) return;
@@ -524,12 +786,16 @@ function PreviewSessionFramesForFile({
       return;
     }
     frameByTargetRef.current.set(current.target, frame);
+    registerPreviewPoolKey(
+      documentKeepAliveKey(projectId, fileName, current, current.navigationAttempt),
+      current,
+    );
     // Promotion reuses the same pooled iframe component but swaps its ref
     // from stageFrame to retainCurrentFrame. stageFrame(null) deliberately
     // clears the standby bookkeeping during that handoff, so restore the
     // attempt associated with the now-current message target here.
     attemptByTargetRef.current.set(current.target, current.navigationAttempt);
-  }, [current]);
+  }, [current, fileName, projectId]);
 
   const commonProps = {
     ...iframeProps,

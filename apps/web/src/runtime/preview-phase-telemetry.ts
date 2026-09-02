@@ -13,13 +13,23 @@ import {
   type PreviewPhaseSurface,
 } from '@open-design/contracts/runtime/preview-phase-events';
 
-/**
- * Which document this record belongs to, plus the framing a dashboard needs to
- * split cold from warm and normal from powered without a join.
- */
-export interface PreviewPhaseSessionDescriptor {
+/** Which document a phase record belongs to. */
+export interface PreviewPhaseIdentity {
   sessionId: string;
   documentVersion: string;
+}
+
+/**
+ * Identity plus the framing a dashboard needs to split cold from warm and
+ * normal from powered without a join.
+ *
+ * Framing is supplied once, by whoever opens the attach, and is then fixed for
+ * its lifetime. Downstream components that observe a phase know the document
+ * but have no business deciding which surface it was opened on or whether the
+ * open was cold — letting them re-supply it is how two components end up
+ * labelling one attach two different ways.
+ */
+export interface PreviewPhaseSessionDescriptor extends PreviewPhaseIdentity {
   surface: PreviewPhaseSurface;
   renderMode: PreviewPhaseRenderMode;
   sandboxProfile: PreviewPhaseSandboxProfile;
@@ -48,6 +58,7 @@ interface TrackedAttach {
   anchoredAt: number;
   lastPhaseAt: number;
   sequence: number;
+  paintObserved: boolean;
 }
 
 const DEFAULT_MAX_SESSIONS = 32;
@@ -59,7 +70,7 @@ function defaultNow(): number {
   return Date.now();
 }
 
-function sessionKeyOf(descriptor: PreviewPhaseSessionDescriptor): string {
+function sessionKeyOf(descriptor: PreviewPhaseIdentity): string {
   // NUL separator, written as an escape: it cannot occur in either bounded
   // identity, so no pair of identities can collide into one key.
   return `${descriptor.sessionId}\u0000${descriptor.documentVersion}`;
@@ -123,6 +134,7 @@ export class PreviewPhaseTelemetry {
       anchoredAt: at,
       lastPhaseAt: at,
       sequence: 0,
+      paintObserved: false,
     };
     this.#attaches.delete(key);
     this.#attaches.set(key, attach);
@@ -140,19 +152,22 @@ export class PreviewPhaseTelemetry {
    * ones.
    */
   recordPhase<P extends PreviewPhase>(
-    descriptor: PreviewPhaseSessionDescriptor,
+    identity: PreviewPhaseIdentity,
     phase: P,
     detail: PreviewPhaseDetail<P> | Readonly<Record<string, unknown>>,
   ): PreviewPhaseTelemetryRecord | null {
-    const key = sessionKeyOf(descriptor);
+    const key = sessionKeyOf(identity);
     const attach = this.#attaches.get(key);
     if (!attach) return null;
 
     const at = this.#now();
-    // Keep the framing the caller supplies now (render mode and capability
-    // framing can legitimately change mid-attach) but keep the attach's own
-    // anchor and counters.
-    attach.descriptor = descriptor;
+    // Remember that a paint happened so a later promotion can report whether
+    // one had been seen when it decided. Recording it is the only way the
+    // paint-independence audit has real data; without it the audit panel
+    // counts every promotion and proves nothing.
+    if (phase === 'first_visible_paint') {
+      attach.paintObserved ||= (detail as { paint_observed?: unknown }).paint_observed === true;
+    }
     const record = this.#build(attach, phase, detail as Readonly<Record<string, unknown>>, at);
 
     // Reclaim is terminal for the attach: the retained document is gone, so a
@@ -164,12 +179,17 @@ export class PreviewPhaseTelemetry {
   }
 
   /** Forget an attach without emitting anything (host teardown, navigation abort). */
-  endSession(descriptor: PreviewPhaseSessionDescriptor): void {
-    this.#attaches.delete(sessionKeyOf(descriptor));
+  endSession(identity: PreviewPhaseIdentity): void {
+    this.#attaches.delete(sessionKeyOf(identity));
   }
 
-  hasSession(descriptor: PreviewPhaseSessionDescriptor): boolean {
-    return this.#attaches.has(sessionKeyOf(descriptor));
+  hasSession(identity: PreviewPhaseIdentity): boolean {
+    return this.#attaches.has(sessionKeyOf(identity));
+  }
+
+  /** Whether a visible paint has been recorded for this attach so far. */
+  paintObserved(identity: PreviewPhaseIdentity): boolean {
+    return this.#attaches.get(sessionKeyOf(identity))?.paintObserved ?? false;
   }
 
   activeSessionCount(): number {
