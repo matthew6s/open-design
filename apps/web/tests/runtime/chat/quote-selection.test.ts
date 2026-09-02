@@ -7,6 +7,7 @@ import {
   appendQuoteOutcome,
   isQuotable,
   normalizeQuoteText,
+  isLongSelection,
   quoteBarPlacement,
   quoteBarPosition,
   quotePromptPrefix,
@@ -130,6 +131,41 @@ describe('浮条位置夹取', () => {
       barHeight: 34,
     });
     expect(below).toEqual({ left: 170, top: 156, placement: 'below' });
+  });
+
+  /*
+   * 翻到下方是为了**让开选区**。选区大到让不开时,追到末尾就只是把浮条丢到
+   * 几屏之外(现场:压在产物卡预览图上)。所以「长选区」翻下去也贴起点。
+   */
+  it('长选区翻到下方时贴起点,短选区照旧让开整段', () => {
+    const panelHeight = panel.bottom - panel.top; // 400,半屏 = 200
+
+    // 短:选区 40px,让开整段 —— 末行下沿 150 + 6
+    const shortFirst = box(140, 110, 60, 20);
+    const shortLast = box(140, 130, 60, 20);
+    expect(shortLast.bottom - shortFirst.top).toBeLessThanOrEqual(panelHeight / 2);
+    expect(quoteBarPosition({ first: shortFirst, last: shortLast, panel, barHeight: 34 }))
+      .toEqual({ left: 170, top: 156, placement: 'below' });
+
+    // 长:选区 260px > 半屏 —— 贴起点下沿 130 + 6
+    const longFirst = box(140, 110, 60, 20);
+    const longLast = box(300, 350, 60, 20);
+    expect(longLast.bottom - longFirst.top).toBeGreaterThan(panelHeight / 2);
+    expect(quoteBarPosition({ first: longFirst, last: longLast, panel, barHeight: 34 }))
+      .toEqual({ left: 170, top: 136, placement: 'below' });
+  });
+
+  it('长选区的判据是「比半屏还高」,和它落在哪儿无关', () => {
+    expect(isLongSelection({
+      first: box(140, 110, 60, 20),
+      last: box(140, 130, 60, 20),
+      panel,
+    })).toBe(false);
+    expect(isLongSelection({
+      first: box(140, 110, 60, 20),
+      last: box(140, 350, 60, 20),
+      panel,
+    })).toBe(true);
   });
 
   it('靠左右边选择时把完整浮条夹在聊天栏内', () => {

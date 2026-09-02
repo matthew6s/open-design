@@ -71,6 +71,31 @@ export function quoteBarPlacement(input: {
 }
 
 /**
+ * 「长选区」的判据:选区**比半屏还高**。
+ *
+ * 稿子没有这一格 —— 组件 23 的五个状态全是单行 `<mark>`,把它的
+ * `bottom: calc(100% + 7px)` / `top: calc(100% + 6px)` 原样套到一个跨屏选区上,
+ * 两个位置都跑到视口外面去了。所以这条是**补上去的产品判据**,不是量出来的稿子值。
+ *
+ * 为什么是「半屏」:翻到下方的**目的**是让开选区。选区占了半屏以上时,它已经
+ * 不是「一段话」而是「一整片内容」—— 让开它没有意义,让开了浮条也还在几屏之外。
+ * 换个数字(1/3、2/3)不会改变结论的形状,只会挪动边界;真要定死得产品拍板。
+ */
+export const QUOTE_BAR_LONG_SELECTION_RATIO = 0.5;
+
+export function isLongSelection(input: {
+  first: QuoteRect;
+  last: QuoteRect;
+  panel: QuoteRect;
+  ratio?: number;
+}): boolean {
+  const panelHeight = input.panel.bottom - input.panel.top;
+  if (panelHeight <= 0) return false;
+  const selectionHeight = input.last.bottom - input.first.top;
+  return selectionHeight > panelHeight * (input.ratio ?? QUOTE_BAR_LONG_SELECTION_RATIO);
+}
+
+/**
  * 浮条的落点。
  *
  * 传进来的是选区**首行**和**末行**两块矩形,不是它们的并集:朝上贴首行的上沿、
@@ -78,6 +103,11 @@ export function quoteBarPlacement(input: {
  * 写死了 ——「定位参照是【选区】不是整段:浮条要对准你选的那几个字,段落居中
  * 会在长句里偏出去老远」。跨行选择时并集的中心就是段落中心,正是它警告的那种偏。
  * 单行选区两块是同一块,退化回原来的行为。
+ *
+ * **长选区是个例外**:翻到下方本来是为了让开选区,而选区大到让不开时(见
+ * `isLongSelection`),追到末尾只会把浮条丢到几屏之外 —— 现场那一发就是从
+ * 助手消息顶上一路拖到最后一段,浮条飞过大半屏压在产物卡的预览图上。
+ * 这时候翻下去也贴**起点**:让开不了,至少还跟着你开始选的地方。
  */
 export function quoteBarPosition(input: {
   /** 选区首行矩形 */
@@ -97,9 +127,17 @@ export function quoteBarPosition(input: {
   const gapAbove = input.gapAbove ?? QUOTE_BAR_GAP_ABOVE_PX;
   const gapBelow = input.gapBelow ?? QUOTE_BAR_GAP_BELOW_PX;
   const edge = input.edgeInset ?? QUOTE_BAR_EDGE_INSET_PX;
+  // 翻到下方时贴谁:短选区让开整段(末行),长选区让不开,退回贴起点(首行)。
+  const belowAnchor = isLongSelection({
+    first: input.first,
+    last: input.last,
+    panel: input.panel,
+  })
+    ? input.first
+    : input.last;
   const placement = quoteBarPlacement({
     selectionTop: input.first.top,
-    selectionBottom: input.last.bottom,
+    selectionBottom: belowAnchor.bottom,
     panelTop: input.panel.top,
     panelBottom: input.panel.bottom,
     barHeight,
@@ -108,7 +146,7 @@ export function quoteBarPosition(input: {
   });
 
   // 贴哪一块,就居中于哪一块 —— 位置和参照必须是同一个矩形。
-  const anchor = placement === 'above' ? input.first : input.last;
+  const anchor = placement === 'above' ? input.first : belowAnchor;
   const center = (anchor.left + anchor.right) / 2;
   const minLeft = input.panel.left + edge + barWidth / 2;
   const maxLeft = input.panel.right - edge - barWidth / 2;

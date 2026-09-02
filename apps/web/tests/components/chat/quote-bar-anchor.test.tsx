@@ -149,3 +149,63 @@ describe('取词浮条紧贴选中的那几个字', () => {
     expect(top).toBe(140);
   });
 });
+
+/**
+ * 跨屏长选区(现场第二发)。
+ *
+ * 从助手消息最顶上的「Codex」那一行一路拖到最后一段结论,七八个块、几乎占满整屏。
+ * 起点贴着面板顶边 → 上方放不下 → 翻到下方 —— 到这一步每一步都对,
+ * 但翻下去之后锚的是选区**末块**,于是浮条飞过大半屏,压在产物卡的预览图上。
+ *
+ * 缺的那一维是「选区有多长」:翻到下方是为了**让开选区**,而选区大到让不开时,
+ * 追到末尾就只是把浮条丢到几屏之外。这一组把长短两侧都钉住。
+ */
+describe('跨屏长选区', () => {
+  const panel = rect(0, 100, 480, 800); // 100..900,可视高度 800
+
+  it('长选区翻到下方时贴住起点,不追到选区末尾', () => {
+    const codexLine = rect(120, 120, 200, 24); // 「Codex」那一行:120..144
+    const lastConclusion = rect(120, 776, 300, 24); // 最后一段结论:776..800
+    const { top, left, placement } = selectWithClientRects(panel, [
+      codexLine,
+      rect(120, 300, 320, 24),
+      rect(120, 520, 280, 24),
+      lastConclusion,
+    ]);
+
+    expect(placement).toBe('below');
+    // 贴的是起点那一行的下沿 + 稿子的 6px,不是末块的 800 + 6
+    expect(top).toBe(150);
+    // 水平也跟着起点走
+    expect(left).toBe(220);
+    // 说人话的那条:浮条不许离选区起点半屏以上
+    expect(top - codexLine.bottom).toBeLessThan(panel.height / 2);
+  });
+
+  it('选区比面板还高(首尾都在视口外)时浮条仍留在面板里', () => {
+    const above = rect(120, -200, 200, 24); // 起点已经滚出视口上方
+    const below = rect(120, 1100, 300, 24); // 末尾在视口下方
+    const { top, placement } = selectWithClientRects(panel, [
+      above,
+      rect(120, 400, 320, 24),
+      below,
+    ]);
+
+    expect(placement).toBe('below');
+    // 夹进面板安全区,而不是跑到 1106 去
+    expect(top).toBeGreaterThanOrEqual(108);
+    expect(top).toBeLessThanOrEqual(858);
+    // 而且要夹在**靠起点那一头**:钉在 composer 上沿等于又飞了一次
+    expect(top).toBeLessThan(300);
+  });
+
+  it('短的跨行选区照旧让开整段选区 —— 长选区那条规则不许误伤它', () => {
+    const firstLine = rect(120, 110, 200, 24); // 110..134,贴着面板顶边
+    const secondLine = rect(120, 134, 160, 24); // 134..158
+    const { top, placement } = selectWithClientRects(panel, [firstLine, secondLine]);
+
+    expect(placement).toBe('below');
+    // 让开的是**整段**:末行下沿 158 + 6
+    expect(top).toBe(164);
+  });
+});
