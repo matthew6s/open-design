@@ -1815,8 +1815,10 @@ legend.qf-color-legend {
   padding: 0 11px 8px;
 }
 /* 稿子 `.cbody > .foot > .btn:first-child { padding-inline: 0 }`:靠左那颗贴边。
-   用 `:first-of-type` 而不是 `:first-child` —— 分步态下前面还有一枚倒计时 `<span>`,
-   按 `:first-child` 匹配不到「跳过」,它就凭空缩进一格(用户真机指认)。 */
+   用 `:first-of-type` 而不是 `:first-child`:倒计时曾经排在这一行的第一格,按
+   `:first-child` 匹配不到「跳过」,它就凭空缩进一格(用户真机指认)。倒计时后来
+   按稿子 `729fa43ce7` 挪去了卡头,`:first-of-type` 仍然是这里更稳的写法 ——
+   底栏将来再插进任何非按钮节点(提示、分隔)都不会重演那次缩进。 */
 .question-form-foot > button:first-of-type {
   padding-inline: 0;
 }
@@ -1862,13 +1864,24 @@ legend.qf-color-legend {
   color: var(--text-muted);
   line-height: 1.4;
 }
-/* 倒计时不吃掉整条空白 —— 原来它带着 `flex: 1`,把「跳过」一路挤到右边、
-   和「上一步 / 下一步」堆成一坨(稿子是跳过靠左、动作靠右)。
-   靠右由 `.qf-submit-actions { margin-left: auto }` 负责。 */
+/* 倒计时在【卡头右上】,不在底栏 —— 稿子 `729fa43ce7:visual-fan.css` 新加的那一处:
+     <time class="n visual-countdown" datetime="PT30S">30s</time>   ← 在 `.h` 里
+     .card > .h .visual-countdown { color: var(--text-soft); font-weight: 400 }
+   它同时带 `.n`,所以还继承稿子 `components.css:1356` 那条:
+     .card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums;
+                     font-size: var(--t-cap); font-weight: 600 }
+   —— 也就是 12px + 顶右 + 数字不跳,字重再由 `.visual-countdown` 压回 400。
+   我们只有一个卡头,所以这两条合成一条写在这里。
+   改前是 11px + `--text-muted`,两项都不是稿子的值。
+
+   ⚠️ 显示格式是**有意偏离**(2026-09-02 产品裁决,详见 `QuestionForm.tsx` 里那段注释):
+   稿子是 `30s`,我们保留 `M:SS`。格式不由 CSS 决定,这里记一笔免得只读样式的人误判。 */
 .qf-auto-continue {
   flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: 11px;
+  margin-inline-start: auto;
+  color: var(--text-soft);
+  font-size: var(--font-size-12);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
 }
@@ -1916,14 +1929,58 @@ legend.qf-color-legend {
   --qf-fan-dx: -12px;
   --qf-fan-dy: -8px;
 }
-/* 顶部那一条只放视图切换，不放别的 —— 这里再挂标题或计数，就成了卡里的
-   第二个卡头。两个图标本身已经把话说完了（四格 = 铺开，两张叠着 = 收起），
-   所以纯图标不带字；读屏那句留在 aria-label 上，切换时跟着换。 */
+/* 顶栏只管【这一组预览】:换一批和叠放 / 网格切换并排靠右。标题与倒计时仍在
+   卡头里,这里不会长成第二个卡头(稿子 `729fa43ce7:visual-fan.css` 原话)。
+   切换那枚是纯图标不带字 —— 两个图标本身已经把话说完了(四格 = 铺开,
+   两张叠着 = 收起);读屏那句留在 aria-label 上,切换时跟着换。
+   稿子 `.vbar { display:flex; align-items:center; gap: 4px; padding-bottom: 6px }`
+   —— `gap: 4px` 是这一次加的,原来只有两颗中的一颗,没有间距可言。
+   稿子用 `<span class="sp">{flex:1}` 把这一组推到右边,我们用 `justify-content`
+   做同一件事(少一个空节点),两边的落位一致。 */
 .qf-visual-bar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 4px;
   margin-inline: 11px;
+}
+/* 稿子 `729fa43ce7:visual-fan.css`:
+     .visual-refresh {
+       flex: none; min-height: 24px; padding-inline: 8px;
+       border-radius: var(--radius-pill);
+       color: var(--text-muted); font-size: var(--t-cap); font-weight: 400;
+       transition: background-color …, color …;
+     }
+     .visual-refresh:hover { background: var(--bg-fill-secondary); color: var(--text-strong); }
+   —— 稿子给它开了**自己的一档**,不是底栏那几颗 ghost:24px 的矮胶囊、12px / 400。
+   我们这颗是共享 `Button variant="ghost" size="sm"`,它自带 `gap: 8px` /
+   `font-weight: 600` / `padding-block: 4px` / `padding-inline: 11px` / `height: auto`,
+   稿子的 `.visual-refresh` 一条都不设,所以逐条显式撤掉 —— 和旁边 `.qf-visual-switch`
+   同一种写法,连拔特异性的理由都一样(module 的 `.ghost` / `.sm` 也是单类,
+   平手时看谁后加载,那是靠不住的)。
+   `padding-block: 0`:稿子只写了 `padding-inline`,块向留给 UA(1px),而 24px 的
+   `min-height` 无论 0 还是 1 都在撑着 —— 两边渲染高度同为 24px。 */
+.qf-visual-picker .qf-visual-refresh {
+  flex: none;
+  gap: normal;
+  height: auto;
+  min-height: 24px;
+  min-width: auto;
+  padding-block: 0;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-12);
+  font-weight: 400;
+  transition:
+    background-color var(--duration-faster) var(--ease-out),
+    color var(--duration-faster) var(--ease-out);
+}
+.qf-visual-picker .qf-visual-refresh:hover:not(:disabled) {
+  background: var(--bg-fill-secondary);
+  color: var(--text-strong);
 }
 /* 稿子 `.vswitch { display:grid; place-items:center; width:24px; height:24px;
    border-radius: var(--radius-sm); color: var(--text-soft) }`。

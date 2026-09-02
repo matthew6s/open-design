@@ -595,6 +595,29 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
       {form.submitLabel ?? t('qf.submitDefault')}
     </Button>
   );
+  /*
+   * 视觉方向那一行最左那颗「跳过」(稿子 `729fa43ce7` 把原来那颗「换一批」换成了它,
+   * 「换一批」挪去了预览区顶栏)。
+   *
+   * **行为不新造**:它就是底栏原本那颗跳过 —— 合并只在 `!stepped` 时发生,
+   * 那一路本来点的就是 `handleSkipAll`(整张表单没答的题一律按「(skipped)」序列化,
+   * 和倒计时走完那条自动继续是同一套语义)。文案取现成的 `questionForm.skip`
+   * (稿子这一格写的就是「跳过」),不是 `questions.skipAll` 那句更长的
+   * 「跳过 · 你来判断」—— 这一行右边还并排站着「随机」和「下一步」,长句会把它们挤散。
+   */
+  const visualSkipButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      className="qf-visual-foot-action"
+      data-action="skip"
+      onClick={handleSkipAll}
+      disabled={submitDisabled}
+    >
+      {t('questionForm.skip')}
+    </Button>
+  );
   // A manual Skip all is always available, including for required questions.
   const canSkipAll = true;
   const hasRequiredQuestions = form.questions.some((q) => q.required === true);
@@ -694,6 +717,30 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
         ) : null}
         {pickedCount > 0 ? <PickedCount t={t} count={pickedCount} /> : null}
         {locked ? <span className="question-form-pill">{t('qf.answered')}</span> : null}
+        {/*
+          倒计时在【卡头右上】,不在底栏 —— 稿子 `729fa43ce7` 新加的那一处:
+            <div class="h">…<b>先定个视觉方向</b>
+              <time class="n visual-countdown" datetime="PT30S">30s</time></div>
+            .card > .h .visual-countdown { color: var(--text-soft); font-weight: 400 }
+          它同时带 `.n`,所以还继承 `margin-left:auto` / `tabular-nums` / `--t-cap`(12px)。
+          搬上来还顺手补上了一个洞:视觉方向卡的底栏是**合并掉的**(见 `visualFootDelegated`),
+          底栏不渲染 → 倒计时在那张卡上从来没出现过,而稿子恰恰是在那张卡上画的它。
+
+          ⚠️ **一处有意偏离:显示格式**。稿子写的是 `30s`,我们保留 `M:SS`(`0:30`)。
+          出处是 2026-09-02 产品裁决,原话「格式我感觉还是用 `0:30` 吧..更清晰..」。
+          这是明确的产品选择,不是稿子漏改。要动它得先拿到新的裁决 ——
+          `datetime` / `aria-label` 是语义属性不是显示文案,那两个照稿子的语义走。
+        */}
+        {autoContinueEnabled ? (
+          <time
+            className="qf-auto-continue"
+            dateTime={`PT${autoContinueRemaining}S`}
+            title={t('questions.autoSkipHint')}
+            aria-label={`${t('questions.autoSkipHint')} ${autoContinueCountdown}`}
+          >
+            {autoContinueCountdown}
+          </time>
+        ) : null}
       </div>
       <div className="question-form-body">
         {questionsToRender.map((q) => {
@@ -822,6 +869,7 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
                   }
                   onInteraction={onInteraction}
                   submitSlot={visualFootDelegated ? submitButton : undefined}
+                  skipSlot={visualFootDelegated ? visualSkipButton : undefined}
                 />
               ) : null}
 
@@ -968,15 +1016,6 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
               </span>
             ) : stepped ? (
               <>
-                {autoContinueEnabled ? (
-                  <span
-                    className="qf-auto-continue"
-                    title={t('questions.autoSkipHint')}
-                    aria-label={`${t('questions.autoSkipHint')} ${autoContinueCountdown}`}
-                  >
-                    {autoContinueCountdown}
-                  </span>
-                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -1032,14 +1071,6 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
                   </Button>
                 </span>
               </>
-            ) : autoContinueEnabled ? (
-              <span
-                className="qf-auto-continue"
-                title={t('questions.autoSkipHint')}
-                aria-label={`${t('questions.autoSkipHint')} ${autoContinueCountdown}`}
-              >
-                {autoContinueCountdown}
-              </span>
             ) : null}
             {!locked && !stepped ? (
               <>
@@ -1365,6 +1396,7 @@ function VisualStylePicker({
   onChange,
   onInteraction,
   submitSlot,
+  skipSlot,
 }: {
   cards: VisualStyleCard[];
   context: VisualStyleContext;
@@ -1384,6 +1416,12 @@ function VisualStylePicker({
    * 反过来把「换一批 / 随机」提上去就要搬走翻牌、重置这一沓、还剩几张一整套状态。
    */
   submitSlot?: ReactNode;
+  /**
+   * 底栏最左那颗「跳过」(稿子 `729fa43ce7` 把原来那颗「换一批」换成了它)。
+   * 和 `submitSlot` 同进同退:只有底栏被合并进选择器这一行时才交下来,
+   * 否则卡片自己的底栏还在,那颗「跳过」就在那儿。
+   */
+  skipSlot?: ReactNode;
 }) {
   const t = useT();
   /*
@@ -1509,12 +1547,23 @@ function VisualStylePicker({
     onChange([...value, card.value]);
   }
 
+  /*
+   * 「换一批」在【预览区顶栏】,排在网格切换左边 —— 稿子 `729fa43ce7` 把它从底栏
+   * 挪了上来:
+   *   <div class="vbar"><span class="sp"></span>
+   *     <button class="visual-refresh">换一批</button>
+   *     <button class="vswitch" …>
+   * 顺序是它自己说的话:换的是这一沓的**内容**,和旁边那枚「怎么摆」是一组的,
+   * 而底栏那一行留给「这道题怎么了结」(跳过 / 随机 / 下一步)。
+   * 样式不是共享 ghost 档 —— 稿子给了它自己的一档(`.visual-refresh`,24px 胶囊、
+   * 12px / 400),所以这里换成 `.qf-visual-refresh` 这个钩子。
+   */
   const reshuffleAction = (
     <Button
       type="button"
       variant="ghost"
       size="sm"
-      className="qf-visual-foot-action"
+      className="qf-visual-refresh"
       data-action="reshuffle"
       disabled={disabled || cards.length <= VISUAL_STYLE_BATCH_SIZE}
       onClick={shuffle}
@@ -1554,9 +1603,14 @@ function VisualStylePicker({
         const card = cards.find((candidate) => candidate.value === option.value);
         if (card) selectStyle(card);
       }}
+      refreshSlot={reshuffleAction}
       footer={
         <>
-          {reshuffleAction}
+          {/* 稿子的底栏最左是「跳过」(`729fa43ce7` 把原来那颗「换一批」换成了它);
+              和「下一步」一样由外层交下来 —— 它要的 `handleSkipAll` 长在外层。
+              只有底栏被合并进这一行时才给(见 `visualFootDelegated`):没合并时
+              卡片自己的底栏还在,那颗「跳过」就在那儿,这里再给一颗是两颗。 */}
+          {skipSlot}
           <span className="qf-visual-foot-gap" />
           {decideActions}
           {/* 稿子里「下一步」和这两颗在**同一行**;它由外层交下来(见 `submitSlot`) */}
@@ -1608,6 +1662,7 @@ function VisualDirectionStack({
   artifactType,
   revealToken,
   revealValue,
+  refreshSlot,
   footer,
   children,
   onSelect,
@@ -1625,7 +1680,14 @@ function VisualDirectionStack({
    */
   revealToken?: number;
   revealValue?: string;
-  /** 页脚那一行的动作(稿子 #21 / #22:换一批 / 随机 / 下一步)。「看全部」不在这里 ——
+  /**
+   * 预览区顶栏里排在网格切换**左边**的那颗(稿子 `729fa43ce7` 的 `.visual-refresh`
+   * ——「换一批」)。目录驱动那一路才有;agent 自开的方向卡就那么几张,
+   * 没有「下一批」可换,所以那一路不传。
+   */
+  refreshSlot?: ReactNode;
+  /** 页脚那一行的动作(稿子 #21 / #22:跳过 / 随机 / 下一步)。「换一批」不在这里 ——
+      `729fa43ce7` 把它挪到了顶栏(见 `refreshSlot`);「看全部」也不在,
       它是上面那枚 `.qf-visual-switch`,一下铺开整份目录。 */
   footer?: ReactNode;
   onSelect: (option: VisualDirectionOption) => void;
@@ -1753,9 +1815,11 @@ function VisualDirectionStack({
       data-testid="question-form-visual-picker"
       data-view={view}
     >
-      {/* 顶部那一条只放视图切换，不放别的 —— 再挂标题或计数就成了卡里的第二个
-          卡头。图标画的是【点下去会变成什么】，不是现在是什么。 */}
+      {/* 顶栏只管【这一组预览】:换一批和叠放 / 网格切换并排靠右(稿子 `729fa43ce7`
+          改的就是这一条,原文「标题与倒计时仍在卡头里,这里不会长成第二个卡头」)。
+          切换那枚的图标画的是【点下去会变成什么】,不是现在是什么。 */}
       <div className="qf-visual-bar">
+        {refreshSlot}
         <Button
           type="button"
           variant="ghost"

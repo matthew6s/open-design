@@ -1286,13 +1286,20 @@ describe('QuestionFormView', () => {
     expect(firstPage).toHaveLength(VISUAL_STYLE_BATCH_SIZE);
     expect(screen.queryByTestId('qf-input')).toBeNull();
     expect(screen.queryByText('+21')).toBeNull();
+    /* 稿子 `729fa43ce7` 把底栏最左那颗从「换一批」换成了「跳过」,「换一批」挪到了
+       预览区顶栏(`.qf-visual-bar`,排在网格切换左边)—— 见 W75。 */
     expect(
       Array.from(container.querySelectorAll('.qf-visual-foot button')).map((button) =>
         button.textContent?.trim(),
       ),
-    ).toEqual(['Shuffle', 'Random', 'Next']);
+    ).toEqual(['Skip', 'Random', 'Next']);
+    expect(
+      Array.from(container.querySelectorAll('.qf-visual-bar button')).map((button) =>
+        button.getAttribute('data-action'),
+      ),
+    ).toEqual(['reshuffle', 'toggle-view']);
 
-    // 「换一批」在新稿子里是页脚左侧那个动作，不再是右上角的刷新图标。
+    // 「换一批」现在是预览区顶栏里排在网格切换左边的那颗(稿子 `.visual-refresh`)。
     fireEvent.click(container.querySelector('[data-action="reshuffle"]')!);
     expect(onInteraction).toHaveBeenCalledWith({
       element: 'visual_style_refresh',

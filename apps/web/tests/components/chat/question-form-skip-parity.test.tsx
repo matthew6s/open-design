@@ -87,8 +87,8 @@ const STEPPED: QuestionForm = {
 /**
  * 产品的祖先链。`.app`(ProjectView)→ ChatRoot 接缝(`--chat-*` 变量)→ `.chat-log`
  * → `.msg` → `.prose-block`。少一层就有规则匹配不上 —— 这是 chat-mirror 反复踩过的坑。
- * `autoContinueAfterTimeout` 照抄 `FormBlock` 的调用点:它为真时空闲态底栏会多出一枚
- * 倒计时 `<span>`,把「跳过」从 `:first-child` 挤走 —— 靠 `:first-of-type` 才仍然命中。
+ * `autoContinueAfterTimeout` 照抄 `FormBlock` 的调用点。它为真时会多出一枚倒计时,
+ * 但那枚现在长在**卡头**里(稿子 `729fa43ce7`,W75),不再挤占底栏第一格。
  */
 function mount(form: QuestionForm, submitDisabled: boolean): HTMLElement {
   const { container } = render(
@@ -427,11 +427,15 @@ describe('question-form 底栏「跳过」两态一致', () => {
     expect(busy).toEqual(DESIGN_SKIP);
   });
 
-  it('加载态和终态逐项一致 —— 分步(倒计时把「跳过」从 :first-child 挤走的那一路)', () => {
+  it('加载态和终态逐项一致 —— 分步', () => {
     const idleContainer = mount(STEPPED, false);
-    // 空闲态底栏第一个孩子是倒计时 span,「跳过」靠 :first-of-type 才吃到 padding-inline: 0
-    expect(idleContainer.querySelector('.question-form-foot')?.firstElementChild?.className)
-      .toContain('qf-auto-continue');
+    /* 倒计时**不在底栏了** —— 稿子 `729fa43ce7` 把它挪到卡头右上(W75),
+       所以「跳过」重新是底栏的第一个孩子。`.question-form-foot > button:first-of-type`
+       那条规则两种排布都命中,padding-inline: 0 照旧落在这颗上(下面那条断言钉住)。 */
+    expect(idleContainer.querySelector('.qf-auto-continue')?.closest('.question-form-foot'))
+      .toBeNull();
+    expect(idleContainer.querySelector('.question-form-foot')?.firstElementChild)
+      .toBe(skipButton(idleContainer));
     const idle = resolved(skipButton(idleContainer));
     cleanup();
     const busy = resolved(skipButton(mount(STEPPED, true)));
