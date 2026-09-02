@@ -74,8 +74,15 @@ function declsOf(selector: string): string {
 const STEP_SUMMARY = '.fold.flat > .body.stack > .fold > summary';
 const OPENING = '.fold.flat > .body.stack > .think';
 const OPENING_WITH_STEPS = '.fold.flat > .body.stack:has(> .fold) > .think';
+/*
+ * ⚠️ 2026-09-02 去掉了 `:not(.hasTodo)`。那个排除本意是「开场白贴左」,可开场白靠
+ * `~` 的前驱判据天然出局,它真正挡掉的是**中间那几句小结** —— 而 `hasTodo` 又把
+ * `kind === 'plan'` 一起算进去,于是只要这一轮出过执行计划,整条规则就失配。
+ * 判据回到结构位置,理由与红证见 `sandwiched-prose-rail.test.tsx` 与
+ * `record-muted-ink.test.tsx`(后者用真层叠在两种壳上各量一次)。
+ */
 const INTERLUDE =
-  '.fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))';
+  '.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))';
 
 describe('执行记录的三档轻重', () => {
   it('步骤标题是 13px / 500,不再是继承来的 12px / 600', () => {
@@ -91,8 +98,15 @@ describe('执行记录的三档轻重', () => {
     expect(decls, `找不到规则 ${STEP_SUMMARY} .meta`).not.toBe('');
     expect(decls).toMatch(/color: var\(--chat-progress-detail-ink\)/);
     expect(decls).toMatch(/font-weight: 500/);
-    // 这枚墨色是这一族注脚共用的,定义挂在壳上
-    expect(declsOf('.fold.flat')).toMatch(/--chat-progress-detail-ink:/);
+    /*
+     * 这枚墨色是这一族注脚共用的。**两个所有者各声明一次**(2026-09-02):
+     * 扁平壳 `.fold.flat`,以及工具行 `.tool` —— 工具行不保证住在壳里
+     * (稿子在 `.tool` 一族里写的也是字面量,不是 `var()`),挂不到就没颜色。
+     * 值仍然只有一个出处:整份样式表里这枚 token 只被赋值一次。
+     */
+    expect(CSS).toMatch(/\.fold\.flat,\s*\.tool\s*\{[^{}]*--chat-progress-detail-ink: #a3a3a3/);
+    // 值只许有一个出处 —— 两个所有者共用**一条**声明,不是各抄一个字面量
+    expect([...CSS.matchAll(/--chat-progress-detail-ink:/g)]).toHaveLength(1);
   });
 
   it('开场白留在正文深色 + 13px —— 它是一整段话,不是标注', () => {

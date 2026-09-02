@@ -142,14 +142,36 @@
   border: 0;
   background: none;
   border-radius: 0;
-  /*
-   * 注脚那一档的墨色。稿子这一版把 `#a3a3a3` 同时用在步骤小结、命令行和消息动作层上
-   * (`--progress-detail-ink` / `--message-muted-ink`,两处写的是同一个值)。
-   * 产品这边同值的 token 目前只有 `--chat-stream-ink`,语义是「滚动中的推理」,
-   * 借它会把两件事绑死;共享的静音 token 正在消息层那条线上落地,落定之后并过来。
-   */
-  --chat-progress-detail-ink: #a3a3a3;
 }
+/*
+ * 注脚那一档的墨色 —— **执行记录自己**那一档静音灰。
+ *
+ * ## 三枚同值 token,不是一枚被抄了三遍
+ *
+ * 稿子里 `#a3a3a3` 出现在三个**各自独立**的 token 上,每一枚都写明了「不联动谁」:
+ *   · `--progress-detail-ink`(components.css:1065)「步骤小结与正常命令行使用独立的
+ *     浅灰色,**不联动 Thinking 滚动流**」
+ *   · `--stream-ink`(components.css:28)滚动流里的推理,产品单独指定的色号
+ *   · `--message-muted-ink`(components.css:409)「时间 / 复制 / 反馈 / fork」那一层,
+ *     稿子写明「**不联动全局次级文字或已选中的反馈状态**」
+ *
+ * 所以这三枚**不合并**(2026-09-02 复核结论)。合并等于把三处互相独立的产品决定绑成
+ * 一处:哪天「反馈按钮再淡一点」或「思考流再淡一点」落下来,执行记录会跟着一起变。
+ * 值相同是**今天碰巧**,不是同一件事。`styles/chat.css` 那枚 `--chat-message-muted-ink`
+ * 的注释里已经把同一条道理写过一遍(「谁用它谁自己声明一次,而不是挂到 chat 根上
+ * 让整棵树都继承得到:那样迟早会有人『顺手』拿它染别的东西」)——这里照同一条走。
+ *
+ * ## 为什么两个选择器一起声明
+ *
+ * 消费它的有两类盒子:扁平壳里的那几层(小结 / 步骤耗时 / 可折叠命令行),以及
+ * **工具行自己**。稿子在 `.tool` 一族里写的是字面量 `#A3A3A3` 而不是 `var(…)`,
+ * 正因为工具行不保证住在扁平壳里(稿子里它也能独立出现)。产品这边不写字面量
+ * (仓库规约:组件 CSS Module 只消费 `--chat-*`),改成**谁用谁声明一次** ——
+ * 值仍然只有这一个出处。
+ */
+/* 两个所有者写在**同一行**是有原因的:`record-label-rail.test.ts` 按行首锚点
+   (`^\.tool\s*\{`)找 `.tool` 那条规则读 `gap`,换行会让它先撞上这一条。 */
+.fold.flat, .tool { --chat-progress-detail-ink: #a3a3a3; }
 .fold.flat > summary {
   margin-inline: -7px;
   padding: 6px 7px;
@@ -276,14 +298,34 @@
  *    于是全部贴最左、工具行独自缩进。稿子注释写的意图是「**前后都还有步骤**,中间这段
  *    才该接上」,说的是「步骤」,不是「可折叠的步骤」。
  *
- * ② `:not(.hasTodo)` —— **有清单的壳不参与**(用户裁决 2026-08-27:「缩进你要看看
- *    有没有 todo,如果文本不在 todo 下面,你看是这样的」,配图是有清单的壳、开场白贴左)。
- *    清单壳里顶层正文只会出现在清单**之前**(开场白)或**全关之后**,它不在那条链上;
- *    稿子自己也写了「开头那句…不动:它是整块的开场白,不在链上,线也没穿过它」。
+ * ② ~~`:not(.hasTodo)` —— 有清单的壳不参与~~ **2026-09-02 撤销**。
+ *
+ *    这条例外原来挂在这里,理由是用户 2026-08-27 那句「缩进你要看看有没有 todo,
+ *    如果文本不在 todo 下面,你看是这样的」,配图是有清单的壳、开场白贴左。
+ *    **但它挡错了东西**:开场白之所以贴左,靠的是选择器本身 ——
+ *    `:is(.fold, .tool) ~ .think` 要求这段文字**前面已经有过一格**,而开场白是壳 body
+ *    的第一个孩子,它本来就一条都不命中。真实 DOM 逐格量过(有计划的那张壳):
+ *
+ *      p.think(开场白) │ details.fold(执行计划) │ details.fold(步骤) │ p.think(小结)
+ *      │ details.fold(步骤) │ p.think(小结) │ details.fold(步骤) │ p.think(收尾)
+ *
+ *    开场白在最前(无前驱)、收尾在最后(无后继),两头天然出局;真正被 `:not(.hasTodo)`
+ *    挡掉的是**中间那两句小结** —— 而它们正是稿子点名要 12px + 静音灰 + 22px 缩进 +
+ *    接线的那几句。用户 2026-09-02 并排对比截图指出的就是这个:产品里它们是 13px 深色。
+ *
+ *    而 `hasTodo` 又把 `kind === 'plan'` 也算进去(`ExecutionShell`),所以**只要这一轮
+ *    出过执行计划,整条规则就失配**。用户截图里正好有「执行计划 · 4 步」,必踩。
+ *
+ * 两种文案两种待遇,靠的是**结构位置**,不是壳上有没有清单:
+ *   开场白(前面没有步骤) 13px + `--chat-text-strong`,由下面 `:has(> .fold) > .think` 那条给
+ *   步骤间小结(前后都有)  12px + 静音灰 + 22px + 接线,就是这一条
+ *
+ * `.hasTodo` 这个类本身留着 —— 它还有别的用处,而且它是「空规则会被优化掉」那个坑的
+ * 现成注脚(见上面 `.hasTodo` 的注释)。
  *
  * 详见 `specs/current/chat-panel-feedback.md` §F-11。
  */
-.fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) {
+.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) {
   position: relative;
   padding-inline-start: 22px;
   /* 夹在两步中间的这几句是注脚,不是开场白:12px + 静音灰
@@ -292,10 +334,10 @@
   color: var(--chat-progress-detail-ink);
 }
 /* 行内代码自带 --chat-text-strong;不接管的话一段静音里会留下几个黑块 */
-.fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) code {
+.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) code {
   color: inherit;
 }
-.fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))::before {
+.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))::before {
   content: '';
   position: absolute;
   /* 和上面那条链**同一个表达式**。这一段叙述不带那 7px 负外边距,`--row-outdent`
@@ -406,6 +448,50 @@
 .fold.flat .body.stack .body.stack > .fold { padding-inline: 0; }
 .fold.flat > summary .stFail { color: var(--chat-red); }
 
+/*
+ * **可折叠的命令行整行退到静音灰**(稿子 components.css:1151-1154):
+ *
+ *   .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) { color: var(--progress-detail-ink) }
+ *   .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.ti, .ms),
+ *   .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > .ti > svg { color: inherit }
+ *
+ * 不可折叠的那几种工具行由 `.tool` 自己那条管(见下面「工具行」一节);这一条补的是
+ * **有输出、能展开**的那一种 —— 它走 `Foldable`,summary 从 `.fold > summary` 继承
+ * `--chat-text-strong`,于是同一件事的两种 DOM 深浅不一。
+ *
+ * ## 命中判据是「这一行带工具图标」,不是「这一行不是思考」
+ *
+ * 稿子的判据 `summary:has(> .ti)` 是**正面**的:有工具图标 = 这是一次调用。
+ * 步骤(todo / 计划)行首那一格是状态点 `.mk`(我们叫 `.mark`),天然不命中。
+ *
+ * 两处结构差异,照产品的 DOM 换算,不是照抄字面:
+ *  ① 我们的 `Foldable` 在 summary 里多包了一层 `.summaryContent`(标题槽要能单独收缩),
+ *    所以 `> .ti` 这个**直接子代**在产品里是 `> .summaryContent > .icon`;
+ *    `.ms` 仍然是 summary 的直接子代,`.ti` 不是。
+ *  ② `.icon` 这个类**工具行和思考行共用**(`ExecutionShell` 的 `ThoughtsRow` 两态都用它),
+ *    而稿子里思考行首挂的是 `.orb`,不是 `.ti` —— 所以稿子那条选择器天然避开了思考行,
+ *    我们这条**会连思考行一起变灰**。产品 2026-09-02 裁决:可以一起变灰,不为此加排除。
+ *    不用 `:not(.thoughts)` 这类否定式兜:那是拿排除法绕过一个本该有的正向判据。
+ *
+ * ## 失败那一条例外
+ *
+ * 稿子用 `:not(.is-fail)` 守住:失败行的图标是红的(稿子 2219
+ * `.fold.is-fail > summary .ti > svg { color: var(--red) }`),整行染灰会把它盖掉。
+ * 产品的 `ToolRow` **没有**在可折叠那一支上挂失败类(`styles.fail` 只发给 `div.tool`),
+ * 所以这里按**这一行自己报出来的失败**判:summary 里挂着「失败」那枚 `.why` 标记。
+ * 这是同一件事的另一个正面证据,不是另立判据。
+ * 更干净的收口是给那只 `Foldable` 补上 `styles.fail`(要动 `ToolRow.tsx`,已上报)。
+ */
+.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) {
+  color: var(--chat-progress-detail-ink);
+}
+/* 标题、耗时、图标一律跟着整行走 —— 稿子那句「文字、耗时和标记同色」 */
+.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) > .meta,
+.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) .icon,
+.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) .icon > svg {
+  color: inherit;
+}
+
 /* ── 工具行 ─────────────────────────────────────────────────── */
 
 .tool {
@@ -417,15 +503,31 @@
   border-radius: var(--chat-radius);
   background: var(--chat-bg);
   font-size: var(--chat-t-body);
-  /* 稿子 `.tool { color: var(--text); line-height: var(--lh-row) }` ——
-     行内文字走 --text 不是 --text-strong(强调色留给文件名那枚 code);
-     行高是 1.5(--lh-row),原来没写,继承到外层的 1.7,整行高出 2.6px。 */
-  color: var(--chat-text);
+  /*
+   * **整行退到静音灰**(稿子 `.tool { … color: #A3A3A3; line-height: var(--lh-row) }`,
+   * components.css:2167-2171)。
+   *
+   * 这里原来写的是 `var(--chat-text)`(#494949),注释说「稿子 `.tool { color: var(--text) }`」
+   * —— 那是**读的旧稿**。用户 2026-09-02 并排对比截图指出的就是这一行:
+   * 稿子里「搜索 / 读取 / 新建 / 执行」四种工具行整行都是浅灰、明显退后一档,
+   * 产品里和步骤标题一样深。这一档不是「次级文字」,是**注脚**:
+   * 一摞十几条调用记录,逐条读没有意义,要读的是标题和结果。
+   *
+   * 行高 1.5(--lh-row)照旧,原来没写会继承到外层的 1.7,整行高出 2.6px。
+   */
+  color: var(--chat-progress-detail-ink);
   line-height: var(--chat-lh-row);
 }
 .tool + .tool { margin-top: 6px; }
 
-.tool .meta { margin-left: 0; }
+/*
+ * 耗时跟着整行同色(稿子 `.tool .ms { … color: #A3A3A3 }`,components.css:2189)。
+ * 基础的 `.meta` 走 `--chat-text-soft`(#848484)—— 那是**折叠头**那一档
+ * (`.fold > summary .ms { color: var(--text-soft) }`,稿子 932),工具行另有自己的一档。
+ * 写死在这里而不是靠继承:失败行把整行的 `color` 换掉(见下面 `.tool.fail`),
+ * 耗时不该跟着换。
+ */
+.tool .meta { margin-left: 0; color: var(--chat-progress-detail-ink); }
 
 .name {
   flex: 1;
@@ -467,8 +569,15 @@
   place-items: center;
   color: var(--chat-text-strong);
 }
-.icon > svg { width: 14px; height: 14px; color: var(--chat-text-soft); }
+/*
+ * 图标跟着整行同色(稿子 `.ti > svg { … color: #A3A3A3 }`,components.css:2217)。
+ * 原来是 `--chat-text-soft`(#848484)—— 一摞灰行里再掺一档更深的灰,
+ * 眼睛会以为图标那一列在强调什么。
+ */
+.icon > svg { width: 14px; height: 14px; color: var(--chat-progress-detail-ink); }
+/* 失败行:记号和图标转红,红只标要注意的那一个(稿子 2218 / 2223 两条各管一层) */
 .tool.fail .icon { color: var(--chat-red); }
+.tool.fail .icon > svg { color: var(--chat-red); }
 
 /* 计划里的序号占图标那一格 —— 还没跑的步骤没有「哪类调用」可标 */
 .step {
@@ -927,7 +1036,36 @@
    限高**不在这条规则里** —— 它复用下面那套现成的 `.body.scroll`(`ThoughtsRow` 两态
    都传 `scroll`)。同一件事(「够看但不占屏」)不该有两套机制,所以这里只管灰底容器,
    别在 `.stream` 上再写一遍 `max-height`。跟随归 `useThinkingFollow`,不归 CSS。 */
-.stream {
+/*
+ * **两态共用同一只灰底容器**(产品裁决 2026-09-02)。
+ *
+ * ## 稿子怎么写的
+ *
+ * 稿子只给「还在想」那一态铺底(`thinking-stream.css` 的 `--stream-surface: #FAFAFA`);
+ * 「想完了」那一态是**裸文字**,`components.css:939` 的 `.fold .body.mod-scroll` 只有
+ * `max-height` 和 `overflow-y`,一点底色都没有。稿子给的理由写在旁边:
+ * 「展开之后:一张卡,里面全是行……层级只靠缩进和状态点表达」—— 不铺底是为了避免盒子套盒子。
+ *
+ * ## 产品为什么决定不同
+ *
+ * 用户 2026-09-02 实测:点开 `Thoughts` 之后同一段内容换了个壳 —— 想的时候有底、
+ * 想完了没底,视觉当场断裂。而稿子那条「避免盒子套盒子」的前提是**里面全是行**;
+ * 思考正文不是行,它是一大段连续文字,给它一个底恰恰把它和上下的工具行分开了,
+ * 更贴合稿子那句话的意图。所以两态统一,完成态也给灰底。
+ *
+ * ⚠️ **这是明确的偏离稿子,不是移植错了。** 下一个人对稿子时会发现完成态多出一个底,
+ * 别当成 bug 改回去 —— 要改先回到这条裁决。
+ *
+ * 实现上让完成态**吃同一份职责**,不复制一份值:底色 / 圆角 / 内距只写在这里一次,
+ * 限高仍归下面的 `.body.scroll`(两态都传 `scroll`),跟随仍归 `useThinkingFollow`。
+ *
+ * ⚠️ `.thoughts` 这个类**必须在样式表里真的出现**,否则 CSS Module 根本不发它,
+ * `ExecutionShell` 那句 `className={styles.thoughts}` 就是 `undefined` —— 这个类在
+ * 产线上一次都没上过 DOM(和 `.hasTodo` 注释里记的是同一个坑)。这条规则同时也是
+ * 它的第一个真实消费者。
+ */
+.stream,
+.thoughts > .body.stack {
   /* 四边留白与上下气口,沿用稿子的 `--stream-pad` / `--stream-gap` */
   --stream-pad: 8px;
   --stream-gap: 8px;
@@ -953,7 +1091,8 @@
  * 而且思考一结束(换成 `.body.stack`)正文又跳回 22px。
  * 补到同一档,并且**不再要求祖先是扁平壳**。
  */
-.fold[open] > summary + .body.stream {
+.fold[open] > summary + .body.stream,
+.fold.thoughts[open] > summary + .body.stack {
   border-top: 0;
   padding: var(--stream-pad);
 }
@@ -969,13 +1108,16 @@
  * 这也是稿子那条「缩进不能落在盒子上」例外(`.fold.mod-flat … > .fold { padding-inline: 0 }`)
  * 的同一件事:容器是盒子,推的是盒子,不是盒子里的行。
  */
-.fold .body.stack .body.stream {
+.fold .body.stack .body.stream,
+.fold .body.stack .thoughts > .body.stack {
   margin-inline-start: calc(33px - var(--stream-pad));
 }
-.fold.flat .body.stack .body.stream {
+.fold.flat .body.stack .body.stream,
+.fold.flat .body.stack .thoughts > .body.stack {
   margin-inline-start: calc(29px - var(--stream-pad));
 }
-.fold .body.stack .body.stream > * { padding-inline-start: 0; }
+.fold .body.stack .body.stream > *,
+.fold .body.stack .thoughts > .body.stack > * { padding-inline-start: 0; }
 /*
  * 流窗里的正文走**常规字重**(稿子 `thinking-stream.css:81`:
  * `… > .think { padding: 0; font-weight: 400; color: var(--stream-ink) }`)。
@@ -989,18 +1131,55 @@
  * (0,1,0),打平就要按两个 module 谁先进 bundle 判,那是「今天碰巧对」。
  *
  * 字重原来靠继承 400 蒙对;W8 把面板基线换成 500 之后,思考正文跟着变重 —— 真回归。
+ *
+ * **两态都写**(2026-09-02):容器统一之后,同一段字在「想的时候」和「想完了」
+ * 之间换字重就成了新的断裂。
  */
-.fold .body.stream > * {
+.fold .body.stream > *,
+.fold .thoughts > .body.stack > * {
   font-weight: 400;
 }
 /*
- * ⚠️ 下面这条**目前空转**:`.stream > .think` 里的 `.think` 是 record 自己这份
- * (`SayText` 的段落用它),而流窗里住的是 `ThinkingMarkdown` 的 `.think`,两者
- * 类名不同。所以稿子那句「滚动流里的推理比普通的 .think 淡(`--stream-ink`)」
- * 至今**没有真正生效**,思考正文实际取的是 `--chat-text-strong`。
- * 字重那一半已经按上面的选择器修好了;颜色这一半是**可见的外观变化**
- * (#202020 → #a3a3a3),不在这一轮的授权范围里自行改,已上报待裁决。
- * 规则先留着:哪天 `SayText` 之类 record 自有的段落落进流窗,它就是对的。
+ * 思考正文的墨色 —— 稿子的 `--stream-ink`(#a3a3a3,components.css:28)
+ * 「滚动流里的推理比普通的 `.think` 淡……它的作用是『还在想』这件事本身,
+ *   不是逐字读完 —— 跟正文同一档墨会把注意力钉在一段马上要滚走的字上」。
+ *
+ * ⚠️ **这条至今空转**,原因和上面字重那条一模一样:下面 `.stream > .think` 里的
+ * `.think` 是 record 自己这份(`SayText` 的段落用它),而流窗里住的是
+ * `ThinkingMarkdown` 的 `.think` —— 两个 CSS Module、两个哈希类名,一条都落不上。
+ * 所以思考正文实际一直取 `ThinkingMarkdown.module.css` 的 `--chat-text-strong`(#202020)。
+ * 用户 2026-09-02 截图里那几行「粗体深色的小标题」就是它。
+ * 现在按「思考那一格的 body 里那一层」选,和字重同一条判据。
+ *
+ * **想完了那一态也一起退**(产品裁决 2026-09-02,偏离稿子):稿子把「收起后的
+ * `.think`」当结论、留深色,前提是那一态没有自己的容器、就落在流水里;产品这一版
+ * 两态共用一只灰底容器(见上面 `.stream, .thoughts > .body.stack`),同一只盒子里
+ * 换墨色比换容器更突兀。
+ */
+.fold .body.stream > *,
+.fold .thoughts > .body.stack > * {
+  color: var(--chat-stream-ink);
+}
+/*
+ * markdown 小标题不再自己喊。
+ *
+ * `ThinkingMarkdown.module.css` 给 `.md-h` 定的是 `--chat-text-strong` + 600 ——
+ * 那是**消息正文**那一档的口径;落到一段已经整体退后的推理里,就成了灰底上几行
+ * 突兀的黑粗字(用户 2026-09-02 截图)。这里只把它收回「跟着这一段走」:
+ * 颜色继承,字重比正文重半档、不再是最重的那一档。
+ *
+ * 特异性 (0,3,0) 对 (0,2,0) 是**故意的** —— 打平就要按两个 module 谁先进 bundle 判。
+ * `md-h` 是 markdown 渲染器发的**全局**类,所以要用 `:global()` 包住,
+ * 否则 CSS Module 会把它也改写成哈希名,规则又是一条空转的。
+ */
+.fold .body.stream :global(.md-h),
+.fold .thoughts > .body.stack :global(.md-h) {
+  color: inherit;
+  font-weight: 500;
+}
+/*
+ * ⚠️ 下面这条**目前空转**,留着是因为哪天 `SayText` 之类 record 自有的段落落进
+ * 流窗它就是对的 —— 真正生效的是上面按「body 里那一层」选的那两条。
  */
 .stream > .think {
   padding: 0;
