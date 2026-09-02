@@ -49,6 +49,32 @@ export type QuestionType =
   | 'direction-cards';
 
 /**
+ * 颜色答案的规范形 —— **唯一**的一处实现。
+ *
+ * 规范形是 `#` + **6 位小写** hex,`null` 表示「这不是一个颜色」。
+ *
+ * 为什么小写:原生 `<input type="color">` 的 value sanitization algorithm 会把值
+ * 小写化。规范形若定成大写,受控组件每一帧都在和 DOM 打架 —— props 写下
+ * `#3B82F6`,读回来是 `#3b82f6`,两边永远对不上。交付稿本身也全篇小写。
+ *
+ * 为什么只收 6 位:交付稿 `interactions.js` 的正则就是 `^#[0-9a-f]{6}$`。
+ * alpha(`#rrggbbaa`)和 3 位简写(`#abc`)一概判非法 —— 答案是要作为**文本**
+ * 发回给模型、并被历史回放的,多一种形态就多一种下游要认的东西;悄悄收下它们
+ * 等于扩大协议。要改成收,得先有产品裁决。
+ *
+ * 输入侧只留一处宽容:允许缺 `#`(粘贴 `3b82f6`)。这不构成协议扩大 —— 吐出去的
+ * 仍然只有一种形态。
+ */
+export function normalizeHexColor(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const body = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+  if (!/^[0-9a-fA-F]{6}$/.test(body)) return null;
+  return `#${body.toLowerCase()}`;
+}
+
+/**
  * Rich card metadata for a single `direction-cards` option. The picker
  * renders a swatch row, a serif/sans type sample, a mood blurb, and a
  * "refs" line so users can scan visually instead of squinting at radio
@@ -593,7 +619,7 @@ function mapRawQuestion(q: unknown, index: number): FormQuestion | null {
       ? qo.maxSelections
       : undefined;
   const cards = parseDirectionCards(qo.cards);
-  const defaultValue = parseDefaultValue(qo, options);
+  const defaultValue = normalizeDefaultValueForType(type, parseDefaultValue(qo, options));
   const allowCustom =
     qo.allowCustom === false
       ? false
@@ -971,6 +997,19 @@ function parseOption(raw: unknown): FormOption | null {
     value,
     ...(description ? { description } : {}),
   };
+}
+
+/**
+ * 类型自己的规范化。目前只有颜色有话要说:模型爱写 `#3B82F6` / `3b82f6`,
+ * 落到状态和原生控件之前先收成规范形。收不了的默认值当没给 —— 与其让控件
+ * 拿着一个渲染不出来的值,不如让用户从空开始选。
+ */
+function normalizeDefaultValueForType(
+  type: QuestionType,
+  value: string | string[] | undefined,
+): string | string[] | undefined {
+  if (type !== 'color' || typeof value !== 'string') return value;
+  return normalizeHexColor(value) ?? undefined;
 }
 
 function parseDefaultValue(

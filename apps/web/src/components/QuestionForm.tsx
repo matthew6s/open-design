@@ -9,6 +9,7 @@ import { Fragment,
   useState,
 } from 'react';
 import type {
+  CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -16,7 +17,11 @@ import type {
 import { Button } from '@open-design/components';
 import { tForLanguageTag, useT } from '../i18n';
 import type { DirectionCard, FormOption, QuestionForm } from '../artifacts/question-form';
-import { formatFormAnswers, formOptionValueForLabel } from '../artifacts/question-form';
+import {
+  formatFormAnswers,
+  formOptionValueForLabel,
+  normalizeHexColor,
+} from '../artifacts/question-form';
 import {
   visualStyleCardsForContext,
   visualStyleFoundationDirectionId,
@@ -150,6 +155,18 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
   // value (submitted history, restored draft) renders expanded without an
   // entry here — see customChoiceExpanded.
   const [otherOpen, setOtherOpen] = useState<Set<string>>(() => new Set());
+  /*
+   * 颜色题的 Hex 输入框、数值题的数字输入框,各自的**在编文本**。
+   *
+   * 它们和答案是两回事:答案任何时刻都是合法的规范值,文本则允许停在
+   * 「正在敲、还不成立」的中间态。有 key 就说明用户正在这个框里打字,
+   * 显示以文本为准;失焦时删掉这个 key,显示落回答案。
+   *
+   * 这样才做得到两件事:非法 Hex 能标错并把「下一步」按住(答案不动、
+   * 不会把一个坏值提交出去),以及 1–5 的范围里想输「10」不会被第一下就吃成 1。
+   */
+  const [colorText, setColorText] = useState<Record<string, string>>({});
+  const [rangeText, setRangeText] = useState<Record<string, string>>({});
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [skippedQuestionIds, setSkippedQuestionIds] = useState<Set<string>>(() => new Set());
   const [autoContinueRemaining, setAutoContinueRemaining] = useState(
@@ -248,6 +265,57 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
     } else if (q.type !== 'checkbox') {
       update(q.id, '');
     }
+  }
+
+  /* ── 颜色:预设色块 / 系统取色器 / Hex 输入,三条路一个落点 ───────── */
+
+  /** 预设色块和系统取色器走这条 —— 它们只可能给出合法值,直接落地并收掉在编文本。 */
+  function pickColor(q: QuestionForm['questions'][number], raw: string) {
+    const canonical = normalizeHexColor(raw);
+    if (!canonical) return;
+    clearDraftText(setColorText, q.id);
+    update(q.id, canonical);
+  }
+
+  /**
+   * Hex 框在敲字。合法就同步落到答案(取色器和色块立刻跟上),
+   * 不合法只留着文本 —— 答案保持上一个合法值,由 `ready` 把「下一步」按住。
+   */
+  function typeColor(q: QuestionForm['questions'][number], raw: string) {
+    setColorText((prev) => ({ ...prev, [q.id]: raw }));
+    const canonical = normalizeHexColor(raw);
+    if (canonical) update(q.id, canonical);
+  }
+
+  /** 失焦:文本让位给答案。合法值收成规范形,非法值直接回滚(稿子 `hex.blur` 的行为)。 */
+  function settleColor(q: QuestionForm['questions'][number]) {
+    clearDraftText(setColorText, q.id);
+  }
+
+  /* ── 数值滑块:滑杆与数字输入共用一个值 ─────────────────────────── */
+
+  function dragRange(q: QuestionForm['questions'][number], raw: string) {
+    clearDraftText(setRangeText, q.id);
+    update(q.id, String(clampRangeValue(Number(raw), q)));
+  }
+
+  function typeRange(q: QuestionForm['questions'][number], raw: string) {
+    setRangeText((prev) => ({ ...prev, [q.id]: raw }));
+    const parsed = Number(raw);
+    if (raw.trim().length === 0 || !Number.isFinite(parsed)) return;
+    update(q.id, String(clampRangeValue(parsed, q)));
+  }
+
+  /**
+   * 失焦:只把在编文本让位给答案,显示于是从「99」跳回收好的「5」。
+   *
+   * 这里**不需要**再算一次 clamp —— `typeRange` 每一次可解析的输入都已经把
+   * 收好的值落到答案上了,答案任何时刻都是合法的。曾经在这儿又写了一遍同样的
+   * 计算:撤掉它测试全绿(说明它一次也没起过作用),留着只是给同一条规则
+   * 攒第二个会漂的实现。
+   */
+  function settleRange(q: QuestionForm['questions'][number]) {
+    clearDraftText(setRangeText, q.id);
   }
 
   // Picking a fixed option collapses an open (and still empty) "Other" field
@@ -500,7 +568,19 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
     const v = currentAnswers[q.id];
     return questionAnswerIsPresent(v);
   });
-  const ready = withinSelectionLimits && requiredAnswered;
+  /*
+   * 稿子:「Hex 非法时『下一步』置灰」。这一条和 `required` 无关 —— 用户已经
+   * 在框里写了东西,只是写得不成立;这时放行会把上一个颜色当成他的选择提交出去。
+   * 判据只看**在编文本**:没在编(或编的是合法值)就不拦。
+   */
+  const colorTextIsInvalid = (id: string): boolean => {
+    const raw = colorText[id];
+    return raw !== undefined && normalizeHexColor(raw) === null;
+  };
+  const noColorTextPending = form.questions.every(
+    (q) => q.type !== 'color' || !colorTextIsInvalid(q.id),
+  );
+  const ready = withinSelectionLimits && requiredAnswered && noColorTextPending;
   /* 底栏和视觉方向那一行**共用同一颗**「下一步」—— 各造一份迟早会漂 */
   const submitButton = (
     <Button
@@ -524,11 +604,14 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
     autoContinueAfterTimeout &&
     !locked &&
     !submitDisabled;
-  const currentQuestionReady =
-    !activeQuestion ||
-    !questionNeedsAnswer(activeQuestion) ||
-    skippedQuestionIds.has(activeQuestion.id) ||
-    questionAnswerIsPresent(currentAnswers[activeQuestion.id]);
+  const currentQuestionReady = ((): boolean => {
+    if (!activeQuestion) return true;
+    // 分步态下「下一步」也不许在半截的 Hex 上放行
+    if (colorTextIsInvalid(activeQuestion.id)) return false;
+    if (!questionNeedsAnswer(activeQuestion)) return true;
+    if (skippedQuestionIds.has(activeQuestion.id)) return true;
+    return questionAnswerIsPresent(currentAnswers[activeQuestion.id]);
+  })();
   const autoContinueCountdown = `${Math.floor(autoContinueRemaining / 60)}:${String(
     autoContinueRemaining % 60,
   ).padStart(2, '0')}`;
@@ -609,7 +692,7 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
             {activeQuestionIndex + 1}/{form.questions.length}
           </span>
         ) : null}
-        {pickedCount > 0 ? <span className="qf-picked">{t('qf.picked', { count: pickedCount })}</span> : null}
+        {pickedCount > 0 ? <PickedCount t={t} count={pickedCount} /> : null}
         {locked ? <span className="question-form-pill">{t('qf.answered')}</span> : null}
       </div>
       <div className="question-form-body">
@@ -749,21 +832,15 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
                 />
               ) : null}
               {q.type === 'range' ? (
-                <div className="qf-range-wrap">
-                  <input
-                    type="range"
-                    className="qf-range"
-                    value={typeof value === 'string' && value.trim() ? value : String(q.min ?? 0)}
-                    min={q.min}
-                    max={q.max}
-                    step={q.step}
-                    disabled={locked}
-                    onChange={(e) => update(q.id, e.target.value)}
-                  />
-                  <output className="qf-range-value">
-                    {typeof value === 'string' && value.trim() ? value : String(q.min ?? 0)}
-                  </output>
-                </div>
+                <AmountChoice
+                  question={q}
+                  answer={typeof value === 'string' ? value : ''}
+                  text={rangeText[q.id]}
+                  disabled={locked}
+                  onDrag={(raw) => dragRange(q, raw)}
+                  onType={(raw) => typeRange(q, raw)}
+                  onSettle={() => settleRange(q)}
+                />
               ) : null}
               {q.type === 'date' || q.type === 'time' || q.type === 'datetime-local' ? (
                 <input
@@ -777,12 +854,16 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
                 />
               ) : null}
               {q.type === 'color' ? (
-                <input
-                  type="color"
-                  className="qf-color"
-                  value={normalizeColorInputValue(value)}
+                <ColorChoice
+                  question={q}
+                  color={normalizeColorInputValue(value)}
+                  text={colorText[q.id]}
+                  invalid={colorTextIsInvalid(q.id)}
                   disabled={locked}
-                  onChange={(e) => update(q.id, e.target.value)}
+                  t={t}
+                  onPick={(raw) => pickColor(q, raw)}
+                  onType={(raw) => typeColor(q, raw)}
+                  onSettle={() => settleColor(q)}
                 />
               ) : null}
               {q.type === 'url' || q.type === 'email' || q.type === 'tel' ? (
@@ -1971,6 +2052,14 @@ function canonicalizeQuestionValue(
   value: string | string[],
   visualStyleContext: VisualStyleContext | undefined,
 ): string | string[] {
+  /*
+   * 值进状态只有这一个入口(提交历史 / 草稿 / 模型默认值三条路都从这儿过),
+   * 所以颜色的规范化挂在这里就够了 —— 实现本身仍在 `normalizeHexColor` 一处。
+   * 规范不出来的旧值**原样留着**:回放不许改写已经写下的内容。
+   */
+  if (q.type === 'color' && typeof value === 'string') {
+    return normalizeHexColor(value) ?? value;
+  }
   if (Array.isArray(value)) {
     return value.map((entry) =>
       normalizeVisualStyleQuestionValue(q, entry, visualStyleContext),
@@ -2112,8 +2201,294 @@ function splitCustomEntries(raw: string): string[] {
 }
 
 function normalizeColorInputValue(value: string | string[] | undefined): string {
-  if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)) return value;
-  return '#000000';
+  // 原生 `<input type="color">` 只接受 `#rrggbb`,给不出来就退回黑 —— 这是**渲染**
+  // 兜底,不是答案:答案的规范化在 `normalizeHexColor` 那一处。
+  return normalizeHexColor(value) ?? '#000000';
+}
+
+/** 在编文本让位给答案:删掉这道题的 key,显示重新以答案为准。 */
+function clearDraftText(
+  setter: (updater: (prev: Record<string, string>) => Record<string, string>) => void,
+  id: string,
+): void {
+  setter((prev) => {
+    if (!(id in prev)) return prev;
+    const next = { ...prev };
+    delete next[id];
+    return next;
+  });
+}
+
+/**
+ * 交付稿那八颗预设色。
+ *
+ * 这里**允许**出现字面 hex —— 它们是「被选的内容」本身(用户挑的是这个颜色),
+ * 不是界面用色。界面用色仍旧走产品 token,一个都没有写死在这儿。
+ * 模型自己在 `options` 里给了色值时以模型的为准,这份只是缺省调色板。
+ */
+const DEFAULT_COLOR_PRESETS = [
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#3b82f6',
+  '#8b5cf6',
+  '#ec4899',
+  '#64748b',
+] as const;
+
+function colorPresetsFor(q: QuestionForm['questions'][number]): string[] {
+  const fromOptions: string[] = [];
+  for (const option of q.options ?? []) {
+    const canonical = normalizeHexColor(option.value);
+    // 认不出来的选项直接丢掉,不拿一块黑去顶替 —— 那是在替模型编一个答案
+    if (canonical && !fromOptions.includes(canonical)) fromOptions.push(canonical);
+  }
+  return fromOptions.length > 0 ? fromOptions : [...DEFAULT_COLOR_PRESETS];
+}
+
+/**
+ * 颜色选择(交付稿 `.opts.mod-color`)——「预设色、系统取色器和 Hex 输入
+ * 三条路实时同步,预览跟着更新」。
+ *
+ * 三条路共用**同一个**答案值,视图这一层不留第二份真相:预览色由包装层的
+ * `--qf-choice-color` 驱动,色块的按下态、取色器的 value、Hex 框的显示值
+ * 都从同一个 `color` 推出来。
+ *
+ * 色块的可读名就是它的 hex —— 稿子写的是「红色 #ef4444」那种「颜色名 + 值」,
+ * 但我们没有一份 19 种语言的颜色名表,现编一份等于凭空造一套产品文案。
+ * hex 本身是这颗色块**准确**的名字,不是近似。
+ */
+function ColorChoice({
+  question,
+  color,
+  text,
+  invalid,
+  disabled,
+  t,
+  onPick,
+  onType,
+  onSettle,
+}: {
+  question: QuestionForm['questions'][number];
+  color: string;
+  text: string | undefined;
+  invalid: boolean;
+  disabled: boolean;
+  t: ReturnType<typeof useT>;
+  onPick: (raw: string) => void;
+  onType: (raw: string) => void;
+  onSettle: () => void;
+}) {
+  const presets = colorPresetsFor(question);
+  const nativeId = `qf-color-native-${question.id}`;
+  const errorId = `qf-color-error-${question.id}`;
+  return (
+    <div
+      className="qf-color-field"
+      style={{ '--qf-choice-color': color } as CSSProperties}
+    >
+      <fieldset className="qf-color-preset-field">
+        <legend className="qf-color-legend">{t('qf.colorPresets')}</legend>
+        <div className="qf-color-presets">
+          {presets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="qf-color-swatch"
+              data-color={preset}
+              aria-label={preset}
+              aria-pressed={preset === color}
+              disabled={disabled}
+              style={{ '--qf-swatch': preset } as CSSProperties}
+              onClick={() => onPick(preset)}
+            />
+          ))}
+        </div>
+      </fieldset>
+      <div className="qf-color-custom-field">
+        <label className="qf-color-legend" htmlFor={nativeId}>
+          {t('qf.colorCustom')}
+        </label>
+        <div className="qf-color-custom">
+          <input
+            id={nativeId}
+            type="color"
+            className="qf-color"
+            value={color}
+            disabled={disabled}
+            aria-label={t('qf.colorPickerLabel')}
+            onChange={(e) => onPick(e.target.value)}
+          />
+          <input
+            type="text"
+            className="qf-color-hex"
+            value={text ?? color}
+            maxLength={7}
+            spellCheck={false}
+            autoComplete="off"
+            disabled={disabled}
+            aria-label={t('qf.colorHexLabel')}
+            aria-invalid={invalid}
+            {...(invalid ? { 'aria-describedby': errorId } : {})}
+            onChange={(e) => onType(e.target.value)}
+            onBlur={onSettle}
+          />
+        </div>
+      </div>
+      {invalid ? (
+        <div className="qf-color-error" id={errorId} role="alert">
+          {t('qf.colorInvalid')}
+        </div>
+      ) : null}
+      <div className="qf-color-preview">{t('qf.colorPreview')}</div>
+    </div>
+  );
+}
+
+/*
+ * 协议没给 min / max / step 时的兜底,取值**跟着 `<input type="range">` 的
+ * HTML 默认走**(0 / 100 / 1)。这三个数不能自己另定一套:滑杆是原生控件,
+ * 它照 HTML 默认把自己钉在 0–100;数字框那边若按「没有上界」放行,
+ * 敲一个 500 进去就会出现「答案是 500、滑杆停在 100」的两份真相。
+ */
+const RANGE_FALLBACK_MIN = 0;
+const RANGE_FALLBACK_MAX = 100;
+const RANGE_FALLBACK_STEP = 1;
+
+function rangeBounds(q: QuestionForm['questions'][number]): {
+  min: number;
+  max: number;
+  step: number;
+} {
+  return {
+    min: Number.isFinite(q.min) ? (q.min as number) : RANGE_FALLBACK_MIN,
+    max: Number.isFinite(q.max) ? (q.max as number) : RANGE_FALLBACK_MAX,
+    step:
+      Number.isFinite(q.step) && (q.step as number) > 0
+        ? (q.step as number)
+        : RANGE_FALLBACK_STEP,
+  };
+}
+
+/** 把一个数收进 `[min, max]` 并吸附到最近的 step 档。 */
+function clampRangeValue(raw: number, q: QuestionForm['questions'][number]): number {
+  const { min, max, step: stride } = rangeBounds(q);
+  const snapped = min + Math.round((raw - min) / stride) * stride;
+  const bounded = Math.min(max, Math.max(min, snapped));
+  // step 是小数时(0.1 一档)会攒出 0.30000000000000004 这种尾巴,按 step 的
+  // 小数位收一次 —— 这个数是要作为**文本**发回给模型的
+  const decimals = (String(stride).split('.')[1] ?? '').length;
+  return Number(bounded.toFixed(decimals));
+}
+
+/**
+ * 数值滑块(交付稿 `.opts.mod-slider`)——「上方数字可直接编辑并与滑杆双向同步,
+ * 不展示刻度点」。
+ *
+ * 两处**如实的偏差**,都是因为协议里没有对应字段(审计文档 §8 待决项 3):
+ *  · 稿子数字后面那个「档」字是单位,我们没有单位 schema —— 整个不渲染,不臆造;
+ *  · 稿子的端点是「1 · 疏朗 / 5 · 紧凑」,带着文案;我们只渲染 `min` / `max`
+ *    两个数,那是协议里真有的东西。
+ *
+ * 旧数据不改写:历史里存着的越界标量(比如 1–5 的题里存了 7)在数字框里
+ * **照原样念**,只有滑杆按物理范围收着显示。要改写得等用户自己动一下。
+ */
+function AmountChoice({
+  question,
+  answer,
+  text,
+  disabled,
+  onDrag,
+  onType,
+  onSettle,
+}: {
+  question: QuestionForm['questions'][number];
+  answer: string;
+  text: string | undefined;
+  disabled: boolean;
+  onDrag: (raw: string) => void;
+  onType: (raw: string) => void;
+  onSettle: () => void;
+}) {
+  const { min, max } = rangeBounds(question);
+  const parsed = Number(answer);
+  const settled = answer.trim().length > 0 && Number.isFinite(parsed)
+    ? clampRangeValue(parsed, question)
+    : min;
+  const readout = text ?? (answer.trim().length > 0 ? answer : String(settled));
+  const pct = max > min ? ((settled - min) / (max - min)) * 100 : 0;
+  return (
+    <div
+      className="qf-amount"
+      style={{ '--qf-range-pct': `${pct}%` } as CSSProperties}
+    >
+      <div className="qf-amount-readout">
+        <input
+          type="number"
+          className="qf-amount-value"
+          value={readout}
+          min={question.min}
+          max={question.max}
+          step={question.step}
+          inputMode="numeric"
+          aria-label={question.label}
+          disabled={disabled}
+          onChange={(e) => onType(e.target.value)}
+          onBlur={onSettle}
+        />
+      </div>
+      {/* 轨道里只放滑杆本身 —— 这一版稿子把上一版的 `.amount-stop` 光点整排删掉了 */}
+      <div className="qf-amount-rail">
+        <input
+          type="range"
+          className="qf-range"
+          value={String(settled)}
+          min={question.min}
+          max={question.max}
+          step={question.step}
+          aria-label={question.label}
+          disabled={disabled}
+          onChange={(e) => onDrag(e.target.value)}
+        />
+      </div>
+      <div className="qf-amount-limits" aria-hidden>
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 多选计数(交付稿 `.selection-count` = `.count-label` + `.count-value`)。
+ * 「已选」退后一档、数字保留原色,所以 DOM 上必须是两个元素。
+ *
+ * **不拿两个 key 前后拼**:`en` 是「2 picked」、`zh-CN` 是「已选 2」、
+ * `ko` 是「2개 선택」(数字后面直接接字,中间没有空格)—— 拼接得钦定一种语序
+ * 和一个分隔符,那三条里至少两条会错。
+ *
+ * 做法是把**同一条完整译文**按 `{count}` 的落点切开:切出来的两段天然就是
+ * 这门语言自己的语序,空格也照译文原样留在段里。因此拼回去与整条译文逐字相等。
+ */
+/** 一个绝不会出现在任何译文里的哨兵,用来标记 `{count}` 的落点。 */
+const PICKED_COUNT_SLOT = '\u0000';
+function PickedCount({ t, count }: { t: ReturnType<typeof useT>; count: number }) {
+  const rendered = t('qf.picked', { count: PICKED_COUNT_SLOT });
+  const at = rendered.indexOf(PICKED_COUNT_SLOT);
+  if (at === -1) {
+    // 译文里没有 `{count}` 落点(译错了)。宁可整条照念,也不自己找地方插数字。
+    return <span className="qf-picked">{t('qf.picked', { count })}</span>;
+  }
+  const before = rendered.slice(0, at);
+  const after = rendered.slice(at + PICKED_COUNT_SLOT.length);
+  return (
+    <span className="qf-picked">
+      {before ? <span className="qf-picked-label">{before}</span> : null}
+      <span className="qf-picked-value">{count}</span>
+      {after ? <span className="qf-picked-label">{after}</span> : null}
+    </span>
+  );
 }
 
 function fileValueLabel(value: string | string[] | undefined): string {
@@ -2215,16 +2590,16 @@ function AnsweredSummary({
     <div className="answered">
       <div className="k">{t('qf.answeredConfirmed')}</div>
       {single ? (
-        <div className="ab">
+        <div className={`ab${flat[0]!.swatch ? ' mod-value' : ''}`}>
           <span className="ak">{flat[0]!.label}</span>
-          <b>{flat[0]!.value}</b>
+          <AnsweredValue item={flat[0]!} />
         </div>
       ) : flat.length > 0 ? (
         <ul className="al">
           {flat.map((item) => (
             <li key={`${item.label}-${item.value}`}>
               <span className="ak">{item.label}</span>
-              <b>{item.value}</b>
+              <AnsweredValue item={item} />
             </li>
           ))}
         </ul>
@@ -2247,8 +2622,27 @@ function AnsweredSummary({
   );
 }
 
+/**
+ * 一条已确认答案的值。稿子里颜色那一条是
+ * `<span class="color-answer" style="--answer-color:#3b82f6"><i></i><b>#3b82f6</b></span>`
+ * —— 色块 + 规范化后的 Hex。规范不出来的旧值(历史里存着一句话)按纯文本念,
+ * **不给它编一块颜色**。
+ */
+function AnsweredValue({ item }: { item: QuestionFormAnsweredSummary['items'][number] }) {
+  if (!item.swatch) return <b>{item.value}</b>;
+  return (
+    <span
+      className="color-answer"
+      style={{ '--answer-color': item.swatch } as CSSProperties}
+    >
+      <i aria-hidden />
+      <b>{item.value}</b>
+    </span>
+  );
+}
+
 export interface QuestionFormAnsweredSummary {
-  items: Array<{ label: string; value: string }>;
+  items: Array<{ label: string; value: string; swatch?: string }>;
   visualItems: Array<{
     label: string;
     cards: Array<{ title: string; src: string }>;
@@ -2288,6 +2682,23 @@ export function summarizeQuestionFormAnswers(
     const values = (Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [])
       .filter((value) => value.trim().length > 0);
     if (values.length === 0) continue;
+
+    /*
+     * 颜色单独走一条 —— 它要带一块真色块回去。规范化仍旧只有
+     * `normalizeHexColor` 那一处;这里只是把它接到「已确认」这条渲染路上,
+     * 且**不改写**存下来的原文:规范不出来就照原样念,不装成一块颜色。
+     */
+    if (question.type === 'color') {
+      for (const raw of values) {
+        const canonical = normalizeHexColor(raw);
+        items.push(
+          canonical
+            ? { label: question.label, value: canonical, swatch: canonical }
+            : { label: question.label, value: raw },
+        );
+      }
+      continue;
+    }
 
     const catalog = visualStyleContext && questionUsesVisualStyleCatalog(question)
       ? visualStyleCardsForContext(visualStyleContext)

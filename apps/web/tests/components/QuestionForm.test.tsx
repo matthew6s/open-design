@@ -205,6 +205,17 @@ function chip(text: string): HTMLElement {
 const chosen = (root: ParentNode): NodeListOf<Element> =>
   root.querySelectorAll('.qf-chip[aria-checked="true"]');
 
+/**
+ * 卡头右上角那条多选计数。
+ *
+ * 交付稿 PR #7170 把它拆成了 `.count-label` + `.count-value` 两段(「已选」弱、
+ * 数字强),所以整条文案**不再落在一个节点上** —— `getByText('2 picked')` 会
+ * 直接找不到。这里读整块的 `textContent`:段怎么切是排版的事,断言仍旧盯着
+ * 「这条计数念出来是什么」。计数为 0 时整块不渲染,返回 `null`。
+ */
+const pickedText = (): string | null =>
+  document.querySelector('.qf-picked')?.textContent ?? null;
+
 describe('QuestionFormView', () => {
   afterEach(() => cleanup());
 
@@ -479,25 +490,25 @@ describe('QuestionFormView', () => {
       <QuestionFormView form={checkboxObjectForm} interactive onSubmit={vi.fn()} />,
     );
 
-    expect(screen.queryByText('0 picked')).toBeNull();
+    expect(pickedText()).toBeNull();
 
     fireEvent.click(chip('Editorial / magazine'));
-    expect(screen.getByText('1 picked')).toBeTruthy();
+    expect(pickedText()).toBe('1 picked');
 
     fireEvent.click(screen.getByRole('button', { name: 'Write your own' }));
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
 
     fireEvent.change(screen.getByTestId('qf-input'), {
       target: { value: 'Neo-museum, Field notebook' },
     });
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
 
     fireEvent.change(screen.getByTestId('qf-input'), { target: { value: '' } });
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
 
     fireEvent.click(screen.getByLabelText('Write your own'));
     expect(screen.queryByTestId('qf-input')).toBeNull();
-    expect(screen.getByText('1 picked')).toBeTruthy();
+    expect(pickedText()).toBe('1 picked');
   });
 
   it('restores one picked own-answer row from a checkbox draft', () => {
@@ -510,7 +521,7 @@ describe('QuestionFormView', () => {
       />,
     );
 
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
     expect((screen.getByTestId('qf-input') as HTMLTextAreaElement).value).toBe(
       'Neo-museum, Field notebook',
     );
@@ -526,7 +537,7 @@ describe('QuestionFormView', () => {
       />,
     );
 
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
     expect((screen.getByTestId('qf-input') as HTMLTextAreaElement).value).toBe(
       'Neo-museum, Field notebook',
     );
@@ -1109,7 +1120,7 @@ describe('QuestionFormView', () => {
 
     fireEvent.click(card('Editorial narrative'));
     fireEvent.click(card('Bold storytelling'));
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
     expect((card('Product keynote') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
@@ -1165,7 +1176,7 @@ describe('QuestionFormView', () => {
 
     expect(card('Editorial narrative').getAttribute('aria-checked')).toBe('true');
     expect(card('Premium pitch').getAttribute('aria-checked')).toBe('true');
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
   });
 
   it('replays visual catalog and custom history as two picked rows', () => {
@@ -1182,7 +1193,7 @@ describe('QuestionFormView', () => {
 
     expect(card('Editorial narrative').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByText('Warm Japanese editorial')).toBeTruthy();
-    expect(screen.getByText('2 picked')).toBeTruthy();
+    expect(pickedText()).toBe('2 picked');
   });
 
   it('summarizes a submitted catalog-backed direction card with its title and preview', () => {

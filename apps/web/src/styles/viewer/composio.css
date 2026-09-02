@@ -837,10 +837,20 @@
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: var(--bg);
 }
-/* 稿子 `.card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums }` */
+/* 稿子 `.card > .h .n { margin-left: auto; font-variant-numeric: tabular-nums }`
+   + PR #7170 把计数拆成两档字色:
+     `.selection-count            { color: var(--text-strong) }`
+     `.selection-count .count-label { color: var(--text-soft) }`
+   —— 数字保留原色,「已选」退后一档。
+   **不设 gap、不设 flex**:两段之间的空格是译文自己带的(`en` 有、`ko` 没有),
+   靠正常的行内空白处理渲染出来。改成 flex + gap 会给韩语凭空插一个空格。 */
 .qf-picked {
   margin-inline-start: auto;
+  color: var(--text-strong);
   font-variant-numeric: tabular-nums;
+}
+.qf-picked-label {
+  color: var(--text-soft);
 }
 .qf-step-progress {
   flex: 0 0 auto;
@@ -863,16 +873,22 @@
   line-height: 1.7;
   color: var(--text-strong);
 }
-/* `.qf-label` 跟着稿子改回块级之后,角标要自己跟排(原来靠 label 的 flex gap) */
+/* `.qf-label` 跟着稿子改回块级之后,角标要自己跟排(原来靠 label 的 flex gap)
+   ------------------------------------------------------------------
+   OPEND-2401:「『必填』标识对比度和辨识度偏低,不容易看清」。原来是
+   10px 的 `--text-muted` 配 `--border` 的细圈 —— 三处都踩在可读性下限上,
+   叠起来就成了一枚要凑近才认得出的小灰球。抬两档:字号到 11px(和卡内
+   其它辅助文字同档,不再是全卡最小的那个),字色到 `--text`、边框到
+   `--border-strong`。它仍然比正文轻,但不再需要辨认。 */
 .qf-required {
   display: inline-block;
   margin-inline-start: 4px;
   vertical-align: middle;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  padding: 1px 5px;
-  font-size: 10px;
+  padding: 1px 6px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.2;
 }
@@ -919,9 +935,19 @@
   transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 /* 稿子:`.opts.mod-stack .opt { padding-inline: 5px }` —— 竖排时左右内距收窄,
-   因为列表本身已经有 `padding: 0 6px 8px`。漏了这条,选项会比稿子宽出 12px。 */
+   因为列表本身已经有 `padding: 0 6px 8px`。漏了这条,选项会比稿子宽出 12px。
+   ------------------------------------------------------------------
+   OPEND-2402:右侧**单独**多留一格。左边是稿子写死的 11px 竖线(6 + 5),
+   问句、选项、底栏共用,不能动;右边只是它的镜像,没有对齐义务。
+   多这一格是给中文行尾的全角标点 —— 换行时「。」「,」不允许落到行首,
+   浏览器会把它挤在上一行末尾并允许悬挂出去大半个字身,在 5px 的余量下
+   正好压到卡的描边上(用户截图指认的就是这一处)。11px ≈ 半个 12px 字身,
+   悬挂出来的部分仍落在卡里。
+   **必须写成左右两条 longhand**:`padding-inline: <单值>` 的简写会把右边这格
+   一起刷掉,这一族最容易复发的就是有人顺手把两条合并回简写。 */
 .qf-options .qf-chip {
-  padding-inline: 5px;
+  padding-inline-start: 5px;
+  padding-inline-end: 11px;
 }
 /* 选项现在**每一项**都是 <button>(稿子就是 `.opt`),按钮的浏览器默认值要归零:
    字体不继承、内容居中。原来只给「自己填」那颗单独补过,现在是全体的公共项。 */
@@ -998,10 +1024,16 @@
    顺手写了 `line-height: 1.2` —— 于是文案的行内盒从 18px 缩到 14.5px,
    每颗选项按钮跟着从 34px 矮成 32px,四颗下来整张卡短 6px。
    说明那一行是产品自己加的,没有稿子依据去压行高;让它跟着 `.qf-chip` 走。 */
+/* OPEND-2402 的另一半:`.qf-chip` 是一行 flex,文案列默认 `min-width: auto`,
+   **缩不到自己的 min-content 以下** —— 中英混排里一段断不开的长串(URL、型号、
+   括号里的英文)会把这一列整个顶出容器,文字于是压到卡的描边上。
+   `min-width: 0` 让它缩得下去,`overflow-wrap` 让它在没有断点的地方也能断。 */
 .qf-chip-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .qf-chip-desc {
   color: var(--text-muted);
@@ -1136,33 +1168,252 @@
 .qf-custom .qf-input:focus {
   box-shadow: none;
 }
-.qf-range-wrap {
+/* ── 数值滑块(交付稿 `.opts.mod-slider`,PR #7170)───────────────────────
+   「上方数字**可直接编辑**并与滑杆双向同步,**不展示刻度点**。」
+   `--qf-range-pct` 由组件按当前值写在包装层上;轨道拿它画出「已经走到哪」。
+   上一版稿子轨道里那排 `.amount-stop` 光点这一版**整排删掉了** —— 别再加回来。
+   稿子 `.opts.mod-slider { display:block; padding: 0 11px 10px }`,内容仍落在
+   和问句、每个选项同一条 11px 竖线上。 */
+.qf-amount {
+  --qf-amount-track: 16px;
+  --qf-amount-thumb: calc(var(--qf-amount-track) - 2px);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  gap: 7px;
+  padding: 0 11px 10px;
 }
-.qf-range {
-  width: 100%;
-  min-width: 0;
+.qf-amount-readout {
+  min-height: 36px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
-.qf-range-value {
-  min-width: 38px;
-  padding: 3px 6px;
-  border: 1px solid var(--border-soft);
+/* 稿子 `.amount-value-input` —— 32px 的大字号数字**本身就是**输入框,
+   平时看不出边框,悬停给一层底、聚焦给一圈描边。 */
+.qf-amount-value {
+  box-sizing: content-box;
+  width: 2.4em;
+  height: 34px;
+  padding: 0 2px;
+  appearance: textfield;
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-size: 11px;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 34px;
   text-align: center;
 }
+.qf-amount-value::-webkit-outer-spin-button,
+.qf-amount-value::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+.qf-amount-value:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+.qf-amount-value:focus-visible {
+  outline: 1px solid var(--selected);
+  outline-offset: 2px;
+  background: var(--bg);
+}
+/* 稿子这条进度色写的是字面绿 `#00FF08`;换成产品的「已选」token ——
+   tokens.css 对它的定义就是「outer rings / fills」这类语义。 */
+.qf-amount-rail {
+  position: relative;
+  height: var(--qf-amount-track);
+  overflow: hidden;
+  border-radius: var(--radius-circular);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--selected) 22%, var(--bg-panel)) 0 var(--qf-range-pct),
+    var(--bg-panel) var(--qf-range-pct) 100%
+  );
+}
+.qf-range {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  appearance: none;
+  width: 100%;
+  height: var(--qf-amount-track);
+  margin: 0;
+  background: transparent;
+  cursor: grab;
+}
+.qf-range:active {
+  cursor: grabbing;
+}
+.qf-range:focus-visible {
+  outline: 1px solid var(--selected);
+  outline-offset: -1px;
+}
+.qf-range::-webkit-slider-runnable-track {
+  height: var(--qf-amount-track);
+  background: transparent;
+}
+.qf-range::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--qf-amount-thumb);
+  height: var(--qf-amount-thumb);
+  margin-top: 1px;
+  border: 0;
+  border-radius: var(--radius-circular);
+  background: var(--selected);
+  box-shadow: var(--shadow-sm);
+}
+.qf-range::-moz-range-track {
+  height: var(--qf-amount-track);
+  border: 0;
+  background: transparent;
+}
+.qf-range::-moz-range-thumb {
+  width: var(--qf-amount-thumb);
+  height: var(--qf-amount-thumb);
+  border: 0;
+  border-radius: var(--radius-circular);
+  background: var(--selected);
+  box-shadow: var(--shadow-sm);
+}
+.qf-amount-limits {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 颜色选择(交付稿 `.opts.mod-color`,PR #7170)────────────────────────
+   「预设色、系统取色器和 Hex 输入三条路实时同步,预览跟着更新。」
+   预览底色由 `--qf-choice-color` 驱动 —— 组件按当前答案把它写在包装层上,
+   CSS 这边只管怎么用,不再留第二份真相。 */
+.qf-color-field {
+  display: grid;
+  gap: 10px;
+  padding: 0 11px 10px;
+}
+/* 稿子 `.color-field { min-width:0; margin:0; padding:0; border:0 }` ——
+   `<fieldset>` 的浏览器默认边框和内距要全部归零 */
+.qf-color-preset-field,
+.qf-color-custom-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* 稿子 `.color-field legend, .color-label`,覆盖层把字重降到 500 */
+.qf-color-legend {
+  display: block;
+  margin: 0 0 6px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.qf-color-presets {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+}
+.qf-color-swatch {
+  width: 30px;
+  height: 30px;
+  justify-self: center;
+  padding: 0;
+  border: 2px solid var(--bg);
+  border-radius: var(--radius-circular);
+  background: var(--qf-swatch);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+.qf-color-swatch:hover:not(:disabled) {
+  transform: scale(1.06);
+}
+/* 稿子:选中态**只动外圈**,色块本身保留它所代表的真实颜色 */
+.qf-color-swatch[aria-pressed='true'] {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 2px var(--selected);
+}
+.qf-color-swatch:focus-visible {
+  outline: 2px solid var(--selected);
+  outline-offset: 2px;
+}
+.qf-color-swatch:disabled {
+  cursor: not-allowed;
+}
+.qf-color-custom {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+}
+/* 覆盖层把取色器的外框和浏览器画在里面的那块色统一成圆形 */
 .qf-color {
-  width: 44px;
+  width: 34px;
   height: 34px;
   padding: 2px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
+  border-radius: var(--radius-circular);
+  background: var(--bg);
+  overflow: hidden;
+  cursor: pointer;
+}
+.qf-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.qf-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--radius-circular);
+}
+.qf-color::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--radius-circular);
+}
+.qf-color-hex {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.qf-color-hex:hover {
+  border-color: var(--border-strong);
+}
+.qf-color-hex:focus {
+  border-color: var(--text-soft);
+  outline: none;
+}
+.qf-color-hex[aria-invalid='true'] {
+  border-color: var(--red);
+}
+/* 稿子只把边框标红。红框说得出「这里不对」,说不出「哪里不对」——
+   而这道题的规则(6 位、不收 alpha / 简写)恰恰不是看一眼就知道的,
+   所以补一句话。位置紧跟在输入框下面,`aria-describedby` 把它接给读屏。 */
+.qf-color-error {
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.qf-color-preview {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--qf-choice-color) 12%, var(--bg));
+  color: var(--qf-choice-color);
+  font-size: 11px;
+  line-height: 1.5;
 }
 .qf-file-wrap {
   display: flex;
@@ -1615,8 +1866,18 @@
 /* 稿子 `.btn.mod-primary { height: 32px }` —— 底栏那颗主按钮比其它 sm 档高一截。
    用 QuestionForm 自己的语义类命中；共享 Button 的基础类来自 CSS Module，
    DOM 上没有全局 `.button`，拿 `.button.primary` 当钩子会让这条规则静默失效。 */
+/* OPEND-2401:「圆角容器尺寸偏小,文字接近边界,存在溢出感」。
+   共享 Button 的 `.sm` 档给的是 `padding: 4px 11px` —— 那个 11px 是按
+   「高度由内距撑出来的 26px 盒子」定的。这颗按钮在卡里被钉成 **32px 高的胶囊**
+   (圆角 = 高的一半 = 16px),两端的圆弧在文字所在的中段最宽,11px 的余量
+   几乎全被弧线吃掉,读起来就是「字贴着边」。抬到稿子非 sm 档 `.btn` 的 14px。
+   `min-width` 是另一件事:文案短的语言(「OK」「下一步」)下这颗胶囊会缩成
+   一颗小圆球,和同一行的 ghost 文字按钮失去主次;给一个地板值稳住形状。
+   两条都用逻辑属性 —— 这张卡在 ar / fa 下要整体镜像。 */
 .question-form .qf-primary-action {
   height: 32px;
+  min-width: 76px;
+  padding-inline: 14px;
 }
 .qf-visual-foot-gap {
   flex: 1;
@@ -4003,6 +4264,37 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border);
+}
+/* 颜色那条已确认答案(交付稿 `.answered .color-answer`):一枚色块 + 规范化后的 Hex。
+     .answered .ab.mod-value { display:flex; align-items:center }
+     .answered .color-answer { display:inline-flex; align-items:center; gap:6px }
+     .answered .color-answer i { width:13px; height:13px; border-radius:50%;
+                                 background: var(--answer-color); box-shadow: 0 0 0 1px var(--border) } */
+.answered .ab.mod-value {
+  display: flex;
+  align-items: center;
+}
+.answered .ab.mod-value > .ak {
+  flex: none;
+}
+.answered .ab.mod-value > :last-child {
+  min-width: 0;
+}
+.answered .color-answer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.answered .color-answer i {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-circular);
+  background: var(--answer-color);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.answered .color-answer b {
+  font-family: var(--mono);
 }
 
 /* ── 「自己填」(交付稿 `.opt.mod-own`)────────────────────────────────
