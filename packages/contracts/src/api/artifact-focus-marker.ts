@@ -47,16 +47,28 @@
  * misbehaving marker can do is hide a card — never fabricate one, and never
  * point a card at a file the turn did not produce.
  *
- * **Cards are opt-in.** A turn that declares no `show` gets no artifact cards
- * in the conversation at all (`declaredArtifactCards`); the files stay in the
- * project's file list, the conversation just stops enumerating them. The
- * product ruling, verbatim: 「一张都不显示那就不显示呗, 如果有重要的新创建的没给
- * 用户展示那是问题, 但如果没什么重要的或者要让用户看的, 那就不展示呗没啥问题吧?」
- * `open` is NOT part of that ruling and keeps its own fallback: a turn without
- * a marker still auto-opens by the host's rank/mtime inference.
+ * **Declaring narrows; silence does not blank.** `show` is how a turn cuts its
+ * file list down to the deliverable (`declaredArtifactCards`). A turn that
+ * declares nothing does NOT get an empty panel: the host falls back to the main
+ * artifacts among the files that turn wrote (`pickPrimaryArtifacts`) — pages
+ * and documents over images, never a stylesheet or a script on its own.
  *
- * That makes `renderArtifactFocusInstruction` load-bearing rather than
- * decorative — it is the only thing that will ever cause a model to emit one.
+ * That fallback replaced the original opt-in rule 「一张都不显示那就不显示呗」
+ * for one reason: measurement. Declaration rate came back at 100% on turns that
+ * created a file and 22–25% on turns that only edited one, so "no declaration,
+ * no cards" meant most edit-only turns showed nothing at all (OPEND-2550). The
+ * ruling that replaced it is 方案 C: fall back, but only to the main artifacts —
+ * 「一个 html 可能会有 js 或 css 文件或者一堆图片文件, 但最终主要的是这个 html」.
+ *
+ * `open` was never part of either ruling and keeps its own fallback: a turn
+ * without a marker still auto-opens by the host's rank/mtime inference.
+ *
+ * The fallback is a guess, and a declaration always beats it, so
+ * `renderArtifactFocusInstruction` stays load-bearing rather than decorative —
+ * it is the only thing that will ever cause a model to emit one. Its wording is
+ * also the lever with the most leverage on that 22%: the instruction used to
+ * speak only of files "you created this turn", which a model reading literally
+ * is right to read as "an edit is not a delivery".
  *
  * This module is the single source of truth for the marker's shape.
  */
@@ -263,20 +275,28 @@ export function renderArtifactFocusMarkerExample(
  *  · **What `show` is for.** 「一个 html 可能会有 js 或 css 文件或者一堆图片文件,
  *    但最终主要的是这个 html,而不是其他杂七杂八的东西,所以让 agent 只显示这个
  *    html」
- *  · **What silence costs.** Declaring no `show` means no cards — see
- *    `declaredArtifactCards`. That ruling makes this instruction load-bearing
- *    rather than optional, so the consequence is stated rather than implied.
+ *  · **That an edit is a delivery.** The measured declaration rate is 100% on
+ *    turns that created a file and 22–25% on turns that only edited one. That
+ *    gap is not disobedience: the instruction used to speak only of "a file you
+ *    created this turn", so a model deciding a small edit does not qualify was
+ *    reading it correctly. The rule is stated explicitly now.
+ *  · **What silence costs.** Not the cards — the host falls back to
+ *    `pickPrimaryArtifacts` — but the accuracy: the fallback keeps every page,
+ *    document and image the turn wrote, which over-lists whenever the turn had
+ *    one real deliverable among several, and lists nothing at all when
+ *    everything it wrote was a dependency.
  */
 export function renderArtifactFocusInstruction(key: string): string {
   if (typeof key !== 'string' || !key) return '';
   return [
     'Artifact focus:',
-    'The moment a file you created this turn has real content in it — not while it is still empty, and not held back until the end of the turn — emit one marker naming it:',
+    'The moment a file this turn created OR changed has real content in it — not while it is still empty, and not held back until the end of the turn — emit one marker naming it:',
     renderArtifactFocusMarkerExample(key, { open: 'index.html' }),
     'That switches the preview to it right then. Opening a file that is still empty reads as a bug to the user; waiting until the last sidecar asset is written leaves them watching a blank pane for minutes.',
     `Separately, name this turn's deliverables — the files that deserve a result card in the conversation — on the same marker or on a later one: ${renderArtifactFocusMarkerExample(key, { show: ['index.html', 'report.md'] })}`,
     'Only the deliverables. A page plus its stylesheet, its scripts, and a dozen images is ONE deliverable: name the page.',
-    '`show` is the complete list, and it is the only thing that puts result cards in the conversation: a turn that declares no `show` shows no cards at all. Nothing becomes unreachable — every file stays in the project file list — but if this turn made something the user should look at, say so.',
+    'Changing an existing file is delivering it. A turn that only edited `index.html` and created nothing still declares `index.html`. "Did I create this file" is not the question — "what should the user look at now" is.',
+    '`show` NARROWS: it cuts this turn\'s file list down to what matters. Declare nothing and the host answers for you — it keeps the pages, documents and images this turn wrote and drops the stylesheets, scripts, icons and data files — which is a worse answer than yours whenever the turn touched more than one real deliverable, and no answer at all on a turn whose every written file was one of those dependencies. Nothing becomes unreachable either way: every file stays in the project file list.',
     'Paths are relative to the project root, and `open` must be a file this turn wrote. Emit the marker again to change your mind: the last value of each attribute wins, and `open` and `show` are independent of each other.',
     `This turn's key is ${key}: copy it verbatim, never reuse an earlier one, and never invent one.`,
     'The marker is protocol, not prose: do not mention it, do not explain it, and do not wrap it in a code fence.',
@@ -316,6 +336,94 @@ export interface FocusCandidateFile {
   readonly path?: string;
 }
 
+/**
+ * What one written file is to the turn that wrote it.
+ *
+ *  · `deliverable` — a thing the user opens and reads: a page, a document.
+ *  · `media` — an image, a video, a clip. A deliverable on an image turn, a
+ *    sidecar next to a page.
+ *  · `dependency` — the stylesheet, the script, the icon, the data file. Never
+ *    a card on its own.
+ */
+export type ArtifactDeliveryRole = 'deliverable' | 'media' | 'dependency';
+
+/**
+ * The extensions that are never a card by themselves. Product named the class
+ * verbatim: 「`.js` `.css` `.svg` `.json` 这类依赖文件不出卡」.
+ *
+ * `svg` sits here rather than with the images on purpose: in practice it is the
+ * logo and the icon set next to a page, not the thing the turn delivered.
+ */
+const DEPENDENCY_EXTENSIONS = new Set([
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'mts', 'cts',
+  'css', 'scss', 'sass', 'less', 'styl',
+  'svg', 'json', 'jsonc', 'map', 'lock',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'ico',
+]);
+
+/** Rendered output that is a deliverable on its own turn and a sidecar next to a page. */
+const MEDIA_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'tif', 'tiff',
+  'mp4', 'mov', 'webm', 'm4v', 'avi', 'mkv',
+  'mp3', 'wav', 'ogg', 'oga', 'm4a', 'flac', 'aac',
+]);
+
+function fileExtension(pathLike: string): string {
+  const basename = pathLike.replace(/\\/g, '/').split('/').pop() ?? '';
+  const dot = basename.lastIndexOf('.');
+  if (dot <= 0 || dot === basename.length - 1) return '';
+  return basename.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * Classify one written path by extension alone.
+ *
+ * **Unrecognized means deliverable, never dependency.** The failure direction
+ * of this whole fallback has to be "one card too many", not "we quietly hid
+ * what the user just made" — so only the explicitly named dependency and media
+ * classes are demoted, and everything else is treated as something worth
+ * showing.
+ */
+export function artifactDeliveryRole(pathLike: string): ArtifactDeliveryRole {
+  const ext = fileExtension(typeof pathLike === 'string' ? pathLike : '');
+  if (DEPENDENCY_EXTENSIONS.has(ext)) return 'dependency';
+  if (MEDIA_EXTENSIONS.has(ext)) return 'media';
+  return 'deliverable';
+}
+
+/**
+ * The main artifacts among the files ONE turn wrote — the host's own answer for
+ * a turn that declared no `show`.
+ *
+ * This is the fallback the product ruled in after the declaration rate came
+ * back at 22% on edit-only turns: not "show everything the turn touched" (which
+ * is the six-card panel the marker exists to shrink) and not "show nothing"
+ * (which is OPEND-2550), but the deliverables inside what the turn already
+ * wrote.
+ *
+ * **Ranked, not filtered.** A page outranks the images beside it, so a website
+ * turn yields the page alone; an image-generation turn has no page to outrank
+ * its images, so the images are the deliverables. That ranking IS the product's
+ * sentence — 「一个 html 可能会有 js 或 css 文件或者一堆图片文件, 但最终主要的是
+ * 这个 html」 — expressed once instead of as a chain of `if`s at the call site.
+ *
+ * **It cannot look outside the turn.** A turn that wrote only `app.js` gets an
+ * empty list rather than the `index.html` that includes it: reaching for that
+ * page would break this module's own rule that a card never points at a file
+ * the turn did not produce. Whether that case is even worth an exception is a
+ * measurement, not a guess — `run_finished.wrote_only_dependencies` counts it.
+ */
+export function pickPrimaryArtifacts<T extends FocusCandidateFile>(
+  files: readonly T[],
+): readonly T[] {
+  const roleOf = (file: T): ArtifactDeliveryRole =>
+    artifactDeliveryRole(file.path || file.name || '');
+  const deliverables = files.filter((file) => roleOf(file) === 'deliverable');
+  if (deliverables.length > 0) return deliverables;
+  return files.filter((file) => roleOf(file) === 'media');
+}
+
 function focusMatchKeys(file: FocusCandidateFile): string[] {
   const keys: string[] = [];
   for (const value of [file.path, file.name]) {
@@ -352,16 +460,18 @@ function declaredMatchKeys(show: readonly string[] | null | undefined): Set<stri
 /**
  * The files the conversation lists as this turn's result cards.
  *
- * **Cards are declared, not inferred.** The product ruling, verbatim:
+ * **This is the narrowing half only.** It answers "the agent declared X — what
+ * does the panel list", and it answers `[]` for every input that is not a
+ * usable declaration. That includes a declaration naming only files this turn
+ * did not produce: a typo must not be the one input that brings back the full
+ * six-card panel the marker exists to shrink.
  *
- *   「一张都不显示那就不显示呗, 如果有重要的新创建的没给用户展示那是问题, 但如果
- *     没什么重要的或者要让用户看的, 那就不展示呗没啥问题吧?」
- *
- * So a turn that declares no `show` lists nothing, and a declaration that names
- * only files this turn did not produce lists nothing either — a typo must not
- * be the one input that brings back the full six-card panel the marker exists
- * to shrink. Nothing becomes unreachable: the files are still in the project's
- * file list, the conversation simply stops enumerating them.
+ * The `[]` it returns for "no declaration at all" is NOT the panel's final
+ * answer. That case belongs to the caller, which falls back to
+ * `pickPrimaryArtifacts` over the files the turn wrote. Keeping the two apart
+ * is deliberate: this function must stay a pure filter — it can only ever
+ * shrink a list it was handed — while the fallback is a separate judgment made
+ * over separate evidence (the turn's own write/edit rows).
  *
  * It still cannot WIDEN: it filters a list the host built from files it saw for
  * itself, so a declared path that is not in that list matches nothing rather

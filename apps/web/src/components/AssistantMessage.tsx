@@ -57,6 +57,7 @@ import {
   declaredArtifactCards,
   hasOdCard,
   narrowProducedFilesToFocus,
+  pickPrimaryArtifacts,
   splitOnOdCards,
   stripArtifactFocusMarkers,
   stripCritiqueGrammar,
@@ -1726,11 +1727,30 @@ function summaryArtifactOpsForProducedFiles(
    * 不是否决项。把 `[]` 当权威空,正是「生成完了却没有产物卡」的成因。
    */
   if (produced === undefined || produced.length === 0) {
-    if (!declared?.length) return artifactOps;
-    return declaredArtifactCards(
-      artifactOps.map((entry) => ({ name: entry.path, path: entry.fullPath, entry })),
-      declared,
-    ).map((candidate) => candidate.entry);
+    const candidates = artifactOps.map((entry) => ({
+      name: entry.path,
+      path: entry.fullPath,
+      entry,
+    }));
+    /*
+     * 没声明**不等于**全端出来。
+     *
+     * 「不声明就一张卡都没有」是原设计,但真机声明率是新建 100% / 只改 25%
+     * (W10 从诊断包里量的),所以那条规则在只改文件的轮次上就是「一张卡都没
+     * 有」。d17d70e864 把它翻成「全端出来」,于是六张卡又回来了 —— 而标记本来
+     * 就是为了消掉这六张。
+     *
+     * 产品裁决(方案 C)落在这一行:兜底,但只端主产物。判据整条挂在
+     * `pickPrimaryArtifacts` 上(页面 / 文档压过图片,`.js` `.css` `.svg`
+     * `.json` 这类依赖永不出卡),而不是在这里摊成一串 if —— 同一条判据还要
+     * 喂 `run_finished.wrote_only_dependencies` 的埋点,两处必须是同一个函数。
+     *
+     * 它只在**本轮写过的文件**里挑:改了 `app.js` 不会去找引用它的
+     * `index.html`,因为宿主契约禁止把卡指向本轮没产出的文件。那个场景到底
+     * 有多常见,先量再说。
+     */
+    if (!declared?.length) return pickPrimaryArtifacts(candidates).map((c) => c.entry);
+    return declaredArtifactCards(candidates, declared).map((candidate) => candidate.entry);
   }
 
   const unused = new Set(artifactOps);

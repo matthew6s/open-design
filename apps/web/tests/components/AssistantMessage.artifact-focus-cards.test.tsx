@@ -193,8 +193,40 @@ describe('agent 声明的 show,决定这一轮出哪些卡', () => {
     expect(resultPanelNames()).toEqual(ALL_PRODUCED.map((file) => file.name).sort());
   });
 
-  it('没有 daemon 产物归属 —— 不把裸工具写入无条件兜底成卡', () => {
+  /*
+   * 「不声明就一张卡都没有」在真机上活不下来:W10 量出来只改已有文件的轮次声明率
+   * 只有 22–25%(新建文件的轮次是 100%),于是大量轮次一张卡都不出 —— OPEND-2550
+   * 的现场。产品裁决(方案 C):兜底,但只端主产物。
+   *
+   * 判据在 `pickPrimaryArtifacts`:页面 / 文档压过图片,`.js` `.css` `.svg`
+   * `.json` 这类依赖永远不出卡。所以这一轮六个文件里只剩 index.html —— 既不是
+   * 六张卡(标记就是为了消掉这个),也不是零张卡。
+   */
+  it('没有 daemon 产物归属、也没声明 —— 兜底只端主产物', () => {
     renderTurn(turn({ producedFiles: [] }));
+    expect(resultPanelNames()).toEqual(['index.html']);
+  });
+
+  /*
+   * 反面:图片不是永远的配角。少了这一条,把兜底写成「只留 html」也能全绿。
+   */
+  it('这一轮只出图 —— 图就是主产物', () => {
+    const images = [
+      pf('poster-a.png', 'image', 'image/png'),
+      pf('poster-b.png', 'image', 'image/png'),
+    ];
+    renderTurn(turn({ producedFiles: [], events: writeEvents(images) }));
+    expect(resultPanelNames()).toEqual(['poster-a.png', 'poster-b.png']);
+  });
+
+  /*
+   * 明确不做「改了 app.js 就去找引用它的 index.html」:那要读本轮之外的文件,
+   * 而宿主契约禁止把卡指向本轮没产出的文件。这一轮到底有多常见,靠
+   * `run_finished.wrote_only_dependencies` 去量,不靠这里先开口子。
+   */
+  it('本轮只写了依赖文件 —— 一张卡都不出,不去本轮之外找宿主页面', () => {
+    const deps = [pf('styles.css', 'text', 'text/css'), pf('app.js', 'text', 'text/javascript')];
+    renderTurn(turn({ producedFiles: [], events: writeEvents(deps) }));
     expect(resultPanelNames()).toEqual([]);
   });
 

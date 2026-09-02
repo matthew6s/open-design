@@ -307,16 +307,18 @@ describe('declaredArtifactCards — the conversation lists what the turn declare
   ];
 
   /*
-   * The ruling this function exists to encode, verbatim:
+   * This function is the NARROWING half and nothing else: a pure filter that
+   * can only ever shrink the list it was handed. "No usable declaration" is
+   * therefore `[]` here — but `[]` is not what the user sees on an undeclared
+   * turn. The caller falls back to `pickPrimaryArtifacts` over the files the
+   * turn wrote (see artifact-focus-primary.test.ts), because the original
+   * ruling 「一张都不显示那就不显示呗」measured out at a 22% declaration rate on
+   * edit-only turns, i.e. mostly empty panels (OPEND-2550).
    *
-   *   「一张都不显示那就不显示呗, 如果有重要的新创建的没给用户展示那是问题,
-   *     但如果没什么重要的或者要让用户看的, 那就不展示呗没啥问题吧?」
-   *
-   * It REVERSES `narrowProducedFilesToFocus`'s fallback, which is why the two
-   * live side by side rather than one calling the other: that one still answers
-   * "what did this turn deliver" for the Share / Download / next-step anchor,
-   * where an undeclared turn must keep its inferred list. This one answers
-   * "what does the conversation list", where an undeclared turn lists nothing.
+   * It still REVERSES `narrowProducedFilesToFocus`, which is why the two live
+   * side by side rather than one calling the other: that one answers "what did
+   * this turn deliver" for the Share / Download / next-step anchor, where an
+   * undeclared turn must keep its inferred list.
    */
   it('no declaration lists nothing', () => {
     expect(declaredArtifactCards(produced, undefined)).toEqual([]);
@@ -415,9 +417,37 @@ describe('renderArtifactFocusInstruction — what the model is actually told', (
     expect(body).toMatch(/ONE deliverable/);
   });
 
-  /* The reversed fallback has to be stated, or the model has no reason to comply. */
-  it('states that declaring no `show` means no cards at all', () => {
-    expect(body).toMatch(/no cards/i);
+  /*
+   * The root cause of the 22% declaration rate on edit-only turns, fixed in the
+   * text itself.
+   *
+   * The instruction used to speak only of "a file you created this turn" and
+   * "this turn's deliverables". A model that read that literally and decided a
+   * small edit was not a delivery was reading it CORRECTLY — the measured rate
+   * was 100% on turns that created a file and 22–25% on turns that only edited
+   * one. Nothing downstream can recover a declaration the instruction talked
+   * the model out of making, so this is pinned here.
+   */
+  it('says an edit is a delivery, not only a creation', () => {
+    expect(body).toMatch(/created OR changed/);
+    expect(body).toMatch(/Changing an existing file is delivering it/i);
+    expect(body).toMatch(/only edited `index\.html`/);
+  });
+
+  /*
+   * What silence actually does, stated truthfully.
+   *
+   * This used to assert `/no cards/i`, matching the original opt-in ruling. The
+   * host now falls back to the main artifacts among the files the turn wrote,
+   * so telling the model "declare nothing and you get no cards" is a lie —
+   * and a lie the model has no way to detect. What it must be told instead is
+   * that its declaration BEATS the fallback, which is what earns compliance
+   * without misdescribing the panel.
+   */
+  it('states that `show` narrows, and that silence hands the pick to the host', () => {
+    expect(body).toMatch(/`show` NARROWS/);
+    expect(body).toMatch(/the host answers for you/i);
+    expect(body).not.toMatch(/no cards at all/i);
   });
 
   it('says paths are project-relative', () => {
