@@ -211,6 +211,63 @@ desktop  idle(按用户要求不起 Electron)
 - 新增红测 `apps/daemon/tests/resume-continue-prompt-context.test.ts`,当前 `1 failed | 1 passed`(第 2 条是对照组,证明 Web 那条路是好的)
 - **源码零改动**。该测试文件**暂不提交**,等修法落地一起进,避免把 CI 弄红。
 
+## W23:证书校验失败的归因与错误卡呈现(只读排查,源码零改动)
+
+现场:同事真实客户端,`agent_id=amr`,run `028c497b-1f60-421d-be30-d8fa0b29207c`,上游 opencode 事件流吐出
+`{"error":{"name":"UnknownError","data":{"message":"unknown certificate verification error"}}}`。
+
+### 第一问「是不是网络波动」:判不出来,而且这不是含糊其辞
+
+这条字符串是 Bun TLS 层的兜底串,上游把**两类互斥的事故**压成了同一句话:
+
+| 类别 | 上游证据 | 可重试? |
+|---|---|---|
+| 传输层瞬时失败(TLS 握手中途被 reset,证书本身有效) | opencode #43864,归为「与 econnreset 同类的 transient failure」,已提 PR 要加进重试白名单 | 是,就是网络波动 |
+| 确定性环境问题(macOS + 本地代理 / 企业 MITM,1.3.17 相对 1.3.16 的回归) | opencode #21206。`NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE` / `--use-system-ca` **全部无效**,而同机 curl / openssl 验链正常 | 否,重试一百次一样 |
+
+**所以正确策略是「有限次自动重试吃掉瞬时那类 → 连续失败后升级为环境引导」,不是二选一。**
+
+我方链路让企业代理的先验很高(AMR = vela CLI ACP,`vela agent run --runtime opencode` 在**用户本机**起 server,TLS 握手发生在用户机器到 `VELA_LINK_URL` 之间,飞连/CorpLink 完整在路径上),且本仓有实打实的先例:`98477c0924`(AMR 登录改直连优先/IPv4 代理兜底,commit 正文点名飞连 CorpLink → 30.x)、`ae67ad41b1` / `8d545196c6`(模型目录移出热路径,理由是 CorpLink 下常超时)。**但先验不是证据。**
+
+**要同事补三条就能定论**:`vela --version`、opencode 版本、当时是否挂着飞连/代理。仓库里那份诊断包是另一台机器 2026-09-01 的,20 个 run 里没有这次,不能当现场。
+
+### 第二问「卡片长什么样」:daemon 说别重试,卡片给了颗〔重试〕
+
+链路端到端读通(不依赖这次 run 的现场):
+
+1. **原文活着到 daemon**。daemon 里根本没有 opencode 流解析器 —— AMR 走 `streamFormat: 'acp-json-rpc'`,那段 JSON 是**当作不透明字符串**塞在 vela 的 JSON-RPC `error.message` 里进来的。「certificate」这个词能活下来,靠的是没人试图解析它。
+2. **daemon 判对了**。`run-failure-classification.ts:273` 早就认得 `/\b(certificate|CERT_|self[- ]signed|unable to verify)\b/i` → `certificate_failure`,`retryable:false`、`user_action:'none'`,且不在自动重试白名单里。(此前以为「证书类零识别」是**错的**,已纠正。)
+3. **信号送到了 web**。`failureDetail` / `failureAction` 都在契约上,`daemon.ts` 三处收下了。
+4. **web 把三个信号全丢了**。`amr-guidance.ts` 里 client-environment 家族(`certificate_failure` / `proxy_configuration` / `network_configuration` / `host_policy_block` / `local_storage_failure`)**一行都没有**;`AGENT_EXECUTION_FAILED` 也不在 code 表里;一路落到兜底 `failureCard({transient:true}, ...)` → **primaryAction = 'retry'**。web **从不读 `failureAction`,也不读 `retryable`**。
+
+用户看到的:380px 白底中性描边卡,红只出现在标题行图标 +「任务失败」;正文是兜底句(**不是上游原文**,原文只能从〔导出日志〕拿);右对齐三颗,〔重试〕是主按钮。**卡上没有任何一个字提到证书/代理/网络**,而〔重试〕= 整轮新 run(catalog 的 F3),落到确定性那一类就是点了没用、再点还是没用。
+
+### 结构性障碍(这是要拍的那件)
+
+`RunFailurePrimaryAction` 九个值里**没有一个是环境修复**(retry / authorize / recharge / upgrade / switch-model / launch-terminal-auth / launch-terminal-switch-model / switch-to-cloud / contact-support),而阶梯自己的注释声称「rung 1 = F4/F5/F6/F7/**F8**」。**阶梯宣称覆盖 F8,类型里却没有 F8 的动作。**
+
+形态产品已经拍过,不是新提案:`run-error-catalog.md` R-054(:216)「证书错误 …… 企业 MITM / 自签名」→ 卡(按 cause 说)+ F8;R-097(:271)「企业网络 / 透明代理(飞连、CorpLink)」→ 卡 + F8;F8 行(:293)的用户动作清单里就写着「打开设置(代理 / 证书)」。缺的只是这颗按钮在类型里的落点。
+
+### 落点有个坑,文案不能乱指
+
+代理 OD 早就处理了(`packages/platform/src/proxy-env.ts` 读 `scutil --proxy` / Windows 注册表,每次 spawn 都套上),**证书信任一点没有**:全仓 `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE` / `rejectUnauthorized` 在产品代码里零命中。更要命的是 AMR 走 `execAgentFile`,**child 环境是整个替换的**,而 proxy 归一化表只有五个 proxy key,**没有任何证书变量**——用户在自己 shell 里配了 CA 也不保证传得到 vela/opencode。
+
+→ 可靠通道只有 Settings → Local CLI → “Advanced: proxy & custom paths”(`configuredEnv` 优先级最高)。文案要**明确指向那里**,不要让用户去改 shell;同时**不要承诺「配好 CA 就行」**,上游实测这条路在 1.3.17 那类回归下无效。
+
+### 拆单建议:别只拆证书
+
+daemon 已有整个 client-environment detail 家族(5 个),web 一个都没接。一次把 5 个接上,比给证书开特例更划算,也正好对上 F8 的入口清单。
+
+### 待办(已派回 W23)
+
+1. **失配普查**:穷举 `(errorCode, failureDetail)`,三列对照 daemon 权威动作 / web 实际主按钮 / 是否一致,并标出「daemon 说 `retryable:false` 而 web 给〔重试〕」的所有格子——证书只是其中一格。**这是产品拍板真正缺的证据。**
+2. **红测**:合成串 → 分类器应得 `certificate_failure`;`resolveRunFailureUi('AGENT_EXECUTION_FAILED','certificate_failure','amr')` 今天返回 `retry` 即红。**写完保持未提交**,拍板前进主线会把 CI 弄红。
+3. 给产品的一页纸。
+
+`mocks/` 里没有任何证书/TLS/`session.error` 录像,红测只能用合成串,没有现成 trace 可回放。
+
+---
+
 ## 待产品/用户拍板清单(累积中,均已阻塞)
 
 | # | 事项 | 阻塞了什么 |
@@ -223,3 +280,25 @@ desktop  idle(按用户要求不起 Electron)
 | 6 | 去掉滚动窗口后长思考无限撑长执行记录怎么办 | 真实数据 42,397 字符/轮;不许用 max-height 把滚动从侧门放回来 |
 | 7 | 是否允许用用户 Chrome 捞那 18 份 Plane 附件 | OPEND-2558(Urgent)、2550、2552 描述为空或纯图,无原件不能下手 |
 | 8 | OPEND-2417 需报告人补信息 | Plane 上无描述/评论/附件,G2 拒绝猜 |
+| 9 | `RunFailurePrimaryAction` 要不要新增「环境修复」这一档(F8 的落点) | 证书/代理/网络类失败今天全部落兜底,给一颗点了没用的〔重试〕;catalog R-054/R-097 已拍形态,缺按钮 |
+| 10 | 竖线撤掉后,「步骤间小结」那 22px 缩进留不留 | 稿子给这 22px 两条理由:「首字和步骤名对齐」(独立成立)与「不让线从字头上穿过 / 显得挂在链上」(随线消失)。W15 未自行决定,保持原值,改成贴左只需删一行 |
+
+## W23 续:失配普查结果(2026-09-02)
+
+穷举来自代码而非抽样:后端 67 个 `TrackingRunFailureDetail` 全集 × 前端 `resolveRunFailureUi` 的**真实返回值**(直接跑,不靠读优先级)。
+
+| 分类 | 格数 | 含义 |
+|---|---|---|
+| A 前端没有行,落兜底通用卡 | **47** | 后端给了明确原因,前端一律「任务失败」+〔重试〕 |
+| B 前端有行但结论和后端相反 | **6** | `membership_concurrency_limit` / `cli_not_installed` / `git_bash_missing` / `signal_killed` / `process_crashed` / `terminated_unknown` |
+| C 两边一致 | 14 | 超时、空输出、余额、账号封禁、CPU 不支持等 |
+
+**会骗用户的那一类(后端 `retryable:false`、前端主按钮仍是〔重试〕):40 格,其中在不透明错误码下真实可达 32 格。** 证书是第 17 格。分布:环境类 5、装不上/起不来 8、模型不可用 6、输入有问题 6、崩了/被杀 4、配置协议 3。
+
+这个 32 与 W2 独立查到的「约 33 种」互相印证。
+
+修法按分类走:**B 先修**(6 格是明确写反了,不需要新文案);A 里先挑环境类 5 格(正好是 F8 那一档);C 不动。
+
+给产品的一页纸:`specs/current/run-failure-action-mismatch-2026-09-02.md`。
+
+⚠️ **红测暂不提交**:`apps/web/tests/runtime/run-failure-action-certificate.red.test.ts`(7/7 红)留在工作区,等 F8 那颗按钮拍板后与修复一起进,免得把 CI 弄红。它只断言「不能是〔重试〕」,不指定该给哪颗——那颗是待拍的。后端侧的绿测 `apps/daemon/tests/run-failure-action-certificate.test.ts` 已提交,两条合起来才说明问题不在后端。
