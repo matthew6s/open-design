@@ -1259,14 +1259,31 @@ function resolveRunFailureUiIgnoringSelfPromotion(
       );
     }
     if (code === 'AMR_INSUFFICIENT_BALANCE') {
-      // Rung 1: topping up IS the fix and we can open the console. Retry stays
-      // as a secondary because the top-up lands out-of-band.
-      return failureCard(
-        { directFix: 'recharge' },
-        'chat.runError.title.balance',
-        'chat.amrError.balanceMessage',
-        { secondaryRetry: true },
-      );
+      // 钱的事只有一张卡:升级卡(交付稿组件 18)。
+      //
+      // 用户 2026-09-02 裁决:「额度不足和额度耗尽,升级卡各只有一张,**不存在
+      // 第二张白色通用报错卡**」。在此之前这一格返回的是通用 `failureCard`,于是
+      // 同一件事被说两遍 —— 发送前那道闸门出的是升级卡(剩余额度 + Upgrade),
+      // 跑到一半出的却是白卡 + 四颗按钮(联系支持 / 导出日志 / 充值 / 重试)。
+      // 两块 UI 讲一件事、还是两种说法,正是设计稿要避免的。
+      //
+      // 所以这一档整张卡不画,交给升级卡。点亮它的是 `ProjectView` ——
+      // 它认出这条失败之后去把钱包读数取回来,喂给 `amrBalanceCardUsd`
+      // (见 `amrInsufficientBalanceFailureMessageId`)。这和 R9 断线那一档
+      // 是同一个手法:`suppressCard` 的意思一直都是「别人已经在说这件事了」。
+      //
+      // 剩下的字段不是死码:标题 / 正文仍是这条失败**在别处**的人话来源
+      // (被 `RunErrorCard` 之外的读者引用时),而 `secondaryRetry` 描述的是
+      // 这条失败本身可重试 —— 判定不因为这张卡不画就改变。
+      return {
+        ...failureCard(
+          { directFix: 'recharge' },
+          'chat.runError.title.balance',
+          'chat.amrError.balanceMessage',
+          { secondaryRetry: true },
+        ),
+        suppressCard: true,
+      };
     }
     if (code === 'AMR_TIER_UPGRADE_REQUIRED') {
       return failureCard(

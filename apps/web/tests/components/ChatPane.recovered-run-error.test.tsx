@@ -31,6 +31,7 @@ import { forwardRef } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ChatPane } from '../../src/components/ChatPane';
+import { resolveRunFailureUi } from '../../src/runtime/amr-guidance';
 import type { AppConfig, ChatMessage } from '../../src/types';
 
 const translate = (key: string, vars?: Record<string, string | number>) => {
@@ -243,8 +244,13 @@ describe('重试也失败:同一段原文该出 S10「服务暂时不可用」',
 
 // 反向对照:本来就该说清楚的那一类(余额不足)不受影响 ——
 // 少了这条,把所有报错糊成同一句话也会绿。
+//
+// 断言从「卡面」下移到了**映射**:用户 2026-09-02 裁决之后,余额那一档在流水里
+// 交给升级卡(交付稿组件 18),报错卡整张不画(`suppressCard`),所以这里没有
+// 卡面文字可读。要守的东西没变 —— 这一路仍然有它自己那份人话,没被 S10
+// 「服务暂时不可用」糊掉。
 describe('余额不足那一路没有被连带糊掉', () => {
-  it('照旧是余额卡的标题和文案', () => {
+  it('照旧是余额那一份文案,而且整张报错卡让位给升级卡', () => {
     const message = {
       id: 'msg-balance',
       role: 'assistant',
@@ -263,16 +269,14 @@ describe('余额不足那一路没有被连带糊掉', () => {
       ],
     } as ChatMessage;
 
+    const ui = resolveRunFailureUi('AMR_INSUFFICIENT_BALANCE', undefined, 'amr');
+    expect(ui.titleKey).toBe('chat.runError.title.balance');
+    expect(ui.messageKey).toBe('chat.amrError.balanceMessage');
+    expect(ui.suppressCard).toBe(true);
+
     const { container } = renderChat({ message });
 
-    const card = container.querySelector<HTMLElement>(
-      '[data-user-action-card="run-recovery"]',
-    );
-    expect(card).toBeTruthy();
-    expect(card!.textContent).toContain('chat.runError.title.balance');
-    const description = card!.querySelector('[data-testid="chat-run-error-description"]');
-    // 这句带 {brand} 插值,身份翻译会把变量值接在 key 后面。
-    expect(description?.textContent).toContain('chat.amrError.balanceMessage');
-    expect(description?.textContent).not.toContain('chat.runError.upstreamUnavailableMessage');
+    // 白色通用报错卡不在了 —— 钱的事只有升级卡一张。
+    expect(container.querySelector('[data-user-action-card="run-recovery"]')).toBeNull();
   });
 });

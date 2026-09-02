@@ -23,6 +23,7 @@ import {
   type DaemonAgentReconnectState,
   type DaemonAgentRetryState,
   type DaemonReconnectState,
+  fetchAmrWalletSnapshot,
   fetchChatRunStatus,
   GENERIC_DAEMON_DISCONNECT_CODE,
   GENERIC_DAEMON_DISCONNECT_MESSAGE,
@@ -2669,6 +2670,43 @@ export function ProjectView({
    * 那种情况下升级链接退回 profile 兜底(和 `AmrBalanceDialog` 同一条规则)。
    */
   const [amrBalanceCardProfile, setAmrBalanceCardProfile] = useState<string | null>(null);
+  /**
+   * **跑到一半死在钱上的那一轮,也要点亮同一张卡。**
+   *
+   * 用户 2026-09-02 裁决:「额度不足和额度耗尽,升级卡各只有一张,不存在第二张
+   * 白色通用报错卡」。上面那两处 `setAmrBalanceCardUsd` 都在**发送前**的余额闸门
+   * 里 —— 闸门看不出问题、run 起来了、跑到一半才耗尽的那一格,在此之前只有
+   * daemon 的 `AMR_INSUFFICIENT_BALANCE` → 通用白卡。白卡那一半已经由
+   * `amr-guidance` 的 `suppressCard` 撤掉,这里补上另一半。
+   *
+   * 判据从**消息**上读,不挂在 `onError` 回调里:错误事件是落库的,所以刷新之后
+   * 卡还在;而发送路径和重挂路径各有一个 `onError`,挂回调等于要在两处各写一遍,
+   * 漏一处就是刷新后卡消失。
+   */
+  const amrBalanceFailureMessageId = useMemo(
+    () => amrInsufficientBalanceFailureMessageId(messages),
+    [messages],
+  );
+  useEffect(() => {
+    if (!amrBalanceFailureMessageId) return;
+    let cancelled = false;
+    void (async () => {
+      // 失败事件本身**不带余额**(daemon 的 `classifyAmrAccountFailure` 只给出
+      // 错误码),所以数字只能现查。`refresh` 让 daemon 走一次上游;上游不通时
+      // 它自己会回落到缓存快照(`source: 'daemon_cache'`)。
+      const snapshot = await fetchAmrWalletSnapshot({ refresh: true });
+      if (cancelled) return;
+      // 读不出确定的数字就**什么都不念**。这张卡把余额报给用户,编一个出来
+      // 比不出卡更糟 —— 判定用的是和闸门同一条解析规则,两处不另算。
+      const balanceUsd = amrBalanceCardBalanceUsd(snapshot);
+      if (balanceUsd == null) return;
+      setAmrBalanceCardUsd(balanceUsd);
+      setAmrBalanceCardProfile(snapshot?.profile ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [amrBalanceFailureMessageId]);
   /**
    * 这一次要付钱的工作区,把这个人放进 §6.V 的哪一格。
    *
@@ -13883,6 +13921,48 @@ export function amrBalanceCardBalanceUsd(
   const balance = amrWalletBalanceUsd(snapshot);
   if (balance == null) return null;
   return Math.max(0, balance);
+}
+
+/**
+ * daemon 在 run 里判定的「余额不足」错误码。写在这里而不是从 `amr-guidance`
+ * 里借:那个模块导出的是**卡面映射**,不是错误码本身,而这一条要回答的是
+ * 「这一轮是不是死在钱上」。
+ */
+const AMR_INSUFFICIENT_BALANCE_CODE = 'AMR_INSUFFICIENT_BALANCE';
+
+/**
+ * **最后一轮是不是跑到一半死在余额上** —— 是就返回那条助手消息的 id,不是就 `null`。
+ *
+ * 这是升级卡在「跑到一半」那条路上的唯一触发点(用户 2026-09-02 裁决:钱的事
+ * 只有升级卡一张,没有第二张白色通用报错卡)。发送前那道闸门是另一个触发点,
+ * 两者写的是同一个 `amrBalanceCardUsd`。
+ *
+ * 三条刻意的窄化:
+ *
+ * - **只看最后一条助手消息。** 卡说的是「你现在的额度」,不是「历史上某一轮
+ *   曾经缺过钱」。上一轮缺钱、这一轮跑通了,卡就该下去。
+ * - **只认结构化错误码**,不去猜原文。错误码由 daemon 的
+ *   `classifyAmrAccountFailure` 判定,那是唯一的判据来源;web 再猜一遍就是
+ *   两处各说各话。这条码本身只对 AMR 发出,所以不另加 agent 判据 ——
+ *   多一道会在 agentId 没落盘的历史消息上把卡吃掉。
+ * - **只认终态失败。** 还在跑的一轮不谈余额。
+ */
+export function amrInsufficientBalanceFailureMessageId(
+  messages: ChatMessage[],
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'assistant') continue;
+    if (message.runStatus !== 'failed') return null;
+    const events = message.events ?? [];
+    for (let j = events.length - 1; j >= 0; j--) {
+      const event = events[j];
+      if (event?.kind !== 'status' || event.label !== 'error') continue;
+      return event.code === AMR_INSUFFICIENT_BALANCE_CODE ? message.id : null;
+    }
+    return null;
+  }
+  return null;
 }
 
 export function finalizeActiveAssistantMessagesOnStop(

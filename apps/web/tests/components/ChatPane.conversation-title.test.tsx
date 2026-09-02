@@ -141,7 +141,54 @@ describe('ChatPane session switcher', () => {
     expect(screen.queryByDisplayValue('Contract review draft')).toBeNull();
   });
 
-  it('tracks run_failed_toast exposure for AMR balance guidance', async () => {
+  // 原来这一条钉的是 `AMR_INSUFFICIENT_BALANCE`。用户 2026-09-02 裁决之后,
+  // 钱的事只剩升级卡一张,余额那条失败**不再画报错卡** —— 而这个 surface_view
+  // 埋的正是「报错卡露出来了」,所以它跟着卡一起走了(见下一条断言)。
+  // 埋点契约本身还要有人守,换一条同样走 AMR、同样出卡的失败(登录失效)来守。
+  it('tracks run_failed_toast exposure for AMR sign-in guidance', async () => {
+    render(
+      <ChatPane
+        messages={[
+          failedAssistantMessage({
+            id: 'msg-amr-auth',
+            runId: 'run-amr-auth',
+            code: 'AMR_AUTH_REQUIRED',
+            agentId: 'amr',
+          }),
+        ]}
+        streaming={false}
+        error={null}
+        projectId="project-1"
+        projectKindForTracking="prototype"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onRetry={vi.fn()}
+        conversations={[conversation({ id: 'conv-1', title: 'Current' })]}
+        activeConversationId="conv-1"
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(trackRunFailedToastSurfaceView).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(trackRunFailedToastSurfaceView).mock.calls[0]![1]).toMatchObject({
+      page_name: 'chat_panel',
+      area: 'chat_panel',
+      element: 'run_failed_toast',
+      error_code: 'AMR_AUTH_REQUIRED',
+      project_id: 'project-1',
+      project_kind: 'prototype',
+      conversation_id: 'conv-1',
+      assistant_message_id: 'msg-amr-auth',
+      run_id: 'run-amr-auth',
+    });
+  });
+
+  // 上一条的另一半:余额那条失败**故意**不再报这个 surface_view。
+  // 写出来是为了让这次口径变化有据可查 —— 埋点少了一条不能只在数据看板上发现。
+  it('no longer reports a run_failed_toast for the balance failure — the card is gone', async () => {
     render(
       <ChatPane
         messages={[
@@ -168,29 +215,22 @@ describe('ChatPane session switcher', () => {
       />,
     );
 
-    await waitFor(() => expect(trackRunFailedToastSurfaceView).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(trackRunFailedToastSurfaceView).mock.calls[0]![1]).toMatchObject({
-      page_name: 'chat_panel',
-      area: 'chat_panel',
-      element: 'run_failed_toast',
-      error_code: 'AMR_INSUFFICIENT_BALANCE',
-      project_id: 'project-1',
-      project_kind: 'prototype',
-      conversation_id: 'conv-1',
-      assistant_message_id: 'msg-amr-balance',
-      run_id: 'run-amr-balance',
-    });
+    await waitFor(() => expect(screen.getByTestId('chat-log')).toBeTruthy());
+    expect(trackRunFailedToastSurfaceView).not.toHaveBeenCalled();
   });
 
+  // 同上:这颗〔去充值〕原来钉在 `AMR_INSUFFICIENT_BALANCE` 上,现在那一档整张卡
+  // 都不画了。深链本身(profile 作用域的控制台地址)仍然是产品行为,由另一条同样
+  // 走「充值」主动作的失败来守 —— 工作区额度用尽。
   it('opens the profile-scoped console from the AMR recharge action', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     render(
       <ChatPane
         messages={[
           failedAssistantMessage({
-            id: 'msg-amr-balance',
-            runId: 'run-amr-balance',
-            code: 'AMR_INSUFFICIENT_BALANCE',
+            id: 'msg-amr-credits',
+            runId: 'run-amr-credits',
+            failureDetail: 'workspace_credits_exhausted',
             agentId: 'amr',
           }),
         ]}
@@ -324,11 +364,13 @@ function failedAssistantMessage({
   id,
   runId,
   code,
+  failureDetail,
   agentId,
 }: {
   id: string;
   runId: string;
-  code: string;
+  code?: string;
+  failureDetail?: string;
   agentId: string;
 }): ChatMessage {
   return {
@@ -344,7 +386,8 @@ function failedAssistantMessage({
         kind: 'status',
         label: 'error',
         detail: 'AMR balance empty',
-        code,
+        ...(code ? { code } : {}),
+        ...(failureDetail ? { failureDetail } : {}),
       },
     ],
   };

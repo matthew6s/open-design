@@ -68,6 +68,10 @@ vi.mock('../../src/providers/daemon', () => ({
   GENERIC_DAEMON_DISCONNECT_CODE: 'GENERIC_DAEMON_DISCONNECT',
   GENERIC_DAEMON_DISCONNECT_MESSAGE: 'daemon stream disconnected before run completed',
   fetchChatRunStatus: (...args: unknown[]) => fetchChatRunStatus(...args),
+  // 一轮死在 `AMR_INSUFFICIENT_BALANCE` 上之后,`ProjectView` 会去查一次钱包读数
+  // 来点亮升级卡(用户 2026-09-02 裁决:钱的事只有那一张卡)。这一页不测那张卡,
+  // 只是要让那条路走得通 —— 少了这个 mock 会变成一条 unhandled rejection。
+  fetchAmrWalletSnapshot: vi.fn().mockResolvedValue(null),
   listActiveChatRuns: (...args: unknown[]) => listActiveChatRuns(...args),
   listProjectRuns: (...args: unknown[]) => listProjectRuns(...args),
   publishDaemonRunFinishedEvent: (...args: unknown[]) => publishDaemonRunFinishedEvent(...args),
