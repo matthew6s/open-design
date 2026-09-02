@@ -1089,6 +1089,9 @@ function latestAssistantRunId(messages: ChatMessage[]): string | undefined {
   return undefined;
 }
 
+const TERMINAL_MEDIA_FILE_CONFIRMATION_INTERVAL_MS = 750;
+const TERMINAL_MEDIA_FILE_CONFIRMATION_MAX_POLLS = 8;
+
 export function ChatPane({
   messages,
   streaming,
@@ -1254,6 +1257,7 @@ export function ChatPane({
     const trackedRunIds = new Set(trackedMediaRunKey.split(','));
     let canceled = false;
     let timer: number | undefined;
+    let terminalConfirmationPolls = 0;
     const refresh = async (): Promise<void> => {
       try {
         const response = await fetchProjectMediaTasks(projectId, workspaceContext);
@@ -1262,11 +1266,35 @@ export function ChatPane({
           .filter((task) => task.surface === 'image' && task.runId && trackedRunIds.has(task.runId))
           .sort((a, b) => a.startedAt - b.startedAt);
         setProjectMediaTasks((current) => sameMediaTasks(current, relevant) ? current : relevant);
-        if (liveMediaRun || relevant.some((task) => task.status === 'queued' || task.status === 'running')) {
+        const hasActiveTask = relevant.some(
+          (task) => task.status === 'queued' || task.status === 'running',
+        );
+        const needsTerminalFileConfirmation = relevant.some(
+          (task) => task.status === 'done' && !task.file?.name?.trim(),
+        );
+        if (liveMediaRun || hasActiveTask) {
           timer = window.setTimeout(() => void refresh(), 750);
+        } else if (
+          needsTerminalFileConfirmation
+          && terminalConfirmationPolls < TERMINAL_MEDIA_FILE_CONFIRMATION_MAX_POLLS
+        ) {
+          terminalConfirmationPolls += 1;
+          timer = window.setTimeout(
+            () => void refresh(),
+            TERMINAL_MEDIA_FILE_CONFIRMATION_INTERVAL_MS,
+          );
         }
       } catch {
-        if (!canceled && liveMediaRun) timer = window.setTimeout(() => void refresh(), 1500);
+        if (canceled) return;
+        if (liveMediaRun) {
+          timer = window.setTimeout(() => void refresh(), 1500);
+        } else if (terminalConfirmationPolls < TERMINAL_MEDIA_FILE_CONFIRMATION_MAX_POLLS) {
+          terminalConfirmationPolls += 1;
+          timer = window.setTimeout(
+            () => void refresh(),
+            TERMINAL_MEDIA_FILE_CONFIRMATION_INTERVAL_MS,
+          );
+        }
       }
     };
     void refresh();

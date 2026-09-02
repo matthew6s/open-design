@@ -21,12 +21,14 @@ const render = (ui: ReactElement) => rtlRender(<I18nProvider initial="zh-CN">{ui
 const gen = (path: string) => JSON.stringify({ status: 'succeeded', path });
 const fail = () => JSON.stringify({ status: 'failed', error: { code: 'provider_missing' } });
 
-function shellWithFailedImage(): ShellData {
+function shellWithFailedImage(
+  runStatus: NonNullable<Parameters<typeof buildTurnBlocks>[0]['runStatus']> = 'succeeded',
+): ShellData {
   const events: PersistedAgentEvent[] = [
     { kind: 'tool_use', id: 'g1', name: 'Bash', input: { command: 'od media generate a && od media generate b' }, startedAt: 0 },
     { kind: 'tool_result', toolUseId: 'g1', content: [gen('a.png'), fail()].join('\n'), isError: false, completedAt: 1200 },
   ];
-  const shell = buildTurnBlocks({ events, runStatus: 'succeeded' })
+  const shell = buildTurnBlocks({ events, runStatus })
     .find((b): b is ShellData => b.kind === 'shell');
   if (!shell) throw new Error('没有生成执行记录壳');
   return shell;
@@ -39,6 +41,7 @@ describe('生图重试', () => {
       <ExecutionShell
         shell={shellWithFailedImage()}
         onRetryImage={onRetryImage}
+        runTerminal
         deferCollapsedBodies={false}
       />,
     );
@@ -54,6 +57,20 @@ describe('生图重试', () => {
     render(<ExecutionShell shell={shellWithFailedImage()} deferCollapsedBodies={false} />);
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
     // 「重试」这两个字还在,只是不可点(稿子那一格也允许只画)
+    expect(screen.getByText('重试')).toBeTruthy();
+  });
+
+  it('整轮仍在运行时不开放媒体重试,避免和 agent fallback 并发', () => {
+    render(
+      <ExecutionShell
+        shell={shellWithFailedImage('running')}
+        onRetryImage={vi.fn()}
+        runTerminal={false}
+        deferCollapsedBodies={false}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
     expect(screen.getByText('重试')).toBeTruthy();
   });
 });

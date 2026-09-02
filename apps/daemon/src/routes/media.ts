@@ -5,6 +5,8 @@ import type {
   HyperFramesScaffoldResponse,
   MediaExecutionPolicy,
   MediaGenerationResultProps,
+  ProjectFile,
+  ProjectMediaTaskFile,
 } from '@open-design/contracts';
 import type { AnalyticsContext } from '../analytics.js';
 import { defaultMediaExecutionPolicy, mediaPolicyDenial } from '../media/policy.js';
@@ -34,6 +36,56 @@ import { scaffoldHyperFramesComposition } from '../media/hyperframes-scaffold.js
 import { normalizePersistedAutomationWorkspaceScope } from '../automations/workspace-scope.js';
 
 const LONG_MEDIA_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
+const MEDIA_FILE_MTIME_TOLERANCE_MS = 1;
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Resolve a media task's generation-time file metadata to the path that is
+ * currently registered in the project. A rename/move preserves size + mtime,
+ * which gives us a bounded identity witness without guessing from filenames.
+ * Ambiguous matches fail closed so ChatPanel never previews an unrelated file.
+ */
+export function resolveMediaTaskProjectFile(
+  taskFile: unknown,
+  projectFiles: ProjectFile[],
+): ProjectFile | null {
+  if (!taskFile || typeof taskFile !== 'object') return null;
+  const file = taskFile as Partial<ProjectMediaTaskFile>;
+  const name = typeof file.name === 'string' ? file.name.trim() : '';
+  if (!name) return null;
+
+  const exact = projectFiles.find((candidate) => candidate.name === name);
+  if (exact) return exact;
+
+  const size = finiteNumber(file.size);
+  const mtime = finiteNumber(file.mtime);
+  if (size === null || mtime === null) return null;
+  const matches = projectFiles.filter((candidate) => (
+    candidate.size === size
+    && Math.abs(candidate.mtime - mtime) <= MEDIA_FILE_MTIME_TOLERANCE_MS
+  ));
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function reconciledMediaTaskFile(
+  taskFile: unknown,
+  projectFile: ProjectFile,
+): Record<string, unknown> {
+  const original = taskFile && typeof taskFile === 'object'
+    ? taskFile as Record<string, unknown>
+    : {};
+  return {
+    ...original,
+    name: projectFile.name,
+    size: projectFile.size,
+    mtime: projectFile.mtime,
+    kind: projectFile.kind,
+    mime: projectFile.mime,
+  };
+}
 
 function mediaProviderId(model: string): string | undefined {
   const registered = findMediaModel(model)?.provider;
@@ -140,7 +192,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
   const { orbitService } = ctx.orbit;
   const { openBrowser, openNativeFolderDialog } = ctx.nativeDialogs;
   const { getWorkspaceProjectByProjectId, getProject } = ctx.projectStore;
-  const { resolveProjectDir } = ctx.projectFiles;
+  const { listFiles, resolveProjectDir, resolveProjectFilePath } = ctx.projectFiles;
   const { insertConversation, upsertMessage } = ctx.conversations;
   const { searchResearch, ResearchError } = ctx.research;
   const getResolvedPort = () => resolvedPortRef.current;
@@ -1025,15 +1077,66 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
       return res.status(403).json({ error: 'cross-origin request rejected' });
     }
     const projectId = req.params.id;
-    if (!getProject(db, projectId)) {
+    const project = getProject(db, projectId);
+    if (!project) {
       return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
     }
     if (!await ctx.authorizeProjectRequest(req, res, projectId, { mode: 'read' })) return;
     const includeDone =
       req.query.includeDone === '1' || req.query.includeDone === 'true';
-    const tasks = listMediaTasksByProject(db, projectId, {
+    const taskRows = listMediaTasksByProject(db, projectId, {
       includeTerminal: includeDone,
-    }).map((t: any) => ({
+    });
+    const confirmedFiles = new Map<string, ProjectFile>();
+    const movedCandidates: typeof taskRows = [];
+    if (includeDone && taskRows.some((task: any) => task.status === 'done')) {
+      await Promise.all(taskRows.map(async (task: any) => {
+        if (task.status !== 'done') return;
+        const name = typeof task.file?.name === 'string' ? task.file.name.trim() : '';
+        if (!name) return;
+        try {
+          confirmedFiles.set(
+            task.id,
+            await resolveProjectFilePath(PROJECTS_DIR, projectId, name, project.metadata),
+          );
+        } catch {
+          if (finiteNumber(task.file?.size) !== null && finiteNumber(task.file?.mtime) !== null) {
+            movedCandidates.push(task);
+          }
+        }
+      }));
+    }
+    if (movedCandidates.length > 0) {
+      try {
+        const projectFiles = await listFiles(
+          PROJECTS_DIR,
+          projectId,
+          { metadata: project.metadata },
+        );
+        for (const task of movedCandidates) {
+          const resolved = resolveMediaTaskProjectFile(task.file, projectFiles);
+          if (resolved) confirmedFiles.set(task.id, resolved);
+        }
+      } catch {
+        // Task status remains useful when an imported folder is temporarily
+        // unavailable. Omit unconfirmed files and let the client's bounded
+        // terminal poll reconcile them if the project root returns.
+      }
+    }
+    const tasks = taskRows.map((t: any) => {
+      const resolvedFile = confirmedFiles.get(t.id) ?? null;
+      let confirmedFile: Record<string, unknown> | null = null;
+      if (resolvedFile) {
+        confirmedFile = reconciledMediaTaskFile(t.file, resolvedFile);
+        if ((t.file as { name?: unknown } | null)?.name !== resolvedFile.name) {
+          const liveTask = getLiveMediaTask(t.id);
+          if (liveTask) {
+            liveTask.file = confirmedFile;
+            persistMediaTask(liveTask);
+          }
+        }
+      }
+      return {
         taskId: t.id,
         ...(t.runId ? { runId: t.runId } : {}),
         status: t.status,
@@ -1044,9 +1147,10 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         model: t.model,
         progress: t.progress.slice(-3),
         progressCount: t.progress.length,
-        ...(t.status === 'done' ? { file: t.file } : {}),
+        ...(confirmedFile ? { file: confirmedFile } : {}),
         ...(t.status === 'failed' || t.status === 'interrupted' ? { error: t.error } : {}),
-      }));
+      };
+    });
     tasks.sort((a: any, b: any) => b.startedAt - a.startedAt);
     res.json({ tasks });
   });

@@ -26,6 +26,8 @@ export type MediaTaskStatus = (typeof MEDIA_TASK_STATUSES)[number];
 export interface ProjectMediaTaskFile {
   name: string;
   size?: number;
+  /** Stable across an in-project rename/move and used to reconcile the final path. */
+  mtime?: number;
   kind?: string;
   mime?: string;
 }

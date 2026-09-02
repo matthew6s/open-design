@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { forwardRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -48,6 +48,7 @@ vi.mock('../../src/components/PixelLiquid', () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -103,5 +104,129 @@ describe('ChatPane media-task polling', () => {
       expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledWith('project-1', null);
       expect(screen.getByTestId('assistant-media-assistant-1').textContent).toBe('media-1:running');
     });
+  });
+
+  it('keeps a bounded terminal confirmation poll until the completed file is registered', async () => {
+    vi.useFakeTimers();
+    const baseTask = {
+      taskId: 'media-terminal',
+      runId: 'run-terminal',
+      status: 'done',
+      surface: 'image',
+      startedAt: 100,
+      endedAt: 200,
+      elapsed: 0,
+      progress: [],
+      progressCount: 0,
+    } satisfies ProjectMediaTask;
+    registryMocks.fetchProjectMediaTasks
+      .mockResolvedValueOnce({ tasks: [baseTask] })
+      .mockResolvedValue({
+        tasks: [{ ...baseTask, file: { name: 'final/generated.png' } }],
+      });
+
+    render(
+      <ChatPane
+        messages={[{
+          id: 'assistant-terminal',
+          role: 'assistant',
+          content: '',
+          createdAt: 1,
+          endedAt: 300,
+          runId: 'run-terminal',
+          runStatus: 'succeeded',
+          events: [{
+            kind: 'tool_use',
+            id: 'media-call',
+            name: 'Bash',
+            input: { command: 'od media generate --output generated.png' },
+          }],
+        }]}
+        streaming={false}
+        error={null}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        conversations={[]}
+        activeConversationId="conversation-1"
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(749);
+    });
+    expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops terminal file confirmation after the bounded retry budget', async () => {
+    vi.useFakeTimers();
+    registryMocks.fetchProjectMediaTasks.mockResolvedValue({
+      tasks: [{
+        taskId: 'media-unconfirmed',
+        runId: 'run-unconfirmed',
+        status: 'done',
+        surface: 'image',
+        startedAt: 100,
+        endedAt: 200,
+        elapsed: 0,
+        progress: [],
+        progressCount: 0,
+      } satisfies ProjectMediaTask],
+    });
+
+    render(
+      <ChatPane
+        messages={[{
+          id: 'assistant-unconfirmed',
+          role: 'assistant',
+          content: '',
+          createdAt: 1,
+          endedAt: 300,
+          runId: 'run-unconfirmed',
+          runStatus: 'succeeded',
+          events: [{
+            kind: 'tool_use',
+            id: 'media-call',
+            name: 'Bash',
+            input: { command: 'od media generate --output missing.png' },
+          }],
+        }]}
+        streaming={false}
+        error={null}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        conversations={[]}
+        activeConversationId="conversation-1"
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750 * 10);
+    });
+    expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledTimes(9);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750 * 2);
+    });
+    expect(registryMocks.fetchProjectMediaTasks).toHaveBeenCalledTimes(9);
   });
 });
