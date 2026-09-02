@@ -35,8 +35,9 @@ const modelLabel = isZh ? '模型' : 'Model';
 // 场景名可能以拉丁字母结尾（Dashboard、Web 端 App），中西文之间要留空格
 const zhGap = /[A-Za-z0-9)\]]$/.test(group.label) ? ' ' : '';
 const rankingTitle = isZh ? `${group.label}${zhGap}排名` : `${group.label} ranking`;
-const costTitle = isZh ? `${group.label}${zhGap}· 平均分 × 成本` : `${group.label} · average score vs cost`;
-const costDescription = isZh ? '左上象限代表用更低成本拿到更高的平均分。横轴是对数刻度，实测成本跨度超过 200 倍。' : 'The upper-left quadrant reaches a higher average score at a lower cost. The x-axis is logarithmic — measured cost spans more than 200x.';
+const costTitle = isZh ? `${group.label} · 平均分 × 成本` : `${group.label} · average score vs cost`;
+/* 五张分场景图跟总榜图读法完全一样，这句只在总榜那张讲一遍 */
+const costDescription = !prominent ? '' : isZh ? '左上象限是用更低成本拿到更高分的模型。横轴取对数，因为实测成本相差 200 多倍。' : 'The upper-left quadrant is where a higher score costs less. The x-axis is logarithmic because measured cost spans more than 200x.';
 // 纵轴按本组真实分数自适应。写死 60–85 时，Web 应用这类低分场景会有
 // 四个模型同时被 clamp 到地板上，既看不出差距，标签也必然重叠。
 const scores = group.rows.map((row) => row.score);
@@ -186,7 +187,7 @@ for (let pass = 0; pass < 4; pass += 1) {
 
   <section class="cost-card" aria-label={`${group.label} ${costTitle}`}>
     <header class="benchmark-card-head cost-card-head">
-      <div><h3>{costTitle}</h3><p>{costDescription}</p></div>
+      <div><h3>{costTitle}</h3>{costDescription ? <p>{costDescription}</p> : null}</div>
     </header>
     <div class="cost-stage">
       <span class="cost-y-label">{scoreAxisLabel} ({isZh ? '越高越好' : 'higher is better'})</span>
