@@ -1039,6 +1039,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    里面的步骤行、工具行跟着同一条 —— 半数靠左半数靠右,整块会散。 */
 .fold.mod-flat summary .ms,
 .fold.mod-flat summary .chev { margin-left: 0; }
+.fold.mod-flat > summary .ms { color: var(--text-strong); }
 /* 工具行的 .nm 默认 flex:1 会把耗时顶到行尾,同样收成只占文字宽。
    带改动量的那种早就是这个行为(.dst 接走了 auto),这里补上没有改动量的。 */
 .fold.mod-flat .tool .nm { flex: 0 1 auto; }
@@ -1060,18 +1061,18 @@ button.att-d:hover { border-color: var(--border-strong); }
    不影响顶层状态标题和工具调用行。 */
 .fold.mod-flat > .body.mod-stack > .fold > summary,
 .fold.mod-flat > .body.mod-stack > .fold > summary > .mk + span { font-size: var(--t-body); font-weight: 500; }
-.fold.mod-flat > .body.mod-stack > .fold > summary .ms { color: #A3A3A3; font-weight: 500; }
-/* 步骤小结与正常命令行使用独立的浅灰色,不联动 Thinking 滚动流。 */
-.fold.mod-flat { --progress-detail-ink: #a3a3a3; }
-/* 开头说明沿用正文深色:浅色主题 --text-strong 为 #202020。
-   进行中和已完成保持一致;步骤间的小结在下方单独使用浅灰色。 */
+.fold.mod-flat > .body.mod-stack > .fold > summary .ms { color: var(--text-strong); font-weight: 500; }
+/* 步骤小结与正常命令行跟随步骤标题色,不联动 Thinking 滚动流。 */
+.fold.mod-flat { --progress-detail-ink: var(--text-strong); }
+/* 开头说明与步骤间小结都沿用正文深色:浅色主题 --text-strong 为 #202020。 */
 .fold.mod-flat > .body.mod-stack:has(> .fold) > .think { color: var(--text-strong); }
 /* 夹在两步中间的小结往右让 22px,让首字和步骤名对齐。
    22 = 状态点 15px + 行内间距 7px。开头说明不缩进,仍作为整块的开场白。 */
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) {
   padding-inline-start: 22px;
-  /* 步骤间的小结用 12px;开头说明保留 13px。 */
-  font-size: var(--t-mini);
+  /* 步骤间的小结与正文同为 13px,但降到常规字重,避免盖过步骤标题。 */
+  font-size: var(--t-body);
+  font-weight: 400;
   color: var(--progress-detail-ink);
 }
 .fold.mod-flat > .body.mod-stack > .fold ~ .think:has(~ .fold) code { color: inherit; }
@@ -2140,7 +2141,10 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 带缩略图条的那行跟着满宽 —— 它是产物,和上下的折叠行、产物卡同一层,窄着像
    落单的。缩略图靠右:.tool .nm 默认 flex:1 会吃掉剩余空间,把图顶到行尾,
    这里正是要这个效果 —— 左边一句"生成了什么",右边是生成的东西本身。 */
-.tool .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool .nm {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 400;
+}
 .tool .nm code { font-family: var(--mono); font-size: var(--t-mini); color: #A3A3A3; }
 .tool .ms { flex: none; font-family: var(--mono); font-size: var(--t-cap); color: #A3A3A3; }
 
@@ -2229,6 +2233,12 @@ button.att-d:hover { border-color: var(--border-strong); }
 /* 同上:不加下划线,与「重发」保持同一条规则 */
 .tool.is-fail .why { font-size: var(--t-cap); font-weight: 600; color: var(--red); }
 .tool.is-fail .why:hover { color: color-mix(in srgb, var(--red) 70%, var(--text-strong)); }
+/* 任务进度里的中性内容与步骤标题同色；成功绿和失败红仍由各自状态规则控制。 */
+.fold.mod-flat .tool:not(.is-fail),
+.fold.mod-flat .tool:not(.is-fail) :is(.ti, .ti > svg, .pk, .nm code, .ms, .dst),
+.fold.mod-flat .tool.is-fail,
+.fold.mod-flat .tool.is-fail :is(.nm code, .ms, .dst) { color: var(--text-strong); }
+.fold.mod-flat .tool .fn:hover code { text-decoration-color: currentColor; }
 
 .mk { flex: none; display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; }
 .mk svg { width: 10px; height: 10px; }
