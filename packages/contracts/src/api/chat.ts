@@ -1028,6 +1028,104 @@ export type PersistedAgentEvent =
     }
   | { kind: 'raw'; line: string };
 
+/**
+ * What a chat card DRAWS.
+ *
+ * `latest_with_static_preview` — the cover is the turn's frozen first viewport
+ * and does not follow later edits. This is the ruling for HTML / prototype /
+ * slide / document artifacts: a conversation is a record of what happened, so
+ * the turn that produced version 3 keeps showing version 3 even after version 7
+ * lands.
+ *
+ * `immutable_snapshot` — cover and target are the same fixed thing (a shared or
+ * published turn), so there is nothing to diverge.
+ */
+export const CHAT_ARTIFACT_DISPLAY_POLICIES = [
+  'latest_with_static_preview',
+  'immutable_snapshot',
+] as const;
+
+export type ChatArtifactDisplayPolicy = (typeof CHAT_ARTIFACT_DISPLAY_POLICIES)[number];
+
+/**
+ * What a click OPENS.
+ *
+ * Deliberately separate from the display policy. Under
+ * `latest_with_static_preview` + `workspace_latest` the cover and the opened
+ * document genuinely differ, and that is the intended product behaviour — the
+ * card is history, the workspace is the live document. Folding the two into one
+ * flag is what made that difference read as a bug.
+ */
+export const CHAT_ARTIFACT_OPEN_POLICIES = ['workspace_latest', 'snapshot'] as const;
+
+export type ChatArtifactOpenPolicy = (typeof CHAT_ARTIFACT_OPEN_POLICIES)[number];
+
+/**
+ * Lifecycle of the turn's static cover.
+ *
+ * `legacy_unavailable` is NOT `failed`: a conversation that predates static
+ * covers never had a capture attempted, so there is nothing to retry and
+ * nothing to report. Both fall back to a live preview, but only one of them is
+ * worth telling anyone about.
+ */
+export const CHAT_ARTIFACT_SNAPSHOT_STATES = [
+  'pending',
+  'ready',
+  'failed',
+  'legacy_unavailable',
+] as const;
+
+export type ChatArtifactSnapshotState = (typeof CHAT_ARTIFACT_SNAPSHOT_STATES)[number];
+
+/**
+ * One artifact as a chat turn refers to it.
+ *
+ * Additive alongside {@link ChatMessage.producedFiles}: `producedFiles` still
+ * says which files a turn wrote, this says how the card should present them.
+ */
+export interface ChatArtifactRef {
+  id: string;
+  label: string;
+  kind: ProjectFileKind;
+  displayPolicy: ChatArtifactDisplayPolicy;
+  openPolicy: ChatArtifactOpenPolicy;
+  /** Workspace document a `workspace_latest` click opens. */
+  workspaceArtifactId?: string;
+  /** Frozen render this turn produced; the identity a `snapshot` click opens. */
+  snapshotId?: string;
+  /** Static cover for a `latest_with_static_preview` card. */
+  thumbnailUrl?: string;
+  /** Static cover for an `immutable_snapshot` card. */
+  snapshotUrl?: string;
+  snapshotState: ChatArtifactSnapshotState;
+}
+
+/**
+ * The image a card should paint, or `null` when it must fall back to a live
+ * preview.
+ *
+ * Single source of truth on purpose. Every surface that draws a card has to
+ * make this same decision, and re-deriving it per surface is how "some cards
+ * show a blank box" happens: a ref can claim `ready` and still carry no URL,
+ * and a URL can be present while the state says the capture failed.
+ */
+export function chatArtifactStaticCoverUrl(
+  ref: ChatArtifactRef | null | undefined,
+): string | null {
+  if (!ref || ref.snapshotState !== 'ready') return null;
+  const url = ref.displayPolicy === 'immutable_snapshot'
+    ? ref.snapshotUrl ?? ref.thumbnailUrl
+    : ref.thumbnailUrl ?? ref.snapshotUrl;
+  return typeof url === 'string' && url.length > 0 ? url : null;
+}
+
+/** True when {@link chatArtifactStaticCoverUrl} has something to paint. */
+export function isChatArtifactStaticCoverReady(
+  ref: ChatArtifactRef | null | undefined,
+): boolean {
+  return chatArtifactStaticCoverUrl(ref) !== null;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -1131,6 +1229,13 @@ export interface ChatMessage {
    */
   cancelOrigin?: RunCancelOrigin | null;
   producedFiles?: ProjectFile[];
+  /**
+   * How this turn's artifacts should be PRESENTED — cover image, and where a
+   * click goes. Strictly additive: `producedFiles` remains the record of what
+   * the turn wrote, and a daemon that has not learned artifact refs simply
+   * omits this, which the card reads as "no static cover, show it live".
+   */
+  artifactRefs?: ChatArtifactRef[];
   traceObjectFiles?: ProjectFile[];
   // Diff baseline so reattach can rebuild producedFiles after reload.
   preTurnFileNames?: string[];
