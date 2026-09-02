@@ -37,6 +37,18 @@ export interface ToolRow {
   delta: DiffStat | null;
   /** 拿不到就是 null —— 不显示,不估算(§2.2b) */
   elapsedMs: number | null;
+  /**
+   * 调用发出去了、结果还没回来(OPEND-2419)。
+   *
+   * 词汇和 `ImageRow.pending` 是**同一个** —— 生图那条进行中路径早就在用它,
+   * 两处说的是同一件事(「还有调用没回来」),不该有第二套叫法。
+   *
+   * ⚠️ `pending` 只说「没回来」,不说「还在跑」。轮次被取消 / 失败之后,没回来的
+   * 那几行仍然是 `pending: true`(数据如实记录),但**不能再画成转圈的球** ——
+   * 那是「永远停在 running」这个新 bug。画成什么由渲染层按轮次状态定,
+   * 见 `ToolRow` 的 `running` 入参。
+   */
+  pending: boolean;
   failed: boolean;
   /** 失败原因;有原因走「· 原因」写法,没有只给「失败」按钮(S1 待设计确认) */
   failReason: string | null;

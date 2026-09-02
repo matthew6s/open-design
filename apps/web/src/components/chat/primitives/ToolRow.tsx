@@ -8,7 +8,12 @@
  *   跑命令 · 没人话     「执行 <命令>」单行,输出不在行里(S8;codex 全程没有 description)
  *   失败              两种写法:只给「失败」按钮,或把原因跟在名字后面 —— 是否有意区分 = S1 待设计答
  *
- * 没有「执行中」这一档(D3):调用跑完才落行,所以这个组件永远只画已完成的行。
+ * ⚠️ **「执行中」这一档 2026-09-02 加回来了**(OPEND-2419,D3 作废)。原来是「调用跑完
+ * 才落行」,代价是一次卡住 14.1 分钟的下载在界面上完全不存在,用户看到「转了 40 分钟
+ * 什么都没出来」。现在 `row.pending` 为真就先把行画出来:
+ *   行首  转着的球(轮次还在跑)/ 中性灰(轮次已经停了 —— 不许继续转圈)
+ *   耗时  槽留着但**空的**,照稿子(`<span class="ms"></span>`)—— 值落地时箭头不横跳
+ * 稿子刻意不给进行中的行挂跳动的秒数,理由写在 Thinking 那一节,别顺手加回来。
  */
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
 import { useT } from '../../../i18n';
@@ -17,6 +22,7 @@ import { formatElapsed } from '../../../runtime/chat/format';
 import { openableRecordFilePath, type RecordFileScope } from '../../../runtime/chat/record-file-open';
 import { FileButton } from './FileButton';
 import { Foldable } from './Foldable';
+import { StatusMark } from './StatusMark';
 import { toolIcon } from './icons';
 import styles from './record.module.css';
 
@@ -32,6 +38,11 @@ export interface ToolRowProps {
   onShowFailure?: (row: ToolRowData) => void;
   /** Static mirrors can keep collapsed command bodies in the emitted HTML. */
   deferBody?: boolean;
+  /**
+   * 这一轮还在跑吗 —— 只决定**没回来的调用**画成哪一档标记。
+   * 默认 false:轮次停了还转圈是新 bug,拿不到上下文时宁可画中性灰。
+   */
+  running?: boolean;
 }
 
 export function ToolRow({
@@ -40,10 +51,25 @@ export function ToolRow({
   fileScope,
   onShowFailure,
   deferBody = true,
+  running = false,
 }: ToolRowProps): ReactElement {
   const t = useT();
   const elapsed = formatElapsed(row.elapsedMs);
-  const icon = <span className={styles.icon}>{toolIcon(row.tool)}</span>;
+  /*
+   * 行首那一格。没回来的调用换成状态标记 —— 轮次还在跑是转着的球,轮次停了退成
+   * 中性灰(和 `markFor` 的「中断时正在跑的:中性灰,红要留给真的错误」同一条规矩;
+   * 绿勾是假成功、红叉是假错误,两个都不能用)。
+   */
+  const icon = row.pending
+    ? <StatusMark status={running ? 'running' : 'pending'} />
+    : <span className={styles.icon}>{toolIcon(row.tool)}</span>;
+  /*
+   * 耗时槽。进行中时**留空但保留**,照稿子的 `<span class="ms"></span>` ——
+   * 空槽吃掉 `.meta + .chev { margin-left: 0 }` 那条,数值落地时箭头不会横跳。
+   */
+  const metaSlot = elapsed
+    ? <span className={styles.meta}>{elapsed}</span>
+    : row.pending ? <span className={styles.meta} /> : null;
 
   /*
    * 这一行的文件名能不能打开,以及打开的是**哪个项目相对路径**(不是 agent 给的
@@ -81,7 +107,7 @@ export function ToolRow({
         </span>
         {row.hits != null
           ? <span className={`${styles.meta} ${styles.num}`}>{t('chat.record.hits', { count: row.hits })}</span>
-          : elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+          : metaSlot}
       </div>
     );
   }
@@ -97,7 +123,7 @@ export function ToolRow({
         </span>
         {row.delta
           ? <span className={styles.delta}><i>+{row.delta.added}</i><i>−{row.delta.removed}</i></span>
-          : elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+          : metaSlot}
       </div>
     );
   }
@@ -116,7 +142,7 @@ export function ToolRow({
         </span>
         {row.tool === 'search' && row.hits != null
           ? <span className={`${styles.meta} ${styles.num}`}>{t('chat.record.hits', { count: row.hits })}</span>
-          : elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+          : metaSlot}
       </div>
     );
   }
@@ -131,7 +157,7 @@ export function ToolRow({
           {fileName()}
           {' · '}{row.failReason}
         </span>
-        {elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+        {metaSlot}
       </div>
     );
   }
@@ -146,7 +172,7 @@ export function ToolRow({
           {fileName()}
         </span>
         {failButton}
-        {elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+        {metaSlot}
       </div>
     );
   }
@@ -160,7 +186,7 @@ export function ToolRow({
     return (
       <Foldable
         summary={<>{icon}<span className={styles.name}>{row.title}</span>{failButton}</>}
-        elapsed={elapsed ?? undefined}
+        elapsed={elapsed ?? (row.pending ? '' : undefined)}
         defaultOpen={row.failed}
         deferBody={deferBody}
       >
@@ -180,7 +206,7 @@ export function ToolRow({
         <span className={styles.name}>
           {t('chat.record.verb.exec')} <FileButton path={row.command} label={row.title} />
         </span>
-        {elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+        {metaSlot}
       </div>
     );
   }
@@ -194,7 +220,7 @@ export function ToolRow({
         {row.rawTitle ? <code>{row.title}</code> : row.title}
       </span>
       {failButton}
-      {elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+      {metaSlot}
     </div>
   );
 }

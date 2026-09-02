@@ -770,6 +770,9 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     const row = buildToolRow(event, results.get(event.id));
     if (!row) continue;
     if (row.elapsedMs != null && event.startedAt != null) stamp(event.startedAt + row.elapsedMs);
+    // 还在飞的调用没有终点可 stamp,但**起点**要记 —— 否则壳的跨度停在上一条
+    // 结束的时刻,一次长调用期间整只壳看起来没有在推进。
+    else if (row.pending) stamp(event.startedAt);
     openText = null;
     sink().push(row);
   }
@@ -1412,18 +1415,32 @@ function readImageCall(
 
 /* ── 工具行 ─────────────────────────────────────────────────── */
 
+/**
+ * 一次调用落成一行。
+ *
+ * ⚠️ **D3「调用没回来就不落行」已作废**(产品 2026-09-02,OPEND-2419)。
+ *
+ * 这里原来第一句是 `if (!result) return null`,理由是「界面上没有执行中这一档」。
+ * 代价是:一次卡住的调用在界面上**完全不存在**。真机那轮 44.7 分钟里,
+ * 光是一个 4KB/s 的图片下载就占了 14.1 分钟,而那 14 分钟里执行记录一行都没多 ——
+ * 用户看到的就是「转了 40 分钟什么都没出来」(OPEND-2419 / 2416)。
+ *
+ * 产品原话:「调用时不管成功没,都要立刻渲染,所有状态啥的东西都要尽快反应在界面上,
+ * 不然用户会吐槽卡住了啥的」。所以判据反过来:**从入参能算出来的,一律立刻给**
+ * (是哪类工具、标题、文件、搜索模式、改动量);只有真的要等结果才知道的
+ * (耗时、命中数、终端输出、成没成)才留到 result 到达。
+ *
+ * 行的身份是 `event.id`,两个阶段是**同一行换状态**,不是先一行 running 再补一行 done。
+ */
 function buildToolRow(
   event: Extract<PersistedAgentEvent, { kind: 'tool_use' }>,
   result: Extract<PersistedAgentEvent, { kind: 'tool_result' }> | undefined,
 ): ToolRow | null {
-  /** D3:调用没回来就不落行 —— 界面上没有「执行中」这一档 */
-  if (!result) return null;
-
   const kind = toolKind(event.name, event.input);
   const command = isCommandTool(event.name) ? commandOf(event.input) : '';
   const file = fileOf(event.input) ?? (command ? commandFile(command) : null);
-  const failed = Boolean(result.isError);
-  const hits = kind === 'search' && !failed && result.content
+  const failed = Boolean(result?.isError);
+  const hits = kind === 'search' && !failed && result?.content
     ? result.content.split('\n').filter((l) => l.trim()).length
     : null;
 
@@ -1432,7 +1449,7 @@ function buildToolRow(
    * 与 `tool_result` 同时到达 —— 差值接近 0 表示「不知道」,不是「跑得快」(§2.2b / W10)。
    */
   let elapsedMs: number | null = null;
-  if (event.startedAt != null && result.completedAt != null) {
+  if (event.startedAt != null && result?.completedAt != null) {
     const d = result.completedAt - event.startedAt;
     if (d >= UNKNOWN_ELAPSED_BELOW_MS) elapsedMs = d;
   }
@@ -1440,6 +1457,7 @@ function buildToolRow(
   return {
     kind: 'tool',
     id: event.id,
+    pending: result == null,
     tool: kind,
     name: event.name,
     title: toolTitle(event.name, event.input),
@@ -1452,6 +1470,6 @@ function buildToolRow(
     failed,
     failReason: null,
     command: command ? command : null,
-    terminal: command && result.content ? result.content : null,
+    terminal: command && result?.content ? result.content : null,
   };
 }

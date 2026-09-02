@@ -280,11 +280,15 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
   if (item.kind === 'tool') {
     return (
       <ToolRow
+        /* key 只认 tool_use id + 位置:同一次调用从「在跑」变成「跑完」必须是
+           **同一行换状态**,不能先出一行 running 再新增一行 done(那就成了重复)。 */
         key={`tool-${item.id}-${index}`}
         row={item}
         onOpenFile={ctx.onOpenFile}
         fileScope={ctx.fileScope}
         deferBody={ctx.deferCollapsedBodies}
+        /* 没回来的调用画成转圈还是中性灰,取决于这一轮还在不在跑 */
+        running={ctx.running}
       />
     );
   }

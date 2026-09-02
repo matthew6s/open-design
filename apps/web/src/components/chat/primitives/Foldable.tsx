@@ -81,7 +81,13 @@ export function Foldable({
         <span className={styles.summaryContent} data-testid="chat-foldable-summary-content">
           {summary}
         </span>
-        {elapsed ? (
+        {/*
+          * `!= null` 而不是真值判断:**空字符串要占住这个槽**。稿子给进行中的折叠行画的是
+          * `<span class="ms"></span>` —— 槽在、值空,这样耗时落地那一刻箭头不会横跳
+          * (空槽同样吃掉 `.meta + .chev { margin-left: 0 }` 那条)。
+          * 不需要槽的调用方传 `undefined`,行为和从前一样。
+          */}
+        {elapsed != null ? (
           <span className={styles.meta} data-testid="chat-foldable-elapsed">{elapsed}</span>
         ) : null}
         {/* 没有东西可展开的时候给个箭头是在骗人 */}

@@ -107,9 +107,21 @@ describe('思考中靠事件不靠文字(S21 / W11)', () => {
 /* ── 工具行 ───────────────────────────────────────────────── */
 
 describe('工具行(D3 / D23 / §2.2b)', () => {
-  it('调用没有结果就不落行 —— 没有「执行中」这一档', () => {
+  it('调用一发出就落行,结果没回来也落 —— D3 那条「没有执行中这一档」已作废', () => {
+    /*
+     * ⚠️ 这一条 2026-09-02 反过来了(OPEND-2419)。原来断言的是「没有结果就不落行」,
+     * 依据是 D3。代价被真机量出来了:一次卡住 14.1 分钟的下载在界面上**完全不存在**,
+     * 用户看到「转了 40 分钟什么都没出来」。
+     * 产品裁决:「调用时不管成功没,都要立刻渲染,所有状态啥的东西都要尽快反应在界面上」。
+     * 完整口径与反向对照在 `pending-tool-row.test.ts`。
+     */
     const blocks = buildTurnBlocks({ events: [{ kind: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a.ts' } }] });
-    expect(tools(nth(shells(blocks), 0).items)).toHaveLength(0);
+    const rows = tools(nth(shells(blocks), 0).items);
+    expect(rows).toHaveLength(1);
+    expect(nth(rows, 0).pending).toBe(true);
+    // 反向对照:成对到达的那一条**不是** pending,两态确实分得开
+    const settled = buildTurnBlocks({ events: call('t2', 'Read', { file_path: 'a.ts' }) });
+    expect(nth(tools(nth(shells(settled), 0).items), 0).pending).toBe(false);
   });
 
   it('读文件:还原成读取 + 文件名', () => {
