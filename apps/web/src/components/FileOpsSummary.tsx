@@ -627,8 +627,10 @@ function ArtifactCard({
                只有产物卡传这个:首页项目网格是几十张卡,不能一人一块画布。 */
             pendingContent={<PixelLiquid />}
             diagnostic={`${projectId}:${item.name}`}
-            /* 产物卡是这条回答的主角,不是背景封面 —— 不受「进项目就挂起」那道闸约束,
-               否则卡面永远是一块灰(见 project-cover.tsx 的 `ungated` 注释) */
+            /* 产物卡是这条回答的主角,不是背景封面 —— 走**前台泳道**:不受
+               「进项目就挂起」约束(否则卡面永远是一块灰),但照样有自己的一份
+               并发预算(`ARTIFACT_CARD_LOAD_BUDGET`)。一条消息最多实测过 28 张卡,
+               全放开就是 N 个文档同时打 daemon(见 thumbnail-load-gate.ts) */
             ungated
           />
         ) : item.kind === 'doc' ? (

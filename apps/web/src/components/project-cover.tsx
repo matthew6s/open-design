@@ -4,6 +4,7 @@ import { projectFileUrl } from '../providers/registry';
 import type { ProjectFile } from '../types';
 import {
   THUMBNAIL_OVERSCAN_MARGIN,
+  useArtifactCardLoadSlot,
   useThumbnailLoadSlot,
 } from '../lib/thumbnail-load-gate';
 import { useInView } from './plugins-home/useInView';
@@ -134,17 +135,23 @@ export function HtmlProjectCoverFrame({
    */
   pendingContent?: ReactNode;
   /**
-   * 跳过全局缩略图加载闸。**只给「前台主内容」用**。
+   * 走**前台泳道**,而不是首页网格那条背景泳道。**只给「前台主内容」用**。
    *
-   * 那道闸是为首页项目网格建的:几十张卡各开一个 iframe 打本地 daemon,会把
-   * HTTP/1.1 的连接池占满。所以 `App.tsx` 里写着
+   * ⚠️ 名字里的 "ungated" 只是说**不受背景那道闸约束** —— 它照样有并发预算
+   * (`ARTIFACT_CARD_LOAD_BUDGET`),只是换了一条不会被挂起的泳道。
+   *
+   * 为什么要换泳道而不是继承:背景那道闸是为首页项目网格建的,几十张卡各开一个
+   * iframe 打本地 daemon,会把连接池占满,所以 `App.tsx` 里写着
    * `if (route.kind === 'project') suspendThumbnailLoads()` —— 一进项目就挂起,
-   * 背景封面别跟前台抢。
+   * 背景封面别跟前台抢。可聊天就活在项目路由里,回答里的产物卡**自己就是用户要看
+   * 的东西**;让它继承那条挂起,结果是永远拿不到 slot、卡面永远一块灰。
    *
-   * 可聊天就活在项目路由里:回答里的产物卡**自己就是用户要看的东西**,一轮也就一两张。
-   * 让它继承那条挂起,结果是永远拿不到 slot、卡面永远一块灰。
+   * 但「不让位」不等于「不限量」:2026-09-02 实测一条 assistant 消息最多产出
+   * 28 张卡(13 张 html),900px 视口下不滚动就能一次起飞 16 个文档,而 daemon 的
+   * raw 路由是 `Cache-Control: no-cache`,同一个文件的 N 张卡照样打 N 次往返。
+   * 所以这条泳道有自己的一份预算,理由写在 `ARTIFACT_CARD_LOAD_BUDGET` 上。
    *
-   * 传这个的地方要满足两条:① 数量有界(不是网格);② 它就是当前路由的前台内容。
+   * 传这个的地方要满足一条:它就是当前路由的前台内容。
    */
   ungated?: boolean;
 }) {
@@ -196,9 +203,15 @@ export function HtmlProjectCoverFrame({
     };
   }, [src, diagnostic, inView]);
 
-  const { canLoad, settle } = useThumbnailLoadSlot(
-    !ungated && Boolean(src) && inView && verified && !failed,
-  );
+  /*
+   * 两条泳道都无条件挂 hook(顺序稳定),但同一刻只有一条在要槽位。
+   * 前台那条不响应 `suspendThumbnailLoads()`,背景那条响应 —— 这正是当初
+   * 「有预算」和「会被挂起」被捆在一起时唯一解不开的那个结。
+   */
+  const wantsSlot = Boolean(src) && inView && verified && !failed;
+  const backgroundSlot = useThumbnailLoadSlot(!ungated && wantsSlot);
+  const foregroundSlot = useArtifactCardLoadSlot(ungated && wantsSlot);
+  const { canLoad, settle } = ungated ? foregroundSlot : backgroundSlot;
 
   if (!src || failed) {
     return (
@@ -227,7 +240,12 @@ export function HtmlProjectCoverFrame({
     </span>
   );
 
-  if (!verified || (!ungated && !canLoad)) return pendingFace;
+  /*
+   * 排队等槽位的那一段和「还没验完」是同一件事:**还没加载出来**。所以两者
+   * 落在同一张脸上 —— 产物卡是像素液体,项目网格是它本来的首字母 + 底色。
+   * 不出占位、不出「预览不可用」(产品 2026-09-02 否掉)。
+   */
+  if (!verified || !canLoad) return pendingFace;
 
   const holdingPendingFace = keepsPendingFaceUntilLoaded && !loaded;
 
