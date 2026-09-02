@@ -337,6 +337,37 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
   font-size: var(--t-body); font-weight: 500; line-height: var(--lh-body);
 }
 
+/* 设计系统工作区的自动创建消息。
+   它替代内部长 prompt，只留下用户需要识别的标题与说明；尺寸、层级和图标
+   与产品里的 user-status-card 保持一致。仍放在 .msg-me 中，所以和普通用户
+   消息共用右对齐边界。 */
+.user-status-card {
+  display: inline-flex; align-items: flex-start; gap: 10px;
+  max-width: min(320px, 100%); padding: 9px 11px;
+  border: none; border-radius: 14px 14px 4px 14px;
+  background: var(--bg-fill-tertiary); box-shadow: none;
+  color: var(--text); text-align: start;
+}
+.user-status-card__icon {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--radius);
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.user-status-card__icon > svg { display: block; width: 16px; height: 16px; }
+.user-status-card__copy { min-width: 0; flex: 1 1 auto; overflow: hidden; display: grid; gap: 2px; }
+.user-status-card__copy strong {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--t-body); line-height: 1.2; font-weight: 600;
+}
+.user-status-card__copy span {
+  overflow-wrap: anywhere; font-size: var(--t-mini); line-height: 1.35; color: var(--text-muted);
+}
+/* 标题保持一行；280px 给完整标题留出空间，同时维持紧凑的消息宽度。 */
+.st-b .design-system-generation-status {
+  width: min(280px, 100%);
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
+}
+
 /* 超长消息折到 6 行,末尾留一枚「…」,hover 时「…」后面浮出下拉箭头。
    ------------------------------------------------------------
    这是流水里唯一没有上限的东西 —— Plan、Queue、附件、终端都限了高,

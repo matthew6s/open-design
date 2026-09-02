@@ -9,6 +9,9 @@
    而那一下是你自己要的。 */
 
 .opts.mod-visual { position: relative; display: block; padding: 0 11px 10px; }
+/* 卡头左右各留 16px:标题组和倒计时分别贴住同一条内边界。只收视觉方向卡,
+   其余确认卡仍沿用通用卡头的 11px。 */
+.card:has(> .cbody > .opts.mod-visual) > .h { padding-inline: 16px; }
 /* 这一沓的高度:.vwrap 要用它撑开,左右箭头要用它对齐垂直中线,
    两处必须是同一个数,所以提到共同的祖先上。 */
 .opts.mod-visual[data-view="fan"] { --fan-h: 244px; }

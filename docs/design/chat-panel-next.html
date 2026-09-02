@@ -657,6 +657,34 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
   font-size: var(--t-body); font-weight: 500; line-height: var(--lh-body);
 }
 
+/* 设计系统工作区的自动创建消息。
+   它替代内部长 prompt，只留下用户需要识别的标题与说明；尺寸、层级和图标
+   与产品里的 user-status-card 保持一致。仍放在 .msg-me 中，所以和普通用户
+   消息共用右对齐边界。 */
+.user-status-card {
+  display: inline-flex; align-items: flex-start; gap: 10px;
+  max-width: min(320px, 100%); padding: 9px 11px;
+  border: none; border-radius: 14px 14px 4px 14px;
+  background: var(--bg-fill-tertiary); box-shadow: none;
+  color: var(--text); text-align: start;
+}
+.user-status-card__icon {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--radius);
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.user-status-card__copy { min-width: 0; display: grid; gap: 2px; }
+.user-status-card__copy strong {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--t-body); line-height: 1.2; font-weight: 600;
+}
+.user-status-card__copy span { font-size: var(--t-mini); line-height: 1.35; color: var(--text-muted); }
+/* 标题保持一行；组件页使用产品卡片的 320px 上限，给标题留出完整宽度。 */
+.st-b .design-system-generation-status {
+  width: min(320px, 100%);
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
+}
+
 /* 超长消息折到 6 行,末尾留一枚「…」,hover 时「…」后面浮出下拉箭头。
    ------------------------------------------------------------
    这是流水里唯一没有上限的东西 —— Plan、Queue、附件、终端都限了高,
@@ -3979,6 +4007,9 @@ button.att-d:hover { border-color: var(--border-strong); }
    而那一下是你自己要的。 */
 
 .opts.mod-visual { position: relative; display: block; padding: 0 11px 10px; }
+/* 卡头左右各留 16px:标题组和倒计时分别贴住同一条内边界。只收视觉方向卡,
+   其余确认卡仍沿用通用卡头的 11px。 */
+.card:has(> .cbody > .opts.mod-visual) > .h { padding-inline: 16px; }
 /* 这一沓的高度:.vwrap 要用它撑开,左右箭头要用它对齐垂直中线,
    两处必须是同一个数,所以提到共同的祖先上。 */
 .opts.mod-visual[data-view="fan"] { --fan-h: 244px; }
@@ -4309,6 +4340,22 @@ body { margin: 0; }
           <div class="st">
             <div class="st-l mod-def"><span>成功 · 发送完成</span><i></i></div>
             <div class="st-b"><div class="msg-me"><div class="bub">把这一屏重做成能跑的原型,再加一个视觉风格一致的设置页</div></div></div>
+          </div>
+          <div class="st">
+            <div class="st-l"><span>设计系统工作区 · 自动创建</span><i></i></div>
+            <div class="st-b">
+              <div class="msg-me">
+                <div class="user-status-card design-system-generation-status" id="msg-design-system-generation-status">
+                  <span class="user-status-card__icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C17.5222 2 22 5.97778 22 10.8889C22 13.9556 19.5111 16.4444 16.4444 16.4444H14.4778C13.5556 16.4444 12.8111 17.1889 12.8111 18.1111C12.8111 18.5333 12.9778 18.9222 13.2333 19.2111C13.5 19.5111 13.6667 19.9 13.6667 20.3333C13.6667 21.2556 12.9 22 12 22C6.47778 22 2 17.5222 2 12C2 6.47778 6.47778 2 12 2ZM10.8111 18.1111C10.8111 16.0843 12.451 14.4444 14.4778 14.4444H16.4444C18.4065 14.4444 20 12.851 20 10.8889C20 7.1392 16.4677 4 12 4C7.58235 4 4 7.58235 4 12C4 16.19 7.2226 19.6285 11.324 19.9718C10.9948 19.4168 10.8111 18.7761 10.8111 18.1111ZM7.5 12C6.67157 12 6 11.3284 6 10.5C6 9.67157 6.67157 9 7.5 9C8.32843 9 9 9.67157 9 10.5C9 11.3284 8.32843 12 7.5 12ZM16.5 12C15.6716 12 15 11.3284 15 10.5C15 9.67157 15.6716 9 16.5 9C17.3284 9 18 9.67157 18 10.5C18 11.3284 17.3284 12 16.5 12ZM12 9C11.1716 9 10.5 8.32843 10.5 7.5C10.5 6.67157 11.1716 6 12 6C12.8284 6 13.5 6.67157 13.5 7.5C13.5 8.32843 12.8284 9 12 9Z"/></svg>
+                  </span>
+                  <span class="user-status-card__copy">
+                    <strong>Creating design system workspace</strong>
+                    <span>Open Design is using the setup sources to generate this project.</span>
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="st">
             <div class="st-l"><span>超长消息 · 折到 6 行,文末留「…」</span><i></i></div>
