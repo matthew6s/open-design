@@ -22,6 +22,20 @@ export interface FoldableProps {
   /** 右侧等宽耗时,如 18.2s */
   elapsed?: string;
   defaultOpen?: boolean;
+  /**
+   * 折叠态跟着**外面那件事的生命周期**走(可选接入,不传 = 行为和从前完全一样)。
+   *
+   * `defaultOpen` 只在挂载那一帧看一眼;这个值**每次变都跟**,直到用户自己动过为止:
+   *  · 自动展开(因为在跑)→ 跑完:自动收起
+   *  · 用户手动展开过      → 跑完:保持展开(不许替他收)
+   *  · 用户手动收起过      → 后续生命周期变化:保持收起(不许替他开)
+   *
+   * 谁该接:**状态会翻面、而 key 又不变**的那种行(todo 抽屉)。
+   * 「失败默认展开」那类不是生命周期,是终局判词,继续用 `defaultOpen`。
+   *
+   * 和 `open` 互斥:传了 `open` 就是受控,折叠态在调用方手上,这个值不参与。
+   */
+  lifecycleOpen?: boolean;
   /** 受控;不传则内部自管 */
   open?: boolean;
   onToggle?: (open: boolean) => void;
