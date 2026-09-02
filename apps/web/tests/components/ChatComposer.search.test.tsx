@@ -620,10 +620,10 @@ describe('ChatComposer /search command', () => {
     expect(prompt).toContain('Canonical query:');
     expect(prompt).toContain('EV market 2025 trends');
     expect(prompt).toContain(
-      'If the OD command fails because Tavily is not configured or unavailable',
+      'If the OD command fails, keep the stderr / exit status in the tool trace and daemon logs',
     );
     expect(prompt).toContain(
-      'use your own search capability as fallback and label the fallback clearly',
+      'use your own search capability as fallback. Label the fallback clearly',
     );
     expect(prompt).toContain('write a reusable Markdown report into Design Files');
     expect(prompt).toContain('research/<safe-query-slug>.md');
