@@ -101,3 +101,86 @@ test('攒着的半截最终不是标记时,原样接回去', () => {
   assert.equal(s.strip('L 是什么?'), '<PANEL 是什么?');
   assert.equal(s.flush(), '');
 });
+
+/**
+ * 现场逐字取自用户 2026-09-02 的 codex run(W17)。
+ *
+ * 这一段是**第五次**复发的原件。前四次的兜底之所以没拦住,是因为所有测试都只把
+ * 标记切在**标签名**里(`<PANE` / `<MUST`),而 codex 的出厂传输是 app-server
+ * (`defs/codex.ts` 的 `codexTransportPreference`,不设 `OD_CODEX_TRANSPORT` 即是它),
+ * 它按 **token** 推 `item/agentMessage/delta` —— 边界会落在**属性中间**。
+ *
+ * 认这条现场的抓手:漏出来的**全是带属性的开标签,一个 `</PANELIST>` 都没有**。
+ * 闭合标签没属性,切在名字里能被扣住;带属性的一进属性就撒手了。
+ */
+const REAL_LEAK = [
+  '<ROUND index="1">',
+  '<PANELIST role="Designer">',
+  "I'm using the Kami Parchment Document skill to shape a responsive layout.",
+  '</PANELIST>',
+  '<PANELIST role="Accessibility" score="7.9">',
+  'Touch targets, focus rings, dialog labels, and contrast are strong.',
+  '</PANELIST>',
+  '<ROUND_END decision="revise" composite="8.3" openMustFix="3"/>',
+  '收工:文件已写好。',
+].join('\n');
+
+/** 按 token 粒度切片 —— app-server 的真实形态,不是构造出来的坏运气 */
+function tokenChunks(text: string, size: number): string[] {
+  return text.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g')) ?? [];
+}
+
+function stripAll(chunks: readonly string[]): string {
+  const s = make();
+  let out = '';
+  for (const c of chunks) out += s.strip(c);
+  return out + s.flush();
+}
+
+test('逐 token 切片:带属性的标记一个都不许露出来(W17 现场原件)', () => {
+  // 8 是随手取的 token 粒度;下面那条对 1..24 全扫一遍,证明不是挑出来的巧合
+  const out = stripAll(tokenChunks(REAL_LEAK, 8));
+  assert.equal(out.includes('<ROUND'), false);
+  assert.equal(out.includes('<PANELIST'), false);
+  assert.equal(out.includes('<ROUND_END'), false);
+  // 属性碎片也不许剩
+  assert.equal(out.includes('role='), false);
+  assert.equal(out.includes('composite='), false);
+  assert.equal(out.includes('openMustFix='), false);
+  // 人话一个字都不能少
+  assert.equal(out.includes('Kami Parchment Document'), true);
+  assert.equal(out.includes('Touch targets, focus rings'), true);
+  assert.equal(out.includes('收工:文件已写好。'), true);
+});
+
+test('切片粒度从 1 到 24 全扫:没有一种切法能漏出标记', () => {
+  for (let size = 1; size <= 24; size++) {
+    const out = stripAll(tokenChunks(REAL_LEAK, size));
+    assert.equal(out.includes('<ROUND'), false, `size=${size} 漏了 <ROUND`);
+    assert.equal(out.includes('<PANELIST'), false, `size=${size} 漏了 <PANELIST`);
+    assert.equal(out.includes('收工:文件已写好。'), true, `size=${size} 吞了正文`);
+  }
+});
+
+test('最小复现:切在属性中间', () => {
+  assert.equal(stripAll(['<ROUND ind', 'ex="1">正文']), '正文');
+  assert.equal(stripAll(['<PANELIST ', 'role="Critic" score="8.1">很好。</PANELIST>']), '很好。');
+  assert.equal(stripAll(['<ROUND_END dec', 'ision="revise"/>收尾。']), '收尾。');
+});
+
+/*
+ * 反向对照 —— 防的是「见 `<` 就一路憋到 `>`」这种糊弄式修法。
+ * 名字不是标记时必须**立刻**放行,憋住本身就是一种闪。
+ */
+test('不是标记的尖括号:该放行就放行,不许憋住', () => {
+  assert.equal(stripAll(['<PANELISTS role="x">留着']), '<PANELISTS role="x">留着');
+  assert.equal(stripAll(['<div class="a">正文</div>']), '<div class="a">正文</div>');
+  assert.equal(stripAll(['5 < 7 且 a', '<b 都要留着']), '5 < 7 且 a<b 都要留着');
+});
+
+test('属性长到离谱时放行,不许把正文永远吞掉', () => {
+  const monster = `<PANELIST ${'x'.repeat(400)}="1">`;
+  const out = stripAll([monster, '后面的正文。']);
+  // 超过 MAX_HOLD 就放行(fail-open)—— 宁可漏一个畸形标记,也不许吞用户的字
+  assert.equal(out.includes('后面的正文。'), true);
+});

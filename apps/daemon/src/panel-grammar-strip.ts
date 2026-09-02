@@ -30,21 +30,56 @@ const ALL_TAGS = CRITIQUE_GRAMMAR_TAGS;
  */
 const TAG_RE = critiqueGrammarTagPattern();
 
-/** 攒着的半截最多留这么长 —— 正文里孤立的 `<` 不该把输出一直憋住 */
-const MAX_HOLD = 96;
+/**
+ * 攒着的半截最多留这么长 —— 再长就放行。
+ *
+ * 这是**故意的 fail-open**:宁可漏一个畸形到 256 字符还没写完的标记,
+ * 也绝不允许把用户的正文永远吞在缓冲里。真实标记远够用 ——
+ * 现场见过最长的是 `<ROUND_END decision="…" composite="…" openMustFix="…"/>`(61)。
+ */
+const MAX_HOLD = 256;
 
-/** 尾巴有没有可能是**还没写完**的标记开头 */
+/** 名字写完之后、`>` 之前的分隔符。`>` 在上面已经先行返回,不必列进来。 */
+const NAME_DELIMITER = /[\s/]/;
+
+/**
+ * 尾巴有没有可能是**还没写完**的标记 —— 要扣住多少个字符。
+ *
+ * 分三段,少一段就漏:
+ *
+ *  1. **`<` 还光着**:下一帧可能就是标签名,扣住。
+ *  2. **正在写名字**(还没出现分隔符):名字仍是某个标记的**前缀**才扣。
+ *     `<PANE` 扣;`<div` 立刻放行 —— 不必要的憋住也是一种闪。
+ *  3. **名字写完、正在写属性**(已经出现分隔符):名字必须**正好**是一个标记才扣。
+ *     `<PANELIST role=` 扣到 `>`;`<PANELISTS role=` 放行。
+ *
+ * ——第 3 段是 W17(2026-09-02,第五次复发)补上的。原来的实现把 `<` 之后的
+ * **全部**字符(含属性)当成"名字"去比前缀,于是 `<PANELIST role` 一算
+ * 「没有任何标记以 `PANELIST ROLE` 开头」就撒手,半截标签直接进正文,而
+ * `TAG_RE` 又匹配不上不完整的标签 —— 两头都不管。
+ *
+ * 为什么之前四次都没照出来:所有测试都只把标记切在**标签名**里(`<PANE` / `<MUST`),
+ * 而 codex 的出厂传输是 app-server(逐 token 推 `item/agentMessage/delta`),
+ * 边界落在属性中间是常态。判据是——漏出来的**全是带属性的开标签,
+ * 一个 `</PANELIST>` 都没有**:闭合标签没属性,切在名字里能被第 2 段扣住。
+ */
 function pendingTail(text: string): number {
   const lt = text.lastIndexOf('<');
   if (lt === -1) return 0;
   const tail = text.slice(lt);
   if (tail.length > MAX_HOLD) return 0;
-  // 已经闭合了就不是半截
+  // 已经闭合了就不是半截 —— 完整标记交给 TAG_RE
   if (tail.includes('>')) return 0;
-  const name = tail.replace(/^<\/?/, '').toUpperCase();
-  // 空的 `<` 也要扣住:下一帧可能就是标签名
-  if (name.length === 0) return tail.length;
-  return ALL_TAGS.some((t) => t.startsWith(name)) ? tail.length : 0;
+  const rest = tail.replace(/^<\/?/, '');
+  // (1) 空的 `<` 也要扣住:下一帧可能就是标签名
+  if (rest.length === 0) return tail.length;
+  const delimiter = rest.search(NAME_DELIMITER);
+  // (2) 名字还没写完:前缀匹配
+  if (delimiter === -1) {
+    return ALL_TAGS.some((t) => t.startsWith(rest.toUpperCase())) ? tail.length : 0;
+  }
+  // (3) 已经在写属性:名字必须正好是一个标记
+  return ALL_TAGS.includes(rest.slice(0, delimiter).toUpperCase()) ? tail.length : 0;
 }
 
 export interface PanelGrammarStripper {

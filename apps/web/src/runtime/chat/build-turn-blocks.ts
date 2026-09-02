@@ -26,6 +26,7 @@ import {
   OD_DONE_KEY_ATTR_RE,
   OD_DONE_OPEN_TAG,
   OD_DONE_TAG_RE,
+  stripCritiqueGrammar,
 } from '@open-design/contracts';
 import type {
   BuildTurnInput,
@@ -330,8 +331,47 @@ function recalledContents(
   return out;
 }
 
+/**
+ * 评审剧场语法的**历史兜底**,收口在这里。
+ *
+ * daemon 侧的流式剥离(`apps/daemon/src/panel-grammar-strip.ts`)只管新流;
+ * 用户手上已经有一堆落了库的旧对话,里面原样写着
+ * `<CRITIQUE_RUN>` / `<PANELIST role="Critic" score="9.0">`,那些改不回去了。
+ *
+ * 为什么挂在 `buildTurnBlocks` 的入口:壳内(`SayText` / `ThinkingMarkdown`)和
+ * 壳外(消息层的结论段)**同源** —— 两条 lane 的文字都从这里出去。原来的兜底只挂在
+ * 壳外的 `ProseBlock` 上,而聊天面板重构把过程叙述搬进了壳内,于是兜底盖住的
+ * 正好是没内容的那一半,泄漏原样穿到屏幕上。收在源头,以后再多一个渲染组件也不会漏。
+ *
+ * 只碰 `text` / `thinking` 两种事件 —— 它们是仅有的两种"直接渲染给人看的自由文本"。
+ * 工具入参、文件名之类不碰:那些是结构化字段,里面出现尖括号是内容不是协议。
+ *
+ * 没有可剥的就返回**同一个数组引用**,连中间数组都不建 —— 绝大多数轮次走这条路,
+ * 而这个函数每秒被 `useTickingNow` 重算一次,不能每次都拷一遍整条事件流。
+ */
+function needsTheaterStrip(
+  event: PersistedAgentEvent,
+): event is PersistedAgentEvent & { text: string } {
+  if (event.kind !== 'text' && event.kind !== 'thinking') return false;
+  const text = event.text;
+  // 没有尖括号就不可能有标记 —— 省掉绝大多数正则
+  return typeof text === 'string' && text.includes('<')
+    && stripCritiqueGrammar(text) !== text;
+}
+
+function stripTheaterGrammarFromEvents(
+  events: readonly PersistedAgentEvent[],
+): readonly PersistedAgentEvent[] {
+  if (!events.some(needsTheaterStrip)) return events;
+  return events.map((event) => (
+    needsTheaterStrip(event)
+      ? { ...event, text: stripCritiqueGrammar(event.text) }
+      : event
+  ));
+}
+
 export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
-  const events = input.events ?? [];
+  const events = stripTheaterGrammarFromEvents(input.events ?? []);
   /*
    * D10:**跑起来那一刻就该有壳**,不等 agent 的第一条事件。
    * 原来 `ensureShell()` 只挂在事件上,于是第二、三轮每次都要空等一会儿

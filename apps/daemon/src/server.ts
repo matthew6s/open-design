@@ -10107,9 +10107,25 @@ export async function startServer({
         if (!snap?.strategy && stages.length > 0) {
           const { loadAtomBodies } = await import('./plugins/atom-bodies.js');
           const { renderActiveStageBlocks } = await import('@open-design/contracts');
+          const { atomsForPrompt } = await import('./plugins/critique-prompt-gate.js');
           const stageViews = [];
           for (const stage of stages) {
-            const bodies = await loadAtomBodies(db, stage.atoms ?? []);
+            /*
+             * 评审剧场的 atom body 必须和**协议注入**同生同死。
+             *
+             * 默认 scenario 的 `critique` 阶段一直声明 `atoms: ['critique-theater']`,
+             * 而 2026-08-26 下线剧场时只关掉了协议注入(`renderPanelPrompt`)那一条路。
+             * 结果是模型读到一段自相矛盾的提示词:「严格遵守 daemon 注入的标记协议」,
+             * 而那份协议永远不会来 —— 于是它照着 atom SKILL.md 的散文把线格式现编出来,
+             * 原样打进聊天正文。用户连着撞到五次。详见 `critique-prompt-gate.ts`。
+             *
+             * `critiqueShouldRun` 就是"协议会不会注入"的答案,这里直接复用它,
+             * 不另起一套判据 —— 另起一套就是第三个入口。
+             */
+            const atoms = atomsForPrompt(stage.atoms ?? [], {
+              critiqueEnabled: critiqueShouldRun,
+            });
+            const bodies = await loadAtomBodies(db, atoms);
             stageViews.push({ stageId: stage.id, bodies });
           }
           // Issue #6238 — the builder inlines each atom body exactly
@@ -14416,6 +14432,20 @@ export async function startServer({
      */
     const panelGrammarStripper = createPanelGrammarStripper();
     /*
+     * **思考流**的那一份 —— 独立实例,不和正文共用。
+     *
+     * 上面那个只盖住 `text_delta`。`thinking_delta` 走的是另一条路
+     * (`sendAgentEvent` 里非 text_delta 一律直接 `emitAgentEvent`),
+     * 2026-08-26 建兜底时漏掉了它,于是剧场语法照旧原样进思考区**并落库**
+     * (`chat-run-messages.ts` 把 `thinking_delta` 存成 `{ kind: 'thinking' }`),
+     * 刷新之后永远还在。用户第五次撞到的就有这一半。
+     *
+     * 为什么必须是**第二个实例**而不是复用上面那个:剥离器带「半截标记」缓冲,
+     * 两条流交错喂进同一个缓冲会互相串位 —— 正文的半截会被思考流的下一片接上,
+     * 拼出一个两边都没写过的东西。各自一份缓冲是唯一安全的做法。
+     */
+    const thinkingGrammarStripper = createPanelGrammarStripper();
+    /*
      * 这一轮的「下一步建议」(`<od-next key="…">`,见 `next-step-marker.ts`)。
      *
      * 和上面两个剥离器串在同一条链上,理由一样:所有可见文本都要过这条链,
@@ -14472,6 +14502,16 @@ export async function startServer({
     function flushAgentTitleMarkerBuffer() {
       const visible = titleMarkerStripper.flush();
       if (visible) emitGuardedTextDelta(visible);
+      /*
+       * 思考流攒着的半截 —— 流结束了,它终究不是标记,原样吐回去。
+       *
+       * 「不吞用户的字」和「不闪半截标签」是同一条规矩的两面(见
+       * `panel-grammar-strip.ts` 开头的两条硬要求)。走 `send` 而不是
+       * `emitAgentEvent`,是因为这里已经出了剥离器,再进一次收口会被自己
+       * 重新扣住,永远吐不出来。
+       */
+      const heldThinking = thinkingGrammarStripper.flush();
+      if (heldThinking) send('agent', { type: 'thinking_delta', delta: heldThinking });
       /*
        * Backstop for the empty-file gate. The normal release path is the
        * `tool_result` hook in `emitAgentEvent` — the write lands, the result
@@ -14632,6 +14672,28 @@ export async function startServer({
     // follows the result that triggered it in the stream. (PR #3375 review:
     // Copilot and ACP bypassed the guard by calling send('agent', …) directly.)
     function emitAgentEvent(ev: any) {
+      /*
+       * 思考流的剧场语法剥离 —— 位置是判据的一部分,不是随手挑的。
+       *
+       * 必须在 `send('agent', …)` **之前**:落库(`persistRunEventToAssistantMessage`)
+       * 就挂在 `send()` 里,晚一步这段协议就永久写进 `{ kind: 'thinking' }`,
+       * 刷新之后再也擦不掉。
+       *
+       * 必须在 `emitAgentEvent` 这一层而不是某个适配器里:这是 27 个 runtime
+       * 唯一都要经过的收口(见下面 tool timing 的同款理由),挂在这里就没有
+       * runtime 能从覆盖面里漂出去 —— 上一次正是"某条路径漏挂"栽的跟头。
+       *
+       * 整片都是标记时连事件都不发,免得思考区多出一格空的「Thoughts」;
+       * 但"模型已经在出字"这件事照记,否则首字时延会被记晚。
+       */
+      if (ev?.type === 'thinking_delta' && typeof ev.delta === 'string') {
+        const visible = thinkingGrammarStripper.strip(ev.delta);
+        if (!visible) {
+          noteFirstOutputEvent(ev);
+          return;
+        }
+        if (visible !== ev.delta) ev = { ...ev, delta: visible };
+      }
       // Stamp tool call start/finish time here — the one choke point every runtime
       // funnels through — so all 27 adapters get per-call durations without each
       // one growing its own clock. Only fills what is missing (ACP already carries
