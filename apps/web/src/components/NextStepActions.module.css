@@ -57,11 +57,48 @@
 
 .suggestionRow {
   display: flex;
-  align-items: center;
+  /*
+   * 稿子 `.nexts button { align-items: center }` —— 那是**单行**下的写法,
+   * 稿子里这三条建议永远只有一行,所以居中和顶对齐看不出区别。
+   * 我们放开换行之后就有区别了:居中会让那枚箭头飘到两行**中间**。
+   * 稿子对「会换行的行」自己给过答案 —— Queue 那条把手柄和右侧动作都按
+   * **第一行**对齐(`components.css` 原话:「22px 的按钮盒对 18px 的首行,
+   * 上移 2px 才与第一行同心」)。这里照同一条判例:顶对齐,箭头补 3px
+   * 落在第一行的行盒中央((18 - 12) / 2)。
+   * 单行时两者渲染完全相同(自然高 9 + 18 + 9 = 36px,就是今天的行高)。
+   */
+  align-items: flex-start;
+  /*
+   * 全局 `button { justify-content: center }` 漏进来的。稿子的 button 复位
+   * (`components.css:170`)没有这一条,flex 默认就是 flex-start。
+   * 今天看不出来是因为 `.suggestionText` 有 `flex: 1`,把行撑满了;
+   * 一旦它不再撑满(空文案、未来换结构)就会露出来。
+   */
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
   padding: 9px 11px;
+  /*
+   * 全局 `button { height: 36px }` 漏进来的固定高:换行之后第二行会被**裁掉**。
+   * 稿子 `.nexts button` 没有 height,高度由内容定。
+   * 换回 auto 不改变单行观感 —— 单行自然高正好是 9 + 12×1.5 + 9 = 36px。
+   */
+  height: auto;
   font-size: 12px;
+  /*
+   * 全局 `button { line-height: 1 }` 漏进来的。单行时被 `height: 36px` 盖住
+   * 看不出来,换行之后两行会贴死。稿子 `.nexts button` 不写 line-height,
+   * 而稿子对**会换行的行**用的是 `--lh-row`(= 1.5,见 `.queue .q .tx`)。
+   * 仓库没有 `--lh-row` 变量,队列那条的移植(`chat.css`)同样写字面量 1.5
+   * 并在注释里注明出处 —— 这里沿用同一约定。
+   */
+  line-height: 1.5;
+  /*
+   * 全局 `button { white-space: nowrap }` 漏进来的 —— 这是截断的**第二个**
+   * 来源(第一个在下面 `.suggestionText`)。稿子的 button 复位没有这一条。
+   * 全局那条对真正的单行按钮是对的,所以复位落在组件这一层,不动原语。
+   */
+  white-space: normal;
   /*
    * 稿子 `.nexts button { … font-weight: 500 … }`(PR #7170 @ `8015870`)。
    *
@@ -118,6 +155,10 @@
   flex: none;
   width: 12px;
   height: 12px;
+  /* 顶对齐之后,把 12px 的箭头压回第一行行盒的中央:(12 × 1.5 − 12) / 2 = 3。
+     和稿子 Queue 行给手柄补 −2px 是同一手法,理由也一样 —— 这类行首的记号
+     要跟**第一行**同心,不是跟整块同心。 */
+  margin-top: 3px;
   color: var(--text-soft);
 }
 
@@ -128,12 +169,17 @@
 }
 
 /* 一句话,一行装不下就截断 —— 稿子把这一行固定在 35px */
+/*
+ * 一句话读全了才点得下去 —— 这一行的文字**就是**点下去要发出的那条消息。
+ *
+ * 原来这里是 `overflow:hidden + text-overflow:ellipsis + white-space:nowrap`,
+ * 现场把「保持 Ateli…」截在半截(OPEND-2558 附件)。稿子 `.nexts button`
+ * 从来没有这三条;产品裁决是**换行**,不是两行 clamp、也不是 tooltip,
+ * 所以这里不留任何行数上限。
+ */
 .suggestionText {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 容器按稿子去掉内距之后,这一行自己贴着行的内距走,才不会顶到边上。
