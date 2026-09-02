@@ -30,6 +30,7 @@ import type { ProjectFile } from '../../src/types';
 
 afterEach(() => {
   cleanup();
+  document.querySelectorAll('[data-action-request-test-anchor]').forEach((node) => node.remove());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -76,12 +77,96 @@ function renderViewer(shareRequest: { nonce: number; anchorId?: string } | null)
   );
 }
 
+function viewerWithActionRequest({
+  shareRequest = null,
+  downloadRequest = null,
+}: {
+  shareRequest?: { nonce: number; anchorId?: string } | null;
+  downloadRequest?: { nonce: number; anchorId?: string } | null;
+}) {
+  return (
+    <FileViewer
+      projectId="project-1"
+      projectKind="prototype"
+      file={htmlFile()}
+      liveHtml="<html><body><h1>Hello</h1></body></html>"
+      shareRequest={shareRequest}
+      downloadRequest={downloadRequest}
+    />
+  );
+}
+
 /*
  * `FileViewer` 并不给 `AnchoredMenuShell` 传 `testId`,所以线上那块菜单没有
  * `data-testid` —— 按 testid 查会**恒为 null**,那样每一条断言都会「绿」得毫无
  * 意义(第一版就是这么假绿的)。改认菜单里那一行只在展开时才存在的 `menuitem`。
  */
-const menu = () => screen.queryByRole('menuitem', { name: /Deploy to Cloudflare Pages/i });
+const menu = () => screen.queryByRole('menuitem', { name: /Get a share link|Deploy to Cloudflare Pages/i });
+const exportMenu = () => screen.queryByRole('menuitem', { name: /Export as PDF/i });
+const anchoredMenu = () => document.querySelector('[data-anchored-menu]');
+
+function mountActionAnchor(anchorId: string): void {
+  const anchor = document.createElement('button');
+  anchor.setAttribute('data-action-request-test-anchor', 'true');
+  anchor.setAttribute('data-artifact-anchor', anchorId);
+  anchor.getBoundingClientRect = () => ({
+    x: 220,
+    y: 300,
+    left: 220,
+    top: 300,
+    right: 278,
+    bottom: 328,
+    width: 58,
+    height: 28,
+    toJSON: () => ({}),
+  } as DOMRect);
+  document.body.appendChild(anchor);
+}
+
+describe('产物卡 Share / Export 请求是可反复开关的入口', () => {
+  it('Share 同一枚入口点第二次关闭，第三次可再打开', async () => {
+    stubFetch();
+    const anchorId = 'publish:index.html';
+    mountActionAnchor(anchorId);
+    const view = render(viewerWithActionRequest({
+      shareRequest: { nonce: 1, anchorId },
+    }));
+
+    await waitFor(() => expect(anchoredMenu()).not.toBeNull());
+
+    view.rerender(viewerWithActionRequest({
+      shareRequest: { nonce: 2, anchorId },
+    }));
+    await waitFor(() => expect(anchoredMenu(), '第二次点 Share 没有关闭面板').toBeNull());
+
+    view.rerender(viewerWithActionRequest({
+      shareRequest: { nonce: 3, anchorId },
+    }));
+    await waitFor(() => expect(anchoredMenu(), '第三次点 Share 没有重新打开面板').not.toBeNull());
+  });
+
+  it('Export 同一枚入口点第二次关闭，第三次可再打开', async () => {
+    stubFetch();
+    const anchorId = 'export:index.html';
+    mountActionAnchor(anchorId);
+    const view = render(viewerWithActionRequest({
+      downloadRequest: { nonce: 11, anchorId },
+    }));
+
+    await waitFor(() => expect(exportMenu()).not.toBeNull());
+    expect(anchoredMenu()).not.toBeNull();
+
+    view.rerender(viewerWithActionRequest({
+      downloadRequest: { nonce: 12, anchorId },
+    }));
+    await waitFor(() => expect(anchoredMenu(), '第二次点 Export 没有关闭面板').toBeNull());
+
+    view.rerender(viewerWithActionRequest({
+      downloadRequest: { nonce: 13, anchorId },
+    }));
+    await waitFor(() => expect(exportMenu(), '第三次点 Export 没有重新打开面板').not.toBeNull());
+  });
+});
 
 describe('分享请求只许消费一次 —— 重挂之后不许重放', () => {
   it('同一个 nonce 在 FileViewer 重挂之后**不许**再把菜单开出来', async () => {

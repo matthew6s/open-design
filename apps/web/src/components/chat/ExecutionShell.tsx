@@ -55,6 +55,8 @@ export interface ExecutionShellProps {
   fileScope?: RecordFileScope;
   /** 生图失败格的「重试」—— 没有回调时那一格只画不点(稿子也允许只画) */
   onRetryImage?: (row: ImageRowData, index: number) => void;
+  /** 整轮已进入终态时才允许媒体格开放手动重试。 */
+  runTerminal?: boolean;
   imageSrc?: (path: string) => string;
   /**
    * Product history defers collapsed bodies by default. Static design mirrors
@@ -68,6 +70,7 @@ export function ExecutionShell({
   onOpenFile,
   fileScope,
   onRetryImage,
+  runTerminal = false,
   imageSrc,
   deferCollapsedBodies = true,
 }: ExecutionShellProps): ReactElement {
@@ -199,7 +202,9 @@ export function ExecutionShell({
     >
       {items.length
         ? items.map((item, i) => renderItem(item, i, {
-            t, onOpenFile, fileScope, onRetryImage, imageSrc, thinkingNow, running,
+            t, onOpenFile, fileScope,
+            onRetryImage: runTerminal ? onRetryImage : undefined,
+            imageSrc, thinkingNow, running,
             deferCollapsedBodies,
             liveTextIndex: liveTextIndexOf(items, running),
           }))

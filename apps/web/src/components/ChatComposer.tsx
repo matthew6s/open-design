@@ -3080,7 +3080,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       // dedicated "next step" toolbox cards remain the real way to act on a
       // suggested prompt — those explicitly type it into the composer via
       // applyDesignToolboxAction before the user ever hits Send.
-      if (!prompt && staged.length === 0 && nextCommentAttachments.length === 0) return;
+      if (!hasComposerPayload) return;
       notifyCompletionFeedbackGesture();
       sendComposedTurn(prompt, staged, nextCommentAttachments, contextMeta);
     }
@@ -3213,7 +3213,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     const hasComposerPayload =
       draft.trim().length > 0
       || staged.length > 0
-      || liveCommentAttachments.length > 0;
+      || liveCommentAttachments.length > 0
+      || sanitizeQuotes(quotes ?? []).length > 0;
     const showAdmissionPendingButton = composedSendPending && !streaming;
     const showStopButton = streaming && !hasComposerPayload;
     const showSendButton = (!streaming || hasComposerPayload) && !showAdmissionPendingButton;

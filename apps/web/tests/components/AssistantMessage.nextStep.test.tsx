@@ -434,6 +434,34 @@ describe('AssistantMessage next-step affordance during the question phase', () =
     expect(screen.getByText('Brief')).toBeTruthy();
     expect(screen.getByText('Studio name')).toBeTruthy();
     expect(screen.queryByTestId('next-step-actions')).toBeNull();
+    expect(screen.queryByTestId('assistant-label')).toBeNull();
+  });
+
+  it('replays a persisted legacy child-tag form without a false completed label', () => {
+    const content = [
+      'One quick check.',
+      '<question-form id="audio" title="Audio brief">',
+      '<question-select id="format" label="Format">',
+      '<option value="mp3">MP3</option>',
+      '<option value="wav">WAV</option>',
+      '</question-select>',
+      '<question-text id="mood" label="Mood" />',
+      '</question-form>',
+    ].join('');
+    render(
+      <AssistantMessage
+        message={questionFormMessage(content)}
+        streaming={false}
+        projectId="proj-1"
+        isLast
+        {...handlers()}
+      />,
+    );
+
+    expect(screen.getByText('Audio brief')).toBeTruthy();
+    expect(screen.getByText('Format')).toBeTruthy();
+    expect(screen.getByText('Mood')).toBeTruthy();
+    expect(screen.queryByTestId('assistant-label')).toBeNull();
   });
 
   it('does not render while an unterminated question form is pending', () => {

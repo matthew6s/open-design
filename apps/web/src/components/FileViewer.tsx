@@ -15132,12 +15132,24 @@ function HtmlViewer({
      * 菜单就贴着卡上那枚按钮;「下一步引导」那行不传,菜单照旧开在预览区工具栏
      * 下面(产品 2026-08-27:「为啥不直接复用现在那个分享弹窗??」)。
      */
-    setMenuAnchorId(shareRequest?.anchorId ?? null);
-    setMenuOrigin(shareRequest?.anchorId ? 'artifact-card' : 'toolbar');
+    const nextAnchorId = shareRequest?.anchorId ?? null;
+    const wasOpenOnThisEntry = deployMenuOpen
+      && unifiedActionTab === 'share'
+      && menuAnchorId === nextAnchorId;
+    setMenuAnchorId(nextAnchorId);
+    setMenuOrigin(nextAnchorId ? 'artifact-card' : 'toolbar');
     setUnifiedActionTab('share');
-    setDeployMenuOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shareRequest?.nonce, shareRequest?.anchorId, canShare, projectId, file.name]);
+    setDeployMenuOpen(!wasOpenOnThisEntry);
+  }, [
+    shareRequest?.nonce,
+    shareRequest?.anchorId,
+    canShare,
+    projectId,
+    file.name,
+    deployMenuOpen,
+    unifiedActionTab,
+    menuAnchorId,
+  ]);
 
   // Parallel to shareRequest, but opens the Download / Export menu instead — the
   // assistant "next step" card's Download row routes here so it surfaces the same
@@ -15151,12 +15163,24 @@ function HtmlViewer({
     setExportReadyNudge(false);
     markExportReadyNudgeSeen(projectId, file.name);
     /* 与分享同一条路,换成导出菜单。 */
-    setMenuAnchorId(downloadRequest?.anchorId ?? null);
-    setMenuOrigin(downloadRequest?.anchorId ? 'artifact-card' : 'toolbar');
+    const nextAnchorId = downloadRequest?.anchorId ?? null;
+    const wasOpenOnThisEntry = deployMenuOpen
+      && unifiedActionTab === 'export'
+      && menuAnchorId === nextAnchorId;
+    setMenuAnchorId(nextAnchorId);
+    setMenuOrigin(nextAnchorId ? 'artifact-card' : 'toolbar');
     setUnifiedActionTab('export');
-    setDeployMenuOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [downloadRequest?.nonce, downloadRequest?.anchorId, canDownload, projectId, file.name]);
+    setDeployMenuOpen(!wasOpenOnThisEntry);
+  }, [
+    downloadRequest?.nonce,
+    downloadRequest?.anchorId,
+    canDownload,
+    projectId,
+    file.name,
+    deployMenuOpen,
+    unifiedActionTab,
+    menuAnchorId,
+  ]);
 
   // A queued chat send for this deck just started: flip the preview to the
   // slide its marked element lives on. We write the cached slide state first so

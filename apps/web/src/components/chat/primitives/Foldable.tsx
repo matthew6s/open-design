@@ -78,10 +78,16 @@ export function Foldable({
       <summary onClick={() => {
         if (deferBody && expandable && hasBody) setBodyActivated(true);
       }}>
-        {summary}
-        {elapsed ? <span className={styles.meta}>{elapsed}</span> : null}
+        <span className={styles.summaryContent} data-testid="chat-foldable-summary-content">
+          {summary}
+        </span>
+        {elapsed ? (
+          <span className={styles.meta} data-testid="chat-foldable-elapsed">{elapsed}</span>
+        ) : null}
         {/* 没有东西可展开的时候给个箭头是在骗人 */}
-        {expandable && hasBody ? <span className={styles.chev}><ChevronIcon /></span> : null}
+        {expandable && hasBody ? (
+          <span className={styles.chev} data-testid="chat-foldable-toggle"><ChevronIcon /></span>
+        ) : null}
       </summary>
       {expandable && hasBody && shouldMountBody ? (
         <div

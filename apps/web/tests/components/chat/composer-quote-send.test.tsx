@@ -50,6 +50,20 @@ async function send(onSend: ReturnType<typeof vi.fn>) {
 }
 
 describe('发送时的引用', () => {
+  it('仅引用时芯片可见，按钮与 Enter 都允许发送', async () => {
+    const { onSend } = renderComposer({ initialDraft: '', quotes: [QUOTE] });
+
+    expect(screen.getByTestId('chat-quoted-refs')).toHaveTextContent(QUOTE.text);
+    expect(screen.getByTestId('chat-composer-input')).toHaveTextContent('');
+
+    const sendButton = screen.getByTestId('chat-send') as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(false);
+
+    fireEvent.keyDown(screen.getByTestId('chat-composer-input'), { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0]?.[0]).toBe(quotePromptPrefix([QUOTE]).trim());
+  });
+
   it('折进正文,同时原样挂到 meta 上 —— 队列靠后者才拆得回芯片', async () => {
     const { onSend, onClearQuotes } = renderComposer({ quotes: [QUOTE] });
 

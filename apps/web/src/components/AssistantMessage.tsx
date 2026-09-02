@@ -901,12 +901,14 @@ function AssistantMessageImpl({
   const summaryArtifactOps = useMemo(
     () => summaryArtifactOpsForProducedFiles(
       fileOps,
-      artifactFocus.show
-        ? [...declaredArtifactCards(produced, artifactFocus.show)]
-        : produced,
+      message.producedFiles === undefined
+        ? undefined
+        : artifactFocus.show
+          ? [...declaredArtifactCards(message.producedFiles, artifactFocus.show)]
+          : message.producedFiles,
       artifactFocus.show,
     ),
-    [artifactFocus.show, fileOps, produced],
+    [artifactFocus.show, fileOps, message.producedFiles],
   );
   /**
    * 这一轮的产物面板喂什么 —— **一条消息只算一次**,交给唯一那个组件。
@@ -1255,6 +1257,7 @@ function AssistantMessageImpl({
                判据本身在 `runtime/chat/record-file-open.ts`。 */
             fileScope={recordFileScope}
             onRetryImage={onRetryImage}
+            runTerminal={isTerminalRunStatus(turnRunStatus)}
             imageSrc={imageSrc}
           />
         ))}
@@ -1449,7 +1452,11 @@ function AssistantMessageImpl({
                    * 运行中的去重已经由 `showCompletionRow` 整行不出来解决。
                    * 只在报错卡那一轮仍然让位:原因和下一步由报错卡说。
                    */
-                  hideRunStatus: message.id === errorCardOwnerId,
+                  // A clarification run may be process-terminal while its
+                  // inline form is still waiting for an answer. Showing the
+                  // green Done label here turns that handshake into a false
+                  // success, especially when replaying legacy child-tag forms.
+                  hideRunStatus: message.id === errorCardOwnerId || hasPendingQuestionForm,
                   onContinueRemaining: continueRemaining,
                 }}
               />
@@ -1466,7 +1473,7 @@ function AssistantMessageImpl({
                 forking={forking}
                 isLast={!!isLast}
                 createdAt={message.createdAt}
-                hideRunStatus={message.id === errorCardOwnerId}
+                hideRunStatus={message.id === errorCardOwnerId || hasPendingQuestionForm}
                 onContinueRemaining={continueRemaining}
               />
             )}
@@ -1655,25 +1662,26 @@ function producedFilesAsFileOps(produced: ProjectFile[]): FileOpEntry[] {
 
 function summaryArtifactOpsForProducedFiles(
   fileOps: FileOpEntry[],
-  produced: ProjectFile[],
+  produced: ProjectFile[] | undefined,
   declared: readonly string[] | null | undefined,
 ): FileOpEntry[] {
   const artifactOps = fileOps.filter(
     (entry) => entry.ops.includes('write') || entry.ops.includes('edit'),
   );
   if (artifactOps.length === 0) return artifactOps;
-  /*
-   * 没有权威产出清单的那一轮(daemon 没结算,或者老消息)卡片来自工具行本身。
-   * 这条支原来把**全部** write/edit 行端出去 —— 在「卡片是声明出来的」之后,
-   * 那等于同一个「什么都显示」从另一扇门溜回来。所以这里照样按声明收一次:
-   * 收的对象是工具行,不是产出清单,因为这条支上根本没有产出清单。
-   */
-  if (produced.length === 0) {
+  // `undefined` means the live run (or its just-terminal UI) has not completed
+  // the asynchronous produced-files reconciliation yet. Keep its own
+  // Write/Edit evidence visible in that gap; an optional focus declaration may
+  // still narrow it. By contrast, `[]` is the daemon's authoritative verdict
+  // that the turn produced nothing and must not fall back to tool rows.
+  if (produced === undefined) {
+    if (!declared?.length) return artifactOps;
     return declaredArtifactCards(
       artifactOps.map((entry) => ({ name: entry.path, path: entry.fullPath, entry })),
       declared,
     ).map((candidate) => candidate.entry);
   }
+  if (produced.length === 0) return [];
 
   const unused = new Set(artifactOps);
   return produced.map((file) => {
