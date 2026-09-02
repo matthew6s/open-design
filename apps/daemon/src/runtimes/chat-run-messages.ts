@@ -6,6 +6,7 @@ import type { RunFinishedProps } from '@open-design/contracts/analytics';
 import {
   appendMessageAgentEvents,
   clearMessageAgentEventBatches,
+  dropTrailingMessageAgentDeltas,
   finalizeMessageAgentEvents,
   upsertMessage,
 } from '../db.js';
@@ -78,6 +79,7 @@ export const RUN_MESSAGE_EVENT_FLUSH_INTERVAL_MS = 250;
 const RUN_MESSAGE_EVENT_FLUSH_CHARS = 64 * 1024;
 const pendingMessageEvents = new WeakMap<ChatRunMessageState, PendingMessageEvents>();
 const finalizedInputEventCounts = new WeakMap<ChatRunMessageState, number>();
+const startedAttemptMessages = new WeakMap<ChatRunMessageState, string>();
 const messageEventPersistenceTelemetry = new WeakMap<
   ChatRunMessageState,
   RunMessageEventPersistenceTelemetry
@@ -145,6 +147,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+/**
+ * A second `start` on the same assistant message is the daemon re-driving this
+ * turn: the previous attempt was torn down and another one is about to spawn
+ * (`run-retry-policy.ts`). The attempt being replaced never terminated — that
+ * is the only reason it is retried — so the passage it was still writing gets
+ * written again, and an append-only event stream keeps both copies.
+ *
+ * Retiring it here, on the attempt boundary and before the new attempt's first
+ * delta, is what stops a reload from showing the same conclusion twice.
+ */
+function retireSupersededAttemptProse(db: SqliteDb, run: ChatRunMessageState): void {
+  const messageId = run.assistantMessageId;
+  if (!messageId) return;
+  const previous = startedAttemptMessages.get(run);
+  startedAttemptMessages.set(run, messageId);
+  if (previous !== messageId) return;
+  flushRunMessageEvents(run);
+  try {
+    dropTrailingMessageAgentDeltas(db, messageId);
+  } catch (err) {
+    const telemetry = ensureRunMessageEventPersistenceTelemetry(run);
+    telemetry.persistenceErrorCount += 1;
+    console.warn('[runs] superseded attempt cleanup failed', err);
+  }
+}
+
 export function persistRunEventToAssistantMessage(
   db: SqliteDb,
   run: ChatRunMessageState,
@@ -152,6 +180,7 @@ export function persistRunEventToAssistantMessage(
   data: unknown,
 ): void {
   if (!run.assistantMessageId) return;
+  if (event === 'start') retireSupersededAttemptProse(db, run);
   const persisted = runSseEventToPersistedAgentEvent(event, data);
   if (!persisted) {
     if (event === 'end' || event === 'close') flushRunMessageEvents(run);

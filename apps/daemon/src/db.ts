@@ -3426,6 +3426,74 @@ export function finalizeMessageAgentEvents(
   })();
 }
 
+/**
+ * Retire the unfinished prose an interrupted attempt left on this message.
+ *
+ * A turn only gets another attempt because the previous one never terminated,
+ * so whatever text the superseded attempt streamed after its last committed
+ * boundary was never closed upstream either — and the next attempt writes that
+ * passage again. Appending it a second time is how one conclusion ends up in
+ * the transcript twice (OPEND-2566): the event stream is append-only and
+ * adjacent text is concatenated, so nothing downstream can tell a re-written
+ * answer from a longer one.
+ *
+ * Only the trailing delta run goes. Prose that a tool row already closed is
+ * committed in the agent's own session — a resumed attempt continues past it
+ * instead of repeating it — so it has to survive, and the last tool row is the
+ * boundary the resume itself is anchored on.
+ *
+ * `content` is corrected by removing exactly the suffix those deltas
+ * contributed, and only when it really is that suffix; a row whose body came
+ * from somewhere else is left alone rather than rewritten on a guess.
+ *
+ * Returns how many events were dropped.
+ */
+export function dropTrailingMessageAgentDeltas(
+  db: SqliteDb,
+  messageId: string,
+): number {
+  const events = finalizeMessageAgentEvents(db, messageId);
+  if (!events || events.length === 0) return 0;
+  // How the attempt ended is bookkeeping, not body: an interrupted attempt
+  // signs off with its own `status` rows (the terminal error above all), and
+  // they sit AFTER the passage that was cut off. Step over them to reach the
+  // prose, then leave them where they are — they are what makes the seam
+  // legible once the duplicate is gone.
+  let end = events.length;
+  while (end > 0 && events[end - 1]?.kind === 'status') end -= 1;
+  let cut = end;
+  while (cut > 0) {
+    const event = events[cut - 1];
+    const kind = typeof event?.kind === 'string' ? event.kind : '';
+    if ((kind === 'text' || kind === 'thinking') && typeof event?.text === 'string') {
+      cut -= 1;
+      continue;
+    }
+    break;
+  }
+  if (cut === end) return 0;
+  const dropped = events.slice(cut, end);
+  const kept = [...events.slice(0, cut), ...events.slice(end)];
+  const droppedText = dropped
+    .filter((event) => event?.kind === 'text' && typeof event.text === 'string')
+    .map((event) =>
+      stripArtifactFocusMarkers(stripNextStepMarkers(stripDoneMarkers(String(event.text)))),
+    )
+    .join('');
+  const row = db
+    .prepare(`SELECT content FROM messages WHERE id = ?`)
+    .get(messageId) as DbRow | undefined;
+  if (!row) return 0;
+  const content = typeof row.content === 'string' ? row.content : '';
+  const nextContent =
+    droppedText && content.endsWith(droppedText)
+      ? content.slice(0, content.length - droppedText.length)
+      : content;
+  db.prepare(`UPDATE messages SET content = ?, events_json = ? WHERE id = ?`)
+    .run(nextContent, JSON.stringify(kept), messageId);
+  return dropped.length;
+}
+
 export function appendMessageAgentEvent(
   db: SqliteDb,
   messageId: string,
