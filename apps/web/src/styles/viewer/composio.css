@@ -1002,10 +1002,18 @@
    压过全局原语已经被抬到 `.qf-chip:disabled` 的 (0,2,0)(见下文),选中档
    必须跟着抬,否则**一张已提交的表单会把选中项也刷成静息色**。
    补的是 `.qf-options` 这层祖先(和下面勾的描边同一个手段),(0,3,0)
-   **严格大于**而不是打平靠源码顺序 —— 踩坑 25 栽的就是打平那一下。 */
+   **严格大于**而不是打平靠源码顺序 —— 踩坑 25 栽的就是打平那一下。
+
+   字重照稿子的 **500**(L1458),不是 600。这一格不是抄错,是**稿子改了我们没跟**:
+   上一版稿子 `1bbdce0b06`(2026-08-21)写的就是 600(注释原文「文字加粗到 600
+   并换成 --brand-text」),这条是 `38aa03bff4`(2026-08-26,照那一版重建聊天面板)
+   落的,当时对。2026-09-01 的交付稿 `8015870095` 把这一档降到 500 并把
+   --brand-text 换成 --select-ink —— 颜色那一半当时跟上了,字重这一半漏了。
+   稿子的理由写在 L1442-1444:选中态只留两处变化(控件填实 + 文字 500 换色),
+   底色那一档还给 hover,免得「能点的是这条」和「选中的是这条」抢同一种表达。 */
 .qf-options .qf-chip.qf-chip-on {
   color: var(--select-ink);
-  font-weight: 600;
+  font-weight: 500;
 }
 /* 选择框就是原生 input 本身 —— 不另画一个 span,读屏和键盘都照常 */
 /* 稿子 `.opt .box` —— 选中与否画在方框自己身上(--tick-img 铺底),不是靠里面那枚对勾 */
@@ -4553,8 +4561,21 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: none;
   cursor: pointer;
 }
+/* 稿子 `.opt:hover .box { border-color: var(--text-soft) }`(L1485)在「自己填」这一路
+   的对应条。稿子里它 (0,3,0) 稳输给下面那条的 (0,5,0) —— 选中的勾在 hover 时**不会**
+   被描回一圈灰边。留着它是照稿子:那条 hover 在稿子里同样管着所有 `.box`。 */
 .qf-chip-other:hover .qf-chip-own-box { border-color: var(--text-soft); }
-.qf-chip-on .qf-chip-own-box {
+/* 稿子 `.opts.mod-multi .opt.is-on .box`(L1511)/ `.opts.mod-single …`(L1493)。
+   固定选项那一路上一轮已经把祖先补回去了(`.qf-options .qf-chip.qf-chip-on
+   .qf-chip-box`,(0,4,0));「自己填」展开态换了一颗盒子(稿子是静态
+   `<span class="box">`,产品换成真 `<button>` 以便键盘操作),这一对当时没跟着改:
+     `.qf-chip-other:hover .qf-chip-own-box`  → 2 类 + 1 伪类 = (0,3,0)
+     `.qf-chip-on .qf-chip-own-box`           → 2 类        = (0,2,0)
+   选中那条**低一档**,于是鼠标一扫,勾外面就描出一圈 --text-soft 的灰边 ——
+   踩坑 25 的同一类事故(搬稿子时省掉祖先,层叠就反了),处方也一样:祖先补回去,
+   并且要**严格大于**(0,4,0) > (0,3,0),不打平靠源码顺序。
+   `.qf-options` 这层祖先是稳的:renderOwnChoice 的四处调用点全都包在 `.qf-options` 里。 */
+.qf-options .qf-chip.qf-chip-on .qf-chip-own-box {
   border-color: transparent;
   background: var(--tick-img) center / 120% no-repeat;
   background-origin: border-box;
