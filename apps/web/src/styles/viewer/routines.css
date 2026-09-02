@@ -1837,10 +1837,11 @@
   background: var(--green);
   box-shadow: none;
 }
-.app .assistant-footer .assistant-stats {
-  font-size: 12px;
-  color: var(--text-muted);
-}
+/* `.app .assistant-footer .assistant-stats` 删于此(2026-09-02)。`.assistant-footer`
+   这个壳是活的,但它里面从来没有挂过 `assistant-stats` 的孩子 —— 后代选择器永远
+   配不上,这条覆盖和它在 `composio.css` 里压着的基规则一样从未上过屏。
+   判据钉在 `tests/components/chat/w74-dead-css-rules.test.ts`(含正面对照)。
+   基规则本身归 W73 那一轮改 `composio.css` 时一并清。 */
 .app .op-waiting {
   width: fit-content;
   padding: 7px 14px;

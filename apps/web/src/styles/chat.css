@@ -1129,29 +1129,25 @@
   color: white;
   border-radius: var(--radius-xs);
 }
-/* Run recovery uses the shared user-action card. Only the concrete problem and
-   primary recovery action stay visible; friendly copy plus raw diagnostics are
-   grouped in one expandable detail area. */
-.run-error__details {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
+/* Legacy run-recovery card styling. The card itself moved to a CSS Module in
+   `38aa03bff4` (chat panel rebuild) - `components/chat/RunErrorCard.tsx` now
+   emits hashed class names plus `data-testid="chat-run-error-description"`, so
+   none of these global BEM names reach the DOM any more.
 
+   `.run-error__details` and `.run-error__desc` were removed with that evidence
+   (zero producers anywhere in `src/`; guard: `tests/components/chat/w74-dead-css-rules.test.ts`).
+
+   `.run-error__description` is kept on purpose even though it is equally
+   unreachable: `e2e/ui/project-management-flows.test.ts` still anchors an
+   assertion on `page.locator('.run-error__description')`. That e2e selector was
+   missed by the same rebuild and needs an owner before this rule goes - either
+   the card re-emits the name, or the selector migrates to the test id. */
 .run-error__description {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-strong);
-}
-.run-error__desc {
-  margin: 3px 0 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-muted);
-  max-width: 64ch;
-  overflow-wrap: anywhere;
 }
 
 /* Primary contextual CTA (Authorize & retry / Top up / terminal launch). */
@@ -1587,6 +1583,27 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   background: var(--accent);
   opacity: 0.85;
   animation: home-hero-carousel-caret 900ms steps(1) infinite;
+}
+/* 会话面板输入框的行高 —— 稿子 `.composer .ta { line-height: var(--lh-body) }`
+   (`729fa43ce7:docs/design/chat-panel/src/components.css:3100`,`--lh-body` = **1.7**)。
+
+   ⚠️ 为什么另起一条**带 `[data-chat-root]`** 的规则,而不是把上面那个 1.6 改掉:
+   `.composer-input-editor` 这一族是**共用**的 —— 同一个 Lexical 编辑器同时服务
+   会话面板(`ChatComposer`)和首页 hero(`HomeHero`,外壳 `.home-hero__lexical`,
+   字号自己抬到 14)。直接改基线会把首页的输入框一起带走,而首页不在这次对稿范围里。
+   `[data-chat-root]` 是现成的作用域钩子:`ChatPane` 用 `chatSeam('pane')` /
+   `chatSeam('chat-composer-fixed-layer')` 把它抹在输入框的祖先上,首页 hero 和
+   批注侧栏都没有它。特异性 (0,3,0) / (0,2,0) 稳压各自的基线,不靠源码顺序。
+
+   三层一起抬,少一层就会错位:真正写字的那层、Lexical 的静态占位符、
+   以及盖在占位符原位上的打字机轮播 —— 它们是同一行字的三种状态。
+   (行内 @芯片的 19px 方盒不跟着变:它按 `vertical-align: middle` 居中,
+    高度不是从行高推出来的,见下面 `.composer-inline-mention` 那段注释。) */
+[data-chat-root] .composer-input-editor [contenteditable='true'],
+[data-chat-root] .composer-input-editor .composer-editable,
+[data-chat-root] .composer-input-placeholder,
+[data-chat-root] .composer-input-wrap .home-hero__carousel {
+  line-height: 1.7;
 }
 /* Single-paragraph + LineBreakNode model: collapse paragraph margins so a
    serialized "\n" reads as a single visual line break (no \n\n gap). */

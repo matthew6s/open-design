@@ -5,10 +5,27 @@
  * 用户原话:「thought 展开应该有个最高高度, 可以滚动」
  * 配图是**思考已结束**那一档:点开之后十几段推理一路铺到屏外,底下还压着「跳到最新」。
  *
- * 和**思考中**那只 96px 的流式窗是两回事,别混:
- *   思考中   `.stream` —— `height` 固定死、上下渐隐遮罩、自己往上走(D46),用户不主动滚
- *   思考完   `.scroll` —— `max-height` + 正常滚动条,用户是**专程点开来读**的,
- *            所以不遮罩、不自动走、短的时候完全不限高
+ * ── 2026-09-02 产品裁决:**限高两态都要**,本文件据此更新 ──────────────
+ *
+ * 用户原话(记在 `specs/current/chat-stream-scroll-research.md:28`,源头是同日
+ * `specs/current/chat-panel-dispatch-2026-09-02.md` §产品裁决 1 那条线):
+ *   「但我记得 thinking 下面文本不是有最大高度吗?**就跟那个 thinking 完成后的
+ *     展示那样,有最大高度**」
+ * 被推翻的一直只有「**定高 + 慢速分步滚 + 上下渐隐遮罩**」那一套
+ * (`useThinkingStream.ts`,已于 `1626b893df` 删除),**限高不在被推翻之列**。
+ * 三个维度分开记在 `record.module.css` `.stream` 那条注释里:
+ *   高度 ✓`max-height`(短内容完全不限高) / 滚动 ✓贴底跟随、一次到底 / 遮罩 ✗一律没有
+ *
+ * 实现随裁决翻在 `819c8aefac`(2026-09-02 11:56,feat(chat): follow a live thinking
+ * stream…):`ThoughtsRow` 的 `scroll={!live}` 改成裸 `scroll`,两态共用同一条限高。
+ * 本文件上一次改动是 `a70ec0c35f`(2026-08-29),**比那次翻转早 4 天**,所以它一直
+ * 拿旧口径断言「思考中不挂 `scroll`」,自 `819c8aefac` 起就是红的 —— 是测试没跟上,
+ * 不是实现回退。
+ *
+ * 两态今天的区别是**灰底容器**,不是限高:
+ *   思考中   `.stream` + `.scroll` —— 灰底 / 圆角 / 内距归 `.stream`,限高归 `.scroll`,
+ *            贴底跟随归 `useThinkingFollow`(不归 CSS)
+ *   思考完   `.stack`  + `.scroll` —— 同一条限高;用户是**专程点开来读**的,不跟随
  *
  * 高度不是我挑的:交付稿 `docs/design/chat-panel-next.html`(md5 `28ea4c65…`)第 1252 行
  *   `.fold .body.mod-scroll { max-height: 96px; overflow-y: auto; }`
@@ -63,12 +80,21 @@ describe('思考过程展开后限高', () => {
     expect(body?.className).toMatch(/scroll/);
   });
 
-  it('反向对照:还在想的那一格走 `.stream`,**不**挂滚动限高', () => {
+  /**
+   * 还在想的那一格:灰底换成 `.stream`,**限高照旧**(2026-09-02 裁决,见文件头)。
+   *
+   * 这条曾经断言 `not.toMatch(/scroll/)` —— 那是把「限高」和被推翻的
+   * 「定高 + 慢速分步滚 + 渐隐」混成了一件事。两态共用同一条 `.body.scroll`。
+   *
+   * ⚠️ **防真空**:两态都断言 `scroll` 之后,「`scroll` 是不是随便谁都有」这个问题
+   * 由下面第三条守着 —— 普通工具行的抽屉**不**挂 `scroll`,它是绿的。
+   */
+  it('还在想的那一格走 `.stream` 灰底,但限高这一档照样挂着', () => {
     const { container } = render(show(shellOf([think(LONG)], { status: 'running', thinking: true })));
     const body = thoughtsBody(container);
     expect(body?.textContent).toContain('第 14 段推理');
     expect(body?.className).toMatch(/stream/);
-    expect(body?.className).not.toMatch(/scroll/);
+    expect(body?.className, '思考中丢了限高 —— 长推理会把执行记录一路撑到屏外').toMatch(/scroll/);
   });
 
   it('反向对照:普通工具行的抽屉不挂滚动限高(限高只属于思考那一格)', () => {
