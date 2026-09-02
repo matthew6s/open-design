@@ -389,13 +389,31 @@ describe('N7-f 缩进对齐工具行,两态之间不跳', () => {
     for (const s of railSelectors) expect(s).not.toContain(':not(.thoughts)');
   });
 
+  /*
+   * ⚠️ 这条探针 2026-09-02 改过一次选择器,**断言的东西没变**。
+   *
+   * 原来写的是 `summary :scope > [class*="icon"]` —— 图标槽是 summary 的**直接**孩子。
+   * `Foldable` 后来把标题那一段裹进了 `.summaryContent`(OPEND-2548:窄侧栏下只让标题
+   * 槽收缩,耗时和箭头各占固定位,`1m 59s` 不再被拆成两行),于是图标槽下沉了一层,
+   * 探针照不到,读起来像「图标槽没了」。
+   *
+   * 要钉的不是层数,是**两态共用同一只槽**,所以改成从标题槽往里找,并把「槽是标题段
+   * 的头一个元素」一并钉住 —— 真把槽删了、或者只给其中一态加,这条照样红。
+   */
+  const iconSlotOf = (label: string): Element | null => {
+    const content = screen.getByText(label).closest('summary')!
+      .querySelector(':scope > [data-testid="chat-foldable-summary-content"]');
+    expect(content).not.toBeNull();
+    const slot = content!.firstElementChild;
+    return slot && /icon/.test(slot.className) ? slot : null;
+  };
+
   it('思考中 / 思考过程用**同一个** 15px 图标位 —— 左边缘不会跳', () => {
     const live = render(show(shellOf(
       [tool('a.png'), think('推理。')], { status: 'running', thinking: true },
     )));
     openShell(live.container);
-    const liveSlot = screen.getByText('思考中').closest('summary')!
-      .querySelector(':scope > [class*="icon"]');
+    const liveSlot = iconSlotOf('思考中');
     expect(liveSlot).not.toBeNull();
     // 球还在那只槽里(动画没丢)
     expect(liveSlot!.querySelector('[data-orb]')).not.toBeNull();
@@ -403,8 +421,7 @@ describe('N7-f 缩进对齐工具行,两态之间不跳', () => {
 
     const done = render(show(shellOf([tool('a.png'), think('推理。')])));
     openShell(done.container);
-    const doneSlot = screen.getByText('思考过程').closest('summary')!
-      .querySelector(':scope > [class*="icon"]');
+    const doneSlot = iconSlotOf('思考过程');
     expect(doneSlot).not.toBeNull();
     // 两态的行首槽是同一个类 —— 宽度一致,后面的字才不会横跳
     expect(doneSlot!.className).toBe(liveSlot!.className);

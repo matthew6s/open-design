@@ -88,22 +88,45 @@
   margin: 0;
 }
 
+/*
+ * 「不是当前这一步」的那几档 —— 未开始 / 做完了 / 取消了 —— 共用**同一枚**灰
+ * (PR #7170 的 `plan-todo.css`:`--plan-other-text`,那一版改的正是
+ * `.steps li.is-skip { color: var(--text-soft) → var(--plan-other-text) }`)。
+ *
+ * 换句话说:取消掉的那一步**不额外挑一档灰**。它和别的非当前步同色,「被划掉」
+ * 这件事交给那条线自己说 —— 一行里既换色又画线,是同一句话说了两遍,而且两遍
+ * 的轻重还可能反着。当前那一步是这张卡里唯一深的一行,对比才立得住。
+ */
 .steps li {
   display: flex;
   gap: 8px;
   padding: 5px 11px;
   font-size: var(--chat-t-mini);
   line-height: var(--chat-lh-row);
-  color: var(--chat-text);
+  color: var(--chat-text-soft);
   list-style: none;
 }
-/* 三档行色照抄稿子。「做完了」那一档的划线不在这儿 —— 它复用执行记录的
-   `.struck`(record.module.css),同一件事不在两个文件里各画一遍。 */
-.steps li.done { color: var(--chat-text-muted); }
+/* 「做完了」那一档的划线不在这儿 —— 它复用执行记录的 `.struck`
+   (record.module.css),同一件事不在两个文件里各画一遍。 */
+.steps li.done { color: var(--chat-text-soft); }
 .steps li.now {
   color: var(--chat-text-strong);
   font-weight: 600;
 }
+/*
+ * ⚠️ **颜色只能有一个所有者。**
+ *
+ * `.struck` 自带 `--chat-text-muted`(执行记录里作废的 todo 就该是那一档),
+ * 而这一行现在是 `--chat-text-soft`。两个文件各写一次颜色的后果:
+ * 行里的记号跟着 `li` 走、文字跟着 `.struck` 走,同一行两档灰;
+ * 暗色主题下两枚 token 翻转方向还不一样(soft 不动、muted 变浅),
+ * 于是被划掉的那一步反而比周围**更亮**,读成「被强调了」。
+ *
+ * 收口在这里而不是去改 `.struck`:那枚划线在执行记录里的墨色是对的,
+ * 不能为了计划卡把别人一起改了。`(0,3,0)` 严格压过 `.struck` 的 `(0,1,0)`,
+ * 不靠源码顺序 —— 两个 CSS Module 谁先进 bundle 不由这一层决定。
+ */
+.steps li.done .tx > * { color: inherit; }
 
 /* 稿子 `.steps li .tx { flex: 1; min-width: 0 }` —— 文字那一栏吃掉剩下的宽,
    长标题在这里折行而不是把记号挤走。 */

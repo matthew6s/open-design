@@ -142,6 +142,13 @@
   border: 0;
   background: none;
   border-radius: 0;
+  /*
+   * 注脚那一档的墨色。稿子这一版把 `#a3a3a3` 同时用在步骤小结、命令行和消息动作层上
+   * (`--progress-detail-ink` / `--message-muted-ink`,两处写的是同一个值)。
+   * 产品这边同值的 token 目前只有 `--chat-stream-ink`,语义是「滚动中的推理」,
+   * 借它会把两件事绑死;共享的静音 token 正在消息层那条线上落地,落定之后并过来。
+   */
+  --chat-progress-detail-ink: #a3a3a3;
 }
 .fold.flat > summary {
   margin-inline: -7px;
@@ -185,7 +192,8 @@
   border-top: var(--chat-stroke) solid var(--chat-border);
   padding-top: 6px;
 }
-.fold.flat > .body.stack > .think { padding: 6px 0; }
+/* 开场白是**正文**:13px,不是壳里那些 12px 的注脚(稿子:「开头说明保留 13px」) */
+.fold.flat > .body.stack > .think { padding: 6px 0; font-size: var(--chat-t-body); }
 /*
  * 壳 body 的**直接子代**都是链上的一格,一律站在第 0 列。
  *
@@ -266,6 +274,14 @@
 .fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) {
   position: relative;
   padding-inline-start: 22px;
+  /* 夹在两步中间的这几句是注脚,不是开场白:12px + 静音灰
+     (稿子:「步骤间的小结用 12px;开头说明保留 13px」) */
+  font-size: var(--chat-t-mini);
+  color: var(--chat-progress-detail-ink);
+}
+/* 行内代码自带 --chat-text-strong;不接管的话一段静音里会留下几个黑块 */
+.fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) code {
+  color: inherit;
 }
 .fold.flat:not(.hasTodo) > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))::before {
   content: '';
@@ -281,14 +297,35 @@
   background: var(--chat-border);
   pointer-events: none;
 }
+/*
+ * 步骤标题 13px / 500(PR #7170:「执行计划和步骤标题统一为 13px / 500,
+ * 进行中、已完成及展开/收起共用」)。
+ *
+ * 这里原来是「继承 12px + 600」,理由是「节点比说明重一档,扫下来才有落点」。
+ * 稿子这一版换了做法:落点靠**字号**(13 比周围的 12 大一档)而不是靠字重,
+ * 字重收回 500 —— 于是同一只壳里不再有两样东西同时在喊。
+ */
 .fold.flat > .body.stack > .fold > summary {
   padding: 5px 7px;
   border-radius: var(--chat-radius-sm);
-  font-weight: 600;
+  font-size: var(--chat-t-body);
+  font-weight: 500;
 }
-.fold.flat > .body.stack > .fold > summary .meta { font-weight: 400; }
-/* 壳里有步骤时,叙述退居其次(S22:平铺形态下该用哪一档,待设计答复) */
-.fold.flat > .body.stack:has(> .fold) > .think { color: var(--chat-text-muted); }
+/* 耗时是注脚:字重跟着标题走 500,墨色退到那一档静音灰 */
+.fold.flat > .body.stack > .fold > summary .meta {
+  font-weight: 500;
+  color: var(--chat-progress-detail-ink);
+}
+/* 悬停底的圆角跟壳内那一档对齐(稿子:`… .fold > summary:hover { border-radius: var(--radius) }`) */
+.fold.flat > .body.stack .fold > summary:hover { border-radius: var(--chat-radius); }
+/*
+ * 开场白**留在正文深色**(PR #7170:「开头说明沿用正文深色」)。
+ *
+ * 这一条原来是 `--chat-text-muted`,配的是上面那个「步骤 600」的方案:
+ * 标题加重了,说明就得退一档,否则一块里两样东西同时在喊。现在标题收回 500,
+ * 前提没了 —— 再压暗就成了「一整段话比一行标题还轻」,而这段话恰恰是要读完的。
+ */
+.fold.flat > .body.stack:has(> .fold) > .think { color: var(--chat-text-strong); }
 /*
  * **顶层的工具行站第 0 列,不吃那 22px 缩进**(用户裁决 2026-08-27)。
  *
@@ -784,15 +821,18 @@
 .shot {
   position: relative;
   aspect-ratio: 3 / 4;
-  border-radius: var(--chat-radius-sm);
+  /* 出图这一格和图片卡同一档圆角(稿子 `.shot { border-radius: var(--radius-lg) }`) */
+  border-radius: var(--chat-radius-lg);
   overflow: hidden;
   border: var(--chat-stroke) solid var(--chat-border);
   background: var(--chat-bg-subtle);
   padding: 0;
 }
 /* 失败格:不描红框,红只留给「重试」两个字 —— 一排格子并排时,
-   描红的那格先让人看到「这格跟别的不一样」,还得再看一眼才知道哪不一样 */
-.shot.fail { display: grid; place-items: center; }
+   描红的那格先让人看到「这格跟别的不一样」,还得再看一眼才知道哪不一样。
+   圆角比出图那一格收一档(稿子 `.shot.is-fail { border-radius: var(--radius) }`):
+   一排格子扫过去,形状先说了一半,红字是第二眼才读的。 */
+.shot.fail { display: grid; place-items: center; border-radius: var(--chat-radius); }
 .shot.fail .retry {
   display: grid;
   place-items: center;
@@ -838,22 +878,35 @@
    没有流体的地方原样透出底下,所以这里让 `--chat-bg-subtle` 透上来。 */
 .shot.load { background: var(--chat-bg-subtle); }
 
-/* ── 思考流(组件 3-1)──────────────────────────────────────────
-   还在想的时候,推理不是一段静止的文字:它限高 96px,自己一行一行往上走,
-   上下各留一段渐隐,像在读一卷还在写的纸。到底了回到顶重来(与设计稿一致)。
-   一有正文或工具落下来,壳头就从「思考中」回到「进行中」,这一块也跟着变回普通文本流。 */
+/* ── 思考那一格的正文(组件 3-1)────────────────────────────────
+   **和外面的普通正文一样**:自然高度、随内容长,不裁剪、不自动滚、不渐隐。
+
+   ⚠️ 这里推翻了设计稿(2026-09-02 产品 + 设计线下裁决)。稿子的
+   `thinking-stream.css` 画的是一扇 96px 定高、自己往上走、上下各 32px 渐隐的窗
+   (`--stream-h` / `--stream-fade` / `.stream-viewport` 那一整套)。用户原话:
+     「先不要这个滚动的了,这里文本就和外面普通文本一样有个流式的效果就行,
+       不要这个滚动效果了,**滚动太慢了,也很难看清**」
+   「很难看清」指的就是那两道渐隐 —— 窗口上下把首尾两行淡到读不出来,而那两行
+   恰恰是刚落下的字;「太慢」指的是它按节奏一步一停地走,追不上真实吐字速度。
+
+   留下的只有**一只灰底容器**(用户没说要去掉,截图里就是它)。逐字化开的流式效果
+   不在这一层 —— 它走和普通正文同一套 `useCharReveal`,在 `ThinkingMarkdown` 里。
+
+   ⚠️ 别顺手加 `max-height` 把滚动变相加回来:那正是被推翻的东西。长思考会不会把
+   执行记录撑得很长,是一个**新的产品问题**,不在这一层自行决定。 */
 .stream {
-  --stream-h: 96px;
-  --stream-fade: 32px;
-  height: var(--stream-h);
-  overflow: hidden;
-  padding: 0;
-  -webkit-mask-image: linear-gradient(
-    to bottom, transparent 0, #000 var(--stream-fade),
-    #000 calc(100% - var(--stream-fade)), transparent 100%);
-  mask-image: linear-gradient(
-    to bottom, transparent 0, #000 var(--stream-fade),
-    #000 calc(100% - var(--stream-fade)), transparent 100%);
+  /* 四边留白与上下气口,沿用稿子的 `--stream-pad` / `--stream-gap` */
+  --stream-pad: 8px;
+  --stream-gap: 8px;
+  /* 稿子的 16px。产品 token 目前最大只到 `--chat-radius-lg`(12px);
+     PR #7170 在 `tokens.css` 里新加的那枚 2XL 别名不归这一层改,
+     等共享 token 落地之后把这里换成 `var(--chat-radius-2xl)`。 */
+  --stream-radius: 16px;
+  margin-block: var(--stream-gap);
+  border-radius: var(--stream-radius);
+  /* 稿子写死 `#FAFAFA`;这里换成产品 token,深浅两套主题自动跟着翻 */
+  background: var(--chat-bg-fill-tertiary);
+  padding: var(--stream-pad);
 }
 /*
  * ⚠️ **特异性,不是字面值。** 这条原来写的是 `.fold.flat[open] > summary + .body.stream`
@@ -861,27 +914,40 @@
  * 窗子挂在 `.fold.thoughts` 上,这条选择器**整条失配**,于是:
  *   `.fold .body { padding: 0 11px 11px }`      (0,2,0) 赢了
  *   `.fold[open] > summary + .body { padding-top: 4px }` (0,3,0) 又赢了它
- *   而 `.stream { padding: 0 }` 只有 (0,1,0),两条都打不过。
- * 真 Chrome 量到的后果:窗内 padding 变成 `4px 11px 11px`,正文左缘落在 4px,
+ *   而 `.stream { padding: … }` 只有 (0,1,0),两条都打不过。
+ * 真 Chrome 量到的后果:内距变成 `4px 11px 11px`,正文左缘落在 4px,
  * 而这一行自己的图标在 22px —— 正文比图标还靠左 18px,跟谁都不对齐,
  * 而且思考一结束(换成 `.body.stack`)正文又跳回 22px。
- * 交付稿对应的那条是 `.fold.mod-flat > .body.mod-stream`,(0,4,0);
- * 这里补到同一档,并且**不再要求祖先是扁平壳**。
+ * 补到同一档,并且**不再要求祖先是扁平壳**。
  */
 .fold[open] > summary + .body.stream {
   border-top: 0;
-  padding: 0;
+  padding: var(--stream-pad);
 }
+/*
+ * 缩进落在**灰底容器**上,不落在容器里的字上。
+ *
+ * 上面那两条 `:is(.body.stack, .body.stream) > *` 把 29 / 33 给了 body 的**孩子**。
+ * 容器自己带 8px 内距,缩进再落在孩子身上,字就变成「容器左缘 + 29」,而思考一结束
+ * (换成 `.body.stack`)又跳回 29 —— 正是用户 2026-08-27 指过的那次横跳换个数字重来。
+ * 所以整只容器往右挪同样的距离,并把它自己那 8px 内距先减掉:容器里的字因此正好落在
+ * 29 / 33 这条线上,两态同列。
+ *
+ * 这也是稿子那条「缩进不能落在盒子上」例外(`.fold.mod-flat … > .fold { padding-inline: 0 }`)
+ * 的同一件事:容器是盒子,推的是盒子,不是盒子里的行。
+ */
+.fold .body.stack .body.stream {
+  margin-inline-start: calc(33px - var(--stream-pad));
+}
+.fold.flat .body.stack .body.stream {
+  margin-inline-start: calc(29px - var(--stream-pad));
+}
+.fold .body.stack .body.stream > * { padding-inline-start: 0; }
 .stream > .think {
   padding: 0;
   color: var(--chat-stream-ink);
 }
 .stream > .think + .think { margin-top: 0.75em; }
-
-@media (prefers-reduced-motion: reduce) {
-  /* 关了动效就别自己滚 —— 高度放开,让人自己读 */
-  .stream { height: auto; max-height: none; -webkit-mask-image: none; mask-image: none; }
-}
 
 /* ── 限高 + 正常滚动条(点开来读的那一类长内容)────────────────────
  * 用户 2026-08-27:「thought 展开应该有个最高高度, 可以滚动」——

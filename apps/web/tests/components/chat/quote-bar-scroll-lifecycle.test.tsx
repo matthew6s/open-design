@@ -107,15 +107,22 @@ describe('Add to chat 选区浮层的滚动生命周期', () => {
     expect(screen.getByTestId('chat-quote-bar')).toBeInTheDocument();
   });
 
+  /*
+   * 浮条默认朝上,只有上方被面板顶边挤住才翻到下方(稿子 23-2)。所以这一条
+   * 要的是「翻下去之后,下方又被 queue / composer 吃掉」——placement 必须跟着
+   * panelBottom 重算,而不是只在 scroll 时才更新。
+   */
   it('queue / composer 改变 log 可用高度但没有 scroll 时重新翻面', () => {
     const { geometry } = selectText({
-      scopeBottom: 640,
-      selectionTop: 570,
-      selectionBottom: 594,
+      scopeBottom: 120,
+      selectionTop: 20,
+      selectionBottom: 44,
     });
+    // 上方只剩 20px,放不下浮条 —— 翻到下方
     expect(screen.getByTestId('chat-quote-bar')).toHaveAttribute('data-placement', 'below');
 
-    geometry.scopeBottom = 600;
+    // queue 展开,log 可用高度被吃掉:下方只剩 16px,比上方还窄
+    geometry.scopeBottom = 60;
     expect(resizeCallbacks).toHaveLength(1);
     act(() => {
       resizeCallbacks[0]!([], {} as ResizeObserver);

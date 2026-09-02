@@ -23,7 +23,6 @@ import { groupThinking, type GroupedShellItem } from '../../runtime/chat/group-t
 import type { RecordFileScope } from '../../runtime/chat/record-file-open';
 import { Foldable } from './primitives/Foldable';
 import { ImageRow } from './primitives/ImageRow';
-import { useThinkingStream } from './primitives/useThinkingStream';
 import { ThinkingMarkdown } from './ThinkingMarkdown';
 import { Orb } from './primitives/Orb';
 import { SayText } from './primitives/SayText';
@@ -112,8 +111,22 @@ export function ExecutionShell({
   useEffect(() => {
     if (!userToggled) setOpen(lifecycleOpen);
   }, [lifecycleOpen, userToggled]);
+  /*
+   * ⚠️ **`<details>` 的 `toggle` 事件不区分是谁掀开的**(OPEND-2557 的真因)。
+   *
+   * 我们是受控方,React 每次把 `open` 写回 DOM,浏览器都会照样派发一次 `toggle`。
+   * 这里原来收到就 `setUserToggled(true)` —— 而**壳跑起来那一帧**就有这么一次
+   * (`open` 从无到有),于是这一轮还没跑完就已经算「用户点过」,后面 run 结束时
+   * 那次收起同步被自己屏蔽掉。用户截图:「Done 2m 12s ^」,整条记录还全摊着。
+   *
+   * 判据是**值**:受控方写回去的那一次,`next` 必然等于我们此刻的状态;
+   * 用户点的那一次,DOM 先自己翻面,`next` 必然和我们的状态相反。
+   * 用 ref 读当前值而不是闭包,免得回声事件排到下一帧时读到过期的 `open`。
+   */
+  const openRef = useRef(open);
+  openRef.current = open;
   const onToggle = useCallback((next: boolean) => {
-    setUserToggled(true);
+    if (next !== openRef.current) setUserToggled(true);
     setOpen(next);
   }, []);
 
@@ -339,8 +352,6 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
   deferBody: boolean;
 }): ReactElement {
   const elapsed = live ? null : formatElapsed(elapsedMs);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  useThinkingStream(bodyRef, live);
 
   /*
    * 两态的行首都占**同一只 15px 图标槽**(`.icon`)。这是「左边缘不会跳」的另一半:
@@ -379,7 +390,6 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
          「thought 展开应该有个最高高度, 可以滚动」)。两者互斥,见 `.scroll` 的注释。 */
       scroll={!live}
       deferBody={deferBody && !live}
-      bodyRef={bodyRef}
       /* 一段都没有就不出箭头也不出 body。claude 的 thinking 全是空串(真实数据:
          本机 14 条 claude 共 1786 帧、非空 0 帧),此时这一行只报「在想」,
          给一只空的 96px 窗是在骗人。 */

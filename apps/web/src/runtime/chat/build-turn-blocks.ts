@@ -422,7 +422,12 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
   const mediaTasks = (input.mediaTasks ?? [])
     .filter((task) => task.surface === 'image')
     .slice()
-    .sort((a, b) => a.startedAt - b.startedAt);
+    /*
+     * 并行扇出的那一批 `startedAt` 会**全部相同**(同一毫秒发出去的),按它排等于
+     * 没排 —— 顺序变成 `filter` 的输入顺序,每次轮询都可能不一样,格子于是会换位。
+     * `sequence` 是 daemon 的创建计数器,平局时用它定序(只比较,不显示也不落库)。
+     */
+    .sort((a, b) => (a.startedAt - b.startedAt) || ((a.sequence ?? 0) - (b.sequence ?? 0)));
   let mediaTaskCursor = 0;
 
   const activeShell = (): ExecutionShell | null => todoCard ?? top;
@@ -727,11 +732,16 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     }
 
     const command = isCommandTool(event.name) ? commandOf(event.input) : '';
-    const mediaCallCount = mediaGenerateCount(command);
-    const taskSlice = mediaCallCount > 0
-      ? mediaTasks.slice(mediaTaskCursor, mediaTaskCursor + mediaCallCount)
-      : [];
-    if (mediaCallCount > 0) mediaTaskCursor += mediaCallCount;
+    /*
+     * **判据必须和 `readImageCall` 是同一条**。这里原来只数 `media generate` 出现几次,
+     * `od media generate --help` 也算一次,于是游标往前推了一格;而 `readImageCall`
+     * 又把 `--help` 拒掉 —— 那一格任务被静默吃掉,真正那次调用拿到空 slice,
+     * 组件 12 整行画不出来。查用法不是生图,不许动游标。
+     */
+    const mediaCallCount = isMediaGenerateCommand(command) ? mediaGenerateCount(command) : 0;
+    const { slice: taskSlice, next: nextMediaCursor } =
+      takeMediaBatch(mediaTasks, mediaTaskCursor, mediaCallCount);
+    mediaTaskCursor = nextMediaCursor;
     const shot = readImageCall(event, results.get(event.id), taskSlice);
     if (shot) {
       ensureShell();
@@ -775,17 +785,22 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * slice becomes empty, so the provisional row cannot duplicate the
      * event-backed ImageRow.
      */
-    const activeUnconsumedTasks = mediaTasks
-      .slice(mediaTaskCursor)
-      .filter((task) => task.status === 'queued' || task.status === 'running');
-    if (activeUnconsumedTasks.length > 0) {
+    const unconsumed = mediaTasks.slice(mediaTaskCursor);
+    /*
+     * 一次「生成配套插图」是**一批**,不是 N 件事(OPEND-2195)。分组是 daemon 给的
+     * (`batchId`:同 runId + 同 surface + 生命周期有重叠),前端只照着画。
+     * 没有 `batchId` 说明生产方没分组 —— 当成一批一个,**不拿时间去猜**。
+     */
+    const activeBatches = groupMediaBatches(unconsumed)
+      .filter((group) => group.some((task) => task.status === 'queued' || task.status === 'running'));
+    if (activeBatches.length > 0) {
       ensureShell();
       const shell = activeShell();
       if (shell) shell.thinking = false;
       openText = null;
-      for (const task of activeUnconsumedTasks) {
-        stamp(task.startedAt);
-        sink().push(pendingMediaTaskRow(task));
+      for (const group of activeBatches) {
+        for (const task of group) stamp(task.startedAt);
+        sink().push(pendingMediaBatchRow(group));
       }
     }
     ensureShell();
@@ -1133,15 +1148,101 @@ function mediaGenerateCount(command: string): number {
   return (command.match(/media\s+generate/g) ?? []).length;
 }
 
-function pendingMediaTaskRow(task: ProjectMediaTask): ImageRow {
+/** 生图判据的**唯一**出处 —— 游标和 `readImageCall` 必须问同一个人 */
+function isMediaGenerateCommand(command: string): boolean {
+  return MEDIA_GENERATE_RE.test(command) && !/--help\b/.test(command);
+}
+
+/**
+ * 这次调用消费掉哪几条任务。
+ *
+ * 有 `batchId` 时**批就是边界**:一次「生成配套插图」在 daemon 那边已经分好组了,
+ * 前端再拿命令行里数出来的次数去切,只会把同一批切成两半(命令写一次 `--count 3`
+ * 就是最常见的一种)。没有 `batchId` 才退回按次数切 —— 那是没分组的生产方,
+ * 行为和以前逐字一致。
+ */
+function takeMediaBatch(
+  tasks: ProjectMediaTask[],
+  cursor: number,
+  count: number,
+): { slice: ProjectMediaTask[]; next: number } {
+  if (count <= 0) return { slice: [], next: cursor };
+  const first = tasks[cursor];
+  if (!first) return { slice: [], next: cursor };
+  const batchId = first.batchId;
+  if (batchId == null) {
+    return { slice: tasks.slice(cursor, cursor + count), next: Math.min(tasks.length, cursor + count) };
+  }
+  let end = cursor;
+  while (end < tasks.length && tasks[end]?.batchId === batchId) end += 1;
+  return { slice: tasks.slice(cursor, end), next: end };
+}
+
+/** 按 `batchId` 归组,保持首次出现的顺序;没有 `batchId` 的各自成组(一批一个) */
+function groupMediaBatches(tasks: ProjectMediaTask[]): ProjectMediaTask[][] {
+  const groups: ProjectMediaTask[][] = [];
+  const byBatch = new Map<string, ProjectMediaTask[]>();
+  for (const task of tasks) {
+    if (task.batchId == null) { groups.push([task]); continue; }
+    const existing = byBatch.get(task.batchId);
+    if (existing) { existing.push(task); continue; }
+    const group = [task];
+    byBatch.set(task.batchId, group);
+    groups.push(group);
+  }
+  return groups;
+}
+
+/**
+ * 这一行要摆几个格子 = 这一批已知有几张(`batchSize`,即 N/M 里的 M)。
+ *
+ * `batchSize` 只涨不退(批关掉就冻结),所以拿它当分母,进度条不会往回走。
+ * 生产方没报 `batchSize` 时才退回 `fallback` —— 老数据和不分组的生产方照旧。
+ */
+function mediaBatchTotal(tasks: ProjectMediaTask[], fallback: number): number {
+  let declared = 0;
+  for (const task of tasks) {
+    if (typeof task.batchSize === 'number' && task.batchSize > declared) declared = task.batchSize;
+  }
+  return Math.max(1, declared, fallback, tasks.length);
+}
+
+/**
+ * 每条任务落在第几格。
+ *
+ * `batchIndex` 是 1-based 的批内位置,减一就是格子下标 —— 于是一格失败之后重排、
+ * 或者轮询把顺序打乱,那一格仍然是它自己,`onRetry` 收到的坐标也还指向同一张图。
+ *
+ * **要么全按 `batchIndex`,要么全按到达顺序**:只有一半任务报了位置时,混着排会把
+ * 另一半悄悄挪位。宁可整批退回到达顺序 —— 那是可预期的,错位不是。
+ */
+function mediaCellSlots(tasks: ProjectMediaTask[], total: number): number[] {
+  const slots = tasks.map((task) => {
+    const at = task.batchIndex;
+    return typeof at === 'number' && Number.isInteger(at) && at >= 1 && at <= total ? at - 1 : -1;
+  });
+  const usable = slots.every((slot) => slot >= 0) && new Set(slots).size === slots.length;
+  return usable ? slots : tasks.map((_, i) => i);
+}
+
+/** 轮询先于 terminal `tool_use` 到达时的一批 —— 一行,`batchSize` 个格子 */
+function pendingMediaBatchRow(group: ProjectMediaTask[]): ImageRow {
+  const head = group[0]!;
+  const total = mediaBatchTotal(group, 1);
+  const slots = mediaCellSlots(group, total);
+  const cells: NonNullable<ImageRow['cells']> = Array.from({ length: total }, () => ({ status: 'pending' as const }));
+  group.forEach((task, i) => {
+    const slot = slots[i];
+    if (slot != null && slot < total) cells[slot] = { taskId: task.taskId, status: 'pending' };
+  });
   return {
     kind: 'image',
-    id: `media-task:${task.taskId}`,
-    total: 1,
+    id: head.batchId != null ? `media-batch:${head.batchId}` : `media-task:${head.taskId}`,
+    total,
     done: 0,
     failed: 0,
     thumbs: [],
-    cells: [{ taskId: task.taskId, status: 'pending' }],
+    cells,
     pending: true,
     elapsedMs: null,
   };
@@ -1164,39 +1265,52 @@ function readImageCall(
   const command = commandOf(event.input);
   if (!MEDIA_GENERATE_RE.test(command) || /--help\b/.test(command)) return null;
 
-  // 一条命令里可以串好几次生成,数出来就是这一行要摆几个格子
-  const total = Math.max(1, mediaGenerateCount(command), tasks.length);
+  /*
+   * 这一行摆几个格子。
+   *
+   * 权威是这一批自己报的 `batchSize`(N/M 里的 M)—— daemon 按「同 runId + 同 surface
+   * + 生命周期有重叠」分好了组,它知道这一批到底有几张。命令行里数出来的
+   * `media generate` 次数只是**没有分组信息时**的兜底:一条 `--count 3` 只写一次
+   * generate,数命令行会说 1;而三张图确实在跑。
+   */
+  const total = mediaBatchTotal(tasks, mediaGenerateCount(command));
   let done = 0;
   let failed = 0;
   const thumbs: string[] = [];
   let replayCells: ImageRow['cells'];
 
   if (tasks.length > 0) {
-    const cells: NonNullable<ImageRow['cells']> = tasks.map((task) => {
+    const slots = mediaCellSlots(tasks, total);
+    const cells: NonNullable<ImageRow['cells']> = new Array(total);
+    tasks.forEach((task, i) => {
+      const slot = slots[i];
+      if (slot == null || slot >= total) return;
       const path = task.file?.name?.trim();
       if (task.status === 'done') {
         done += 1;
-        if (path) thumbs.push(path);
-        return {
-          taskId: task.taskId,
-          status: 'done' as const,
-          ...(path ? { path } : {}),
-        };
+        cells[slot] = { taskId: task.taskId, status: 'done' as const, ...(path ? { path } : {}) };
+        return;
       }
       if (task.status === 'failed' || task.status === 'interrupted') {
         failed += 1;
-        return { taskId: task.taskId, status: 'failed' as const };
+        cells[slot] = { taskId: task.taskId, status: 'failed' as const };
+        return;
       }
-      return { taskId: task.taskId, status: 'pending' as const };
+      cells[slot] = { taskId: task.taskId, status: 'pending' as const };
     });
-    while (cells.length < total) {
+    // 批还开着(`batchSize` 已经涨上来但任务还没到)的格子先空着;命令都回来了还空着的,
+    // 说明那几张压根没被创建出来 —— 收敛成失败,不能永远转下去。
+    for (let i = 0; i < total; i += 1) {
+      if (cells[i]) continue;
       if (result) {
         failed += 1;
-        cells.push({ status: 'failed' });
+        cells[i] = { status: 'failed' };
       } else {
-        cells.push({ status: 'pending' });
+        cells[i] = { status: 'pending' };
       }
     }
+    // 缩略图条按**格子顺序**取,和大格形态里那一排指向同一张图
+    for (const cell of cells) if (cell?.status === 'done' && cell.path) thumbs.push(cell.path);
 
     const startedAt = Math.min(...tasks.map((task) => task.startedAt));
     const terminalEnds = tasks.map((task) => task.endedAt).filter((at): at is number => at != null);
