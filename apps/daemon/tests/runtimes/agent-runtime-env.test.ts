@@ -282,6 +282,10 @@ describe('agent runtime tool environment', () => {
     expect(prompt).toContain('& $env:OD_NODE_BIN $env:OD_BIN tools ...');
     expect(prompt).toContain('`OD_TOOL_TOKEN` is available');
     expect(prompt).toContain('do not print, persist, or override it');
+    expect(prompt).toContain('tools deliverable-syntax check --json');
+    expect(prompt).toContain('Only when this run creates or updates a final Web deliverable');
+    expect(prompt).toContain('at most 3 repair attempts');
+    expect(prompt).toContain('Stop immediately when it passes');
     expect(prompt).not.toContain('secret-run-token');
   });
 
