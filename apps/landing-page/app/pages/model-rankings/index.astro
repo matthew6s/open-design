@@ -21,6 +21,7 @@ const copy = isZh ? {
   description: '面向前端设计场景的 AI 模型评测榜单。所有模型均使用 OpenDesign 同一套私有基准和评分框架。',
   heading: 'OpenDesign Arena',
   intro: 'OpenDesign 想帮你在做前端原型时选对模型：我们拿同一批真实设计任务，让 12 个主流模型统一走 AMR 执行链路跑一遍，由同一批设计师按同一套标准打分，从需求完成度、设计质量到成本和速度逐项比较。',
+  introMetrics: '需求完成度（30 分）逐条核对页面模块、必要内容、界面状态和交互约束有没有按要求做到；设计质量（70 分）看布局可读性、信息层级、风格与任务是否贴合、配色对比和图片适配。两项相加就是一份产物的总分。',
   findings: [
     ['分数最高', 'GPT-5.6 Sol 77.6 分，在最难的 Web 应用和移动端 App 两个场景都是第一。'],
     ['速度最快', 'Muse Spark 1.2 首次响应 20 秒、3 分钟内出稿，用时最短，拿到 72.5 分。'],
@@ -56,7 +57,7 @@ const copy = isZh ? {
   ctaDownload: '下载 OpenDesign 试用模型',
   ctaDiscord: '加入社群参与讨论',
 } : {
-  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', heading: 'OpenDesign Arena', intro: 'OpenDesign built this to help you pick the right model for front-end prototyping. We ran the same real design tasks through 12 leading models, all through the same AMR execution path, scored by the same designers against the same rubric — comparing requirement fulfillment, design quality, cost, and speed.', findings: [['Highest score', 'GPT-5.6 Sol leads at 77.6 and tops both of the hardest scenarios: web apps and mobile apps.'], ['Fastest', 'Muse Spark 1.2 answers in 20 seconds and finishes under 3 minutes, the shortest runtime, scoring 72.5.'], ['Cheapest', 'DeepSeek V4 Flash costs $0.026 per artifact, about 1/21 the price of the top model, and reaches 91% of its score.']], overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing total score, delivery rate, and cost per run. Every artifact runs through the AMR shell; at least 30 per model (Claude Opus 5 and Kimi K3 have a few extra from retries); the plus-minus figure is the 95% confidence interval of the mean.', metricAria: 'Ranking metric', metrics: [['pdr', 'Delivery rate', 'Share scoring 80+'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['Score · 100', 'D1 + D2'], ['Delivery rate', 'Share scoring 80+'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality']], valueFormatAria: 'Leaderboard value format', percentage: 'Delivery rate', score: 'Score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Five scenarios, three tasks each, two runs per task. A single model has only 6 artifacts per scenario, so per-scenario figures are indicative rather than a ranking.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare first response, completion time, cache hit rate, and token consumption. All figures are measured medians.', analysisAria: 'Model efficiency metric', profile: 'Score profile', ttft: 'First response', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'Score vs speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'Score (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Total score and delivery rate', pdrDesc: "Total score is D1 plus D2 out of 100, a model's direct result on the OpenDesign benchmark. Delivery rate is the share of artifacts reaching 80, answering how often a model hands you something usable on the first try.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set, same OpenDesign execution path, two runs per task'], ['Gate', 'D0 checks whether the artifact opens at all'], ['Score', '11 designers score every artifact: D1 requirement 30 points, D2 design 70 points'], ['Pass', 'A total of 80 or above counts as ready to hand off'], ['Report', 'Ranked by total score, with efficiency and cost reported separately']], methods: [['D0', 'Hard gate', 'Artifact renderability', 'Confirms the artifact opens as a usable webpage before quality is judged. Artifacts that fail score zero and stay in the statistics rather than being re-run.', ['Page opens successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points', 'Requirement fulfillment', 'Six to nine checklist items per task, each rated met, partly met, or not met (1, 0.5, 0).', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Efficiency and cost', 'Shows the resources a model spent reaching this result. It does not affect the total score. Cost is list price multiplied by measured token usage.', ['TTFT and completion time', 'Cache hit rate and tool calls', 'Input/output tokens and cost per run']]], disclosures: [['Fair comparison', 'Every model runs through the same AMR shell on the same private task set and the same OpenDesign execution path, scored by the same designers against the same rubric. All models on a given task are judged by the same reviewer, so head-to-head comparison is not skewed by individual strictness.'], ['Sample size and error', 'At least 30 artifacts per model; the 95% confidence interval of the mean runs from plus-minus 5.8 to plus-minus 11.5 points. Gaps under 10 points are not separable in this dataset. Each artifact was scored by a single reviewer this round, so inter-rater agreement is not yet calibrated.'], ['Benchmark boundary', 'Tasks stay private to reduce contamination. Only model-level results are published, not the prompts.'], ['How to interpret it', 'Scores describe the evaluated model version on OpenDesign prototype generation. This is not a general intelligence ranking.']], ctaDownload: 'Download OpenDesign to try these models', ctaDiscord: 'Join the community discussion',
+  title: 'OpenDesign Arena | OpenDesign', description: 'An AI model benchmark for frontend design. Every model is evaluated with the same private OpenDesign benchmark and scoring framework.', heading: 'OpenDesign Arena', intro: 'OpenDesign built this to help you pick the right model for front-end prototyping. We ran the same real design tasks through 12 leading models, all through the same AMR execution path, scored by the same designers against the same rubric — comparing requirement fulfillment, design quality, cost, and speed.', introMetrics: 'Requirement fulfillment (30 pts) checks item by item whether the required pages, content, interface states, and interactions are actually there. Design quality (70 pts) covers layout and readability, information hierarchy, how well the style fits the task, color and contrast, and image relevance. The two add up to one artifact\u2019s total score.', findings: [['Highest score', 'GPT-5.6 Sol leads at 77.6 and tops both of the hardest scenarios: web apps and mobile apps.'], ['Fastest', 'Muse Spark 1.2 answers in 20 seconds and finishes under 3 minutes, the shortest runtime, scoring 72.5.'], ['Cheapest', 'DeepSeek V4 Flash costs $0.026 per artifact, about 1/21 the price of the top model, and reaches 91% of its score.']], overallIndex: '01 / Overall', leaderboard: 'Overall model performance', leaderboardDesc: 'Aggregated results across five design scenarios, comparing total score, delivery rate, and cost per run. Every artifact runs through the AMR shell; at least 30 per model (Claude Opus 5 and Kimi K3 have a few extra from retries); the plus-minus figure is the 95% confidence interval of the mean.', metricAria: 'Ranking metric', metrics: [['pdr', 'Delivery rate', 'Share scoring 80+'], ['d0', 'D0', 'Renderability'], ['d1', 'D1', 'Requirement'], ['d2', 'D2', 'Design quality']], scoreAria: 'How to read the evaluation scores', primer: [['Score · 100', 'D1 + D2'], ['Delivery rate', 'Share scoring 80+'], ['D0', 'Renderability gate'], ['D1 · 30', 'Requirement fulfillment'], ['D2 · 70', 'Design quality']], valueFormatAria: 'Leaderboard value format', percentage: 'Delivery rate', score: 'Score', model: 'Model', taskIndex: '02 / Task performance', taskHeading: 'Performance by task', taskDesc: 'Five scenarios, three tasks each, two runs per task. A single model has only 6 artifacts per scenario, so per-scenario figures are indicative rather than a ranking.', taskLegendAria: 'Task category share', taskGroups: { Visual: 'Visual', Product: 'Product', Interface: 'Interface', Data: 'Data' }, analysisIndex: '03 / Model efficiency', analysisHeading: 'Model efficiency', analysisDesc: 'Compare first response, completion time, cache hit rate, and token consumption. All figures are measured medians.', analysisAria: 'Model efficiency metric', profile: 'Score profile', ttft: 'First response', duration: 'Completion time', cacheHit: 'Cache hit rate', inputTokens: 'Input tokens', outputTokens: 'Output tokens', balance: 'D1 × D2', difficulty: 'Task difficulty', simple: 'Simple', general: 'General', difficult: 'Difficult', profileEyebrow: 'Score composition', profileHeading: 'Evaluation profile', profileDesc: 'Compare D0 renderability, D1 requirement fulfillment, and D2 design quality across all evaluated models.', profileAria: 'Evaluation profile by model', lowerBetter: 'lower is better', pdrVsSpeed: 'Score vs speed', chartDesc: 'The highlighted quadrant shows models that preserve quality while using resources more efficiently.', pdrHigher: 'Score (higher ↑)', runtimeSlower: 'Runtime (slower →)', idealZone: 'High score · High efficiency', models: 'Models', requirement: 'Requirement fulfillment', design: 'Design quality', showPareto: 'Show Pareto', topModels: 'Top 10 evaluated models', higherBetter: 'Higher is better ↗', balancedLeaders: 'Balanced leaders', methodIndex: '04 / Method', methodHeading: 'Evaluation framework', methodDesc: 'One end-to-end performance score, explained by three evaluation dimensions. Efficiency is reported separately.', primaryMetric: 'Primary metric', pdrName: 'Total score and delivery rate', pdrDesc: "Total score is D1 plus D2 out of 100, a model's direct result on the OpenDesign benchmark. Delivery rate is the share of artifacts reaching 80, answering how often a model hands you something usable on the first try.", flowAria: 'Evaluation sequence', flow: [['Run', 'Same private task set, same OpenDesign execution path, two runs per task'], ['Gate', 'D0 checks whether the artifact opens at all'], ['Score', '11 designers score every artifact: D1 requirement 30 points, D2 design 70 points'], ['Pass', 'A total of 80 or above counts as ready to hand off'], ['Report', 'Ranked by total score, with efficiency and cost reported separately']], methods: [['D0', 'Hard gate', 'Artifact renderability', 'Confirms the artifact opens as a usable webpage before quality is judged. Artifacts that fail score zero and stay in the statistics rather than being re-run.', ['Page opens successfully', 'No blank or blocked result', 'No fatal runtime failure']], ['D1', '30 points', 'Requirement fulfillment', 'Six to nine checklist items per task, each rated met, partly met, or not met (1, 0.5, 0).', ['Page and module coverage', 'Required content and states', 'Interactions and constraints']], ['D2', '70 points', 'Design quality', 'Each of five dimensions is rated Pass, Partial, or Fail (1, 0.5, or 0). D2 = 70 × (sum of five dimension scores ÷ 5).', ['Layout and readability', 'Information hierarchy', 'Style-task alignment', 'Color, contrast, and theme', 'Image fit and content relevance']], ['EFF', 'Separate', 'Efficiency and cost', 'Shows the resources a model spent reaching this result. It does not affect the total score. Cost is list price multiplied by measured token usage.', ['TTFT and completion time', 'Cache hit rate and tool calls', 'Input/output tokens and cost per run']]], disclosures: [['Fair comparison', 'Every model runs through the same AMR shell on the same private task set and the same OpenDesign execution path, scored by the same designers against the same rubric. All models on a given task are judged by the same reviewer, so head-to-head comparison is not skewed by individual strictness.'], ['Sample size and error', 'At least 30 artifacts per model; the 95% confidence interval of the mean runs from plus-minus 5.8 to plus-minus 11.5 points. Gaps under 10 points are not separable in this dataset. Each artifact was scored by a single reviewer this round, so inter-rater agreement is not yet calibrated.'], ['Benchmark boundary', 'Tasks stay private to reduce contamination. Only model-level results are published, not the prompts.'], ['How to interpret it', 'Scores describe the evaluated model version on OpenDesign prototype generation. This is not a general intelligence ranking.']], ctaDownload: 'Download OpenDesign to try these models', ctaDiscord: 'Join the community discussion',
 };
 
 const decisionCopy = isZh ? {
@@ -64,28 +65,28 @@ const decisionCopy = isZh ? {
   description: '选一个设计场景，直接看这五个维度各自最适合的模型。',
   scenarioLabel: '设计场景',
   overall: '全部场景',
-  roleLabels: { overall: '综合表现', design: '设计质量', requirement: '需求完成度', cost: '成本效率', speed: '响应速度' },
+  roleLabels: { overall: '综合表现', design: '设计质量', requirement: '需求完成度', cost: '成本效率', speed: '完成速度' },
   radar: {
     aria: '推荐模型五维相对表现', current: '当前模型', median: '场景中位数', unavailable: '未披露',
-    axes: ['需求完成度', '设计质量', '成本效率', '完成速度', '首次响应'],
+    axes: ['需求完成度', '设计质量', '可交付率', '完成耗时', '单份成本'],
   },
-  overallSignals: ['综合表现', '成本效率', '响应速度'],
+  overallSignals: ['综合表现', '成本效率', '完成速度'],
   scenarioHeading: '分场景排名',
-  scenarioDescription: '查看五类设计场景中的模型总分、可交付率与单份成本。每个模型在单场景只有 6 个产物，误差较大，仅供参考。',
+  scenarioDescription: '查看五类设计场景中的模型平均分、可交付率与单份成本。每个模型在单场景只有 6 个产物，误差较大，仅供参考。',
   sceneChoice: '场景领先模型',
 } : {
   heading: 'Choose by use case',
   description: 'Pick a design scenario and see the best model for each of these five dimensions.',
   scenarioLabel: 'Design scenario',
   overall: 'All scenarios',
-  roleLabels: { overall: 'Overall performance', design: 'Design quality', requirement: 'Requirement fulfillment', cost: 'Cost efficiency', speed: 'Response speed' },
+  roleLabels: { overall: 'Overall performance', design: 'Design quality', requirement: 'Requirement fulfillment', cost: 'Cost efficiency', speed: 'Completion speed' },
   radar: {
     aria: 'Five-dimension relative profile for the recommended model', current: 'Current model', median: 'Scenario median', unavailable: 'Not disclosed',
-    axes: ['Requirement', 'Design quality', 'Cost efficiency', 'Completion speed', 'First response'],
+    axes: ['Requirement', 'Design quality', 'Delivery rate', 'Completion time', 'Cost per run'],
   },
-  overallSignals: ['Overall performance', 'Cost efficiency', 'Response speed'],
+  overallSignals: ['Overall performance', 'Cost efficiency', 'Completion speed'],
   scenarioHeading: 'Rankings by scenario',
-  scenarioDescription: 'Compare total score, delivery rate, and cost per artifact across five design scenarios. Only 6 artifacts per model per scenario, so treat these as indicative.',
+  scenarioDescription: 'Compare average score, delivery rate, and cost per artifact across five design scenarios. Only 6 artifacts per model per scenario, so treat these as indicative.',
   sceneChoice: 'Scenario leader',
 };
 const methodCards = copy.methods as Array<[string, string, string, string, string[]]>;
@@ -252,8 +253,8 @@ const decisionRowsFor = (scenarioId: string): DecisionRow[] => scenarioResults.m
 
 /** 成本从 $0.035 到 $7.66，低于 $1 时保留三位小数才看得出差别。 */
 const formatCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
-/** 首次响应实测 20 – 365 秒，按整秒显示。 */
-const formatSeconds = (seconds: number) => `${Math.round(seconds)}`;
+/** 完成耗时实测 176 – 1961 秒，跨度太大，统一按分钟显示，保留一位小数才分得出快慢。 */
+const formatMinutes = (seconds: number) => `${(seconds / 60).toFixed(1)}`;
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -275,7 +276,7 @@ const reliableRows = (rows: DecisionRow[]) => {
 const sortForRole = (rows: DecisionRow[], role: DecisionRole) => [...rows].sort((a, b) => {
   if (role === 'design') return b.d2 - a.d2 || b.score - a.score;
   if (role === 'requirement') return b.d1 - a.d1 || b.score - a.score;
-  if (role === 'speed') return a.ttft - b.ttft || b.score - a.score;
+  if (role === 'speed') return a.time - b.time || b.score - a.score;
   if (role === 'cost') return (b.score / Math.sqrt(Math.max(b.cost, 1e-6))) - (a.score / Math.sqrt(Math.max(a.cost, 1e-6)));
   return b.score - a.score || b.pdr - a.pdr;
 });
@@ -298,17 +299,25 @@ const recommendationsFor = (scenarioId: string) => {
   return picked;
 };
 
-/** 理由只讲这张卡所代表的那个维度，避免和卡片标签说不同的事。 */
-const decisionReason = (row: DecisionRow, role: DecisionRole) => {
-  if (role === 'design') return isZh ? `D2 设计质量 ${row.d2.toFixed(1)}/70。` : `D2 design quality: ${row.d2.toFixed(1)}/70.`;
-  if (role === 'requirement') return isZh ? `D1 需求完成度 ${row.d1.toFixed(1)}/30。` : `D1 requirement fulfillment: ${row.d1.toFixed(1)}/30.`;
-  if (role === 'speed') return isZh ? `首次响应约 ${formatSeconds(row.ttft)} 秒。` : `About ${formatSeconds(row.ttft)}s to first output.`;
-  if (role === 'cost') return isZh
-    ? `总分 ${row.score.toFixed(1)} · 单份成本约 $${formatCost(row.cost)}。`
-    : `Score ${row.score.toFixed(1)} · about $${formatCost(row.cost)} per run.`;
-  return isZh
-    ? `总分 ${row.score.toFixed(1)} · 可交付率 ${row.pdr.toFixed(1)}%。`
-    : `Score ${row.score.toFixed(1)} · ${row.pdr.toFixed(1)}% delivery rate.`;
+/**
+ * 每张卡都完整列出这六个维度，所以不再单独写一句推荐理由 —— 那句话只会把
+ * 下面数据里的某一格重复一遍。改成把该维度那一格高亮，卡片标签和数据自己对上。
+ */
+const DECISION_STATS = ['score', 'pdr', 'd1', 'd2', 'time', 'cost'] as const;
+type DecisionStat = (typeof DECISION_STATS)[number];
+const ROLE_STAT: Record<DecisionRole, DecisionStat> = {
+  overall: 'score', design: 'd2', requirement: 'd1', speed: 'time', cost: 'cost',
+};
+const statLabels: Record<DecisionStat, string> = isZh
+  ? { score: '平均分', pdr: '可交付率', d1: '需求完成度', d2: '设计质量', time: '完成耗时', cost: '成本' }
+  : { score: 'Avg. score', pdr: 'Delivery', d1: 'Requirement', d2: 'Design quality', time: 'Time', cost: 'Cost / run' };
+const statValue = (row: DecisionRow, stat: DecisionStat) => {
+  if (stat === 'score') return row.score.toFixed(1);
+  if (stat === 'pdr') return `${row.pdr.toFixed(1)}%`;
+  if (stat === 'd1') return `${row.d1.toFixed(1)}/30`;
+  if (stat === 'd2') return `${row.d2.toFixed(1)}/70`;
+  if (stat === 'time') return isZh ? `${formatMinutes(row.time)} 分钟` : `${formatMinutes(row.time)} min`;
+  return `$${formatCost(row.cost)}`;
 };
 
 const initialRecommendations = recommendationsFor('overall');
@@ -325,9 +334,9 @@ const lowerIsBetterPercentile = (value: number, values: number[]) => {
 const radarProfileFor = (row: DecisionRow, cohort: DecisionRow[]) => [
   Number((row.d1 / 30 * 100).toFixed(1)),
   Number((row.d2 / 70 * 100).toFixed(1)),
-  lowerIsBetterPercentile(row.cost, cohort.map((item) => item.cost)),
+  row.pdr,
   lowerIsBetterPercentile(row.time, cohort.map((item) => item.time)),
-  lowerIsBetterPercentile(row.ttft, cohort.map((item) => item.ttft)),
+  lowerIsBetterPercentile(row.cost, cohort.map((item) => item.cost)),
 ];
 const radarPointsFor = (values: number[]) => values.map((value, index) => {
   const angle = (-90 + index * 72) * Math.PI / 180;
@@ -342,9 +351,9 @@ const initialRadarMedian = initialRadarProfile.map((_, index) => median(overallD
 const initialRadarRaw = [
   `${radarSubject.d1.toFixed(1)}/30`,
   `${radarSubject.d2.toFixed(1)}/70`,
+  `${radarSubject.pdr.toFixed(1)}%`,
+  isZh ? `${formatMinutes(radarSubject.time)} 分钟` : `${formatMinutes(radarSubject.time)} min`,
   radarSubject.cost > 0 ? `$${formatCost(radarSubject.cost)}` : decisionCopy.radar.unavailable,
-  `${Math.round(radarSubject.time / 60)}min`,
-  `${formatSeconds(radarSubject.ttft)}s`,
 ];
 const radarGridLevels = [25, 50, 75, 100];
 const radarOuterPoints = radarPointsFor([100, 100, 100, 100, 100]).split(' ').map((point) => point.split(','));
@@ -394,19 +403,8 @@ const clientCopyJson = JSON.stringify({
   guide: {
     roleLabels: decisionCopy.roleLabels,
     radar: decisionCopy.radar,
-    reasons: isZh ? {
-      overall: '总分 {score} · 可交付率 {pdr}%。',
-      design: 'D2 设计质量 {metric}/70。',
-      requirement: 'D1 需求完成度 {metric}/30。',
-      speed: '首次响应约 {ttft} 秒。',
-      cost: '总分 {score} · 单份成本约 ${cost}。',
-    } : {
-      overall: 'Score {score} · {pdr}% delivery rate.',
-      design: 'D2 design quality: {metric}/70.',
-      requirement: 'D1 requirement fulfillment: {metric}/30.',
-      speed: 'About {ttft}s to first output.',
-      cost: 'Score {score} · about ${cost} per run.',
-    },
+    roleStat: ROLE_STAT,
+    minuteUnit: isZh ? ' 分钟' : ' min',
   },
 }).replace(/</g, '\\u003c');
 ---
@@ -421,6 +419,7 @@ const clientCopyJson = JSON.stringify({
     <header class="model-index-intro">
       <h1>{copy.heading}</h1>
       <p>{copy.intro}</p>
+      <p class="model-index-metrics">{copy.introMetrics}</p>
       <ul class="model-findings">
         {(copy.findings as Array<[string, string]>).map(([headline, detail]) => (
           <li><b>{headline}</b><span>{detail}</span></li>
@@ -455,7 +454,6 @@ const clientCopyJson = JSON.stringify({
                   <span class="model-icon"><img data-rec-icon src={row.icon} alt="" width="32" height="32" /></span>
                   <h3 data-rec-name>{row.name}</h3>
                 </header>
-                <p data-rec-reason>{decisionReason(row, role)}</p>
                 {index === 0 ? (
                   <div class="model-radar" data-model-radar>
                     <div class="model-radar-caption">
@@ -477,7 +475,7 @@ const clientCopyJson = JSON.stringify({
                       })}
                       <g class="model-radar-labels">
                         {decisionCopy.radar.axes.map((axis, index) => (
-                          <text x={radarLabelPositions[index]!.x} y={radarLabelPositions[index]!.y} text-anchor={radarLabelPositions[index]!.anchor} data-radar-axis={['requirement', 'design', 'cost', 'duration', 'speed'][index]}>
+                          <text x={radarLabelPositions[index]!.x} y={radarLabelPositions[index]!.y} text-anchor={radarLabelPositions[index]!.anchor} data-radar-axis={['requirement', 'design', 'delivery', 'duration', 'cost'][index]}>
                             <tspan class="model-radar-axis-name">{axis}</tspan>
                             <tspan class="model-radar-axis-value" x={radarLabelPositions[index]!.x} dy="13" data-radar-value={index}>{initialRadarRaw[index]}</tspan>
                           </text>
@@ -487,9 +485,11 @@ const clientCopyJson = JSON.stringify({
                   </div>
                 ) : null}
                 <dl>
-                  <div><dt>{isZh ? '总分' : 'Score'}</dt><dd data-rec-score>{row.score.toFixed(1)}</dd></div>
-                  <div><dt>{isZh ? '可交付率' : 'Delivery'}</dt><dd data-rec-pdr>{row.pdr.toFixed(1)}%</dd></div>
-                  <div><dt>{isZh ? '单份成本' : 'Cost / run'}</dt><dd data-rec-cost>${formatCost(row.cost)}</dd></div>
+                  {DECISION_STATS.map((stat) => (
+                    <div class:list={[{ 'is-key': stat === ROLE_STAT[role] }]} data-rec-stat={stat}>
+                      <dt>{statLabels[stat]}</dt><dd data-rec-value={stat}>{statValue(row, stat)}</dd>
+                    </div>
+                  ))}
                 </dl>
               </article>
             );
@@ -517,7 +517,7 @@ const clientCopyJson = JSON.stringify({
           <div style={`--insight-color:${row.color}`}>
             <span>{decisionCopy.overallSignals[index]}</span>
             <strong><span class="model-icon"><img src={row.icon} alt="" width="24" height="24" /></span>{row.name}</strong>
-            <small>{kind === 'score' ? `${row.score.toFixed(1)} ${isZh ? '分' : 'score'}` : kind === 'cost' ? `$${formatCost(row.cost)} / ${isZh ? '份' : 'run'}` : `${formatSeconds(row.ttft)}s ${isZh ? '首次响应' : 'to first output'}`}</small>
+            <small>{kind === 'score' ? `${row.score.toFixed(1)} ${isZh ? '分' : 'score'}` : kind === 'cost' ? `$${formatCost(row.cost)} / ${isZh ? '份' : 'run'}` : isZh ? `${formatMinutes(row.time)} 分钟出稿` : `${formatMinutes(row.time)} min per run`}</small>
           </div>
         ))}
       </div>
@@ -719,7 +719,8 @@ const clientCopyJson = JSON.stringify({
       guide: {
         roleLabels: Record<string, string>;
         radar: { aria: string; current: string; median: string; unavailable: string; axes: string[] };
-        reasons: Record<'overall' | 'design' | 'requirement' | 'speed' | 'cost', string>;
+        roleStat: Record<'overall' | 'design' | 'requirement' | 'speed' | 'cost', string>;
+        minuteUnit: string;
       };
     };
 
@@ -733,9 +734,9 @@ const clientCopyJson = JSON.stringify({
       const clientCopy = JSON.parse(copyElement.textContent || '{}') as ClientCopy;
 
       let activeGuideScenario = 'overall';
-      /** 与构建期 formatCost / formatSeconds 保持一致，否则 hydration 后数字会变。 */
+      /** 与构建期 formatCost / formatMinutes 保持一致，否则 hydration 后数字会变。 */
       const fmtCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
-      const fmtSeconds = (seconds: number) => `${Math.round(seconds)}`;
+      const fmtMinutes = (seconds: number) => (seconds / 60).toFixed(1);
 
       const guideRowsFor = (scenarioId: string) => modelData.map((model) => {
         const result = scenarioId === 'overall' ? null : model.scenarios.find((item) => item.id === scenarioId);
@@ -766,9 +767,9 @@ const clientCopyJson = JSON.stringify({
       const guideRadarProfile = (row: ReturnType<typeof guideRowsFor>[number], cohort: ReturnType<typeof guideRowsFor>) => [
         row.d1 / 30 * 100,
         row.d2 / 70 * 100,
-        guideLowerIsBetter(row.cost, cohort.map((item) => item.cost)),
+        row.pdr,
         guideLowerIsBetter(row.time, cohort.map((item) => item.time)),
-        guideLowerIsBetter(row.ttft, cohort.map((item) => item.ttft)),
+        guideLowerIsBetter(row.cost, cohort.map((item) => item.cost)),
       ];
       const guideRadarPoints = (values: number[]) => values.map((value, index) => {
         const angle = (-90 + index * 72) * Math.PI / 180;
@@ -778,9 +779,9 @@ const clientCopyJson = JSON.stringify({
       const guideRadarRaw = (row: ReturnType<typeof guideRowsFor>[number]) => [
         `${row.d1.toFixed(1)}/30`,
         `${row.d2.toFixed(1)}/70`,
+        `${row.pdr.toFixed(1)}%`,
+        `${fmtMinutes(row.time)}${clientCopy.guide.minuteUnit}`,
         row.cost > 0 ? `$${fmtCost(row.cost)}` : clientCopy.guide.radar.unavailable,
-        `${Math.round(row.time / 60)}min`,
-        `${Math.round(row.ttft)}s`,
       ];
       const updateGuideRadar = (row: ReturnType<typeof guideRowsFor>[number], cohort: ReturnType<typeof guideRowsFor>) => {
         const radar = root.querySelector<HTMLElement>('[data-model-radar]');
@@ -813,7 +814,7 @@ const clientCopyJson = JSON.stringify({
       const sortGuideForRole = (rows: ReturnType<typeof guideRowsFor>, role: GuideRole) => [...rows].sort((a, b) => {
         if (role === 'design') return b.d2 - a.d2 || b.score - a.score;
         if (role === 'requirement') return b.d1 - a.d1 || b.score - a.score;
-        if (role === 'speed') return a.ttft - b.ttft || b.score - a.score;
+        if (role === 'speed') return a.time - b.time || b.score - a.score;
         if (role === 'cost') return (b.score / Math.sqrt(Math.max(b.cost, 1e-6))) - (a.score / Math.sqrt(Math.max(a.cost, 1e-6)));
         return b.score - a.score || b.pdr - a.pdr;
       });
@@ -834,14 +835,14 @@ const clientCopyJson = JSON.stringify({
         });
         return picked;
       };
-      const guideReason = (row: ReturnType<typeof guideRowsFor>[number], role: GuideRole) => {
-        const metric = role === 'design' ? row.d2 : row.d1;
-        return clientCopy.guide.reasons[role]
-          .replace('{pdr}', row.pdr.toFixed(1))
-          .replace('{score}', row.score.toFixed(1))
-          .replace('{cost}', fmtCost(row.cost))
-          .replace('{ttft}', fmtSeconds(row.ttft))
-          .replace('{metric}', metric.toFixed(1));
+      /** 和构建期的 statValue 保持逐字一致，否则 hydration 之后数字格式会跳一下。 */
+      const guideStatValue = (row: ReturnType<typeof guideRowsFor>[number], stat: string) => {
+        if (stat === 'score') return row.score.toFixed(1);
+        if (stat === 'pdr') return `${row.pdr.toFixed(1)}%`;
+        if (stat === 'd1') return `${row.d1.toFixed(1)}/30`;
+        if (stat === 'd2') return `${row.d2.toFixed(1)}/70`;
+        if (stat === 'time') return `${fmtMinutes(row.time)}${clientCopy.guide.minuteUnit}`;
+        return `$${fmtCost(row.cost)}`;
       };
       const renderGuide = () => {
         const roles = GUIDE_ROLES;
@@ -853,17 +854,16 @@ const clientCopyJson = JSON.stringify({
           const icon = card.querySelector<HTMLImageElement>('[data-rec-icon]');
           const name = card.querySelector<HTMLElement>('[data-rec-name]');
           const role = card.querySelector<HTMLElement>('[data-rec-role]');
-          const reason = card.querySelector<HTMLElement>('[data-rec-reason]');
-          const score = card.querySelector<HTMLElement>('[data-rec-score]');
-          const pdr = card.querySelector<HTMLElement>('[data-rec-pdr]');
-          const cost = card.querySelector<HTMLElement>('[data-rec-cost]');
           if (icon) icon.src = row.icon;
           if (name) name.textContent = row.name;
           if (role) role.textContent = clientCopy.guide.roleLabels[roles[index]!] || '';
-          if (reason) reason.textContent = guideReason(row, roles[index]!);
-          if (score) score.textContent = row.score.toFixed(1);
-          if (pdr) pdr.textContent = `${row.pdr.toFixed(1)}%`;
-          if (cost) cost.textContent = `$${fmtCost(row.cost)}`;
+          const keyStat = clientCopy.guide.roleStat[roles[index]!];
+          card.querySelectorAll<HTMLElement>('[data-rec-stat]').forEach((cell) => {
+            const stat = cell.dataset.recStat || '';
+            cell.classList.toggle('is-key', stat === keyStat);
+            const value = cell.querySelector<HTMLElement>('[data-rec-value]');
+            if (value) value.textContent = guideStatValue(row, stat);
+          });
           if (index === 0) updateGuideRadar(row, cohort);
         });
       };

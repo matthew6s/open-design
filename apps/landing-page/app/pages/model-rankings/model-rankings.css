@@ -64,6 +64,14 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   font-size: 16px;
   line-height: 1.6;
 }
+/* 两个评分维度各自考什么，比正文再退半档，读者想深究时才会停在这里 */
+.model-index-intro > p.model-index-metrics {
+  max-width: 760px;
+  margin-top: 12px;
+  color: var(--model-muted);
+  font-size: 13.5px;
+  line-height: 1.62;
+}
 
 .model-section { padding: 78px 0 86px; border-bottom: 1px solid var(--model-line); scroll-margin-top: 108px; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 42px; }
@@ -140,8 +148,8 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
   padding: 30px 34px;
   display: grid;
   grid-template-columns: minmax(0,1fr) minmax(0,1.05fr);
-  /* 左栏四行按内容高度打包后整体居中，否则行会被雷达图撑开、内容散成一片空白 */
-  grid-template-rows: repeat(4,min-content);
+  /* 左栏三行按内容高度打包后整体居中，否则行会被雷达图撑开、内容散成一片空白 */
+  grid-template-rows: repeat(3,min-content);
   align-content: center;
   gap: 0 36px;
   background: color-mix(in srgb,var(--recommendation-color) 5%,var(--paper));
@@ -158,7 +166,6 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .model-recommendation header .model-icon { width: 34px; height: 34px; flex: 0 0 auto; }
 .model-recommendation h3 { min-width: 0; margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; overflow-wrap: anywhere; }
 .model-recommendation.is-primary h3 { font-size: clamp(25px,2.2vw,34px); }
-.model-recommendation > p { max-width: 470px; margin: 16px 0 22px; color: var(--model-muted); font-size: 14px; line-height: 1.58; }
 .model-radar { width: 100%; max-width: 380px; margin: 0 auto 18px; transition: opacity .16s ease; }
 .model-radar.is-updating { opacity: .62; }
 .model-radar-caption { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--ink-faint); font-size: 11.5px; font-weight: 650; }
@@ -178,12 +185,14 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .model-radar-axis-name,.model-radar-axis-value { pointer-events: none; }
 .model-radar-axis-value { fill: var(--model-muted); font-size: 11px; font-weight: 560; font-variant-numeric: tabular-nums; }
 .model-radar-labels text.is-highlighted .model-radar-axis-value { fill: var(--recommendation-color); }
-.model-recommendation dl { margin: auto 0 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-top: 1px solid color-mix(in srgb,var(--model-line) 86%,transparent); }
-
-.model-recommendation dl > div { padding: 12px 10px 0 0; }
-.model-recommendation dl > div + div { padding-left: 10px; border-left: 1px solid var(--model-line); }
+/* 六个维度：窄卡两列三行，主卡横向更宽所以铺成三列两行。 */
+.model-recommendation dl { margin: auto 0 0; padding-top: 14px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 16px; border-top: 1px solid color-mix(in srgb,var(--model-line) 86%,transparent); }
+.model-recommendation.is-primary dl { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.model-recommendation dl > div { min-width: 0; }
 .model-recommendation dt { color: var(--ink-faint); font-size: 11.5px; }
 .model-recommendation dd { margin: 3px 0 0; font-size: 14px; font-weight: 720; font-variant-numeric: tabular-nums; }
+/* 这张卡是靠哪个维度选出来的，就把那一格标出来，省掉一句会和数据重复的推荐语。 */
+.model-recommendation dl > div.is-key dt { color: var(--model-accent-ink); font-weight: 700; }
 .model-recommendation-actions { margin-top: 18px; align-self: flex-start; display: flex; align-items: center; gap: 14px; }
 .model-recommendation-actions > a { display: inline-flex; align-items: center; gap: 8px; color: var(--model-ink); font-size: 13px; font-weight: 700; text-decoration: none; }
 .model-recommendation-actions > a span { transition: transform .18s ease; }
