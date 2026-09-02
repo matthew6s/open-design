@@ -10,6 +10,7 @@
 //   pending + expected digest + temp gone or wrong      -> failed/interrupted
 //   pending + no digest (path capture) + source matches -> re-capture cleanly
 //   pending + no digest (path capture) + source moved   -> failed/source_changed
+//   pending for a kind this build no longer stores      -> failed/not_captured
 //   ready   + blob file gone                            -> failed/blob_missing
 //   temp file no intent claims, past grace              -> deleted
 //
@@ -176,6 +177,15 @@ async function recoverPathIntent(
       expected,
     },
   );
+  if (recaptured.state === 'skipped') {
+    // A pending intent written by a build that still stored this kind's
+    // originals (video / audio, before the 2026-09-02 ruling). Recovery must
+    // retire it, not finish it: re-capturing here would quietly reinstall the
+    // exact bytes the current policy just excluded, on the one code path whose
+    // whole job is to run before anyone is watching.
+    markSnapshotFailed(deps.db, row.id, 'not_captured');
+    return 'failed';
+  }
   if (recaptured.state !== 'ready' || !recaptured.contentDigest) {
     markSnapshotFailed(deps.db, row.id, recaptured.failureCode ?? 'internal_error');
     return 'failed';

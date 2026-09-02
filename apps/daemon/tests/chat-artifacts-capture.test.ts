@@ -177,22 +177,28 @@ describe('chat artifact capture (two-phase commit)', () => {
     expect(await d.blobs.listTempEntries()).toHaveLength(0);
   });
 
+  // The kind here used to be `html`, which no path capture has ever actually
+  // been handed: `run-capture` only reaches this function for kinds whose
+  // originals ARE the message evidence, and `html` is not one of them. The
+  // fixture was a placeholder for "some file at a path". It is an image now so
+  // it matches a record this function can really receive — the assertion under
+  // test (the fingerprint precondition) is unchanged.
   it('captures from a path whose fingerprint still matches the expectation', async () => {
     const d = deps();
     const projectId = seedProject(d.db);
-    const filePath = path.join(workDir, 'page.html');
-    fs.writeFileSync(filePath, bytes('<html>v1</html>'));
+    const filePath = path.join(workDir, 'hero.png');
+    fs.writeFileSync(filePath, bytes('png-v1'));
     const stat = fs.statSync(filePath);
 
     const result = await captureChatArtifactSnapshotFromPath(d, {
       projectId,
-      projectRelativePath: 'page.html',
-      kind: 'html',
+      projectRelativePath: 'hero.png',
+      kind: 'image',
       absolutePath: filePath,
       expected: { size: stat.size, mtimeMs: stat.mtimeMs },
     });
     expect(result.state).toBe('ready');
-    expect(result.contentDigest).toBe(sha256(bytes('<html>v1</html>')));
+    expect(result.contentDigest).toBe(sha256(bytes('png-v1')));
   });
 
   it('marks a missing source failed instead of inventing content', async () => {

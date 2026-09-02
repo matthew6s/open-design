@@ -137,7 +137,7 @@ blob 文件必须从 `RUNTIME_DATA_DIR` 派生的专用 snapshot 根目录解析
 | `workspace_artifact_id` | 可选；关联 latest 身份 |
 | `source_path_at_capture` | 历史显示/诊断，不参与读取 current |
 | `kind` / `mime` | 捕获时类型 |
-| `content_digest` | image/video/audio/doc 原字节 blob |
+| `content_digest` | ~~image/video/audio/doc~~ image/sketch 原字节 blob（视频/音频 2026-09-02 起不存，见 §15.5） |
 | `thumbnail_digest` | HTML/doc 静态假预览 PNG；图片可等于内容或另存缩略图 |
 | `source_size` / `source_mtime` | 捕获证据，不作为内容身份 |
 | `run_id` / `media_task_id` | 精确 lineage，均可空以兼容普通文件写入 |
@@ -611,22 +611,58 @@ schema migration 必须支持重新运行；blob store 初始化和 DB migration
 2. **HTML dependency-complete freeze。** standalone bundler 能覆盖多少本地构建/runtime 依赖，需要 corpus 验证。无法冻结时必须 generic fallback。
 3. **desktop renderer 可用性。** 当前 visual export 明确依赖 desktop，web-only 是 501/降级（`apps/daemon/src/import-export-routes.ts:876-909`）。是否引入 daemon headless Chromium 是独立成本决策。
 4. **团队同步。** snapshot blobs 是否属于项目共享资源、是否端到端加密、按谁的 quota 计费，需要平台决定。
-5. **视频/音频/大文档 —— 仍待拍板，但代码已经先行了，这是真实容量风险。**
-   本裁决只明确图片和 HTML/doc 卡。通用 store 能承载，但保留原件可能显著增长容量，
-   应单独拍 quota/retention。
+5. ~~**视频/音频/大文档 —— 仍待拍板，但代码已经先行了，这是真实容量风险。**~~
+   ~~本裁决只明确图片和 HTML/doc 卡。通用 store 能承载，但保留原件可能显著增长容量，
+   应单独拍 quota/retention。~~
 
-   ⚠️ 现状（2026-09-02 审计）：`apps/daemon/src/chat-artifacts/policy.ts` 的
-   `IMMUTABLE_ORIGINAL_KINDS` **已经把 `video` / `audio` 一起划进了不可变原件**，
-   也就是每一轮产出的视频/音频原件都会被整份复制进 blob store。代码注释自己标了
-   `OPEN PRODUCT QUESTION`，理由是「二进制原件的覆盖风险和图片一样」。
+   > ~~⚠️ 现状（2026-09-02 审计）：`apps/daemon/src/chat-artifacts/policy.ts` 的
+   > `IMMUTABLE_ORIGINAL_KINDS` **已经把 `video` / `audio` 一起划进了不可变原件**，
+   > 也就是每一轮产出的视频/音频原件都会被整份复制进 blob store。代码注释自己标了
+   > `OPEN PRODUCT QUESTION`，理由是「二进制原件的覆盖风险和图片一样」。~~
+   >
+   > ~~为什么这是容量风险而不只是口径问题：单 blob 上限 64 MiB、单项目上限 2 GiB
+   > （`apps/daemon/src/chat-artifacts/quota.ts`）。一段几十 MB 的视频改三轮就吃掉
+   > 项目配额的一大块，而配额一满，**同一批次里的图片快照也会跟着 `quota_exceeded`
+   > 失败** —— 已经拍过板的图片语义会被没拍过板的视频语义挤掉。~~
+   >
+   > ~~在产品拍板前**不要改 `policy.ts`**（改哪个方向都是替产品下结论）。要拍的是两件事：
+   > video/audio 是否保留原件；如果保留，它们是否走独立于图片的 quota/retention。~~
 
-   为什么这是容量风险而不只是口径问题：单 blob 上限 64 MiB、单项目上限 2 GiB
-   （`apps/daemon/src/chat-artifacts/quota.ts`）。一段几十 MB 的视频改三轮就吃掉
-   项目配额的一大块，而配额一满，**同一批次里的图片快照也会跟着 `quota_exceeded`
-   失败** —— 已经拍过板的图片语义会被没拍过板的视频语义挤掉。
+   **已拍板（用户裁决 2026-09-02）：「视频音频先不存快照了」。**
 
-   在产品拍板前**不要改 `policy.ts`**（改哪个方向都是替产品下结论）。要拍的是两件事：
-   video/audio 是否保留原件；如果保留，它们是否走独立于图片的 quota/retention。
+   `IMMUTABLE_ORIGINAL_KINDS` 只剩 `image` / `sketch`。视频/音频落到
+   `latest_with_static_preview` 这一档，**不复制字节、不建 snapshot 行**：
+
+   - **卡面**：视频卡拿工作区最新文件当 `<video preload="metadata">` 的源，浏览器
+     自己出首帧；不出封面图、不出占位、不出错误文案 —— 和旧会话降级支同一条路。
+     音频**根本不进产物卡**（`FileOpsSummary#artifactCardKind` 把它排除，走独立的
+     胶囊横条），那条横条一直读的就是工作区最新文件，从没读过 `snapshotUrl`。
+     也就是说音频快照此前存下来的字节，UI 从来没有任何一处读过。
+   - **点击**：不变，仍然打开工作区最新文件。
+   - **`snapshotState`**：`legacy_unavailable`（从没尝试过捕获），不是 `failed`。
+     把「产品排除」和「配额满/渲染失败」记成同一个状态会把真失败埋掉。
+   - **静态封面**：不会误落到 HTML 那条渲染路 —— `cover.ts#wantsRenderedCover`
+     还有一道 `kind === 'html'` 的能力判据，视频/音频直接 skip，既不渲染也不记失败。
+
+   **落点不止 `policy.ts`。** 原注释说「从这个集合里删掉即可 —— 数据模型不用改」，
+   这句是错的：`apps/daemon/src/routes/media.ts#onBytesWritten` 把 provider 字节
+   直接交给 `captureChatArtifactSnapshotFromBytes`，**完全不查 policy**。只改显示
+   策略的话，卡面会说「没存」而 blob store 里每一段生成的视频照存不误。因此排除
+   规则改为在**捕获收敛点**强制执行（`capture.ts` 两个入口，`role === 'content'` 时
+   查 `chatArtifactKindStoresOriginalBytes`，命中则 `state: 'skipped'`，一行不写、
+   一个字节不落）。`role === 'thumbnail'` 豁免 —— 封面是「对文件的渲染」，归
+   `wantsStaticCover` 管，若按 kind 一刀切会连 HTML 卡的封面一起杀掉。
+
+   **残留行**：boot reconcile 遇到旧构建留下的 video/audio pending path intent，
+   记 `failed / not_captured` 退休（新增的 failure code），**不再重新捕获** ——
+   否则恢复路会在刚刚排除掉视频的构建上把那段字节又装回去。已 ready 且仍被
+   `message_artifacts` 引用的旧视频快照不会被 GC 回收（mark-sweep 按引用算，
+   引用还在就是活的）；未被引用的走正常 sweep。注意 GC 默认是 dry-run，
+   只有 `OD_CHAT_ARTIFACT_GC=1` 才真删——这是既有的观察期开关，不因本裁决改动。
+
+   **仍未拍板**：大文档（pdf / docx / pptx）的原件保留策略。它们目前走
+   `latest_with_static_preview`，本来就不存原件，但也还没有文档 renderer 能出封面，
+   所以卡面是「图标 + 文件名」。这条不在本次裁决范围内。
 6. **消息编辑/分叉。**分叉共享 snapshot 合理；若未来允许删除单条消息，GC 引用必须覆盖所有 fork。
 7. **“假预览图”是否要求当轮视觉还是通用模板。**本方案按用户提出的“拍快照”实现当轮静态首屏；若产品只要统一模板，可关闭 renderer，数据模型仍成立且成本更低。
 8. **完成延迟。**原图 snapshot 应在 terminal 前完成；HTML PNG 渲染可以异步，但 renderer input 必须先冻结。需要定义卡片 pending 最长时间与失败文案。

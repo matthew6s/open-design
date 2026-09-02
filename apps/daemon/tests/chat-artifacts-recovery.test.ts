@@ -121,16 +121,21 @@ describe('chat artifact crash recovery', () => {
     expect(getChatArtifactBlob(d.db, digest)).toBeNull();
   });
 
+  // `kind` used to be `html` in this fixture and the next. No path intent is
+  // ever written for `html` — only kinds whose ORIGINAL bytes are the message
+  // evidence get a path capture at all — so the fixtures described a record
+  // this code path cannot receive. They are images now; the fingerprint
+  // assertions they exist for are unchanged.
   it('path intent: re-captures only when the source fingerprint still matches', async () => {
     const d = deps();
-    const filePath = path.join(workDir, 'page.html');
-    fs.writeFileSync(filePath, bytes('<html>v1</html>'));
+    const filePath = path.join(workDir, 'hero.png');
+    fs.writeFileSync(filePath, bytes('png-v1'));
     const stat = fs.statSync(filePath);
     insertSnapshotIntent(d.db, {
       id: 'snap-4',
       projectId: 'proj-1',
-      sourcePathAtCapture: 'page.html',
-      kind: 'html',
+      sourcePathAtCapture: 'hero.png',
+      kind: 'image',
       expectedSize: stat.size,
       expectedMtime: stat.mtimeMs,
       expectedDigest: null,
@@ -143,21 +148,21 @@ describe('chat artifact crash recovery', () => {
     });
     expect(report.completed).toBe(1);
     expect(getChatArtifactSnapshot(d.db, 'snap-4')?.contentDigest)
-      .toBe(sha256(bytes('<html>v1</html>')));
+      .toBe(sha256(bytes('png-v1')));
   });
 
   it('path intent: a changed source fails as source_changed, not a fresh copy', async () => {
     const d = deps();
-    const filePath = path.join(workDir, 'page.html');
-    fs.writeFileSync(filePath, bytes('<html>v1</html>'));
+    const filePath = path.join(workDir, 'hero.png');
+    fs.writeFileSync(filePath, bytes('png-v1'));
     const stat = fs.statSync(filePath);
-    fs.writeFileSync(filePath, bytes('<html>v2-different-length</html>'));
+    fs.writeFileSync(filePath, bytes('png-v2-different-length'));
 
     insertSnapshotIntent(d.db, {
       id: 'snap-5',
       projectId: 'proj-1',
-      sourcePathAtCapture: 'page.html',
-      kind: 'html',
+      sourcePathAtCapture: 'hero.png',
+      kind: 'image',
       expectedSize: stat.size,
       expectedMtime: stat.mtimeMs,
       expectedDigest: null,
@@ -171,7 +176,7 @@ describe('chat artifact crash recovery', () => {
     expect(report.failed).toBe(1);
     const row = getChatArtifactSnapshot(d.db, 'snap-5');
     expect(row?.failureCode).toBe('source_changed');
-    expect(getChatArtifactBlob(d.db, sha256(bytes('<html>v2-different-length</html>'))))
+    expect(getChatArtifactBlob(d.db, sha256(bytes('png-v2-different-length'))))
       .toBeNull();
     // The reconciler must settle the EXISTING intent, not stage a second
     // capture attempt that fails and leaves an extra row behind for the GC.

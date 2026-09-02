@@ -32,6 +32,12 @@ export type ChatArtifactFailureCode =
   | 'dependencies_incomplete'
   | 'blob_missing'
   | 'digest_mismatch'
+  // Not a failure of anything: this kind's originals are excluded by policy
+  // (user ruling 2026-09-02 — video / audio). It exists only so a RESIDUAL
+  // pending intent, written by a build that still stored them, has an honest
+  // terminal state. Nothing writes a fresh one; captures for excluded kinds
+  // are skipped before any row is inserted.
+  | 'not_captured'
   | 'quota_exceeded'
   | 'too_large'
   | 'renderer_unavailable'

@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 
 import type { ChatArtifactBlobStore } from './blob-store.js';
+import { chatArtifactKindStoresOriginalBytes } from './policy.js';
 import {
   ensureWorkspaceArtifactForPath,
   getChatArtifactBlob,
@@ -74,12 +75,37 @@ export interface CaptureFromPathInput {
 }
 
 export interface ChatArtifactCaptureResult {
+  /** Empty string when `state` is `skipped` — no snapshot row was written. */
   snapshotId: string;
   workspaceArtifactId: string;
-  state: 'ready' | 'failed';
+  /**
+   * `skipped` means this kind's policy does not store original bytes at all
+   * (user ruling 2026-09-02: video / audio). It is deliberately NOT `failed`:
+   * nothing was attempted, so nothing is missing, and the card falls back to
+   * the live workspace file exactly as a legacy message does. Reporting it as
+   * a failure would bury the real failures — quota, drift, renderer — that the
+   * state exists to surface.
+   */
+  state: 'ready' | 'failed' | 'skipped';
   failureCode?: ChatArtifactFailureCode;
   contentDigest?: string;
   byteSize?: number;
+}
+
+/**
+ * Whether this capture is allowed to copy original bytes into the blob store.
+ *
+ * A `thumbnail` capture is exempt on purpose: a cover is a rendering OF the
+ * file, never the file itself, so it is governed by `wantsStaticCover` rather
+ * than `capturesContent`. Keying the gate on kind alone would have silently
+ * killed every HTML card's cover, since `html` also declines to store originals.
+ */
+function mayStoreOriginalBytes(kind: string, role: ChatArtifactCaptureRole): boolean {
+  return role !== 'content' || chatArtifactKindStoresOriginalBytes(kind);
+}
+
+function skipped(workspaceArtifactId: string): ChatArtifactCaptureResult {
+  return { snapshotId: '', workspaceArtifactId, state: 'skipped' };
 }
 
 function quotaOf(deps: ChatArtifactCaptureDeps): ChatArtifactQuota {
@@ -116,6 +142,11 @@ export async function captureChatArtifactSnapshotFromBytes(
       : { digest, size: byteSize, mtime: input.sourceMtime ?? now }),
     now,
   });
+
+  // The gate sits AFTER the latest pointer on purpose. Dropping the frozen copy
+  // must not drop the mutable Design Files identity: that pointer is what the
+  // card's click resolves through, and it is one row, not a blob.
+  if (!mayStoreOriginalBytes(input.kind, role)) return skipped(workspaceArtifact.id);
 
   const tempKey = deps.blobs.newTempKey();
   const snapshotId = randomUUID();
@@ -200,6 +231,12 @@ export async function captureChatArtifactSnapshotFromPath(
     mime: input.mime ?? null,
     now,
   });
+
+  // Same gate as the in-memory path, for the same reason: this is a chokepoint,
+  // not a helper. `run-capture` already routes non-storing kinds to the latest
+  // pointer before it ever gets here, so today this is defence in depth — it is
+  // what stops the next call site from reintroducing the exclusion as a bug.
+  if (!mayStoreOriginalBytes(input.kind, role)) return skipped(workspaceArtifact.id);
 
   let before: fs.Stats;
   try {
