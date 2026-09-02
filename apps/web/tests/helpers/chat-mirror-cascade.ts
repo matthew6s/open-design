@@ -83,22 +83,210 @@ export function hashed(css: string, map: Record<string, string>): string {
   return out;
 }
 
+/* ── 特异性 ─────────────────────────────────────────────────────────────
+ * 判据只有一个:CSS 规范。校准用例在 `chat-mirror-cascade.specificity.test.ts`,
+ * 每条断言都标了出处;改这一段前先读那份,别凭「看起来合理」下手。
+ *
+ * [S15]  Selectors Level 4 §15 https://drafts.csswg.org/selectors-4/#specificity-rules
+ *        A = ID 选择器个数;B = 类 + 属性 + **伪类**个数;
+ *        C = 类型选择器 + **伪元素**个数;通配符 `*` 与组合符一律不计。
+ *        「A few pseudo-classes provide "evaluation contexts" …」:
+ *          · `:is()` / `:not()` / `:has()` —— **伪类自己不贡献**,整段的特异性
+ *            换成参数列表里**最重的那条**复杂选择器;
+ *          · `:nth-child()` / `:nth-last-child()` —— 伪类自己算一格,再**加上**
+ *            `of S` 里最重的那条(没写 `of` 就只有那一格);
+ *          · `:where()` —— **恒为零**。
+ *        选择器列表按分支各算,取最重的那条(不是相加)。
+ * [P4-8] CSS Pseudo-Elements 4 §8 Compatibility Syntax —— 单冒号的
+ *        `:before` / `:after` / `:first-letter` / `:first-line` 是那四个**伪元素**
+ *        的兼容写法,所以落在 C,不是 B。
+ *
+ * 已知不覆盖(碰到就会算错,别默默依赖):`::part()` / `::slotted()` /
+ * `:host()` / `:host-context()` 的参数规则(本仓库无 shadow DOM),以及
+ * `:nth-child(… of S)` 里 S 自身再嵌一个 `of` 的病态写法。
+ */
+
+export type Specificity = readonly [ids: number, classes: number, elements: number];
+
+/** `:is()` 的现名与旧名,以及规矩完全相同的 `:not()` / `:has()`。[S15] */
+const CONTEXT_PSEUDOS = new Set(['is', 'matches', '-moz-any', '-webkit-any', 'not', 'has']);
+/** 「伪类自己一格 + `of S` 里最重的那条」。[S15] */
+const NTH_OF_PSEUDOS = new Set(['nth-child', 'nth-last-child']);
+/** 单冒号写法仍是伪元素。[P4-8] */
+const LEGACY_PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-letter', 'first-line']);
+
+const ZERO: Specificity = [0, 0, 0];
+
+const add = (a: Specificity, b: Specificity): Specificity => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+/** A → B → C 逐位比较。[S15] */
+const heavier = (a: Specificity, b: Specificity): boolean =>
+  a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2];
+
+const isIdentStart = (ch: string): boolean => /[A-Za-z_\\]/.test(ch) || ch.charCodeAt(0) > 127;
+
+/** 标识符尾巴的下标(允许 `\.` 这类转义)。 */
+function identEnd(src: string, from: number): number {
+  let i = from;
+  while (i < src.length) {
+    const ch = src[i]!;
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (/[\w-]/.test(ch) || ch.charCodeAt(0) > 127) {
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+/** `open` 处那一对括号的闭合下标(计嵌套、跳引号)。找不到就返回串尾。 */
+function closerAt(src: string, open: number, close: string): number {
+  const opener = src[open]!;
+  let depth = 0;
+  let i = open;
+  let quote = '';
+  while (i < src.length) {
+    const ch = src[i]!;
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === opener) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+    i += 1;
+  }
+  return src.length;
+}
+
+/** 顶层逗号拆分(括号 / 方括号 / 引号里的逗号不算)。 */
+function splitList(src: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = '';
+  let start = 0;
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i]!;
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[') depth += 1;
+    else if (ch === ')' || ch === ']') depth -= 1;
+    else if (ch === ',' && depth === 0) {
+      out.push(src.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(src.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+/** 参数列表里最重的那条复杂选择器。空列表 → (0,0,0)。[S15] */
+function heaviestOf(list: string): Specificity {
+  let best: Specificity = ZERO;
+  for (const branch of splitList(list)) {
+    const one = scanComplex(branch);
+    if (heavier(one, best)) best = one;
+  }
+  return best;
+}
+
+/** `An+B of S` 里 `S` 的部分;没写 `of` 返回 null。 */
+function nthOfArgument(args: string): string | null {
+  const m = /\bof\b/i.exec(args);
+  return m ? args.slice(m.index + m[0].length) : null;
+}
+
+/** `selector[i]` 上那个伪类 / 伪元素贡献多少,以及它到哪儿结束。 */
+function pseudoAt(src: string, i: number): { next: number; weight: Specificity } {
+  const doubleColon = src[i + 1] === ':';
+  const nameStart = i + (doubleColon ? 2 : 1);
+  const nameEnd = identEnd(src, nameStart);
+  const name = src.slice(nameStart, nameEnd).toLowerCase();
+
+  let args: string | null = null;
+  let next = nameEnd;
+  if (src[nameEnd] === '(') {
+    const close = closerAt(src, nameEnd, ')');
+    args = src.slice(nameEnd + 1, close);
+    next = close + 1;
+  }
+
+  // 伪元素落在 C。单冒号的那四个按 [P4-8] 也是伪元素。
+  if (doubleColon || LEGACY_PSEUDO_ELEMENTS.has(name)) return { next, weight: [0, 0, 1] };
+  if (name === 'where') return { next, weight: ZERO };
+  if (CONTEXT_PSEUDOS.has(name)) {
+    // 伪类自己**不贡献**;没带参数的裸写法(`:has` 之类的非法/未来语法)退回普通伪类。
+    return { next, weight: args === null ? [0, 1, 0] : heaviestOf(args) };
+  }
+  if (NTH_OF_PSEUDOS.has(name)) {
+    const of = args === null ? null : nthOfArgument(args);
+    return { next, weight: add([0, 1, 0], of === null ? ZERO : heaviestOf(of)) };
+  }
+  // 普通伪类:自己一格,参数(`:lang(en)` / `:dir(rtl)`)不是选择器,不计。
+  return { next, weight: [0, 1, 0] };
+}
+
+/** 单条复杂选择器(不含顶层逗号)的 (A,B,C)。 */
+function scanComplex(selector: string): Specificity {
+  let out: Specificity = ZERO;
+  let i = 0;
+  while (i < selector.length) {
+    const ch = selector[i]!;
+    if (ch === '#') {
+      i = identEnd(selector, i + 1);
+      out = add(out, [1, 0, 0]);
+    } else if (ch === '.') {
+      i = identEnd(selector, i + 1);
+      out = add(out, [0, 1, 0]);
+    } else if (ch === '[') {
+      i = closerAt(selector, i, ']') + 1;
+      out = add(out, [0, 1, 0]);
+    } else if (ch === ':') {
+      const { next, weight } = pseudoAt(selector, i);
+      i = next;
+      out = add(out, weight);
+    } else if (ch === '*') {
+      // 通配符不计。`*|x` 里它只是命名空间前缀,同样不计。[S15]
+      i += selector[i + 1] === '|' && selector[i + 2] !== '=' ? 2 : 1;
+    } else if (isIdentStart(ch)) {
+      const end = identEnd(selector, i);
+      if (selector[end] === '|' && selector[end + 1] !== '=') {
+        i = end + 1; // 命名空间前缀,真正的类型选择器在竖线后面
+        continue;
+      }
+      i = end;
+      out = add(out, [0, 0, 1]);
+    } else {
+      i += 1; // 组合符 `>` `+` `~` `||`、空白、以及散落的标点 —— 都不计 [S15]
+    }
+  }
+  return out;
+}
+
+/** 规范的 (A,B,C)。传进来的是选择器列表时取最重的分支,不相加。[S15] */
+export function specificityTuple(selector: string): Specificity {
+  return heaviestOf(selector);
+}
+
+/**
+ * 打包成一个可比的标量,给层叠排序用。
+ *
+ * 进制 10_000 / 100 只在「B 和 C 都小于 100」时保序 —— 现实选择器离这个上限
+ * 极远,规范本身也允许实现钳位(§15「implementations may have limitations on
+ * the size of A, B, or C」)。要比三元组本身请用 {@link specificityTuple}。
+ */
 export function specificity(selector: string): number {
-  // `:where(…)` 整段计 0 —— 少了这一步,`:where([data-chat-root]) button` 会被算成
-  // (0,1,1) 压过共享 Button 的 `.button`,量出来就是 13px / 无圆角 / 无内距的裸按钮档。
-  const cleaned = selector
-    .replace(/:where\(([^()]|\([^()]*\))*\)/g, ' ')
-    .replace(/::[\w-]+/g, ' ');
-  const ids = (cleaned.match(/#[\w-]+/g) ?? []).length;
-  const classes =
-    (cleaned.match(/\.[\w-]+/g) ?? []).length +
-    (cleaned.match(/\[[^\]]*\]/g) ?? []).length +
-    (cleaned.match(/:(?!:)(?!where\b)[\w-]+/g) ?? []).length;
-  const elements = (
-    cleaned.replace(/\.[\w-]+|#[\w-]+|\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g, ' ').match(
-      /\b[a-zA-Z][\w-]*\b/g,
-    ) ?? []
-  ).length;
+  const [ids, classes, elements] = specificityTuple(selector);
   return ids * 10_000 + classes * 100 + elements;
 }
 
