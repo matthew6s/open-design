@@ -3007,6 +3007,8 @@ export interface Dict {
   'chat.record.retryImage': string;
   'chat.quote.add': string;
   'chat.quote.count': string;
+  /** 重复添加同一段文案时的轻提示(OPEND-2546) */
+  'chat.quote.duplicate': string;
   'chat.quote.removeAria': string;
   'chat.support.title': string;
   'chat.support.join': string;
@@ -4456,6 +4458,12 @@ export interface Dict {
   'qf.visualViewGrid': string;
   'qf.confirmed': string;
   'qf.picked': string;
+  'qf.colorPresets': string;
+  'qf.colorCustom': string;
+  'qf.colorPickerLabel': string;
+  'qf.colorHexLabel': string;
+  'qf.colorPreview': string;
+  'qf.colorInvalid': string;
   'qf.choose': string;
   'qf.customLabel': string;
   'qf.customPlaceholder': string;

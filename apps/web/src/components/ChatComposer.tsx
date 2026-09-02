@@ -47,6 +47,7 @@ import { fetchMcpServers } from "../state/mcp";
 import type { McpServerConfig, McpTemplate } from "../state/mcp";
 import { listPlugins } from "../state/projects";
 import type { AppConfig, ChatAttachment, ChatCommentAttachment, Project, ProjectFile, ProjectMetadata, SkillSummary } from "../types";
+import { DEFAULT_UNSELECTED_SCENARIO_PLUGIN_ID } from '@open-design/contracts';
 import type {
   ContextItem,
   AppliedPluginSnapshot,
@@ -1630,6 +1631,24 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       }
     }
 
+    /**
+     * 这一发**真正带走**的正文。
+     *
+     * 正文取词攒下的引用是折进正文发给 agent 的(`> 原文` 前缀,设计稿组件 23):
+     * 用 markdown 的引用块,agent 一眼分得清「这是我上一轮说的话」和「这是新指令」。
+     * 前缀由 `quotePromptPrefix` 独家定义 —— 取回编辑时的 `splitQuotedPrompt`
+     * 拆的就是它,两边共用一个函数才不会一边改了另一边没跟上。
+     *
+     * 折这一步必须只有这一个出处:输入框有**四条**送信路(回车 / 点击、
+     * 标注面板直接发、标注面板排队、流式期间的延迟发)。原来只有 `submit()`
+     * 折了前缀,另外三条各自拼 `[draft, note]` —— 于是从标注面板发出去的那一发:
+     * 芯片被清掉了、`meta.quotes` 也挂上了,唯独 agent 一个字都没收到。
+     * 清空芯片必须意味着「已经带走」(OPEND-2551 同一族)。
+     */
+    function composeOutgoingPrompt(body: string): string {
+      return `${quotePromptPrefix(quotes ?? [])}${body}`.trim();
+    }
+
     function sendComposedTurn(
       prompt: string,
       attachments: ChatAttachment[],
@@ -2519,7 +2538,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                   ...visualAttachmentInput,
                 });
               }
-              const prompt = [draft.trim(), detail.note].filter(Boolean).join('\n');
+              // 引文前缀走共用的那一处 —— 标注面板发出去的这一发同样会清掉芯片,
+              // 不折进去就是「清空了但没带走」(OPEND-2551)。
+              const prompt = composeOutgoingPrompt([draft.trim(), detail.note].filter(Boolean).join('\n'));
               const attachments = sortChatAttachmentsByOrder([...staged, ...uploaded]);
               const nextCommentAttachments = currentCommentAttachments(visualAttachment ? [visualAttachment] : []);
               // Mark draw-overlay → run: tag entry_from='mark' so the dashboard
@@ -2545,7 +2566,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                   ...visualAttachmentInput,
                 });
               }
-              const prompt = [draft.trim(), detail.note].filter(Boolean).join('\n');
+              // 引文前缀走共用的那一处 —— 标注面板发出去的这一发同样会清掉芯片,
+              // 不折进去就是「清空了但没带走」(OPEND-2551)。
+              const prompt = composeOutgoingPrompt([draft.trim(), detail.note].filter(Boolean).join('\n'));
               const attachments = sortChatAttachmentsByOrder([...staged, ...uploaded]);
               const nextCommentAttachments = currentCommentAttachments(visualAttachment ? [visualAttachment] : []);
               // Mark draw-overlay → run: tag entry_from='mark' so the dashboard
@@ -2578,6 +2601,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       draft,
       onSend,
       projectId,
+      // 引用要折进这条路发出去的正文,闭包必须拿到当下这一份。
+      quotes,
       selectedWorkspaceContexts,
       staged,
       stagedConnectors,
@@ -2613,7 +2638,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       // Read the ref, not the closed-over `draft`: the accumulating annotation
       // handler writes draftRef synchronously, so the ref is authoritative even
       // if this effect's render closure predates the last accumulation.
-      const prompt = draftRef.current.trim();
+      const prompt = composeOutgoingPrompt(draftRef.current.trim());
       // Consume the entry_from captured when the send was deferred (Mark
       // draw-overlay sets 'mark'); clear it so a later plain send is unaffected.
       const pendingEntryFrom = streamingAnnotationSendEntryFromRef.current;
@@ -2625,6 +2650,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       commentAttachments,
       draft,
       onSend,
+      // 同上:延迟发的那一发也要带上此刻的引用。
+      quotes,
       selectedWorkspaceContexts,
       sendDisabled,
       staged,
@@ -3031,15 +3058,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     }
 
     async function submit() {
-      /*
-       * 正文取词攒下的引用作为**引文前缀**带上(设计稿组件 23)。
-       * 用 markdown 的引用块,agent 一眼能分清「这是我上一轮说的话」和「这是新指令」;
-       * 发出去之后清空芯片 —— 它是这一条消息的上下文,不是长期状态。
-       */
-      // 前缀由 `quotePromptPrefix` 独家定义 —— 取回编辑时的 `splitQuotedPrompt`
-      // 拆的就是它。两边共用一个函数,才不会一边改了另一边没跟上。
-      const prompt = `${quotePromptPrefix(quotes ?? [])}${draft.trim()}`.trim();
-      if (sendDisabled) return;
+      const prompt = composeOutgoingPrompt(draft.trim());
+      // 「这一发能不能走」只问 `canSend` 这一处 —— 见它的注释(OPEND-2551)。
+      // 位置在最前面是有意的:下面的 `/hatch`、`/search` 两条支路会绕过后续流程,
+      // 判据留在它们后面的话,那两条支路等于又多了一套自己的答案。
+      if (!canSend) return;
       // Intercept `/pet …` and `/mcp` before sending so the slash command
       // never hits the agent — these are local UX hooks, not model prompts.
       if (tryHandlePetSlash()) return;
@@ -3071,16 +3094,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         );
         return;
       }
-      // A truly empty composer (no typed text, no staged attachment, no
-      // comment attachment) never sends — not even when the placeholder
-      // carousel is mid-animation. The rotating scenario text is a ghost
-      // hint rendered where the editor's own placeholder would sit; letting
-      // Send silently accept it reads to the user as "I clicked Send on an
-      // empty box and it ran something I never typed" (recvqaj7eKpxH6). The
-      // dedicated "next step" toolbox cards remain the real way to act on a
-      // suggested prompt — those explicitly type it into the composer via
-      // applyDesignToolboxAction before the user ever hits Send.
-      if (!hasComposerPayload) return;
       notifyCompletionFeedbackGesture();
       sendComposedTurn(prompt, staged, nextCommentAttachments, contextMeta);
     }
@@ -3215,6 +3228,33 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       || staged.length > 0
       || liveCommentAttachments.length > 0
       || sanitizeQuotes(quotes ?? []).length > 0;
+    /**
+     * 「这一发能不能走」的**唯一**判据。
+     *
+     * 发送按钮的 disabled、回车走的 `submit()`,读的都必须是它。
+     * OPEND-2551 报的就是这件事被问出了两个答案:芯片(输入框上方那排「N 条注释」)
+     * 已经挂着、输入框本身是空的,按钮灰着 —— 可回车发得出去。当时按钮问的是
+     * `hasComposerPayload`(它不数引用),而 `submit()` 问的是「折好的正文空不空」,
+     * 而引用**是折进正文的**,所以同一时刻它非空。同一个问题、两处各算各的,
+     * 早晚会分叉;分叉之后症状出现在离原因最远的地方(用户看到的是「按钮坏了」)。
+     */
+    const canSend = !sendDisabled && hasComposerPayload;
+    /**
+     * 摆到台面上的那枚「已应用插件」芯片(OPEND-2412)。
+     *
+     * 首页自由输入、以及「用这套设计系统创建」都会给这一发绑上 `od-default`
+     * 这枚**兜底路由**。它不是用户挑的插件,只是「这一发还没选场景」的内部说法 ——
+     * 摆成一枚可见芯片,读起来就像用户自己挂了个叫 “Default design router” 的东西,
+     * 旁边还给一颗移除按钮。产品裁决:**界面不展示,底层照旧**。
+     *
+     * 所以过滤只发生在**呈现**这一层。`activeAppliedPlugin` 一个字都不能动 ——
+     * 它还在喂 `pinnedPluginId`、`currentRunContextMeta()`(落库 + 重试都读它)
+     * 和 daemon 侧的 snapshot 绑定;把 state 本身清掉是静默的功能回退。
+     */
+    const visibleAppliedPlugin =
+      activeAppliedPlugin && activeAppliedPlugin.pluginId !== DEFAULT_UNSELECTED_SCENARIO_PLUGIN_ID
+        ? activeAppliedPlugin
+        : null;
     const showAdmissionPendingButton = composedSendPending && !streaming;
     const showStopButton = streaming && !hasComposerPayload;
     const showSendButton = (!streaming || hasComposerPayload) && !showAdmissionPendingButton;
@@ -3408,7 +3448,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
               }}
             />
           ) : null}
-          {selectedWorkspaceContexts.length > 0 || stagedSkills.length > 0 || stagedMcpServers.length > 0 || stagedConnectors.length > 0 || activeAppliedPlugin ? (
+          {selectedWorkspaceContexts.length > 0 || stagedSkills.length > 0 || stagedMcpServers.length > 0 || stagedConnectors.length > 0 || visibleAppliedPlugin ? (
             <StagedRunContexts
               workspaceItems={selectedWorkspaceContexts}
               currentWorkspaceContextId={visibleWorkspaceContext?.id ?? null}
@@ -3416,10 +3456,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
               mcpServers={stagedMcpServers}
               connectors={stagedConnectors}
               pluginChip={
-                activeAppliedPlugin
+                visibleAppliedPlugin
                   ? {
-                      id: activeAppliedPlugin.pluginId,
-                      title: activeAppliedPlugin.pluginTitle ?? activeAppliedPlugin.pluginId,
+                      id: visibleAppliedPlugin.pluginId,
+                      title: visibleAppliedPlugin.pluginTitle ?? visibleAppliedPlugin.pluginId,
                     }
                   : null
               }
@@ -3821,7 +3861,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                   });
                   void submit();
                 }}
-                disabled={sendDisabled || !hasComposerPayload}
+                disabled={!canSend}
                 aria-label={t('chat.send')}
                 title={t('chat.send')}
                 data-tooltip={t('chat.send')}

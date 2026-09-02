@@ -111,14 +111,44 @@ export function isQuotable(raw: string): boolean {
   return normalizeQuoteText(raw).length >= 2;
 }
 
+/** 这一下到底算不算数 */
+export type QuoteAppendStatus = 'added' | 'duplicate';
+
+/** 入列的结果:新列表 + 这一下算不算数 */
+export interface QuoteAppendOutcome {
+  quotes: ChatQuote[];
+  status: QuoteAppendStatus;
+}
+
 /**
  * 同一段话被选两次不重复入列 —— 判据是**规整之后的正文**,
  * 不是选区对象(同一句话第二次选,DOM Range 是新的,文字是同一句)。
+ *
+ * 去重这件事**必须说出口**(OPEND-2546):重复的那一下如果只是原样退回旧列表,
+ * 调用方接着清掉选区、浮条消失 —— 从用户那头看和「点了没反应」一模一样,
+ * 于是他会再点一次、再点一次。所以判据这一层就把 added / duplicate 交出去,
+ * 由调用方给一句轻提示。
+ *
+ * 重复时**原样返回同一个数组引用**(不是内容相等的新数组):既是给 React
+ * 省一次白跑的重渲染,也是给调用方一个免费的「什么都没变」信号。
+ */
+export function appendQuoteOutcome(quotes: ChatQuote[], next: ChatQuote): QuoteAppendOutcome {
+  const key = normalizeQuoteText(next.text);
+  if (quotes.some((q) => normalizeQuoteText(q.text) === key)) {
+    return { quotes, status: 'duplicate' };
+  }
+  return { quotes: [...quotes, next], status: 'added' };
+}
+
+/**
+ * `appendQuoteOutcome` 的只要列表那一半。
+ *
+ * 留着它是为了让「只关心结果列表」的调用点不用每次解构;判据只有
+ * `appendQuoteOutcome` 一处,两边不会分叉。需要给用户反馈的调用点用带
+ * status 的那个。
  */
 export function appendQuote(quotes: ChatQuote[], next: ChatQuote): ChatQuote[] {
-  const key = normalizeQuoteText(next.text);
-  if (quotes.some((q) => normalizeQuoteText(q.text) === key)) return quotes;
-  return [...quotes, next];
+  return appendQuoteOutcome(quotes, next).quotes;
 }
 
 /**

@@ -549,10 +549,42 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* 消息辅助信息**专用**的静音色(PR #7170 `components.css` 的 `--message-muted-ink`)。
+   ------------------------------------------------------------
+   稿子把时间戳、复制、反馈、fork 收进同一档 `#a3a3a3`,并写明「不联动全局次级文字
+   或已选中的反馈状态」—— 所以它是一枚**专用 token**,不是把 `--text-soft` 调一调:
+   前者只影响这一层,后者会把整个产品的次级文字一起拖走。
+   值在明暗两套主题下都一样(和 `--border-selected` 同色),这是稿子的本意:
+   它是消息旁边那圈附属信息的固定音量,不跟着主题的正文对比度走。
+   ⚠️ 只给「时间 / 复制」这类附属信息用。赞踩选中后是语义绿 / 红,
+   它们住在 `viewer/theater.css` / `viewer/composio.css`;这枚 token 一旦漫过去,
+   「我选过了」这件事就被抹掉了。 */
+/* 定义处对齐稿子的 `.msg-act, .fb, .fork-note` —— 谁用它谁自己声明一次,
+   而不是挂到 chat 根上让整棵树都继承得到:那样迟早会有人「顺手」拿它染别的东西。 */
+.msg,
+.fork-note {
+  --chat-message-muted-ink: #a3a3a3;
+}
 .msg.user {
   /* 气泡底色只能有一个出处:hover 变色、以及折行时盖住半个字的那道渐变,
-     必须和它同色 —— 写死两处早晚会分叉。接入 chat 接缝后这条搬去 --chat-bub-bg(W1)。 */
-  --bub-bg: var(--text-strong);
+     必须和它同色 —— 写死两处早晚会分叉。接入 chat 接缝后这条搬去 --chat-bub-bg(W1)。
+     ------------------------------------------------------------
+     稿子(PR #7170)把这枚底从 `--text-strong`(#202020)再压深一档到 #121212。
+     不直接写在 `--bub-bg` 上,是因为**暗色下不能跟着压**:那边气泡是「浅底深字」
+     (`color: var(--bg)`),再压成近黑就是黑底黑字。所以中间隔一枚
+     `--chat-user-bubble-ground`,明暗各给各的。 */
+  --chat-user-bubble-ground: #121212;
+  --bub-bg: var(--chat-user-bubble-ground);
+}
+/* 暗色回到主题自己的最强墨色 —— 那边气泡是浅底,近黑会把白字吃掉。
+   两条选择器对齐 `styles/tokens.css` 的写法:显式 [data-theme] 与系统跟随各一条。 */
+[data-theme="dark"] .msg.user {
+  --chat-user-bubble-ground: var(--text-strong);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .msg.user {
+    --chat-user-bubble-ground: var(--text-strong);
+  }
 }
 .msg.user .user-text {
   /* 稿子是深底白字,缺口在**右下**(原来是浅底深字、缺口在右上) */
@@ -564,6 +596,9 @@
   padding: 9px 13px;
   line-height: 1.7;
   font-size: 13px;
+  /* 稿子 `.bub { font-weight: 500 }` —— 深底白字在常规字重下会显得比周围的
+     助手正文更细;medium 把它拉回同一个视觉重量。 */
+  font-weight: 500;
   box-shadow: none;
   /* 承载用户输入的容器要能把没有空格的一长串断开(链接 / token / 路径 / base64)。
      用 anywhere 不用 break-all:后者会把每个英文词都拆散 */
@@ -1020,11 +1055,12 @@
    在白底上是变浅。
    hover 仍然有反馈 —— 时间与复制会浮出来(见上面 `.user-actions` 那条)。 */
 /* 时间不是动作,所以不给它按钮那套 30px 命中框 —— 做成能点的样子等于给一个
-   按了没反应的东西。字号 12 / --text-soft:这一行的主角是复制。 */
+   按了没反应的东西。字号 12,颜色走消息静音层(见 `--chat-message-muted-ink`):
+   这一行的主角是复制,时间只是附注。 */
 .msg.user .user-actions-time {
   margin-inline-start: 2px;
   font-size: 12px;
-  color: var(--text-soft);
+  color: var(--chat-message-muted-ink);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1037,12 +1073,14 @@
   border: none;
   background: none;
   border-radius: var(--radius-sm);
-  color: var(--text-soft);
+  color: var(--chat-message-muted-ink);
   cursor: pointer;
   transition: color 120ms var(--ease-out), background 120ms var(--ease-out);
 }
+/* hover 只换底,不换字色(稿子 `.msg-act button:hover` 就是这么写的)。
+   字色一 hover 就跳档,这排东西就不再是「一档静音色」而是两档;
+   而 hover 要说的事(「这个能点」)由底色说完就够了。 */
 .msg.user .user-copy-btn:hover {
-  color: var(--text);
   background: var(--bg-subtle);
 }
 .msg.user .user-copy-btn:focus-visible {
@@ -3557,13 +3595,21 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   margin-top: -2px;
   margin-inline-start: -2px;
 }
-/* 稿子 `.queue .q .grip svg { width: 12px; height: 12px }`
-   与 `.qops button svg { width: 12px; height: 12px }` —— 两条都要,
-   我们的 `<Icon size>` 给的是 14 / 13,比稿子各大一档。 */
-.chat-queued-send-drag-handle svg,
-.chat-queued-send-action svg {
+/* 稿子 `.queue .q .grip svg { width: 12px; height: 12px }` —— 手柄的图标。
+   `<Icon size>` 给的是 14,比稿子大一档,所以这里压回去。
+   ⚠️ 这一条**只管手柄**:动作键在 PR #7170 里已经提到 14(见下一条)。
+   两者原来并成一条选择器写,于是「动作键改大」这件事在这个文件里
+   一改就会把手柄一起带走。 */
+.chat-queued-send-drag-handle svg {
   width: 12px;
   height: 12px;
+}
+/* 稿子(PR #7170)`.qops button svg { width: 14px; height: 14px }` —— 从 12 提到 14。
+   手柄是「抓手」、动作是「按钮」,两者本来就不是同一号:命中框已经分了
+   (16×22 对 22×22),图标跟着分开才成立。 */
+.chat-queued-send-action svg {
+  width: 14px;
+  height: 14px;
 }
 /* 稿子 `.qops { display: flex; gap: 1px; margin-top: -2px }` —— 同样是负外距那条。 */
 .chat-queued-send-actions {
@@ -3787,7 +3833,9 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   gap: 6px;
   padding-bottom: 2px;
   font-size: var(--font-size-12);
-  color: var(--text-soft);
+  /* 稿子(PR #7170)把它收进消息静音层 —— 分界脚注和消息旁的时间 / 复制
+     是同一类附属信息,音量该一样。 */
+  color: var(--chat-message-muted-ink);
 }
 .fork-note svg {
   flex: none;

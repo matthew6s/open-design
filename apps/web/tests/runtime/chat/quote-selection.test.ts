@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendQuote,
+  appendQuoteOutcome,
   isQuotable,
   normalizeQuoteText,
   quoteBarPlacement,
@@ -179,6 +180,45 @@ describe('入列', () => {
     list = appendQuote(list, q('b', '第二段'));
     list = appendQuote(list, q('c', '第三段'));
     expect(list).toHaveLength(3);
+  });
+
+  /*
+   * 去重这件事**必须说出口**(OPEND-2546)。
+   *
+   * 原来重复添加的那一下:列表原样返回、选区被清掉、浮条消失 —— 从用户那头看,
+   * 和「点了没反应」完全一样,于是他会再点一次、再点一次。判据在这一层已经有了,
+   * 缺的是把结果**带出去**:调用方拿不到 added / duplicate,就没法给轻提示。
+   * 所以这里问的不是「列表对不对」,而是「这一下到底算不算数」。
+   */
+  it('重复的那一下要报 duplicate,并且原样退回旧列表(引用不能悄悄换成新的)', () => {
+    const first = appendQuoteOutcome([], q('a', '商品卡已经抽成共享组件'));
+    expect(first.status).toBe('added');
+
+    const again = appendQuoteOutcome(first.quotes, q('b', '  商品卡已经抽成共享组件 '));
+    expect(again.status).toBe('duplicate');
+    expect(again.quotes).toHaveLength(1);
+    // 同一段话第二次选中,留下的必须还是**第一条**:芯片的 id 是回跳定位的抓手,
+    // 悄悄换成新的等于把已经建立的引用挪了位置。
+    expect(again.quotes[0]?.id).toBe('a');
+    // 引用只有一份,列表也就不该换身份 —— 换了会让 React 白跑一次重渲染。
+    expect(again.quotes).toBe(first.quotes);
+  });
+
+  it('新的那一下报 added', () => {
+    const first = appendQuoteOutcome([], q('a', '第一段'));
+    const second = appendQuoteOutcome(first.quotes, q('b', '第二段'));
+    expect(second.status).toBe('added');
+    expect(second.quotes).toHaveLength(2);
+  });
+
+  it('`appendQuote` 和它是同一套判据 —— 两处各算各的早晚会分叉', () => {
+    const seeded = appendQuote([], q('a', '第一段'));
+    expect(appendQuoteOutcome(seeded, q('b', '第一段')).quotes).toEqual(
+      appendQuote(seeded, q('b', '第一段')),
+    );
+    expect(appendQuoteOutcome(seeded, q('b', '第二段')).quotes).toEqual(
+      appendQuote(seeded, q('b', '第二段')),
+    );
   });
 });
 
