@@ -76,6 +76,27 @@ function cliAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
   };
 }
 
+// DeepSeek Harness before its companion is installed: unavailable, yet the
+// picker still lists it so the user has somewhere to start setup from.
+function dshSetupRequiredAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
+  return {
+    id: 'deepseek-harness',
+    name: 'DeepSeek Harness',
+    bin: 'deepseek-harness',
+    available: false,
+    path: '/usr/local/bin/deepseek-harness',
+    models: [{ id: 'deepseek-chat', label: 'DeepSeek Chat' }],
+    diagnostics: [
+      {
+        reason: 'runtime-profile-incompatible',
+        severity: 'error',
+        message: 'Companion setup required.',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     mode: 'daemon',
@@ -1412,6 +1433,58 @@ describe('EntryShell onboarding OpenDesign AMR runtime', () => {
     // Let the armed debounce fire; it must find the inputs already proven.
     await new Promise((resolve) => setTimeout(resolve, ONBOARDING_LOCAL_AUTO_TEST_DELAY_MS + 250));
     expect(testCalls).toBe(1);
+  });
+
+  it('does not validate a saved selection the step is still asking the user to set up', async () => {
+    // A setup-required entry is selectable and can be the saved selection, but
+    // the daemon resolves its binary and really tries to start the runtime, so
+    // validating it unprompted answers with a failure on the same screen that
+    // is telling the user to finish installing it. Nothing may be spent until
+    // the companion setup actually succeeds.
+    let testCalls = 0;
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: true,
+          profile: 'prod',
+          configPath: '/x',
+          user: { id: 'u', email: 'user@example.com' },
+        });
+      }
+      if (url.endsWith('/api/test/connection') && init?.method === 'POST') {
+        testCalls += 1;
+        return jsonResponse({
+          ok: false,
+          kind: 'agent_spawn_failed',
+          latencyMs: 5,
+          model: 'deepseek-chat',
+          agentName: 'DeepSeek Harness',
+          detail: 'companion missing',
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+    // Only the setup-required entry is installed, so the scan has no available
+    // agent to fall back to and the saved selection stays on it.
+    renderOnboarding({
+      agents: [amrAgent(), dshSetupRequiredAgent()],
+      onRefreshAgents: vi.fn(() => [amrAgent(), dshSetupRequiredAgent()]),
+      config: baseConfig({ agentId: 'deepseek-harness' }),
+    });
+
+    await openLocalRuntimeSetup();
+    expect(await screen.findByText('DeepSeek Harness')).toBeTruthy();
+
+    // Let the whole debounce window pass: nothing may be spawned across it.
+    await new Promise((resolve) => setTimeout(resolve, ONBOARDING_LOCAL_AUTO_TEST_DELAY_MS + 250));
+    expect(testCalls).toBe(0);
+
+    // And the step is indeed still asking for setup rather than offering to
+    // continue — the two states must not contradict each other.
+    expect(
+      screen.getByRole('button', { name: /^Continue$/i }).getAttribute('aria-disabled'),
+    ).toBe('true');
   });
 
   it('does not auto-select OpenDesign AMR when the AMR runtime is unavailable', async () => {

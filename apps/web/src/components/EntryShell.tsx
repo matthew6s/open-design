@@ -2275,6 +2275,14 @@ function OnboardingView({
   const canTestAgent = Boolean(selectedAgent) && daemonLive;
   const runtimeSetupStep = step === 2;
   const localRuntimeConfigured = selectedAgent?.available === true;
+  // A setup-required entry (DeepSeek Harness before its companion is installed)
+  // stays in the picker and can be the saved selection, but it is not something
+  // to prove on the user's behalf: the daemon resolves its binary and really
+  // does try to start the runtime, so the panel would answer with a failure
+  // while the same screen is still telling the user to finish installing it.
+  // Only a selection the step would actually let them continue on is worth
+  // spending an unprompted spawn on. Pressing Test stays their call.
+  const agentValidationWorthStarting = canTestAgent && localRuntimeConfigured;
   const byokRuntimeConfigured = canTestProvider;
   const connectStepRuntimeReady =
     (runtime === 'local' && localRuntimeConfigured) ||
@@ -3500,7 +3508,7 @@ function OnboardingView({
   // answer waiting for it.
   useEffect(() => {
     if (runtime !== 'local' || !runtimeSetupStep) return;
-    if (!canTestAgent) return;
+    if (!agentValidationWorthStarting) return;
     if (agentAutoTestKeyRef.current === agentTestInputKey) return;
     const timer = window.setTimeout(() => {
       // Re-read at fire time: a manual Test press does not disturb this
@@ -3510,7 +3518,7 @@ function OnboardingView({
       void testAgentInline();
     }, ONBOARDING_LOCAL_AUTO_TEST_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [agentTestInputKey, canTestAgent, runtime, step]);
+  }, [agentTestInputKey, agentValidationWorthStarting, runtime, step]);
 
   // A validation only has a consumer while the setup step can still act on its
   // verdict. Leaving the step (Back, a runtime switch, closing onboarding) ends
@@ -3518,6 +3526,10 @@ function OnboardingView({
   // a cleared BYOK key or a daemon that went away leaves a request nothing can
   // consume, exactly like walking out. Both release the runtime through the
   // same cleanup, and React runs it on unmount too.
+  // Deliberately the wider `canTestAgent` rather than the narrower condition
+  // that governs starting: a run the user began by hand on a setup-required
+  // entry still has to be released when they leave. What may start on its own
+  // is a stricter question than what must be cleaned up.
   const runtimeValidationConsumable =
     runtimeSetupStep
     && ((runtime === 'local' && canTestAgent) || (runtime === 'byok' && canTestProvider));
