@@ -2041,16 +2041,16 @@ button.att-d:hover { border-color: var(--border-strong); }
   color: var(--text-strong); font-variant-numeric: tabular-nums;
 }
 .amount-value-input {
-  box-sizing: content-box; width: 1.2em; height: 34px; padding: 0 2px;
-  appearance: textfield; border: 0; border-radius: var(--radius-sm); outline: none;
+  box-sizing: border-box; width: 1.35em; height: 34px; padding: 0 2px;
+  appearance: textfield; border: var(--stroke-thin) solid var(--border); border-radius: var(--radius-sm); outline: none;
   background: transparent; color: inherit;
   font-family: var(--sans); font-size: 32px; font-weight: 600; line-height: 34px; text-align: center;
 }
 .amount-value-input::-webkit-outer-spin-button,
 .amount-value-input::-webkit-inner-spin-button { margin: 0; appearance: none; }
-.amount-value-input:hover { background: var(--bg-fill-secondary); }
+.amount-value-input:hover { border-color: var(--border-strong); background: var(--bg-fill-secondary); }
 .amount-value-input:focus-visible {
-  outline: 1px solid var(--selected); outline-offset: 2px;
+  border-color: var(--selected); box-shadow: 0 0 0 2px var(--selected-soft);
   background: var(--bg);
 }
 .amount-unit { margin-top: 3px; font-size: var(--t-cap); color: var(--text-muted); }
