@@ -71,13 +71,11 @@ inputs:
 parameters:
   output_format:
     type: enum
-    values: [standalone-html, nextjs-app, both]
+    values: [standalone-html]
     default: standalone-html
     description: >
-      `standalone-html` writes one self-contained .html (CSS inlined,
-      scripts inline, images relative). `nextjs-app` is a historical
-      enum label; this template no longer emits an Astro app tree.
-      `both` currently matches `standalone-html`.
+      Writes one self-contained .html (CSS inlined, scripts inline,
+      images relative).
   image_strategy:
     type: enum
     values: [generate, placeholder, bring-your-own]
@@ -94,13 +92,9 @@ parameters:
     description: Provider for `image_strategy: generate`. fal.ai is faster.
 outputs:
   - path: <out>/index.html
-    when: output_format in [standalone-html, both]
     description: Self-contained HTML with Atelier Zero CSS inlined.
   - path: <out>/assets/*.png (or *.svg)
     description: 16 collage assets, generated or placeholder per strategy.
-  - path: <out>/nextjs/
-    when: output_format in [nextjs-app, both]
-    description: Historical Astro tree output; no longer produced.
 capabilities_required:
   - file-write
   - http-fetch        # only when image_strategy=generate

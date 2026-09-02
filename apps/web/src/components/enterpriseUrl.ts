@@ -1,13 +1,10 @@
 // Shared helper for the marketing "Workspace for Teams" landing page URL.
 // Used by both the Home toolbar chip (EntryShell) and the compact settings
 // menu (EntrySettingsMenu) so the narrow-screen entry stays in sync with the
-// wide one. Opens in the external browser. In local dev we point at the
-// marketing-site Astro server (port 17574) so the full button → form
-// flow is walkable before the page ships to prod.
-const ENTERPRISE_BASE =
-  process.env.NODE_ENV === 'development'
-    ? 'http://127.0.0.1:17574'
-    : 'https://open-design.ai';
+// wide one. Opens in the external browser. The marketing site lives
+// outside this repo, so both development and production use the
+// deployed origin.
+const ENTERPRISE_BASE = 'https://open-design.ai';
 
 // Map the client's active locale to an active marketing-site locale segment so
 // the enterprise page opens in the same language the user is already reading.
