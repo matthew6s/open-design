@@ -189,5 +189,13 @@ describe("workflow scope planner", () => {
       workflow.indexOf("  web_workspace_tests:"),
     );
     expect(windowsPayload).not.toMatch(/\.github\/scripts\/(?:scopes|convergence|runners)\.py/);
+    const terminalScene = workflow.slice(
+      workflow.indexOf("  terminal_scene:"),
+      workflow.indexOf("  merge_policy:"),
+    );
+    expect(terminalScene).toContain("runs_on).terminal_scene");
+    expect(terminalScene).toContain("sh shells/terminal/sh/scene.sh");
+    expect(terminalScene).not.toContain("@open-design/terminal build");
+    expect(terminalScene).not.toContain("dist/exact-pack.mjs");
   });
 });

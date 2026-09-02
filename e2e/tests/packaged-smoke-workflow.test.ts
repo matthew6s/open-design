@@ -2091,6 +2091,7 @@ process.stdin.on("end", () => {
       "control",
       "general_medium",
       "js_hot",
+      "terminal_scene",
       "ui_hot",
       "ui_p0",
       "ui_p0_heavy",
@@ -2101,6 +2102,7 @@ process.stdin.on("end", () => {
     expect(defaultRunsOn.control).toEqual(["nexu-runners-small"]);
     expect(defaultRunsOn.general_medium).toEqual(["nexu-runners-medium"]);
     expect(defaultRunsOn.workspace_unit).toEqual(["nexu-runners-medium"]);
+    expect(defaultRunsOn.terminal_scene).toEqual(["macos-15"]);
     expect(defaultRunsOn.windows_tools).toEqual(["windows-latest"]);
     expect(defaultRunsOn.js_hot).toEqual(["nexu-runners-medium"]);
     expect(defaultRunsOn.ui_hot).toEqual(["nexu-runners-large"]);

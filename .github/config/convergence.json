@@ -177,7 +177,7 @@
         },
         "terminal_scene": {
           "inputs": ["suite://terminal-scene"],
-          "runnerClass": "workspace_unit",
+          "runnerClass": "terminal_scene",
           "products": "manifest",
           "reusable": true
         }

@@ -666,7 +666,7 @@ jobs:
     name: Terminal distribution scene
     needs: [plan, runners]
     if: ${{ fromJSON(needs.plan.outputs.run).terminal_scene }}
-    runs-on: ${{ fromJSON(needs.runners.outputs.runs_on).workspace_unit }}
+    runs-on: ${{ fromJSON(needs.runners.outputs.runs_on).terminal_scene }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -675,7 +675,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          runner-labels: ${{ toJSON(fromJSON(needs.runners.outputs.runs_on).workspace_unit) }}
+          runner-labels: ${{ toJSON(fromJSON(needs.runners.outputs.runs_on).terminal_scene) }}
 
       - name: Download convergence identity
         uses: actions/download-artifact@v8
@@ -692,30 +692,30 @@ jobs:
           from pathlib import Path
           lock = json.loads(Path('shells/terminal/node-lock.json').read_text())
           root = Path(os.environ['RUNNER_TEMP']) / 'terminal-node'
-          for value in lock['targets'].values():
-              destination = root / value['archive']
-              urllib.request.urlretrieve(value['url'], destination)
-              if hashlib.sha256(destination.read_bytes()).hexdigest() != value['sha256']:
-                  raise SystemExit(f"official Node digest mismatch: {destination.name}")
+          value = lock['targets']['darwin-arm64']
+          destination = root / value['archive']
+          urllib.request.urlretrieve(value['url'], destination)
+          if hashlib.sha256(destination.read_bytes()).hexdigest() != value['sha256']:
+              raise SystemExit(f"official Node digest mismatch: {destination.name}")
           PY
 
       - name: Build release-neutral Terminal scene
         run: |
           set -euo pipefail
+          pnpm --filter @open-design/platform build
+          pnpm --filter @open-design/sidecar build
+          pnpm --filter @open-design/standalone build
           pnpm --filter @open-design/closure build
-          pnpm --filter @open-design/terminal build
           python3 - <<'PY'
           import json, os
           from pathlib import Path
           lock = json.loads(Path('shells/terminal/node-lock.json').read_text())
-          closure = json.loads(Path('apps/closure/package.json').read_text())
-          standalone = json.loads(Path('packages/standalone/package.json').read_text())
           root = Path(os.environ['RUNNER_TEMP'])
-          targets = [{'target': target, 'nodeArchiveFile': str((root / 'terminal-node' / value['archive']).resolve()), 'nodeArchiveSha256': value['sha256']} for target, value in lock['targets'].items()]
-          request = {'schemaVersion': 1, 'operation': 'terminal.scene.build', 'standaloneVersion': standalone['version'], 'closureVersion': closure['version'], 'closureArtifactFile': str(Path('apps/closure/dist/fixture.mjs').resolve()), 'targets': targets, 'sceneDirectory': str((root / 'terminal-scene').resolve())}
+          value = lock['targets']['darwin-arm64']
+          request = {'schemaVersion': 1, 'operation': 'terminal.scene.build', 'target': 'darwin-arm64', 'shellVersion': Path('shells/terminal/version').read_text().strip(), 'node': {'version': lock['version'], 'archiveFile': str((root / 'terminal-node' / value['archive']).resolve()), 'archiveSha256': value['sha256']}, 'closureArtifactFile': str(Path('apps/closure/dist/index.mjs').resolve()), 'standaloneDirectory': str(Path('packages/standalone/dist').resolve()), 'sidecarDirectory': str(Path('packages/sidecar/dist').resolve()), 'platformDirectory': str(Path('packages/platform/dist').resolve()), 'sceneDirectory': str((root / 'terminal-scene').resolve())}
           (root / 'terminal-scene-request.json').write_text(json.dumps(request, sort_keys=True, separators=(',', ':')) + '\n')
           PY
-          node shells/terminal/dist/exact-pack.mjs --request "$RUNNER_TEMP/terminal-scene-request.json" --receipt "$RUNNER_TEMP/terminal-scene-receipt.json"
+          sh shells/terminal/sh/scene.sh --request "$RUNNER_TEMP/terminal-scene-request.json" --receipt "$RUNNER_TEMP/terminal-scene-receipt.json"
 
       - name: Write generic convergence product manifest
         run: |
