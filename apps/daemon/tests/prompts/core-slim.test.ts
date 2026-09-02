@@ -60,7 +60,17 @@ const repoRoot = path.resolve(__dirname, '../../../..');
 // Sized to the next 1KiB step rather than to fit: the previous raise left only
 // 44B of slack, so the next person to add a sentence hit this wall. 30_720
 // restores ~424B of headroom.
-const SLIM_CORE_BYTE_BUDGET = 30_720;
+//
+// 30_720 → 31_744: +318B for the render-check reply rule (W81). The model was
+// telling users 「桌面渲染服务暂不可用，本轮未能生成截图预览」 because this
+// section used to say "state that clearly" — see
+// `render-check-user-copy.test.ts`. Saying where a failed render goes instead
+// (tool output and daemon logs, never the visible reply) costs prose that
+// "state that clearly" did not, and it has to live here: the render check is
+// in the always-on charter, so a skill-less slim run must carry the rule too.
+// Sized to the next 1KiB step again rather than to fit — landing at 104B of
+// slack would just rebuild the wall this comment was written about.
+const SLIM_CORE_BYTE_BUDGET = 31_744;
 
 describe('renderSlimCoreCharter — byte budget', () => {
   it('stays under the byte budget in both execution profiles', () => {
