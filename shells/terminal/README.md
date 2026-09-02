@@ -151,6 +151,11 @@ before the channel-scoped latest CAS. Convergence therefore knows only Git
 inputs, execution class and an opaque scene product; channel, version, trust,
 minimum Shell version and artifact URL remain promotion concerns.
 
+PR B deliberately publishes and accepts only `darwin-arm64`. The PowerShell
+carrier and its isolated contract suite remain Electron/PR C preparation; they
+are not evidence for a Windows release until that task adds a native public
+artifact acceptance lane.
+
 ## Focused verification
 
 The focused Vitest suites are not wired into the repository's

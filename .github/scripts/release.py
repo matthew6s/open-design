@@ -210,6 +210,10 @@ def activate(request: dict[str, Any], receipt_path: Path) -> None:
 
 def legacy_release(request: dict[str, Any], receipt_path: Path) -> None:
     """Keep the pre-split local harness working; trusted workflows must not use this operation."""
+    pack = read_json(Path(str(request.get("packReceipt", ""))).resolve())
+    if pack.get("schemaVersion") != 2 or pack.get("operation") != "exact.pack":
+        legacy_release_v1(request, pack, receipt_path)
+        return
     scratch = receipt_path.parent / f".{receipt_path.stem}-compat"
     publish_receipt = scratch / "publish.json"
     publish({**request, "operation": "exact.publish"}, publish_receipt)
@@ -229,6 +233,70 @@ def legacy_release(request: dict[str, Any], receipt_path: Path) -> None:
     result["artifacts"] = [item for item in published["objects"] if item["kind"] == "artifact"]
     result["documents"] = [item for item in published["objects"] if item["kind"] == "document"]
     write_json(receipt_path, result)
+
+
+def legacy_release_v1(request: dict[str, Any], pack: dict[str, Any], receipt_path: Path) -> None:
+    """Publish the old monolithic receipt without teaching the new protocol about it."""
+    channel, version = str(pack.get("channel", "")), str(pack.get("releaseVersion", ""))
+    if not IDENTIFIER.fullmatch(channel):
+        raise SystemExit("invalid release channel")
+    release_number(version, channel)
+    endpoint, bucket = storage(request)
+    prefix = f"{endpoint}/{bucket}/{channel}"
+    uploaded: list[dict[str, Any]] = []
+    all_replayed = True
+    for kind in ("artifacts", "documents"):
+        values = pack.get(kind)
+        if not isinstance(values, list):
+            raise SystemExit(f"legacy pack receipt lacks {kind}")
+        for value in values:
+            path = verified_file(value, kind[:-1])
+            body = path.read_bytes()
+            content_type = "application/json; charset=utf-8" if kind == "documents" else value.get("mediaType", "application/octet-stream")
+            url = f"{prefix}/{version}/{path.name}"
+            etag, replayed = put_immutable(url, body, content_type)
+            all_replayed = all_replayed and replayed
+            if kind == "documents":
+                readback = http(url)
+                if readback.status != 200 or readback.read() != body:
+                    raise SystemExit(f"exact document readback failed: {url}")
+            uploaded.append({"kind": kind[:-1], "url": url, "etag": etag, "sha256": value["sha256"]})
+
+    head_path = Path(str(pack.get("channelHeadFile", ""))).resolve()
+    head_body = head_path.read_bytes()
+    latest_url = f"{prefix}/latest/channel-head.json"
+    current = http(latest_url)
+    headers = {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=60"}
+    replayed = False
+    if current.status == 404:
+        headers["If-None-Match"] = "*"
+    elif current.status == 200:
+        current_body = current.read()
+        if current_body == head_body:
+            replayed = True
+        else:
+            current_head = json.loads(current_body)["head"]
+            incoming_head = json.loads(head_body)["head"]
+            validate_lane_transition(current_head.get("lanes", {}), incoming_head.get("lanes", {}), channel)
+            etag = current.headers.get("ETag", "")
+            if not etag:
+                raise SystemExit("latest channel head lacks an ETag for CAS")
+            headers["If-Match"] = etag
+    else:
+        raise SystemExit(f"latest inspection failed ({current.status})")
+    if replayed:
+        latest_etag = current.headers.get("ETag", "")
+    else:
+        promoted = http(latest_url, "PUT", head_body, headers)
+        if promoted.status not in {200, 201}:
+            raise SystemExit(f"latest CAS failed ({promoted.status})")
+        latest_etag = promoted.headers.get("ETag", "")
+    write_json(receipt_path, {
+        "schemaVersion": 1, "operation": "exact.release", "channel": channel, "releaseVersion": version,
+        "latestChannelHeadUrl": latest_url, "latestChannelHeadEtag": latest_etag,
+        "documents": [item for item in uploaded if item["kind"] == "document"],
+        "artifacts": [item for item in uploaded if item["kind"] == "artifact"], "replayed": replayed and all_replayed,
+    })
 
 
 def self_check() -> None:

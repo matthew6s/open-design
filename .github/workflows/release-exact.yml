@@ -76,7 +76,6 @@ jobs:
           import json, os
           topology = [
               {"shell": "terminal", "target": "darwin-arm64", "workload": "terminal_scene_darwin_arm64", "runner_class": "terminal_darwin_arm64", "runs_on": "macos-15"},
-              {"shell": "terminal", "target": "win32-x64", "workload": "terminal_scene_win32_x64", "runner_class": "terminal_win32_x64", "runs_on": "windows-latest"},
           ]
           root = os.path.join(os.environ["RUNNER_TEMP"], "exact-plan")
           os.makedirs(root, exist_ok=True)
@@ -221,11 +220,6 @@ jobs:
         shell: bash
         run: sh shells/terminal/sh/scene.sh --request "$RUNNER_TEMP/exact-scene-request.json" --receipt "$RUNNER_TEMP/exact-scene-receipt.json"
 
-      - name: Build Windows Terminal scene
-        if: ${{ fromJSON(needs.plan.outputs.run)[matrix.workload] && startsWith(matrix.target, 'win32-') }}
-        shell: pwsh
-        run: ./shells/terminal/ps1/scene.ps1 -Request "$env:RUNNER_TEMP/exact-scene-request.json" -Receipt "$env:RUNNER_TEMP/exact-scene-receipt.json"
-
       - name: Verify scene and prepare convergence product
         env:
           ARTIFACT_NAME: exact-terminal-scene-${{ matrix.target }}-${{ inputs.source_sha }}
@@ -338,7 +332,7 @@ jobs:
               directory = root / "scenes" / f"exact-terminal-scene-{target}-{os.environ['SOURCE_SHA']}"
               manifest = directory / "scene.json"
               scenes.append({"target": target, "sceneDirectory": str(directory), "sceneManifestSha256": hashlib.sha256(manifest.read_bytes()).hexdigest()})
-          published_at = subprocess.check_output(["git", "show", "--no-patch", "--format=%cI", os.environ["SOURCE_SHA"]], text=True).strip()
+          published_at = subprocess.check_output(['git', 'show', '--no-patch', '--format=%cI', os.environ['SOURCE_SHA']], text=True).strip()
           request = {
               "schemaVersion": 1,
               "operation": "exact.prepare",
@@ -422,11 +416,6 @@ jobs:
         if: ${{ startsWith(matrix.target, 'darwin-') }}
         shell: bash
         run: sh shells/terminal/sh/distribution.sh --request "$RUNNER_TEMP/distribution-request.json" --receipt "$RUNNER_TEMP/distribution/distribution-receipt.json"
-
-      - name: Build Windows distribution
-        if: ${{ startsWith(matrix.target, 'win32-') }}
-        shell: pwsh
-        run: ./shells/terminal/ps1/distribution.ps1 -Request "$env:RUNNER_TEMP/distribution-request.json" -Receipt "$env:RUNNER_TEMP/distribution/distribution-receipt.json"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -620,7 +609,7 @@ jobs:
           (root / "required-acceptance.json").write_text(json.dumps(required, sort_keys=True, separators=(",", ":")) + "\n")
           PY
 
-      - name: Install and probe Darwin Shell
+      - name: Install and exercise Darwin Shell lifecycle
         if: ${{ startsWith(matrix.target, 'darwin-') }}
         shell: bash
         run: |
@@ -632,17 +621,21 @@ jobs:
             --root "$RUNNER_TEMP/installed-shell" \
             --channel "${{ inputs.channel }}" \
             --namespace exact-public-acceptance > "$RUNNER_TEMP/installed-proof.json"
-
-      - name: Install and probe Windows Shell
-        if: ${{ startsWith(matrix.target, 'win32-') }}
-        shell: pwsh
-        run: |
-          Expand-Archive -LiteralPath "$env:RUNNER_TEMP/public-shell-archive" -DestinationPath "$env:RUNNER_TEMP/extracted"
-          & "$env:RUNNER_TEMP/extracted/nexu-terminal/ps1/install.ps1" `
-            -Source "$env:RUNNER_TEMP/extracted/nexu-terminal" `
-            -Root "$env:RUNNER_TEMP/installed-shell" `
-            -Channel "${{ inputs.channel }}" `
-            -Namespace exact-public-acceptance | Out-File -LiteralPath "$env:RUNNER_TEMP/installed-proof.json" -Encoding utf8NoBOM
+          run_terminal() {
+            operation=$1
+            shift
+            sh "$RUNNER_TEMP/installed-shell/sh/terminal.sh" \
+              --root "$RUNNER_TEMP/installed-shell" \
+              --store-root "$RUNNER_TEMP/acceptance-store" \
+              --channel "${{ inputs.channel }}" \
+              --namespace exact-public-acceptance \
+              --operation "$operation" \
+              --result "$RUNNER_TEMP/runtime-$operation.json" \
+              "$@"
+          }
+          run_terminal start --attachment-id public-acceptance
+          run_terminal status
+          run_terminal stop
 
       - name: Bind installed acceptance credential
         env:
@@ -658,14 +651,26 @@ jobs:
           published = json.loads((root / "published" / "publish-receipt.json").read_text())
           required = json.loads((root / "required-acceptance.json").read_text())
           proof = json.loads((root / "installed-proof.json").read_text(encoding="utf-8-sig"))
+          runtime = {operation: json.loads((root / f"runtime-{operation}.json").read_text()) for operation in ("start", "status", "stop")}
           shell = required["shell"]
           if proof.get("target") != required["target"] or proof.get("shell", {}).get("type") != shell["type"] or proof.get("shell", {}).get("version") != shell["version"] or proof.get("shell", {}).get("digest") != shell["buildHash"]:
               raise SystemExit("installed Shell proof does not bind the published contribution")
+          started, status, stopped = (runtime[operation].get("result", {}) for operation in ("start", "status", "stop"))
+          if any(runtime[operation].get("outcome") != "ready" for operation in runtime):
+              raise SystemExit("installed Shell lifecycle did not complete")
+          if started.get("state") != "running" or started.get("references") != 1 or not isinstance(started.get("attachmentCapability"), str):
+              raise SystemExit("installed Shell did not establish an attached generation")
+          if status.get("state") != "running" or status.get("generationId") != started.get("generationId") or status.get("bindingDigest") != started.get("bindingDigest"):
+              raise SystemExit("installed Shell status lost its exact generation binding")
+          if status.get("sidecar", {}).get("generationPid") != started.get("sidecar", {}).get("generationPid") or status.get("sidecar", {}).get("status") != "ready":
+              raise SystemExit("installed Shell status lost its Sidecar generation")
+          if stopped.get("state") != "stopped" or stopped.get("sidecar", {}).get("remainingPids") != []:
+              raise SystemExit("installed Shell did not stop its lifecycle and physical Sidecar")
           credential = {
               "schemaVersion": 1, "operation": "exact.acceptance", "status": "accepted",
               "channel": published["channel"], "releaseVersion": published["releaseVersion"], "sourceCommit": published["sourceCommit"],
               "shell": shell, "target": required["target"], "artifact": required["artifact"], "shellMetadata": required["shellMetadata"],
-              "installed": {"shell": shell, "target": required["target"], "proof": proof},
+              "installed": {"shell": shell, "target": required["target"], "proof": proof, "runtime": runtime},
           }
           destination = root / "acceptance"
           destination.mkdir()

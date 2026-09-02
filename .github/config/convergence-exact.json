@@ -33,12 +33,6 @@
           "runnerClass": "terminal_darwin_arm64",
           "products": "manifest",
           "reusable": true
-        },
-        "terminal_scene_win32_x64": {
-          "inputs": ["suite://terminal-scene"],
-          "runnerClass": "terminal_win32_x64",
-          "products": "manifest",
-          "reusable": true
         }
       }
     }

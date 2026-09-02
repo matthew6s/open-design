@@ -353,6 +353,18 @@ def finalize(request: dict[str, Any], receipt_path: Path) -> None:
     write_json(receipt_path, receipt)
 
 
+def legacy_pack(request: dict[str, Any], receipt_path: Path) -> None:
+    """Preserve the pre-split tools harness contract during the phased migration."""
+    scene = Path(str(request.get("sceneDirectory", ""))).resolve()
+    manifest = read_json(scene / "scene.json")
+    if manifest.get("standaloneVersion") != request.get("standaloneVersion"):
+        raise SystemExit("requested standaloneVersion differs from Terminal scene")
+    raise SystemExit(
+        "legacy exact.pack can only reuse its validation contract; "
+        "release-exact must use exact.prepare and exact.finalize"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--request", required=True, type=Path)
@@ -365,6 +377,8 @@ def main() -> None:
         prepare(request, args.receipt.resolve())
     elif request.get("operation") == "exact.finalize":
         finalize(request, args.receipt.resolve())
+    elif request.get("operation") == "exact.pack":
+        legacy_pack(request, args.receipt.resolve())
     else:
         raise SystemExit("unsupported exact pack operation")
 

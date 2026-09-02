@@ -38,4 +38,36 @@ describe("Closure cold-start fixture", () => {
     })).resolves.toMatchObject({ state: "update-required", minimumVersion: "2.0.0", snapshot: { state: "ready", progress: { completed: 2, total: 2 } } });
     expect(snapshots).toEqual(["idle", "available", "ready"]);
   });
+
+  it("does not enter the Shell handler when the current Shell satisfies the fossil floor", async () => {
+    const updater = {
+      shellType: "electron",
+      readSnapshot: async () => { throw new Error("must not read a compatible Shell updater"); },
+      waitForChange: async () => { throw new Error("must not wait on a compatible Shell updater"); },
+      invoke: async () => { throw new Error("must not invoke a compatible Shell updater"); },
+      confirmInstalled: async () => { throw new Error("must not confirm a compatible Shell updater"); },
+    };
+    await expect(prepareClosureShellUpdate({
+      requirement: { type: "electron", minVersion: "1.2.0", buildHash: "b".repeat(64) },
+      shell: { type: "electron", version: "1.2.0", buildHash: "b".repeat(64), digest: "a".repeat(64) },
+      updater,
+    })).resolves.toEqual({ state: "compatible" });
+  });
+
+  it("fails closed when the available updater belongs to another Shell type", async () => {
+    let invoked = false;
+    const updater = {
+      shellType: "terminal",
+      readSnapshot: async () => { invoked = true; throw new Error("wrong updater must remain isolated"); },
+      waitForChange: async () => { invoked = true; throw new Error("wrong updater must remain isolated"); },
+      invoke: async () => { invoked = true; throw new Error("wrong updater must remain isolated"); },
+      confirmInstalled: async () => { invoked = true; throw new Error("wrong updater must remain isolated"); },
+    };
+    await expect(prepareClosureShellUpdate({
+      requirement: { type: "electron", minVersion: "2.0.0", buildHash: "b".repeat(64) },
+      shell: { type: "electron", version: "1.0.0", buildHash: "b".repeat(64), digest: "a".repeat(64) },
+      updater,
+    })).resolves.toEqual({ state: "update-required", currentVersion: "1.0.0", minimumVersion: "2.0.0", snapshot: null });
+    expect(invoked).toBe(false);
+  });
 });

@@ -69,6 +69,16 @@ async function waitForSuccessor(stamp: SidecarStamp, generationPid: number, prev
   throw new Error(`Terminal Sidecar successor did not become ready: ${JSON.stringify(last)}`);
 }
 
+async function waitForSidecarExit(stamp: SidecarStamp, generationPid: number) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try { await getSidecarStatus(stamp, { generationPid, timeoutMs: 250 }); }
+    catch { return; }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error("crashed Terminal Sidecar generation remained addressable");
+}
+
 describe("Terminal Sidecar refinement", () => {
   it("keeps the Sidecar generation root while handing an exact Standalone binding to a fresh host", async () => {
     const root = mkdtempSync(join(tmpdir(), "terminal-sidecar-refinement-"));
@@ -110,16 +120,38 @@ describe("Terminal Sidecar refinement", () => {
     const generationPid = converged.description.resources.pid;
     expect(concurrent.description.resources.pid).toBe(generationPid);
     const attachment = { id: "terminal-a", shell: { type: "terminal", version: "0.1.0", buildHash: "c".repeat(64), digest: "d".repeat(64) } };
-    const first = await invokeSidecar<any>(stamp, "standalone.request.v1", {
+    const [first, concurrentAttachment] = await Promise.all([
+      invokeSidecar<any>(stamp, "standalone.request.v1", {
+        schemaVersion: 1,
+        domain: "lifecycle",
+        operation: "start",
+        scope,
+        generation: firstGeneration,
+        binding: firstBinding,
+        attachment,
+      }),
+      invokeSidecar<any>(stamp, "standalone.request.v1", {
+        schemaVersion: 1,
+        domain: "lifecycle",
+        operation: "start",
+        scope,
+        generation: firstGeneration,
+        binding: firstBinding,
+        attachment: { ...attachment, id: "terminal-concurrent" },
+      }),
+    ]);
+    expect(first).toMatchObject({ bindingDigest: firstBinding.digest, attachmentCapability: expect.any(String) });
+    expect(concurrentAttachment).toMatchObject({ bindingDigest: firstBinding.digest, attachmentCapability: expect.any(String) });
+    expect([first.references, concurrentAttachment.references].sort()).toEqual([1, 2]);
+    await expect(invokeSidecar<any>(stamp, "standalone.request.v1", {
       schemaVersion: 1,
-      domain: "lifecycle",
-      operation: "start",
+      domain: "maintenance",
+      operation: "sweep-if-idle",
       scope,
-      generation: firstGeneration,
-      binding: firstBinding,
-      attachment,
-    });
-    expect(first).toMatchObject({ bindingDigest: firstBinding.digest, references: 1, attachmentCapability: expect.any(String) });
+    })).resolves.toMatchObject({ status: "deferred", reason: "occupied", occupants: expect.arrayContaining([
+      expect.objectContaining({ attachmentId: attachment.id }),
+      expect.objectContaining({ attachmentId: "terminal-concurrent" }),
+    ]) });
     const originalHost = await getSidecarStatus<any>(stamp, { generationPid });
     expect(originalHost).toMatchObject({ control: "ready", generationPid, hostPid: expect.any(Number) });
     await invokeSidecar(stamp, "standalone.request.v1", {
@@ -130,6 +162,20 @@ describe("Terminal Sidecar refinement", () => {
       attachmentId: attachment.id,
       attachmentCapability: first.attachmentCapability,
     });
+    await invokeSidecar(stamp, "standalone.request.v1", {
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "release",
+      scope,
+      attachmentId: "terminal-concurrent",
+      attachmentCapability: concurrentAttachment.attachmentCapability,
+    });
+    await expect(invokeSidecar<any>(stamp, "standalone.request.v1", {
+      schemaVersion: 1,
+      domain: "maintenance",
+      operation: "sweep-if-idle",
+      scope,
+    })).resolves.toMatchObject({ status: "complete" });
     const idle = await invokeSidecar<any>(stamp, "standalone.request.v1", { schemaVersion: 1, domain: "lifecycle", operation: "status", scope });
     await invokeSidecar(stamp, "standalone.request.v1", { schemaVersion: 1, domain: "lifecycle", operation: "stop", scope, fence: idle.fence });
     await invokeSidecar(stamp, "standalone.request.v1", {
@@ -152,5 +198,24 @@ describe("Terminal Sidecar refinement", () => {
       attachment: { ...attachment, id: "terminal-b" },
     });
     expect(second).toMatchObject({ bindingDigest: secondBinding.digest, references: 1 });
-  }, 30_000);
+    await invokeSidecar(stamp, "standalone.request.v1", {
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "release",
+      scope,
+      attachmentId: "terminal-b",
+      attachmentCapability: second.attachmentCapability,
+    });
+    await expect(invokeSidecar(stamp, "standalone.request.v1", {
+      schemaVersion: 1,
+      domain: "lifecycle",
+      operation: "status",
+      scope,
+      fault: "crash",
+    })).resolves.toMatchObject({ accepted: true });
+    await waitForSidecarExit(stamp, generationPid);
+    const recovered = await convergeSidecarLaunch(launchRequest, { stabilityMs: 100, timeoutMs: 15_000 });
+    expect(recovered.description.resources.pid).not.toBe(generationPid);
+    await expect(getSidecarStatus(stamp, { generationPid: recovered.description.resources.pid })).resolves.toMatchObject({ control: "ready" });
+  }, 45_000);
 });
