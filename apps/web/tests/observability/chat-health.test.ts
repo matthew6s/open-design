@@ -351,3 +351,40 @@ describe('observability/chat-health — stream health', () => {
     expect(eventsNamed('client_chat_stream_health')).toHaveLength(0);
   });
 });
+
+describe('observability/chat-health — provider-facing seam', () => {
+  it('lets the daemon provider drive run windows without holding the handle', async () => {
+    // providers/daemon.ts owns the authoritative run lifecycle but has no
+    // React context. These module-level functions are the seam; without
+    // them the provider would need the surface handle threaded through
+    // props, and the run window would silently never open.
+    const { chatSurfaceRunEnded, chatSurfaceRunStarted } = await import(
+      '../../src/observability/chat-health'
+    );
+    const log = buildChatLog(2);
+    const handle = openChatSurface({ element: log, messageCount: 2, virtualized: false });
+    handle.markFirstPaint({ renderedRowCount: 2 });
+
+    chatSurfaceRunStarted('run-remote');
+    advanceClock(1000);
+    emitLongTask(250);
+    advanceClock(1000);
+    chatSurfaceRunEnded('run-remote');
+
+    const [health] = eventsNamed('client_chat_stream_health');
+    expect(health).toBeDefined();
+    expect(health?.blocked_ms).toBe(250);
+    expect(health?.run_completed).toBe(true);
+  });
+
+  it('no-ops when no chat surface is attached', async () => {
+    const { chatSurfaceRunEnded, chatSurfaceRunStarted } = await import(
+      '../../src/observability/chat-health'
+    );
+    expect(() => {
+      chatSurfaceRunStarted('run-orphan');
+      chatSurfaceRunEnded('run-orphan');
+    }).not.toThrow();
+    expect(eventsNamed('client_chat_stream_health')).toHaveLength(0);
+  });
+});

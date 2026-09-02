@@ -17,6 +17,7 @@ import { installBootTimingObserver } from './boot-timing';
 import { installVisibilityObserver } from './visibility';
 import { installWhiteScreenDetector } from './white-screen';
 import { installPreviewIframeMessageObserver } from './iframe-error';
+import { installChatInteractionObserver } from './chat-interaction';
 
 let installed = false;
 
@@ -32,6 +33,11 @@ export function installWebObservability(): () => void {
     installVisibilityObserver(),
     installWhiteScreenDetector(),
     installPreviewIframeMessageObserver(),
+    // Chat input latency is global rather than per-surface: the Event
+    // Timing observer must already be listening when the user's first
+    // interaction lands, which is well before any chat surface mounts.
+    // It attributes entries to the chat panel itself and ignores the rest.
+    installChatInteractionObserver(),
   ];
 
   return () => {
