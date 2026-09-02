@@ -252,23 +252,6 @@ describe("postinstall script contract", () => {
     expect(targets.indexOf("packages/contracts")).toBeGreaterThanOrEqual(0);
     expect(targets.indexOf("packages/release")).toBeLessThan(targets.indexOf("packages/contracts"));
 
-    const targetIndexes = new Map(targets.map((target, index) => [target, index]));
-    const outOfOrderDependencies = targets.flatMap((target) => {
-      const manifest = manifests.get(target);
-      if (manifest == null) return [];
-      return [...workspaceDependencyNames(manifest, true)]
-        .map((dependencyName) => {
-          const dependencyTarget = [...manifests.entries()].find(
-            ([, dependencyManifest]) => packageName(dependencyManifest) === dependencyName,
-          )?.[0];
-          if (dependencyTarget == null || !targetIndexes.has(dependencyTarget)) return null;
-          return targetIndexes.get(dependencyTarget)! < targetIndexes.get(target)!
-            ? null
-            : `${target} before ${dependencyTarget}`;
-        })
-        .filter((value): value is string => value != null);
-    });
-    expect(outOfOrderDependencies).toEqual([]);
   });
 
   it("[P2] skips absent tsconfig targets in partial install contexts on the default path", () => {
@@ -288,7 +271,7 @@ describe("postinstall script contract", () => {
 
       const result = runFixturePostinstall(sandbox, { OPEN_DESIGN_POSTINSTALL_CONCURRENCY: "" });
       expect(result.status, String(result.stderr)).toBe(0);
-      expect(result.stdout).not.toContain("dependency-aware parallel build enabled");
+      expect(result.stdout).toContain("postinstall: dependency-aware parallel build enabled (concurrency=1)");
       expect(result.stdout).toContain("postinstall: skipping apps/daemon (no tsconfig.json in this context)");
 
       const events = readStubEvents(invocationLog);

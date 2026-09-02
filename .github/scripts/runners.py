@@ -23,7 +23,6 @@ EXPECTED_CLASSES = {
     "control",
     "general_medium",
     "workspace_unit",
-    "terminal_scene",
     "windows_tools",
     "js_hot",
     "ui_hot",

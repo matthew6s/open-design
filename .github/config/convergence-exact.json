@@ -8,7 +8,7 @@
       ".github/scripts/lib/config.py",
       ".github/scripts/lib/github.py",
       ".github/scripts/lib/r2.py",
-      ".github/workflows/convergence.atom.yml",
+      ".github/workflows/convergence-exact.atom.yml",
       ".github/workflows/release-exact.yml"
     ],
     "terminal-scene": [

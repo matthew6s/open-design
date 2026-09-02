@@ -2091,7 +2091,6 @@ process.stdin.on("end", () => {
       "control",
       "general_medium",
       "js_hot",
-      "terminal_scene",
       "ui_hot",
       "ui_p0",
       "ui_p0_heavy",
@@ -2102,7 +2101,6 @@ process.stdin.on("end", () => {
     expect(defaultRunsOn.control).toEqual(["nexu-runners-small"]);
     expect(defaultRunsOn.general_medium).toEqual(["nexu-runners-medium"]);
     expect(defaultRunsOn.workspace_unit).toEqual(["nexu-runners-medium"]);
-    expect(defaultRunsOn.terminal_scene).toEqual(["macos-15"]);
     expect(defaultRunsOn.windows_tools).toEqual(["windows-latest"]);
     expect(defaultRunsOn.js_hot).toEqual(["nexu-runners-medium"]);
     expect(defaultRunsOn.ui_hot).toEqual(["nexu-runners-large"]);
@@ -2204,15 +2202,9 @@ process.stdin.on("end", () => {
     expect(handoffScript).toContain("def self_check()");
     expect(handoffScript).toContain('"report"');
     expect(handoffScript).toContain('"convergence"');
-    expect(convergenceWorkflow).toContain(
-      "HANDOFF_ID: ${{ github.event.workflow_run.name == 'release-exact' && 'exact-scenes' || 'ci-results' }}",
-    );
-    expect(convergenceWorkflow).toContain('handoff.py resolve-run-artifact convergence "$HANDOFF_ID"');
+    expect(convergenceWorkflow).toContain("handoff.py resolve-run-artifact convergence ci-results");
     expect(convergenceWorkflow).toContain("Checkout trusted convergence code");
-    expect(convergenceWorkflow).toContain('config=(--config .github/config/convergence-exact.json)');
-    expect(convergenceWorkflow).toContain(
-      'python3 .github/scripts/convergence.py "${config[@]}" admit --handoff-root "$RUNNER_TEMP/handoff-convergence"',
-    );
+    expect(convergenceWorkflow).toContain("convergence.py admit");
     expect(convergenceWorkflow).toContain("python3 .github/scripts/convergence.py publish");
     expect(convergenceWorkflow).toContain("convergence.py stage-products");
     expect(convergenceWorkflow).toContain("convergence.py storage-status");

@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, extname, resolve } from "node:path";
@@ -11,10 +11,10 @@ const repoRoot = resolve(scriptDir, "..");
 const buildTargets = [
   "packages/release",
   "packages/contracts",
+  "packages/standalone",
   "packages/components",
   "packages/platform",
   "packages/download",
-  "packages/standalone",
   "packages/host",
   "packages/registry-protocol",
   "packages/agui-adapter",
@@ -77,25 +77,6 @@ function availableBuildTargets() {
     targets.push(target);
   }
   return targets;
-}
-
-function runBuildTargetSync(target) {
-  const result = spawnSync(
-    packageManager.command,
-    [...packageManager.argsPrefix, "-C", target, "run", "build"],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-    },
-  );
-
-  if (result.error != null) {
-    throw result.error;
-  }
-
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
 }
 
 function runBuildTarget(target) {
@@ -216,13 +197,6 @@ async function runBuildTargetsInParallel(targets, concurrency) {
 async function runBuildTargets() {
   const targets = availableBuildTargets();
   const concurrency = postinstallConcurrency();
-  if (concurrency <= 1) {
-    for (const target of targets) {
-      runBuildTargetSync(target);
-    }
-    return;
-  }
-
   await runBuildTargetsInParallel(targets, concurrency);
 }
 
