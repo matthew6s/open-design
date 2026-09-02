@@ -34,7 +34,7 @@ import EnterpriseLeadForm from '../../_components/enterprise-lead-form.astro';
 import {
   getFaqs,
   getFaqTitle,
-  getRefundPolicyLabel,
+  getMoreFaqLabel,
   getEnterprise,
 } from '../../_lib/pricing-extras-content';
 import { localeFromPath, localizedHref } from '../../i18n';
@@ -62,7 +62,7 @@ const footnoteHtml = fillTemplate(L.footnote, {
 
 const faqs = getFaqs(locale);
 const faqTitle = getFaqTitle(locale);
-const refundPolicyLabel = getRefundPolicyLabel(locale);
+const moreFaqLabel = getMoreFaqLabel(locale);
 const enterprise = getEnterprise(locale);
 const LF = enterprise.leadForm;
 
@@ -452,7 +452,7 @@ const jsonLd = [
           </details>
         ))}
       </div>
-      <a class="pr-faq-more" href={refundPolicyHref}>{refundPolicyLabel}</a>
+      <a class="pr-faq-more" href={refundPolicyHref}>{moreFaqLabel}</a>
     </section>
   </article>
 

@@ -186,64 +186,6 @@ const FAQ_BY_LOCALE: Partial<Record<LandingLocaleCode, FaqItem[]>> = {
   "ja": FAQ_JA,
 };
 
-const REFUND_FAQ_BY_LOCALE: Partial<Record<LandingLocaleCode, FaqItem>> = {
-  en: {
-    q: 'How do refunds work?',
-    a: 'Refund eligibility varies by region, subscription type, and usage. See the full refund policy for details.',
-    refundPolicyCta: 'View the full refund policy',
-  },
-  zh: {
-    q: '怎么申请退款？',
-    a: '退款资格因所在地区、订阅类型和使用情况而异，具体请查看完整退款政策。',
-    refundPolicyCta: '查看完整退款政策',
-  },
-  ja: {
-    q: '返金はどのように扱われますか？',
-    a: '返金の対象可否は、地域、サブスクリプションの種類、利用状況によって異なります。詳細は返金ポリシー全文をご確認ください。',
-    refundPolicyCta: '返金ポリシー全文を見る',
-  },
-  ko: {
-    q: '환불은 어떻게 처리되나요?',
-    a: '환불 자격은 지역, 구독 유형 및 사용 상황에 따라 달라집니다. 자세한 내용은 전체 환불 정책을 확인해 주세요.',
-    refundPolicyCta: '전체 환불 정책 보기',
-  },
-  de: {
-    q: 'Wie funktionieren Rückerstattungen?',
-    a: 'Der Anspruch auf eine Rückerstattung hängt von Region, Abonnementart und Nutzung ab. Einzelheiten finden Sie in der vollständigen Rückerstattungsrichtlinie.',
-    refundPolicyCta: 'Vollständige Rückerstattungsrichtlinie ansehen',
-  },
-  fr: {
-    q: 'Comment fonctionnent les remboursements ?',
-    a: 'L’éligibilité au remboursement dépend de votre région, du type d’abonnement et de l’utilisation. Consultez la politique de remboursement complète pour plus de détails.',
-    refundPolicyCta: 'Voir la politique de remboursement complète',
-  },
-  ru: {
-    q: 'Как работают возвраты?',
-    a: 'Право на возврат зависит от региона, типа подписки и использования. Подробности приведены в полной политике возврата.',
-    refundPolicyCta: 'Открыть полную политику возврата',
-  },
-  es: {
-    q: '¿Cómo funcionan los reembolsos?',
-    a: 'La elegibilidad para el reembolso varía según la región, el tipo de suscripción y el uso. Consulta la política de reembolso completa para obtener más información.',
-    refundPolicyCta: 'Ver la política de reembolso completa',
-  },
-  'pt-br': {
-    q: 'Como funcionam os reembolsos?',
-    a: 'A elegibilidade para reembolso varia conforme a região, o tipo de assinatura e o uso. Consulte a política de reembolso completa para saber mais.',
-    refundPolicyCta: 'Ver a política de reembolso completa',
-  },
-  it: {
-    q: 'Come funzionano i rimborsi?',
-    a: 'L’idoneità al rimborso varia in base all’area geografica, al tipo di abbonamento e all’utilizzo. Consulta la politica di rimborso completa per i dettagli.',
-    refundPolicyCta: 'Consulta la politica di rimborso completa',
-  },
-  tr: {
-    q: 'Para iadeleri nasıl işliyor?',
-    a: 'Para iadesi uygunluğu bölgeye, abonelik türüne ve kullanıma göre değişir. Ayrıntılar için para iade politikasının tamamını inceleyin.',
-    refundPolicyCta: 'Para iade politikasının tamamını görüntüle',
-  },
-};
-
 /** Pricing FAQ items, falling back to English. Promo-only entries are dropped
  * and trial-mentioning answers swapped while the trial promo is offline. */
 export function getFaqs(locale: LandingLocaleCode): FaqItem[] {
@@ -273,12 +215,24 @@ export function getFaqTitle(locale: LandingLocaleCode): string {
   return FAQ_TITLE_BY_LOCALE[locale] ?? FAQ_TITLE_BY_LOCALE.en!;
 }
 
-/** Localized bottom entry for the standalone refund policy. */
-export function getRefundPolicyLabel(locale: LandingLocaleCode): string {
-  return (
-    REFUND_FAQ_BY_LOCALE[locale]?.refundPolicyCta ??
-    REFUND_FAQ_BY_LOCALE.en!.refundPolicyCta!
-  );
+const MORE_FAQ_LABEL_BY_LOCALE: Partial<Record<LandingLocaleCode, string>> = {
+  en: 'View more frequently asked questions',
+  zh: '查看更多常见问题',
+  'zh-tw': '查看更多常見問題',
+  ja: 'よくある質問をもっと見る',
+  ko: '자주 묻는 질문 더 보기',
+  de: 'Weitere häufig gestellte Fragen',
+  fr: 'Voir plus de questions fréquentes',
+  ru: 'Посмотреть больше часто задаваемых вопросов',
+  es: 'Ver más preguntas frecuentes',
+  'pt-br': 'Ver mais perguntas frequentes',
+  it: 'Visualizza altre domande frequenti',
+  tr: 'Daha fazla sık sorulan soruyu görüntüle',
+};
+
+/** Localized label for the Pricing FAQ footer entry. */
+export function getMoreFaqLabel(locale: LandingLocaleCode): string {
+  return MORE_FAQ_LABEL_BY_LOCALE[locale] ?? MORE_FAQ_LABEL_BY_LOCALE.en!;
 }
 
 export interface LeadFormCopy {

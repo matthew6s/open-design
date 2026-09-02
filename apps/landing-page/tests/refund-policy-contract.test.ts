@@ -22,7 +22,7 @@ describe('refund policy page', () => {
 
     const [
       { getRefundPolicyContent },
-      { getRefundPolicyLabel },
+      { getMoreFaqLabel },
       { getHeaderLocaleSwitcher, LANDING_LOCALES },
       page,
       localizedPage,
@@ -103,7 +103,7 @@ describe('refund policy page', () => {
       assert.match(policyText, /10/, `${locale}: missing processing deadline`);
 
       assert.ok(
-        getRefundPolicyLabel(locale).length > 0,
+        getMoreFaqLabel(locale).length > 0,
         `${locale}: missing localized pricing refund-policy entry`,
       );
     }
@@ -120,7 +120,7 @@ describe('refund policy page', () => {
     assert.match(page, /section\.items\.slice\(section\.inlineItemCount \?\? 0\)/);
     assert.match(
       pricingPage,
-      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{refundPolicyLabel\}<\/a>/,
+      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{moreFaqLabel\}<\/a>/,
     );
     assert.deepEqual(
       getHeaderLocaleSwitcher('en', '/refund-policy/', {

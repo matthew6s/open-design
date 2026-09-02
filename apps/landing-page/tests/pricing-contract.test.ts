@@ -621,23 +621,27 @@ describe("pricing contract", () => {
     assert.doesNotMatch(page, /限时抢购/);
   });
 
-  it("uses the Pricing FAQ footer as the localized refund-policy entry", async () => {
+  it("uses localized view-more FAQ copy while routing the footer to the refund policy", async () => {
     const [page, pricingExtras] = await Promise.all([
       readFile(PRICING_PAGE_PATH, "utf8"),
       import("../app/_lib/pricing-extras-content.ts"),
     ]);
-    const getRefundPolicyLabel = (
+    const getMoreFaqLabel = (
       pricingExtras as Record<string, unknown>
-    ).getRefundPolicyLabel;
+    ).getMoreFaqLabel;
 
-    assert.equal(typeof getRefundPolicyLabel, "function");
+    assert.equal(typeof getMoreFaqLabel, "function");
     assert.equal(
-      (getRefundPolicyLabel as (locale: string) => string)("zh"),
-      "查看完整退款政策",
+      (getMoreFaqLabel as (locale: string) => string)("zh"),
+      "查看更多常见问题",
+    );
+    assert.equal(
+      (getMoreFaqLabel as (locale: string) => string)("en"),
+      "View more frequently asked questions",
     );
     assert.match(
       page,
-      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{refundPolicyLabel\}<\/a>/,
+      /<a class="pr-faq-more" href=\{refundPolicyHref\}>\{moreFaqLabel\}<\/a>/,
     );
   });
 
