@@ -53,11 +53,17 @@ describe('生图重试', () => {
     expect(onRetryImage.mock.calls[0]?.[0]).toMatchObject({ failed: 1 });
   });
 
+  /*
+   * ⚠️ 下面两条原来断言的是「『重试』两个字还在,只是不可点」。产品 2026-09-02
+   * 推翻了那一版:不能点的时候摆的是**另一样东西** —— 错误图标 +「失败」。
+   * 长得像按钮却没反应,用户读到的是「界面卡了」,不是「现在不该我动手」。
+   * 两态的形态判据在 `image-fail-cell-two-states.test.tsx`;这里只守接线。
+   */
   it('没有回调时只画不点 —— 不摆一颗按不动的按钮', () => {
     render(<ExecutionShell shell={shellWithFailedImage()} deferCollapsedBodies={false} />);
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
-    // 「重试」这两个字还在,只是不可点(稿子那一格也允许只画)
-    expect(screen.getByText('重试')).toBeTruthy();
+    expect(screen.queryByText('重试')).toBeNull();
+    expect(screen.getByText('失败')).toBeTruthy();
   });
 
   it('整轮仍在运行时不开放媒体重试,避免和 agent fallback 并发', () => {
@@ -71,6 +77,7 @@ describe('生图重试', () => {
     );
 
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
-    expect(screen.getByText('重试')).toBeTruthy();
+    expect(screen.queryByText('重试')).toBeNull();
+    expect(screen.getByText('失败')).toBeTruthy();
   });
 });

@@ -420,10 +420,17 @@ describe('生图行(组件 12)', () => {
     expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image' }), 3);
   });
 
-  it('没给重试回调就只画不点 —— 死按钮比没按钮更糟', () => {
+  /*
+   * 产品 2026-09-02 把「不能点」那一态定成了**另一样东西**:错误图标 +「失败」,
+   * 不是一枚灰掉的「重试」。原来这里断言的是「『重试』两个字还在,只是点不动」——
+   * 那正是被推翻的那一版(长得像按钮却没反应,人会读成界面卡了)。
+   * 两态的完整判据在 `image-fail-cell-two-states.test.tsx`。
+   */
+  it('没给重试回调就不摆按钮,换成一条状态说明 —— 死按钮比没按钮更糟', () => {
     render(<ImageRow row={img({ done: 3, failed: 1, thumbs: ['a.png', 'b.png', 'c.png'] })} />);
     expect(screen.queryByRole('button', { name: /重试/ })).toBeNull();
-    expect(screen.getByText('重试')).toBeTruthy();
+    expect(screen.queryByText('重试')).toBeNull();
+    expect(screen.getByText('失败')).toBeTruthy();
   });
 });
 

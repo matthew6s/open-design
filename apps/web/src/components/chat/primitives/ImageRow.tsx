@@ -9,6 +9,8 @@
  *   还没出完      球 + 「N/M」+ 一排大格,没出的格是占位
  *   全出完、没失败 收成一行 + 小缩略图条 + 耗时
  *   出完了有失败   仍是大格,失败那格给「重试」,**不收行** —— 收了就没地方放重试
+ *
+ * 失败那格自己还分两态,由「这一轮还活着吗」决定 —— 见 `retryHandlerFor`。
  */
 import type { ReactElement } from 'react';
 import { VisuallyHidden } from '@open-design/components';
@@ -16,7 +18,7 @@ import { useT } from '../../../i18n';
 import type { ImageRow as ImageRowData } from '../../../runtime/chat/contract';
 import { formatElapsed } from '../../../runtime/chat/format';
 import { PixelLiquid } from '../../PixelLiquid';
-import { ImageIcon, RetryIcon } from './icons';
+import { FailIcon, ImageIcon, RetryIcon } from './icons';
 import { StatusMark } from './StatusMark';
 import styles from './record.module.css';
 
@@ -29,7 +31,8 @@ export interface ImageRowProps {
   /** Resolve a project-relative output name to its authenticated preview URL. */
   imageSrc?: (path: string) => string;
   /**
-   * 这一轮还在跑吗 —— 只决定**还没回来的格子**画成哪一档标记。
+   * 这一轮还在跑吗 —— 决定两件事:**还没回来的格子**画成哪一档标记,
+   * 以及**失败的格子**给不给动手重试(见 `retryHandlerFor`)。
    *
    * `row.pending` 说的是「还有格子没回来」,不是「还在生成」。取消 / 失败之后那几张
    * 确实没回来,但轮次已经停了,再转下去就读成「还在生成」(和 `ToolRow` 同一个 bug)。
@@ -108,12 +111,25 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
             );
           }
           if (status === 'failed') {
-            const inner = <><RetryIcon />{t('chat.record.retry')}</>;
+            const retry = retryHandlerFor(running, onRetry);
             return (
-              <span key={i} className={`${styles.shot} ${styles.fail}`} data-image-cell="failed">
-                {onRetry
-                  ? <button type="button" className={styles.retry} onClick={() => onRetry(row, i)}>{inner}</button>
-                  : <span className={styles.retry}>{inner}</span>}
+              <span
+                key={i}
+                className={`${styles.shot} ${styles.fail}`}
+                data-image-cell="failed"
+                data-fail-state={retry ? 'retryable' : 'locked'}
+              >
+                {retry
+                  ? (
+                    <button type="button" className={styles.retry} onClick={() => retry(row, i)}>
+                      <RetryIcon />{t('chat.record.retry')}
+                    </button>
+                  )
+                  : (
+                    <span className={styles.failNote}>
+                      <FailIcon />{t('chat.record.failed')}
+                    </span>
+                  )}
               </span>
             );
           }
@@ -130,4 +146,29 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
       </div>
     </>
   );
+}
+
+/**
+ * **失败格什么时候才真的能重试** —— 拿到处理器就摆按钮,拿不到就只画状态。
+ *
+ * 两个条件都得成立,少一个都会摆出一枚点了没反应的假按钮:
+ *
+ *   `!running`   这一轮已经停了。OPEND-2544 挡的是**并发**:agent 自己还在切
+ *                provider 重试的时候,用户再手动重试一张,两边打架。轮次一停,
+ *                那个对手就不存在了。注意判据是「还活着吗」,**不是「成功了吗」**
+ *                —— 取消 / 跑挂之后同样该给重试(整批不想要了但这一张还想要,
+ *                是取消之后最常见的下一步)。仓库既有的接线也正是这一档:
+ *                `AssistantMessage` 传的 `isTerminalRunStatus()` 含 `canceled`
+ *                和 `failed`。
+ *   `onRetry`    宿主接了重发这一路动作。陈列页、纯静态镜像都没有。
+ *
+ * 返回处理器而不是 boolean,是为了让调用点拿到**收窄过**的函数:
+ * `retry && <button onClick={() => retry(...)}>` 不需要再补一次 `?.`,
+ * 也就不会出现「条件判了 A、调用的是 B」这种漂移。
+ */
+function retryHandlerFor(
+  running: boolean,
+  onRetry: ImageRowProps['onRetry'],
+): NonNullable<ImageRowProps['onRetry']> | undefined {
+  return running ? undefined : onRetry;
 }

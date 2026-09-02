@@ -9,6 +9,7 @@
  */
 import type { ReactElement } from 'react';
 import type { ToolKind } from '../../../runtime/chat/tool-kind';
+import { REMIX_ICON_PATHS } from '../../remix-icon-paths';
 
 /**
  * chat 描边图标的**笔画基线**。所有描边图标都摊开这一份。
@@ -130,6 +131,32 @@ export const ToolFallbackIcon = (): ReactElement => (
 export const ChevronIcon = (): ReactElement => (
   <svg {...STROKE_ICON} width="11" height="11">
     <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
+/**
+ * 出错 —— 生图失败格在**轮次还没停**的时候摆的那枚(OPEND-2544)。
+ *
+ * ## 路径为什么从 `REMIX_ICON_PATHS` 取,不像同族那样写在这里
+ *
+ * 产品交付的 `error-warning-line.svg` 是 remix 图标集的 `error-warning-line`,
+ * 而仓库**早就有**这一枚:`REMIX_ICON_PATHS['error-warning-line']` 的那条 `d`
+ * 和交付件逐字节相同(#5517 起 remix 字形一律内联,打包版 `od://` 加载不了
+ * url() 字体)。再抄一份进来就是同一条 380 字符的路径存两处,以后 remix 升版
+ * 只会改到其中一处 —— 这一族的文件头写着「不手抄」,正是同一条理由。
+ *
+ * 表里查不到时 `d` 会是 `undefined`,`<path>` 静默消失、组件不报错,
+ * 所以这一枚由 `image-fail-cell-two-states.test.tsx` 逐字节钉住那条 `d`。
+ *
+ * ## 为什么不直接用共享的 `<Icon name="alert-triangle">`
+ *
+ * 那个名字映射到的确实是这一枚,但**名字是骗人的**(它画的是圆形感叹号,
+ * 不是三角),而且 `Icon` 会挂上 `od-icon` —— 全仓约 35 条选择器盯着这个类,
+ * 把它带进执行记录里等于给这一格开一扇没人预料的样式后门。
+ */
+export const FailIcon = (): ReactElement => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d={REMIX_ICON_PATHS['error-warning-line']} />
   </svg>
 );
 
