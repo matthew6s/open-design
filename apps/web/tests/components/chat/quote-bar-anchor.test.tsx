@@ -151,21 +151,40 @@ describe('取词浮条紧贴选中的那几个字', () => {
 });
 
 /**
- * 跨屏长选区(现场第二发)。
+ * 跨屏选区(现场第二发)。
  *
- * 从助手消息最顶上的「Codex」那一行一路拖到最后一段结论,七八个块、几乎占满整屏。
- * 起点贴着面板顶边 → 上方放不下 → 翻到下方 —— 到这一步每一步都对,
- * 但翻下去之后锚的是选区**末块**,于是浮条飞过大半屏,压在产物卡的预览图上。
+ * 现场:从助手消息最顶上的「Codex」那一行一路拖到最后一段结论,七八个块、
+ * 几乎占满整屏。起点贴着面板顶边 → 上方放不下 → 翻到下方,然后浮条飞过大半屏,
+ * **压在产物卡的预览图上**。
  *
- * 缺的那一维是「选区有多长」:翻到下方是为了**让开选区**,而选区大到让不开时,
- * 追到末尾就只是把浮条丢到几屏之外。这一组把长短两侧都钉住。
+ * 这一组原来钉的是「选区比半屏还高就翻下去贴起点」(`isLongSelection`,比例 0.5)。
+ * 那条判据已经删了,两条理由:
+ *
+ * 1. **它当初看到的现场有一部分是假的。** 「压在产物卡预览图上」正是选区把一块
+ *    **没有文字的元素 border box** 吞进了 `getClientRects()`(CSSOM:被 Range 整个
+ *    包住的元素,它的盒子也在列表里)。那才是「末块」跑到几百像素以下的原因,
+ *    不是选区长。源头已经堵在 `QuoteBar.selectionEdgeTextRects`(只认被高亮的
+ *    文字画出来的行),护栏在 `quote-bar-anchor-truth.test.tsx`。
+ * 2. **它在猜,而正确的问题量得出来。** 用户 2026-09-02 的裁决是「浮条**始终保持
+ *    在画面里**,并**尽可能贴近选区**,跑太远肯定就是 bug」——「选区有哪一段在
+ *    画面里」用选区矩形和可视区一交就有答案,不需要一个 0.5 的比例去代替它。
+ *    新判据在 `runtime/chat/quote-selection.ts` 的 `visibleQuoteAnchors`,
+ *    纯函数那一层的用例在 `tests/runtime/chat/quote-bar-in-view.test.ts`。
+ *
+ * 于是这一组改钉「可见 / 不可见」两侧。
  */
-describe('跨屏长选区', () => {
+describe('跨屏选区', () => {
   const panel = rect(0, 100, 480, 800); // 100..900,可视高度 800
 
-  it('长选区翻到下方时贴住起点,不追到选区末尾', () => {
+  /*
+   * 选区很高,但首尾**都还在画面里** —— 这一档回到稿子:翻下去让开整段、贴末行。
+   * (裁决原文:「选区完全在画面内 → 行为不变」。)末行看得见,贴它就不存在
+   * 「丢到几屏之外」这回事;而且向下拖选时用户的光标正停在末行上,浮条出现在
+   * 那儿就是出现在他正看着的地方。
+   */
+  it('整段都在画面里的高选区,翻下去贴末行(稿子 23-2)', () => {
     const codexLine = rect(120, 120, 200, 24); // 「Codex」那一行:120..144
-    const lastConclusion = rect(120, 776, 300, 24); // 最后一段结论:776..800
+    const lastConclusion = rect(120, 776, 300, 24); // 最后一段结论:776..800,仍在 900 以内
     const { top, left, placement } = selectWithClientRects(panel, [
       codexLine,
       rect(120, 300, 320, 24),
@@ -174,15 +193,22 @@ describe('跨屏长选区', () => {
     ]);
 
     expect(placement).toBe('below');
-    // 贴的是起点那一行的下沿 + 稿子的 6px,不是末块的 800 + 6
-    expect(top).toBe(150);
-    // 水平也跟着起点走
-    expect(left).toBe(220);
-    // 说人话的那条:浮条不许离选区起点半屏以上
-    expect(top - codexLine.bottom).toBeLessThan(panel.height / 2);
+    // 贴末行下沿 + 稿子的 6px
+    expect(top).toBe(lastConclusion.bottom + 6);
+    // 水平跟着贴的那一块走
+    expect(left).toBe(lastConclusion.left + lastConclusion.width / 2);
+    // 说人话的那条:离它贴的那一行不许超过一道缝
+    expect(top - lastConclusion.bottom).toBeLessThanOrEqual(6);
   });
 
-  it('选区比面板还高(首尾都在视口外)时浮条仍留在面板里', () => {
+  /*
+   * 选区比面板还高,**首尾都在画面外**(中间那段占满整屏)。
+   *
+   * 稿子没有这一格,W32 定:落在可视区**顶边**。整屏都是被选中的字,没有
+   * 「选区的边」可贴;顶边与稿子默认的朝上/贴起点方向同向,而且离底下的输入框
+   * 最远,不会压住用户接着要点的地方。
+   */
+  it('选区比面板还高(首尾都在视口外)时浮条贴在可视区顶边', () => {
     const above = rect(120, -200, 200, 24); // 起点已经滚出视口上方
     const below = rect(120, 1100, 300, 24); // 末尾在视口下方
     const { top, placement } = selectWithClientRects(panel, [
@@ -191,7 +217,9 @@ describe('跨屏长选区', () => {
       below,
     ]);
 
-    expect(placement).toBe('below');
+    expect(placement).toBe('above');
+    // 朝上时浮条占 [top - 34, top],所以盒子上沿正好是 panel.top + 8
+    expect(top - 34).toBe(panel.top + 8);
     // 夹进面板安全区,而不是跑到 1106 去
     expect(top).toBeGreaterThanOrEqual(108);
     expect(top).toBeLessThanOrEqual(858);
@@ -199,7 +227,7 @@ describe('跨屏长选区', () => {
     expect(top).toBeLessThan(300);
   });
 
-  it('短的跨行选区照旧让开整段选区 —— 长选区那条规则不许误伤它', () => {
+  it('短的跨行选区照旧让开整段选区', () => {
     const firstLine = rect(120, 110, 200, 24); // 110..134,贴着面板顶边
     const secondLine = rect(120, 134, 160, 24); // 134..158
     const { top, placement } = selectWithClientRects(panel, [firstLine, secondLine]);

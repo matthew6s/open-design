@@ -7,7 +7,6 @@ import {
   appendQuoteOutcome,
   isQuotable,
   normalizeQuoteText,
-  isLongSelection,
   quoteBarPlacement,
   quoteBarPosition,
   quotePromptPrefix,
@@ -134,38 +133,29 @@ describe('浮条位置夹取', () => {
   });
 
   /*
-   * 翻到下方是为了**让开选区**。选区大到让不开时,追到末尾就只是把浮条丢到
-   * 几屏之外(现场:压在产物卡预览图上)。所以「长选区」翻下去也贴起点。
+   * 选区**整块都在画面里**时,不管它多高都照稿子走:翻下去让开整段、贴末行。
+   *
+   * 这里原来有一条「比半屏还高就贴起点」的兜底(`isLongSelection`),现在删了。
+   * 它想解决的是「贴末行会把浮条丢到几屏之外」,但它用比例去**猜**选区大不大,
+   * 而真正该问的是「末行还看不看得见」—— 看得见就没有丢出去这回事。
+   * 而且那条兜底是在一个被污染的现场定的:选区曾把日志底部一块满宽的空占位盒子
+   * 吞进去,「选区高度」于是变成「一直到日志底部」,必然过半屏、必然触发兜底。
+   * 源头已经堵了(`QuoteBar` 只认被高亮的文字画出来的行),现在这一档回到稿子。
+   * 末行看不见的那些档在 `quote-bar-in-view.test.ts`。
    */
-  it('长选区翻到下方时贴起点,短选区照旧让开整段', () => {
-    const panelHeight = panel.bottom - panel.top; // 400,半屏 = 200
-
-    // 短:选区 40px,让开整段 —— 末行下沿 150 + 6
+  it('选区整块在画面里时,不论多高都翻下去贴末行(稿子 23-2)', () => {
+    // 短:选区 40px —— 末行下沿 150 + 6
     const shortFirst = box(140, 110, 60, 20);
     const shortLast = box(140, 130, 60, 20);
-    expect(shortLast.bottom - shortFirst.top).toBeLessThanOrEqual(panelHeight / 2);
     expect(quoteBarPosition({ first: shortFirst, last: shortLast, panel, barHeight: 34 }))
       .toEqual({ left: 170, top: 156, placement: 'below' });
 
-    // 长:选区 260px > 半屏 —— 贴起点下沿 130 + 6
-    const longFirst = box(140, 110, 60, 20);
-    const longLast = box(300, 350, 60, 20);
-    expect(longLast.bottom - longFirst.top).toBeGreaterThan(panelHeight / 2);
-    expect(quoteBarPosition({ first: longFirst, last: longLast, panel, barHeight: 34 }))
-      .toEqual({ left: 170, top: 136, placement: 'below' });
-  });
-
-  it('长选区的判据是「比半屏还高」,和它落在哪儿无关', () => {
-    expect(isLongSelection({
-      first: box(140, 110, 60, 20),
-      last: box(140, 130, 60, 20),
-      panel,
-    })).toBe(false);
-    expect(isLongSelection({
-      first: box(140, 110, 60, 20),
-      last: box(140, 350, 60, 20),
-      panel,
-    })).toBe(true);
+    // 高:选区 260px,超过半屏,但首末两行都还在 100..500 里 —— 一样贴末行 370 + 6
+    const tallFirst = box(140, 110, 60, 20);
+    const tallLast = box(300, 350, 60, 20);
+    expect(tallLast.bottom - tallFirst.top).toBeGreaterThan((panel.bottom - panel.top) / 2);
+    expect(quoteBarPosition({ first: tallFirst, last: tallLast, panel, barHeight: 34 }))
+      .toEqual({ left: 330, top: 376, placement: 'below' });
   });
 
   it('靠左右边选择时把完整浮条夹在聊天栏内', () => {
@@ -186,17 +176,23 @@ describe('浮条位置夹取', () => {
     expect(position.top).toBeLessThanOrEqual(492);
   });
 
-  it('选区被聊天视口顶边裁切时仍把下方浮条夹在安全区内', () => {
-    const clipped = box(180, 80, 80, 15);
+  /*
+   * 选区**骑在**聊天视口顶边上:一半在画面外、一半还看得见。
+   * 贴的是**看得见**的那条边(被裁到 panel.top = 100),不是画面外的 90。
+   */
+  it('选区被聊天视口顶边裁切时,下方浮条贴被裁过的那条边并夹在安全区内', () => {
+    const straddling = box(180, 90, 80, 20); // 90..110,骑在 panel.top=100 上
     const position = quoteBarPosition({
-      first: clipped,
-      last: clipped,
+      first: straddling,
+      last: straddling,
       panel,
       barHeight: 34,
       edgeInset: 8,
     });
 
-    expect(position).toEqual({ left: 220, top: 108, placement: 'below' });
+    // 上方只剩 0px,翻到下方;贴的是选区看得见那一段的下沿 110 + 稿子的 6px
+    expect(position).toEqual({ left: 220, top: 116, placement: 'below' });
+    expect(position.top).toBeGreaterThanOrEqual(108);
     expect(position.top + 34).toBeLessThanOrEqual(492);
   });
 });

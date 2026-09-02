@@ -71,28 +71,63 @@ export function quoteBarPlacement(input: {
 }
 
 /**
- * 「长选区」的判据:选区**比半屏还高**。
+ * 选区在可视区里**露出来的那一段**的两块锚点:朝上贴谁、朝下贴谁。
  *
- * 稿子没有这一格 —— 组件 23 的五个状态全是单行 `<mark>`,把它的
- * `bottom: calc(100% + 7px)` / `top: calc(100% + 6px)` 原样套到一个跨屏选区上,
- * 两个位置都跑到视口外面去了。所以这条是**补上去的产品判据**,不是量出来的稿子值。
+ * 稿子没有这一格 —— 组件 23 的五个状态全是单行 `<mark>`,首行末行都在画面里,
+ * 「贴选区」和「贴看得见的选区」是同一回事。跨屏选区才把两者分开:首行可能在
+ * 上面几屏,末行可能在下面几屏,照着它们摆浮条就是摆到画面外(再被边缘夹取
+ * 拽回边上,离用户真正看着的那一段几百像素)—— 用户 2026-09-02 说的「跑太远」。
  *
- * 为什么是「半屏」:翻到下方的**目的**是让开选区。选区占了半屏以上时,它已经
- * 不是「一段话」而是「一整片内容」—— 让开它没有意义,让开了浮条也还在几屏之外。
- * 换个数字(1/3、2/3)不会改变结论的形状,只会挪动边界;真要定死得产品拍板。
+ * 判据是**交集**,不是比例:一块锚点和可视区有没有重叠,量得出来,不用猜。
+ * (这里替换掉的旧兜底是「选区比半屏还高就算长选区」。那条是在一个被污染的现场
+ * 定的:选区曾把日志底部一块满宽的空占位盒子吞进去,于是「选区高度」变成
+ * 「从你选的地方一直到日志底部」,必然超过半屏 —— 过去有一部分「长选区」是假的。
+ * 源头已经堵在 `QuoteBar.visibleSelectionRects`:只认被高亮的文字画出来的行。)
+ *
+ * 三档:
+ * - **两块都露头**:各自按可视区裁一刀,贴的是它**看得见**的那条边。整块都在
+ *   画面里时裁不掉任何东西,行为与稿子逐像素一致。
+ * - **只有一块露头**:看不见的那块换成可视区的边界。首行沉在画面之上时,
+ *   「朝上」就此失去空间、自然翻到下方去贴可见的末行;末行沉在折线之下时,
+ *   「朝下」退回贴**可见的起点**(这正是旧兜底想做、却用比例去猜的那件事)。
+ * - **两块都不露头**:选区要么比一屏还高(中间那段占满画面),要么整个被滚走了。
+ *   两头都退化成可视区边界、水平居中于面板 —— 见 `quoteBarPosition` 的注释。
  */
-export const QUOTE_BAR_LONG_SELECTION_RATIO = 0.5;
-
-export function isLongSelection(input: {
+export function visibleQuoteAnchors(input: {
   first: QuoteRect;
   last: QuoteRect;
   panel: QuoteRect;
-  ratio?: number;
-}): boolean {
-  const panelHeight = input.panel.bottom - input.panel.top;
-  if (panelHeight <= 0) return false;
-  const selectionHeight = input.last.bottom - input.first.top;
-  return selectionHeight > panelHeight * (input.ratio ?? QUOTE_BAR_LONG_SELECTION_RATIO);
+}): { above: QuoteRect; below: QuoteRect } {
+  const { first, last, panel } = input;
+  const onScreen = (rect: QuoteRect): boolean =>
+    rect.bottom > panel.top && rect.top < panel.bottom;
+  // 露头的锚点按可视区裁一刀:贴的是它看得见的那条边,不是画面外的那条。
+  const clipped = (rect: QuoteRect): QuoteRect => ({
+    left: rect.left,
+    right: rect.right,
+    top: Math.max(rect.top, panel.top),
+    bottom: Math.min(rect.bottom, panel.bottom),
+  });
+  const firstOnScreen = onScreen(first);
+  const lastOnScreen = onScreen(last);
+
+  const above = firstOnScreen
+    ? clipped(first)
+    : {
+        // 首行看不见时它的水平位置也是画面外的数字 —— 借还看得见的那块,
+        // 都看不见就退回面板中线(唯一有意义的水平参照)。
+        left: lastOnScreen ? last.left : panel.left,
+        right: lastOnScreen ? last.right : panel.right,
+        top: panel.top,
+        bottom: panel.top,
+      };
+  const below = lastOnScreen
+    ? clipped(last)
+    : firstOnScreen
+      ? clipped(first)
+      : { left: panel.left, right: panel.right, top: panel.bottom, bottom: panel.bottom };
+
+  return { above, below };
 }
 
 /**
@@ -104,10 +139,23 @@ export function isLongSelection(input: {
  * 会在长句里偏出去老远」。跨行选择时并集的中心就是段落中心,正是它警告的那种偏。
  * 单行选区两块是同一块,退化回原来的行为。
  *
- * **长选区是个例外**:翻到下方本来是为了让开选区,而选区大到让不开时(见
- * `isLongSelection`),追到末尾只会把浮条丢到几屏之外 —— 现场那一发就是从
- * 助手消息顶上一路拖到最后一段,浮条飞过大半屏压在产物卡的预览图上。
- * 这时候翻下去也贴**起点**:让开不了,至少还跟着你开始选的地方。
+ * 贴的是**看得见的那一段**(`visibleQuoteAnchors`),不是可能在几屏之外的
+ * 首行 / 末行 —— 用户 2026-09-02 的裁决:浮条**始终保持在画面里**,在此前提下
+ * **尽可能贴近选区**,「跑太远肯定就是 bug」。两条冲突时第一条赢,末尾那段
+ * 边缘夹取就是它的兜底:朝上时浮条占 `[top - barHeight, top]`,朝下占
+ * `[top, top + barHeight]`,两档的上下界都按这个盒子算,所以夹完整块都在面板里。
+ *
+ * **两头都不露头**那一档稿子没有,W32 定:落在可视区**顶边**、水平居中于面板。
+ * 整屏都是被选中的字时没有「选区的边」可贴,贴谁都是贴在选区中间;选顶边是因为
+ * (a) 稿子的默认本来就朝上、贴选区起点方向,顶边与它同向;(b) 顶边离底下的输入框
+ * 最远,不会压住用户接着要点 / 要打字的地方;(c) 首行末行的水平位置此时是画面外的
+ * 数字,面板中线是唯一有意义的水平参照。落点由两侧空间都为 0 时的平手规则
+ * (`quoteBarPlacement` 的 `availableAbove >= availableBelow`)带到「朝上」,
+ * 再由边缘夹取贴到顶边;`tests/runtime/chat/quote-bar-in-view.test.ts` 钉住了它。
+ *
+ * 选区**整个**被滚出画面也落在这一档。那种情况的产品裁决在组件层且早就有了 ——
+ * `QuoteBar.dismissOnMovedViewport`:视口真的动了就藏掉这条过期浮条。这一层只
+ * 保证「就算没藏,坐标也还在画面里」。
  */
 export function quoteBarPosition(input: {
   /** 选区首行矩形 */
@@ -127,16 +175,14 @@ export function quoteBarPosition(input: {
   const gapAbove = input.gapAbove ?? QUOTE_BAR_GAP_ABOVE_PX;
   const gapBelow = input.gapBelow ?? QUOTE_BAR_GAP_BELOW_PX;
   const edge = input.edgeInset ?? QUOTE_BAR_EDGE_INSET_PX;
-  // 翻到下方时贴谁:短选区让开整段(末行),长选区让不开,退回贴起点(首行)。
-  const belowAnchor = isLongSelection({
+  // 朝上贴谁、朝下贴谁 —— 都取选区在画面里露出来的那一段。
+  const { above: aboveAnchor, below: belowAnchor } = visibleQuoteAnchors({
     first: input.first,
     last: input.last,
     panel: input.panel,
-  })
-    ? input.first
-    : input.last;
+  });
   const placement = quoteBarPlacement({
-    selectionTop: input.first.top,
+    selectionTop: aboveAnchor.top,
     selectionBottom: belowAnchor.bottom,
     panelTop: input.panel.top,
     panelBottom: input.panel.bottom,
@@ -146,7 +192,7 @@ export function quoteBarPosition(input: {
   });
 
   // 贴哪一块,就居中于哪一块 —— 位置和参照必须是同一个矩形。
-  const anchor = placement === 'above' ? input.first : belowAnchor;
+  const anchor = placement === 'above' ? aboveAnchor : belowAnchor;
   const center = (anchor.left + anchor.right) / 2;
   const minLeft = input.panel.left + edge + barWidth / 2;
   const maxLeft = input.panel.right - edge - barWidth / 2;
