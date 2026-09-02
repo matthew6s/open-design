@@ -745,6 +745,15 @@ function AssistantMessageImpl({
       ...(streaming && lastEventAtMs != null ? { lastEventAtMs } : {}),
     });
     return {
+      /**
+       * **原样的块序** —— 壳和结论段按它们在流里发生的先后交替排列。
+       *
+       * 一轮跑一张壳时它只有两项,看不出所以然;跨轮折叠(`foldStrategyTaskTurns`)
+       * 之后就不是了:「先问后做」的会话是两个 run 接成一条事件流,run 0 末尾那张
+       * `<question-form>` 是**夹在两张壳中间**的结论段。下面两个数组按 kind 一分,
+       * 这个先后就没了 —— 谁在前谁在后必须由这一条来还原(OPEND-2592)。
+       */
+      blocks: turn,
       shells: turn.filter((b): b is ExecutionShellData => b.kind === 'shell'),
       /** 壳【外】的结论(D43)—— done 之后的那几段 */
       prose: turn.filter((b) => b.kind === 'prose').map((b) => (b as { text: string }).text),
@@ -775,20 +784,60 @@ function AssistantMessageImpl({
    * (去重表单 / 丢空 thinking / 剥 TodoWrite 快照),直接把字符串塞进去会绕过去重,
    * 同一张表单会渲染两次(`next-record-integration.test.tsx` 钉住了这一点)。
    */
-  const outerBlocks = useMemo(() => {
-    const conclusion = nextTurn.prose.join('\n\n').trim();
-    const prose = conclusion
-      ? stripTodoToolGroups(
-          stripEmptyThinkingBlocks(
-            suppressDuplicateQuestionForms(buildBlocks([{ kind: 'text', text: conclusion }])),
-          ),
-        )
-      : [];
-    const rest = blocks.filter(
-      (b) => b.kind !== 'text' && b.kind !== 'thinking' && b.kind !== 'tool-group',
+  /**
+   * 结论段**按它在流里的位置分组**,一组一个落点(OPEND-2592)。
+   *
+   * 原来这里把所有结论段 `join('\n\n')` 成一段再加工,于是「第几段」这件事被抹平,
+   * 渲染时只能整坨压在所有壳的后面。跨轮折叠之后这就是错的:用户在两个 run **中间**
+   * 答的表单,收口(「已确认」)会被甩到最底下 —— 用户 2026-09-02 的原话是
+   * 「如果是我中间时回答的,那就得放中间呢,不能放最底下」。
+   *
+   * 加工链一个字没换,只是拆成两半跑,好让分组边界活到渲染:
+   *  · 两道 strip 是**逐块的过滤**,按组各跑一遍与拍平跑一遍等价;
+   *  · 表单去重是**整轮**的 first-wins(第一张留下、后面同 id 的清掉),必须跨组共享
+   *    那本账,所以拍平之后跑;它是逐块 `map`、长度不变,再按各组块数切回来就是原样。
+   */
+  const proseGroups = useMemo(() => {
+    const cleaned = nextTurn.prose.map((text) =>
+      text.trim()
+        ? stripTodoToolGroups(stripEmptyThinkingBlocks(buildBlocks([{ kind: 'text', text }])))
+        : [],
     );
-    return [...prose, ...rest];
-  }, [nextTurn, blocks]);
+    const flat = suppressDuplicateQuestionForms(cleaned.flat());
+    const groups: Block[][] = [];
+    let at = 0;
+    for (const group of cleaned) {
+      groups.push(flat.slice(at, at + group.length));
+      at += group.length;
+    }
+    return groups;
+  }, [nextTurn]);
+  /** 不属于执行记录、也不属于结论的那些块 —— 状态行 / 插件候选,统一收在最后 */
+  const restBlocks = useMemo(
+    () => blocks.filter((b) => b.kind !== 'text' && b.kind !== 'thinking' && b.kind !== 'tool-group'),
+    [blocks],
+  );
+  const outerBlocks = useMemo(
+    () => [...proseGroups.flat(), ...restBlocks],
+    [proseGroups, restBlocks],
+  );
+  /**
+   * 屏幕上从上到下的编排:壳与结论段交替,顺序就是 `buildTurnBlocks` 算出来的那一版。
+   *
+   * ⚠️ 别再改回「先把壳全画完、再画结论」。一轮一壳时两种写法看不出差别,
+   * 跨轮折叠时后者会把中途的表单收口踢到最底下(`cross-run-form-placement.test.tsx`)。
+   */
+  const turnFlow = useMemo(() => {
+    let proseAt = 0;
+    return nextTurn.blocks.map((b) =>
+      b.kind === 'shell'
+        ? ({ kind: 'shell', key: b.id, shell: b } as const)
+        // key 认**第几段结论**,不认它在块序里的下标:空壳在轮次收尾那一刻会被丢掉
+        // (`build-turn-blocks` 的 `kept`),下标会跟着挪,而挪一次就是把表单重挂一遍
+        // —— 用户填了一半的草稿会当场清空。
+        : ({ kind: 'prose', key: `prose-${proseAt}`, at: proseAt++ } as const),
+    );
+  }, [nextTurn]);
 
   const fileOps = useMemo(() => deriveFileOps(displayEvents), [displayEvents]);
   const rawProduced = message.producedFiles ?? [];
@@ -1256,6 +1305,82 @@ function AssistantMessageImpl({
     }
   }
 
+  /**
+   * 壳【外】的一块。抽成函数是因为它现在有**两个调用点** —— 交替编排里的结论段,
+   * 和收在最后的那些非结论块 —— 两处必须画得一模一样。
+   */
+  const renderOuterBlock = (b: Block, key: string): ReactNode => {
+    if (b.kind === "text")
+      return (
+        <ProseBlock
+          key={key}
+          text={b.text}
+          hideRecoveredHtmlFallback={(message.agentId === "grok-build" || message.agentId === "claude") && !streaming}
+          assistantMessageId={message.id}
+          isLastAssistant={!!isLast}
+          streaming={streaming}
+          nextUserContent={nextUserContent}
+          suppressDirectionForms={suppressDirectionForms}
+          onSubmitQuestionForm={onSubmitQuestionForm}
+          questionFormSubmitDisabled={
+            questionFormSubmitDisabled || strategyBlockedNotice !== null
+          }
+          strategyBlockedNotice={strategyBlockedNotice}
+          visualStyleContext={visualStyleContextForProjectKind(projectKind)}
+          projectId={projectId}
+          conversationId={conversationId}
+          runId={message.runId ?? null}
+          projectFileNames={projectFileNames}
+          projectResolvedDir={projectResolvedDir}
+          onRequestOpenFile={onRequestOpenFile}
+          onBrandBrowserAssistConfirm={onBrandBrowserAssistConfirm}
+        />
+      );
+    if (b.kind === "plugin-candidate") {
+      return (
+        <SkillPluginCandidateCard
+          key={key}
+          block={b}
+          projectId={projectId}
+          onRequestOpenFile={onRequestOpenFile}
+        />
+      );
+    }
+    if (b.kind === "status") {
+      // Suppress this message's gray error pill ONLY when ChatPane is
+      // rendering the top-level error card for it (the last failed run).
+      // Other failed turns — older history, or once a follow-up makes
+      // this no longer the last assistant message — keep their pill so
+      // the error detail still survives reload / history review.
+      /*
+       * `error` 这一档**一律不出**。稿子里没有这种状态行,用户 2026-08-27
+       * 指认过两次:「为什么还会有这种错误样式?? 你的错误卡片呢??」
+       * 「设计稿里哪有这种状态行」。
+       *
+       * 它原来只在「这条消息正好拥有报错卡」时才藏,于是**任何历史失败轮次**
+       * 都还把上游英文原文顶着一个红框戳在回答中间。出事了该由谁说:
+       *  · 当前那一轮 → 报错卡(标题 + 人话 + 恢复动作);
+       *  · 历史轮次   → 壳头那句「运行失败」;
+       *  · 上游原文   → 卡上的「查看详情」,不裸奔。
+       * `warning` / `initializing` 早就按同一个道理去掉了,这是漏网的那一档。
+       */
+      if (b.label === "error") return null;
+      // The pre-output "initializing" status is surfaced by the footer's
+      // shimmering "Preparing…" label instead of its own pill.
+      if (b.label === "initializing") return null;
+      /*
+       * `warning` 这一档**不在对话里出**(产品裁决 2026-08-26:「这个 warning 也不要显示了」)。
+       *
+       * 真机上撞到的那条是「Skill descriptions were shortened to fit the skills
+       * context budget…」—— 这是**内部预算提示**,对用户既不可操作也看不懂,
+       * 却顶着一整块橙色戳在回答中间。`error` 那一档留着:那是真出事了。
+       */
+      if (b.label === "warning") return null;
+      return <StatusPill key={key} label={b.label} detail={b.detail} />;
+    }
+    return null;
+  };
+
   return (
     <div
       id={`assistant-message-${message.id}`}
@@ -1271,91 +1396,35 @@ function AssistantMessageImpl({
         </div>
       ) : null}
       <div className="assistant-flow" data-testid="assistant-flow">
-        {nextTurn.shells.map((shell) => (
-          <ExecutionShell
-            key={shell.id}
-            shell={shell}
-            onOpenFile={onRequestOpenFile}
-            /* 执行记录里的文件名要判「这个路径是不是当前项目的」才决定做不做链接。
-               这三样正是正文 markdown 链接判归属用的同一套(见 chatFileLinkClickHandler),
-               判据本身在 `runtime/chat/record-file-open.ts`。 */
-            fileScope={recordFileScope}
-            onRetryImage={onRetryImage}
-            runTerminal={isTerminalRunStatus(turnRunStatus)}
-            imageSrc={imageSrc}
-          />
-        ))}
-        {outerBlocks.map((b, i) => {
-          if (b.kind === "text")
-            return (
-              <ProseBlock
-                key={i}
-                text={b.text}
-                hideRecoveredHtmlFallback={(message.agentId === "grok-build" || message.agentId === "claude") && !streaming}
-                assistantMessageId={message.id}
-                isLastAssistant={!!isLast}
-                streaming={streaming}
-                nextUserContent={nextUserContent}
-                suppressDirectionForms={suppressDirectionForms}
-                onSubmitQuestionForm={onSubmitQuestionForm}
-                questionFormSubmitDisabled={
-                  questionFormSubmitDisabled || strategyBlockedNotice !== null
-                }
-                strategyBlockedNotice={strategyBlockedNotice}
-                visualStyleContext={visualStyleContextForProjectKind(projectKind)}
-                projectId={projectId}
-                conversationId={conversationId}
-                runId={message.runId ?? null}
-                projectFileNames={projectFileNames}
-                projectResolvedDir={projectResolvedDir}
-                onRequestOpenFile={onRequestOpenFile}
-                onBrandBrowserAssistConfirm={onBrandBrowserAssistConfirm}
-              />
-            );
-          if (b.kind === "plugin-candidate") {
-            return (
-              <SkillPluginCandidateCard
-                key={i}
-                block={b}
-                projectId={projectId}
-                onRequestOpenFile={onRequestOpenFile}
-              />
-            );
-          }
-          if (b.kind === "status") {
-            // Suppress this message's gray error pill ONLY when ChatPane is
-            // rendering the top-level error card for it (the last failed run).
-            // Other failed turns — older history, or once a follow-up makes
-            // this no longer the last assistant message — keep their pill so
-            // the error detail still survives reload / history review.
-            /*
-             * `error` 这一档**一律不出**。稿子里没有这种状态行,用户 2026-08-27
-             * 指认过两次:「为什么还会有这种错误样式?? 你的错误卡片呢??」
-             * 「设计稿里哪有这种状态行」。
-             *
-             * 它原来只在「这条消息正好拥有报错卡」时才藏,于是**任何历史失败轮次**
-             * 都还把上游英文原文顶着一个红框戳在回答中间。出事了该由谁说:
-             *  · 当前那一轮 → 报错卡(标题 + 人话 + 恢复动作);
-             *  · 历史轮次   → 壳头那句「运行失败」;
-             *  · 上游原文   → 卡上的「查看详情」,不裸奔。
-             * `warning` / `initializing` 早就按同一个道理去掉了,这是漏网的那一档。
-             */
-            if (b.label === "error") return null;
-            // The pre-output "initializing" status is surfaced by the footer's
-            // shimmering "Preparing…" label instead of its own pill.
-            if (b.label === "initializing") return null;
-            /*
-             * `warning` 这一档**不在对话里出**(产品裁决 2026-08-26:「这个 warning 也不要显示了」)。
-             *
-             * 真机上撞到的那条是「Skill descriptions were shortened to fit the skills
-             * context budget…」—— 这是**内部预算提示**,对用户既不可操作也看不懂,
-             * 却顶着一整块橙色戳在回答中间。`error` 那一档留着:那是真出事了。
-             */
-            if (b.label === "warning") return null;
-            return <StatusPill key={i} label={b.label} detail={b.detail} />;
-          }
-          return null;
-        })}
+        {/*
+          壳与结论段**按发生顺序交替**,不再「先把壳全画完再画结论」(OPEND-2592)。
+          跨轮折叠的会话里,中途那张表单的收口就夹在两张壳中间;把壳整体提到前面
+          会让「已确认」掉到整条消息的最底下,和用户实际回答的时刻对不上。
+        */}
+        {turnFlow.map((entry) =>
+          entry.kind === 'shell' ? (
+            <ExecutionShell
+              key={entry.key}
+              shell={entry.shell}
+              onOpenFile={onRequestOpenFile}
+              /* 执行记录里的文件名要判「这个路径是不是当前项目的」才决定做不做链接。
+                 这三样正是正文 markdown 链接判归属用的同一套(见 chatFileLinkClickHandler),
+                 判据本身在 `runtime/chat/record-file-open.ts`。 */
+              fileScope={recordFileScope}
+              onRetryImage={onRetryImage}
+              runTerminal={isTerminalRunStatus(turnRunStatus)}
+              imageSrc={imageSrc}
+            />
+          ) : (
+            <Fragment key={entry.key}>
+              {(proseGroups[entry.at] ?? []).map((b, i) =>
+                renderOuterBlock(b, `${entry.key}-${i}`),
+              )}
+            </Fragment>
+          ),
+        )}
+        {/* 状态行 / 插件候选不属于执行记录,也没有流里的位置 —— 收在最后 */}
+        {restBlocks.map((b, i) => renderOuterBlock(b, `rest-${i}`))}
         {brandBrowserAssistFallbackCard ? (
           <OdCardView
             card={brandBrowserAssistFallbackCard}
