@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { specificityTuple } from '../helpers/chat-mirror-cascade';
 import { describe, expect, it } from 'vitest';
 import { readExpandedIndexCss } from '../helpers/read-expanded-css';
 
@@ -36,18 +37,14 @@ function ruleValue(block: string, property: string): string {
   return match[1]!.trim();
 }
 
+/**
+ * 特异性走校准过的共享量尺(`tests/helpers/chat-mirror-cascade.ts`)——
+ * 逐条对 CSS 规范校过,用例见 `chat-mirror-cascade.specificity.test.ts`。
+ * 原来这儿那份自带量尺把**每个类名也数了一格类型选择器**(`.plugins-home`
+ * 读成 (0,1,1) 而不是 (0,1,0)),这张表里 164 条分支条条对不上。
+ */
 function specificity(selector: string): Specificity {
-  const ids = selector.match(/#[\w-]+/g)?.length ?? 0;
-  const classes =
-    (selector.match(/\.[\w-]+/g)?.length ?? 0) +
-    (selector.match(/\[[^\]]+\]/g)?.length ?? 0) +
-    (selector.match(/:(?!:)[\w-]+(?:\([^)]*\))?/g)?.length ?? 0);
-  const withoutPseudos = selector.replace(/:(?!:)[\w-]+(?:\([^)]*\))?/g, '');
-  const types = withoutPseudos
-    .split(/[#.:[\]\s>+~]+/)
-    .filter((part) => /^[a-z][\w-]*$/i.test(part)).length;
-
-  return [ids, classes, types];
+  return [...specificityTuple(selector)] as Specificity;
 }
 
 function compareSpecificity(left: Specificity, right: Specificity): number {

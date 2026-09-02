@@ -427,18 +427,30 @@ export function createResolver(
     return out.trim().replace(/(^|\s)0(?=$|\s)/g, '$10px');
   };
 
+  /**
+   * 规则的哪一条分支匹配上了这个元素。
+   *
+   * **拆分必须按括号深度走** —— 逗号在 `:is()` / `:not()` / `:has()` / `:where()`
+   * 里也是合法的,裸 `split(',')` 会把一条规则剁成残句,而残句的三种下场都错:
+   * 抛异常被吞掉(规则没了)、被 nwsapi 宽容补括号(语义悄悄变窄)、或者残句本身
+   * 碰巧合法(`li` / `td` / `.ds-modal-backdrop` …)从而把规则安到一批无关元素上。
+   * 校准用例见 `chat-mirror-cascade.matching.test.ts`。
+   */
   const matchingBranch = (rule: Rule, el: Element): string | undefined =>
-    rule.selector
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .find((s) => {
-        try {
-          return el.matches(s);
-        } catch {
-          return false;
-        }
-      });
+    splitList(rule.selector).find((s) => {
+      try {
+        return el.matches(s);
+      } catch (err) {
+        // 伪元素分支永远匹配不到元素本体,jsdom 不认识它们也无所谓 —— 这一类才该吞。
+        // 其余任何解析失败都必须响:**吞掉它就等于悄悄丢掉一条规则**,而丢掉的规则
+        // 在尺上读成「没人声明这个属性」,一条真实的层叠渗漏就此变成假绿。
+        if (s.includes('::')) return false;
+        throw new Error(
+          `量尺看不懂这条选择器,拒绝静默跳过(跳过会把真实渗漏读成假绿):${s}\n` +
+            `  出自规则:${rule.selector}\n  原始错误:${(err as Error).message}`,
+        );
+      }
+    });
 
   const resolved = (el: Element): Record<string, string> => {
     const winners = new Map<string, { spec: number; order: number; value: string }>();

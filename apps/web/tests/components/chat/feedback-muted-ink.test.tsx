@@ -34,6 +34,7 @@
  */
 import { cleanup, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
+import { specificityTuple } from '../../helpers/chat-mirror-cascade';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -139,27 +140,21 @@ function splitSelectorList(list: string): string[] {
 }
 
 /** (b, c) 两档 —— 这一族里没有 id。b = 类 / 属性 / 伪类,c = 元素名。 */
-function specificity(selector: string): [number, number] {
-  let b = 0;
-  let c = 0;
-  let rest = selector;
-  for (const m of selector.matchAll(/:(?:not|is|has)\(([^()]*)\)/g)) {
-    const inner = splitSelectorList(m[1] ?? '').map(specificity);
-    const worst = inner.reduce<[number, number]>(
-      (acc, one) => (one[0] !== acc[0] ? (one[0] > acc[0] ? one : acc) : one[1] > acc[1] ? one : acc),
-      [0, 0],
-    );
-    b += worst[0];
-    c += worst[1];
-    rest = rest.replace(m[0], ' ');
-  }
-  b += (rest.match(/\.[A-Za-z0-9_-]+|\[[^\]]+\]|:{1}[a-z-]+(?![a-z-]*\()/g) ?? []).length;
-  c += (rest.match(/(?:^|[\s>+~(])([a-zA-Z][a-zA-Z0-9-]*)/g) ?? []).length;
-  return [b, c];
+type Spec = readonly [ids: number, classes: number, types: number];
+
+/**
+ * 特异性走校准过的共享量尺(`tests/helpers/chat-mirror-cascade.ts`)——
+ * 逐条对 CSS 规范校过,用例见 `chat-mirror-cascade.specificity.test.ts`。
+ * 换成**三元组**是因为这条链上有 id 选择器(`index.css` 链里的 `#root`),
+ * 原来那份两元组量尺看不见 id,一条 id 规则会凭空输掉。
+ */
+function specificity(selector: string): Spec {
+  return specificityTuple(selector);
 }
 
-const heavier = (a: [number, number], b: [number, number]) =>
-  a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1];
+/** A → B → C 逐位比较(CSS Selectors 4 §15)。 */
+const heavier = (a: Spec, b: Spec): boolean =>
+  a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2];
 
 /** `index.css` 的导入顺序**就是**层叠顺序 —— 这一族的胜负一半靠它,不能手抄。 */
 function cascadeFiles(): string[] {
@@ -243,7 +238,7 @@ function winner(
   all: Rule[],
   state: { hover?: boolean } = {},
 ): { rule: Rule; value: string } | null {
-  let best: { rule: Rule; value: string; spec: [number, number] } | null = null;
+  let best: { rule: Rule; value: string; spec: Spec } | null = null;
   for (const rule of all) {
     const value = declaration(rule.body, prop);
     if (value == null) continue;

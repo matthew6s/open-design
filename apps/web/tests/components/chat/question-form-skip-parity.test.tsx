@@ -42,6 +42,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
+import { specificity } from '../../helpers/chat-mirror-cascade';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { I18nProvider } from '../../../src/i18n';
@@ -230,21 +231,11 @@ function sheets(): Rule[] {
 
 const RULES = sheets();
 
-function specificity(selector: string): number {
-  // `:where(…)` 整段计 0 —— 少了这一步,`:where([data-chat-root]) button` 会被算成
-  // (0,1,1) 压过共享 Button 的 `.button`,量出来就是 13px / 无圆角 / 无内距的裸按钮档。
-  const cleaned = selector
-    .replace(/:where\(([^()]|\([^()]*\))*\)/g, ' ')
-    .replace(/::[\w-]+/g, ' ');
-  const ids = (cleaned.match(/#[\w-]+/g) ?? []).length;
-  const classes =
-    (cleaned.match(/\.[\w-]+/g) ?? []).length +
-    (cleaned.match(/\[[^\]]*\]/g) ?? []).length +
-    (cleaned.match(/:(?!:)(?!where\b)[\w-]+/g) ?? []).length;
-  const elements = (cleaned.replace(/\.[\w-]+|#[\w-]+|\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g, ' ')
-    .match(/\b[a-zA-Z][\w-]*\b/g) ?? []).length;
-  return ids * 10_000 + classes * 100 + elements;
-}
+/**
+ * 特异性走校准过的共享量尺 —— 这儿原来是**老共享尺的逐字克隆**,带着同一个
+ * `:not()` 自计一格的缺陷(`button.primary:hover:not(:disabled)` 读成 (0,4,1),
+ * 规范是 (0,3,1))。校准过的那份见 `tests/helpers/chat-mirror-cascade.ts`。
+ */
 
 const SHORTHAND_TARGETS = [
   'background-color',

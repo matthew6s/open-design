@@ -36,6 +36,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { specificityTuple } from '../../helpers/chat-mirror-cascade';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,18 +80,11 @@ function rules(css: string): Rule[] {
 
 /** (b, c) 两档 —— 这一族里没有 id。`:not()` 按里面最重的那一支算(和浏览器一致)。 */
 function specificity(selector: string): [number, number] {
-  let b = 0;
-  let c = 0;
-  let rest = selector;
-  for (const m of selector.matchAll(/:not\(([^)]*)\)/g)) {
-    const [ib, ic] = specificity(m[1] ?? '');
-    b += ib;
-    c += ic;
-    rest = rest.replace(m[0], ' ');
-  }
-  b += (rest.match(/\.[A-Za-z0-9_-]+|\[[^\]]+\]|:{1}[a-z-]+(?![a-z-]*\()/g) ?? []).length;
-  c += (rest.match(/(?:^|[\s>+~(])([a-zA-Z][a-zA-Z0-9-]*)/g) ?? []).length;
-  return [b, c];
+  const [ids, classes, types] = specificityTuple(selector);
+  // 校准过的共享量尺没有的那一档:id。这几张表里没有 id 选择器,少一档不影响判决;
+  // 真出现了就**当场抛**,不许悄悄按 0 处理 —— 那会让一条 id 规则凭空输掉。
+  if (ids > 0) throw new Error(`两元组量尺遇到 id 选择器,请改用三元组:${selector}`);
+  return [classes, types];
 }
 
 const gt = (a: [number, number], b: [number, number]) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
