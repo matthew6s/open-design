@@ -345,13 +345,13 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
   display: inline-flex; align-items: flex-start; gap: 10px;
   max-width: min(320px, 100%); padding: 9px 11px;
   border: none; border-radius: 14px 14px 4px 14px;
-  background: var(--bg-fill-tertiary); box-shadow: none;
-  color: var(--text); text-align: start;
+  background: #121212; box-shadow: none;
+  color: #fff; text-align: start;
 }
 .user-status-card__icon {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: var(--radius);
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: #fff; background: #353535;
 }
 .user-status-card__icon > svg { display: block; width: 16px; height: 16px; }
 .user-status-card__copy { min-width: 0; flex: 1 1 auto; overflow: hidden; display: grid; gap: 2px; }
@@ -360,12 +360,11 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
   font-size: var(--t-body); line-height: 1.2; font-weight: 600;
 }
 .user-status-card__copy span {
-  overflow-wrap: anywhere; font-size: var(--t-mini); line-height: 1.35; color: var(--text-muted);
+  overflow-wrap: anywhere; font-size: var(--t-mini); line-height: 1.35; color: #bdbdbd;
 }
 /* 标题保持一行；280px 给完整标题留出空间，同时维持紧凑的消息宽度。 */
 .st-b .design-system-generation-status {
   width: min(280px, 100%);
-  background: color-mix(in srgb, var(--text) 6%, var(--bg));
 }
 
 /* 超长消息折到 6 行,末尾留一枚「…」,hover 时「…」后面浮出下拉箭头。
