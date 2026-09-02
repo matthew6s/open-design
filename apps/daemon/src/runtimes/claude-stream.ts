@@ -77,10 +77,30 @@ export function createClaudeStreamHandler(
 
   // Per-content-block scratch, keyed by `${messageId}:${blockIndex}`.
   const blocks = new Map<string, BlockState>();
-  // Tool uses already emitted from streamed `input_json_delta` data.
-  // Claude Code still repeats them in the final assistant wrapper, often with
-  // empty `{}` inputs, so we suppress that duplicate emission.
-  const streamedToolUseIds = new Set<string>();
+  /**
+   * Tool-use ids this handler has ALREADY EMITTED, by whichever path got there
+   * first. One call must produce exactly one `tool_use`.
+   *
+   * Two paths can emit the same tool: `content_block_stop` (input assembled
+   * from `input_json_delta`) and the final `assistant` wrapper, which Claude
+   * Code replays at message end. The set used to be written by the delta path
+   * only while being read by the wrapper path — it meant "streamed from deltas"
+   * but was consumed as "already emitted". Whenever the wrapper arrived FIRST it
+   * read an empty set, emitted, and left nothing behind, so the later
+   * `content_block_stop` emitted the same id a second time. That is not
+   * hypothetical: in the 2026-08-28 diagnostics bundle (packaged
+   * `0.21.1-beta.4`) every claude run duplicated every tool — 47 of 47 pairs,
+   * byte-identical inputs 5–25ms apart — which also pins the real frame order on
+   * that build as wrapper-before-stop.
+   *
+   * Both paths now check it and both add to it, so the ordering cannot matter.
+   * Neither path ever DEFERS to the other: whichever arrives first emits
+   * immediately, so a turn where only one of them ever arrives (a cancel that
+   * lands before the wrapper; an older Claude Code with no
+   * `--include-partial-messages` and therefore no `content_block_stop` at all)
+   * still emits exactly once. Deduping must never become dropping.
+   */
+  const emittedToolUseIds = new Set<string>();
   // Most recent assistant message id so content_block_* events without an id
   // can be attributed correctly.
   let currentMessageId: string | null = null;
@@ -338,6 +358,44 @@ export function createClaudeStreamHandler(
     return `${currentMessageId ?? 'anon'}:${index}`;
   }
 
+  /**
+   * The still-open streamed block carrying `toolUseId`, if the delta path is
+   * mid-flight for that tool. `blocks` is keyed by message id + block index, so
+   * an id is not directly addressable; a message holds only a handful of open
+   * blocks, so the scan is cheap.
+   */
+  function openToolUseBlock(toolUseId: string): BlockState | null {
+    for (const state of blocks.values()) {
+      if (state.type === 'tool_use' && state.id === toolUseId) return state;
+    }
+    return null;
+  }
+
+  /**
+   * The input to publish for a tool_use block seen on the `assistant` wrapper.
+   *
+   * The delta-assembled input wins when it is present and parses. Claude Code
+   * replays finished tool calls in the wrapper "often with empty `{}` inputs",
+   * so once the wrapper is allowed to emit first (it is — see
+   * `emittedToolUseIds`), taking its input verbatim would let an empty object
+   * overwrite the real command. Assembled JSON that fails to parse means the
+   * deltas were truncated, and then the wrapper's own input is the better of
+   * the two.
+   */
+  function wrapperToolUseInput(block: Record<string, unknown>): unknown {
+    if (typeof block.id === 'string') {
+      const open = openToolUseBlock(block.id);
+      if (open && open.input.trim()) {
+        try {
+          return JSON.parse(open.input);
+        } catch {
+          // Truncated stream — fall back to the wrapper's own input below.
+        }
+      }
+    }
+    return block.input ?? null;
+  }
+
   // Per-message role-marker guard (#3247). Covers text_delta ONLY.
   //
   // Why not thinking_delta: extended thinking is rendered to a
@@ -576,10 +634,11 @@ export function createClaudeStreamHandler(
       for (const block of obj.message.content) {
         if (!isRecord(block)) continue;
         if (block.type === 'tool_use') {
-          if (typeof block.id === 'string' && streamedToolUseIds.has(block.id)) {
-            continue;
+          if (typeof block.id === 'string') {
+            if (emittedToolUseIds.has(block.id)) continue;
+            emittedToolUseIds.add(block.id);
           }
-          emitToolUse(block.id, block.name, block.input ?? null);
+          emitToolUse(block.id, block.name, wrapperToolUseInput(block));
         } else if (
           !textAlreadyStreamed &&
           block.type === 'text' &&
@@ -800,10 +859,19 @@ export function createClaudeStreamHandler(
     if (ev.type === 'content_block_stop') {
       const key = blockKey(ev.index);
       const state = blocks.get(key);
+      // The wrapper may already have published this call (it usually gets here
+      // first — see `emittedToolUseIds`); then this stop is bookkeeping only.
+      const alreadyEmitted = state?.type === 'tool_use'
+        && typeof state.id === 'string'
+        && emittedToolUseIds.has(state.id);
+      if (alreadyEmitted) {
+        blocks.delete(key);
+        return;
+      }
       if (state && state.type === 'tool_use' && typeof state.id === 'string' && state.input.trim()) {
         try {
           emitToolUse(state.id, state.name, JSON.parse(state.input));
-          streamedToolUseIds.add(state.id);
+          emittedToolUseIds.add(state.id);
         } catch {
           // Fall through to the final assistant wrapper's input if the
           // streamed JSON is malformed or incomplete.
@@ -815,7 +883,7 @@ export function createClaudeStreamHandler(
         state.inputValue !== undefined
       ) {
         emitToolUse(state.id, state.name, state.inputValue);
-        streamedToolUseIds.add(state.id);
+        emittedToolUseIds.add(state.id);
       }
       blocks.delete(key);
       return;
