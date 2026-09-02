@@ -27,6 +27,9 @@ import {
   type AIHubMixCatalogType,
 } from '../integrations/aihubmix.js';
 import { isSandboxModeEnabled } from '../sandbox-mode.js';
+import { createChatArtifactBlobStore } from '../chat-artifacts/blob-store.js';
+import { captureChatArtifactSnapshotFromBytes } from '../chat-artifacts/capture.js';
+import { resolveChatArtifactQuota } from '../chat-artifacts/quota.js';
 import {
   HYPERFRAMES_SCAFFOLD_TOOL_ENDPOINT,
   MEDIA_TASK_WAIT_TOOL_ENDPOINT,
@@ -250,6 +253,10 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
   const { db, design } = ctx;
   const { sendApiError, requireLocalDaemonRequest, isLocalSameOrigin, resolvedPortRef } = ctx.http;
   const { PROJECT_ROOT, PROJECTS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
+  // Derived from the one resolved daemon data root; the store rejects anything
+  // else, so there is no second data root to drift.
+  const chatArtifactBlobs = createChatArtifactBlobStore({ dataDir: RUNTIME_DATA_DIR });
+  const chatArtifactQuota = resolveChatArtifactQuota(process.env);
   const { authorizeToolRequest, optionalToolGrantFromRequest, requestProjectOverride } = ctx.auth;
   const { randomUUID } = ctx.ids;
   const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, createMediaTask, persistMediaTask, appendTaskProgress, notifyTaskWaiters, getLiveMediaTask, mediaTaskSnapshot, listMediaTasksByProject, listElevenLabsVoiceOptions } = ctx.media;
@@ -414,6 +421,32 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         image: req.body?.image,
         images: Array.isArray(req.body?.images) ? req.body.images : undefined,
         workspaceId,
+        // Strong capture path (spec §5.1.1): freeze the provider's own bytes
+        // the moment they land, so a later turn overwriting the same output
+        // name can never rewrite this message's history. Bound to THIS run and
+        // task, so the run-terminal pass can reuse it verbatim instead of
+        // re-reading a file that may already have moved on.
+        onBytesWritten: async (written: {
+          bytes: Buffer;
+          name: string;
+          mime: string;
+          kind: string;
+          mtime: number;
+        }) => {
+          await captureChatArtifactSnapshotFromBytes(
+            { db, blobs: chatArtifactBlobs, quota: chatArtifactQuota },
+            {
+              projectId,
+              projectRelativePath: written.name,
+              kind: written.kind,
+              mime: written.mime,
+              bytes: written.bytes,
+              sourceMtime: written.mtime,
+              ...(options.grant?.runId ? { runId: options.grant.runId } : {}),
+              mediaTaskId: taskId,
+            },
+          );
+        },
         onProgress: (line: any) => appendTaskProgress(task, line),
         requestInit: proxyDispatcher.requestInit,
         onProviderRequestSettled: (summary: ImageGenerationRequestSummary & { providerId: string }) => {

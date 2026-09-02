@@ -876,6 +876,12 @@ import { registerDesignSystemToolRoutes } from './routes/design-system-tool.js';
 import { registerDeployRoutes, registerDeploymentCheckRoutes } from './routes/deploy.js';
 import { registerMediaRoutes } from './routes/media.js';
 import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFileRoutes, registerProjectUploadRoutes, createEnforceWorkspaceProjectMutation } from './routes/project/index.js';
+import { registerProjectChatArtifactRoutes } from './routes/project/chat-artifacts.js';
+import { createChatArtifactBlobStore } from './chat-artifacts/blob-store.js';
+import { resolveChatArtifactQuota } from './chat-artifacts/quota.js';
+import { reconcileChatArtifactSnapshots } from './chat-artifacts/reconcile.js';
+import { sweepChatArtifactStorage } from './chat-artifacts/gc.js';
+import { captureRunChatArtifactSnapshots } from './chat-artifacts/run-capture.js';
 import { registerVelaRoutes } from './routes/vela.js';
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerHandoffRoutes } from './routes/handoff.js';
@@ -1339,6 +1345,11 @@ migrateLegacyDataDirSync({
   legacyDir: process.env.OD_LEGACY_DATA_DIR,
   dataDir: RUNTIME_DATA_DIR,
 });
+// Immutable chat-artifact snapshot storage. Derived from the SINGLE resolved
+// data root per the repository "Daemon data directory contract" — the store
+// itself has no default and would throw if handed anything else.
+const CHAT_ARTIFACT_BLOBS = createChatArtifactBlobStore({ dataDir: RUNTIME_DATA_DIR });
+const CHAT_ARTIFACT_QUOTA = resolveChatArtifactQuota(process.env);
 const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'artifacts');
 // Critique Theater artifacts intentionally live outside the static
 // `/artifacts` tree. The per-run artifact endpoint is the sanctioned
@@ -3377,6 +3388,47 @@ export async function startServer({
   for (const row of listRecentMediaTasks(db, { terminalTtlMs: TASK_TTL_AFTER_DONE_MS })) {
     mediaTaskStore.hydrateMediaTask(row);
   }
+
+  // Boot reconcile for chat-artifact snapshots. Blob-store initialization is
+  // deliberately separate from the SQLite migration and never blocks startup:
+  // a broken snapshot store must degrade the cards, not the daemon.
+  void (async () => {
+    try {
+      const report = await reconcileChatArtifactSnapshots({
+        db,
+        blobs: CHAT_ARTIFACT_BLOBS,
+        quota: CHAT_ARTIFACT_QUOTA,
+        resolveSourcePath: (projectId, relativePath) => {
+          try {
+            const project = getProject(db, projectId);
+            const dir = resolveProjectDir(PROJECTS_DIR, projectId, project?.metadata);
+            return path.join(dir, relativePath.split('/').join(path.sep));
+          } catch {
+            return null;
+          }
+        },
+      });
+      if (report.completed > 0 || report.failed > 0 || report.blobMissing > 0 || report.tempsSwept > 0) {
+        console.warn(
+          `[chat-artifacts] reconcile completed=${report.completed} failed=${report.failed} ` +
+            `blobMissing=${report.blobMissing} tempsSwept=${report.tempsSwept}`,
+        );
+      }
+      const swept = await sweepChatArtifactStorage({
+        db,
+        blobs: CHAT_ARTIFACT_BLOBS,
+        dryRun: process.env.OD_CHAT_ARTIFACT_GC !== '1',
+      });
+      if (swept.blobsSwept > 0 || swept.snapshotsSwept > 0 || swept.orphanFilesSwept > 0) {
+        console.info(
+          `[chat-artifacts] gc${swept.dryRun ? ' (dry-run)' : ''} snapshots=${swept.snapshotsSwept} ` +
+            `blobs=${swept.blobsSwept} bytes=${swept.bytesReclaimed} orphans=${swept.orphanFilesSwept}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[chat-artifacts] boot reconcile failed', err);
+    }
+  })();
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {
     console.log('[od] Codex plugins disabled via OD_CODEX_DISABLE_PLUGINS=1');
@@ -8859,6 +8911,15 @@ export async function startServer({
     projectPreviewScopes,
     verifyWorkspaceRequestAuthority,
   });
+  // Immutable chat-artifact snapshot reads. Same read authority as /raw; see
+  // routes/project/chat-artifacts.ts for the gate chain.
+  registerProjectChatArtifactRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    projectStore: projectStoreDeps,
+    authorizeProjectRequest,
+  });
 
   registerMediaRoutes(app, {
     db,
@@ -11254,6 +11315,34 @@ export async function startServer({
       // below then observes run.artifactOutcome and discards this late result.
       const afterSnapshot = await snapshotProjectArtifactsAsync(artifactBaseline.cwd);
       return resolveRunArtifactOutcomeBeforeFinish(afterSnapshot);
+    };
+    // Freeze this turn's artifact evidence while the daemon still owns the
+    // moment: at the terminal chokepoint, BEFORE the terminal SSE frame goes
+    // out and before any client can see the message as done. A snapshot taken
+    // after that races the next turn's overwrite, which is exactly the bug this
+    // exists to close. Never throws — a failed capture degrades one card, it
+    // does not fail the run.
+    const captureChatArtifactsBeforeSuccess = async () => {
+      try {
+        if (!run?.projectId || !run.assistantMessageId) return;
+        const outcome = await resolveRunArtifactOutcomeBeforeFinishAsync();
+        const touchedPaths = Array.isArray(outcome?.diff?.touchedPaths)
+          ? outcome.diff.touchedPaths
+          : [];
+        if (!outcome?.projectRoot || touchedPaths.length === 0) return;
+        await captureRunChatArtifactSnapshots(
+          { db, blobs: CHAT_ARTIFACT_BLOBS, quota: CHAT_ARTIFACT_QUOTA },
+          {
+            projectId: run.projectId,
+            projectRoot: outcome.projectRoot,
+            messageId: run.assistantMessageId,
+            runId: run.id,
+            touchedPaths,
+          },
+        );
+      } catch (err) {
+        console.warn('[chat-artifacts] run terminal capture failed', err);
+      }
     };
     const snapshotAiHtmlVersionsBeforeSuccess = async () => {
       const origin = artifactOriginForRun({
@@ -16031,6 +16120,7 @@ export async function startServer({
             run.authenticatedDoneConclusion = doneCapture.authenticatedConclusion;
           }
         }
+        await captureChatArtifactsBeforeSuccess();
         try {
           await snapshotAiHtmlVersionsBeforeSuccess();
         } catch (err) {

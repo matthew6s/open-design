@@ -32,6 +32,16 @@ import {
   type WorkspaceProjectHomeRow,
 } from './collab/workspace-project-home.js';
 import { scrubDsmlToolProtocolTail } from './artifacts/text-suppression.js';
+import {
+  listMessageArtifactRows,
+  migrateChatArtifacts,
+  replaceMessageArtifacts,
+} from './chat-artifacts/store.js';
+import {
+  projectChatArtifactRefs,
+  projectConversationChatArtifactRefs,
+} from './chat-artifacts/refs.js';
+import type { ChatArtifactRef } from './chat-artifacts/types.js';
 import { migrateCritique } from './critique/persistence.js';
 import { migrateMediaTasks } from './media/tasks.js';
 import { migrateLibrary } from './library-store.js';
@@ -591,6 +601,7 @@ function migrate(db: SqliteDb): void {
   migrateProjectScenarioBindings(db);
   migrateStrategyTaskStore(db);
   migrateOdNextRolloutStore(db);
+  migrateChatArtifacts(db);
   migrateCollabSyncSnapshots(db);
   migrateCommentRelayOutbox(db);
   migrateAmrTerminalReportOutbox(db);
@@ -2784,11 +2795,36 @@ export function listMessages(db: SqliteDb, conversationId: string) {
     )
     .all(conversationId) as DbRow[];
   const eventBatches = readConversationMessageEventBatches(db, conversationId);
+  // One query for the whole conversation. A per-message lookup here would be a
+  // straight N+1 on every transcript read.
+  const artifactRefs = conversationChatArtifactRefs(db, conversationId);
   return messages.map((message) => normalizeMessage(
     db,
     message,
     eventBatches.get(String(message.id)) ?? [],
+    artifactRefs.get(String(message.id)) ?? [],
   ));
+}
+
+function projectIdForConversation(db: SqliteDb, conversationId: string): string | null {
+  const row = db
+    .prepare(`SELECT project_id AS projectId FROM conversations WHERE id = ?`)
+    .get(conversationId) as DbRow | undefined;
+  return typeof row?.projectId === 'string' ? row.projectId : null;
+}
+
+function conversationChatArtifactRefs(
+  db: SqliteDb,
+  conversationId: string,
+): Map<string, ChatArtifactRef[]> {
+  const projectId = projectIdForConversation(db, conversationId);
+  if (!projectId) return new Map();
+  try {
+    return projectConversationChatArtifactRefs(db, projectId, conversationId);
+  } catch {
+    // A snapshot store problem must never make a conversation unreadable.
+    return new Map();
+  }
 }
 
 export function getMessage(db: SqliteDb, id: string, conversationId?: string) {
@@ -2816,7 +2852,77 @@ export function getMessage(db: SqliteDb, id: string, conversationId?: string) {
         WHERE id = ?${conversationId ? ' AND conversation_id = ?' : ''}`,
     )
     .get(conversationId ? [id, conversationId] : id) as DbRow | undefined;
-  return row ? normalizeMessage(db, row) : null;
+  if (!row) return null;
+  return normalizeMessage(db, row, undefined, messageChatArtifactRefs(db, String(row.id)));
+}
+
+function messageChatArtifactRefs(db: SqliteDb, messageId: string): ChatArtifactRef[] {
+  const owner = db
+    .prepare(
+      `SELECT c.project_id AS projectId FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+        WHERE m.id = ?`,
+    )
+    .get(messageId) as DbRow | undefined;
+  if (typeof owner?.projectId !== 'string') return [];
+  try {
+    return projectChatArtifactRefs(db, owner.projectId, messageId);
+  } catch {
+    // A snapshot store problem must never make a message unreadable.
+    return [];
+  }
+}
+
+/**
+ * Materialize artifact refs for a message that has none yet.
+ *
+ * This is what makes CONVERSATION FORK work: the fork copies each source
+ * message under a fresh id, and the copy re-seeds its own `message_artifacts`
+ * rows pointing at the SAME immutable snapshots. Blobs are shared, never
+ * duplicated, and the two branches count independently — deleting one branch's
+ * message cannot take the other branch's evidence with it.
+ *
+ * Refs are only seeded when the message has none. A browser PUT that echoes a
+ * stale projection back must not be able to overwrite refs the daemon wrote at
+ * the run's terminal chokepoint.
+ */
+function seedMessageArtifactRefsIfAbsent(
+  db: SqliteDb,
+  messageId: string,
+  refs: unknown,
+): void {
+  if (!Array.isArray(refs) || refs.length === 0) return;
+  try {
+    if (listMessageArtifactRows(db, messageId).length > 0) return;
+    const inputs = refs.flatMap((raw) => {
+      const ref = raw as Partial<ChatArtifactRef>;
+      if (
+        typeof ref?.label !== 'string' ||
+        typeof ref.kind !== 'string' ||
+        (ref.displayPolicy !== 'immutable_snapshot' &&
+          ref.displayPolicy !== 'latest_with_static_preview') ||
+        (ref.openPolicy !== 'snapshot' && ref.openPolicy !== 'workspace_latest')
+      ) return [];
+      return [{
+        label: ref.label,
+        kind: ref.kind,
+        displayPolicy: ref.displayPolicy,
+        openPolicy: ref.openPolicy,
+        snapshotId: typeof ref.snapshotId === 'string' ? ref.snapshotId : null,
+        workspaceArtifactId:
+          typeof ref.workspaceArtifactId === 'string' ? ref.workspaceArtifactId : null,
+        // `html_version_id` is daemon-internal lineage that never crosses the
+        // wire, so a fork rebuilt from the DTO cannot carry it. It is optional
+        // diagnostics; the snapshot itself is what the fork actually needs.
+      }];
+    });
+    if (inputs.length === 0) return;
+    replaceMessageArtifacts(db, messageId, inputs);
+  } catch (error) {
+    // A fork that cannot carry its refs still forks. The copy simply shows no
+    // cards rather than blocking the branch.
+    console.warn('[db] failed to seed message artifact refs', error);
+  }
 }
 
 export function conversationTurnIndexForRun(
@@ -3000,6 +3106,7 @@ export function upsertMessage(db: SqliteDb, conversationId: string, m: DbRow) {
       createdAt,
     );
   }
+  seedMessageArtifactRefsIfAbsent(db, String(m.id), m.artifactRefs);
   // Bump conversation activity so the sidebar's recency sort works.
   db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
     now,
@@ -4336,7 +4443,12 @@ function scheduleNextMessageEventMaintenance(
   immediate.unref?.();
 }
 
-function normalizeMessage(db: SqliteDb, row: DbRow, eventBatches?: DbRow[][]) {
+function normalizeMessage(
+  db: SqliteDb,
+  row: DbRow,
+  eventBatches?: DbRow[][],
+  artifactRefs?: ChatArtifactRef[],
+) {
   const eventsJson = typeof row.eventsJson === 'string' ? row.eventsJson : null;
   const materializedEvents = materializeMessageAgentEvents(
     db,
@@ -4391,6 +4503,9 @@ function normalizeMessage(db: SqliteDb, row: DbRow, eventBatches?: DbRow[][]) {
     attachments: parseJsonOrUndef(row.attachmentsJson),
     commentAttachments: parseJsonOrUndef(row.commentAttachmentsJson),
     producedFiles: parseJsonOrUndef(row.producedFilesJson),
+    // Normalized artifact refs. `producedFiles` stays exactly as it was for
+    // transcripts and older clients; new cards read this instead.
+    artifactRefs: artifactRefs && artifactRefs.length > 0 ? artifactRefs : undefined,
     traceObjectFiles: parseJsonOrUndef(row.traceObjectFilesJson),
     feedback: parseJsonOrUndef(row.feedbackJson),
     preTurnFileNames: parseJsonOrUndef(row.preTurnFileNamesJson),

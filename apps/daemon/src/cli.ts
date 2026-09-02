@@ -249,14 +249,14 @@ const PROJECT_STRING_FLAGS = new Set([
   'client-request-id',
   'agent', 'model', 'service-tier', 'snapshot-id', 'inputs', 'grant-caps', 'editor',
   'title', 'label', 'against', 'seed-from', 'fork-after', 'mode',
-  'source',
+  'source', 'out',
 ]);
 const PROJECT_RESOURCE_STRING_FLAGS = new Set([
   ...PROJECT_STRING_FLAGS,
   'workspace',
   'workspace-member',
 ]);
-const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow']);
+const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow', 'thumbnail']);
 const WORKSPACE_STRING_FLAGS = new Set([
   'daemon-url', 'workspace', 'view', 'visibility', 'owner', 'project',
   'member', 'role', 'email', 'app-user', 'lifecycle-state',
@@ -7013,6 +7013,16 @@ async function runProject(args) {
   od project handoff <id> --conversation <id> --api-key <key> --model <model>
                     [--base-url <url>] [--max-tokens <n>]
                     Synthesize a resume-conversation handoff prompt.
+  od project artifact-snapshot list --project <id> --conversation <id>
+                    --message <id> [--json]
+                    List one chat message's artifact refs — which version each
+                    card shows and which one clicking it opens.
+  od project artifact-snapshot inspect <snapshotId> --project <id> [--json]
+                    Print one immutable snapshot's metadata (digest, size,
+                    capture state, lineage).
+  od project artifact-snapshot export <snapshotId> --project <id> --out <path>
+                    [--thumbnail] [--json]
+                    Write a snapshot's exact historical bytes to a local file.
 
 Common options:
   --daemon-url <url>   OpenDesign daemon HTTP base.
@@ -7362,6 +7372,94 @@ Common options:
       }
       if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
       console.log(`[project] opened ${id} in ${editor} (${data.path ?? ''})`);
+      return;
+    }
+    // Chat artifact snapshots. The UI reads these through the same endpoints;
+    // this is the embeddability half of the dual-track rule, so an external
+    // agent can inspect and export a turn's exact bytes without the web app.
+    case 'artifact-snapshot': {
+      const action = rest[0];
+      const projectId = String(flags.project ?? '').trim();
+      if (!projectId) {
+        console.error('od project artifact-snapshot requires --project <id>');
+        process.exit(2);
+      }
+      const scope = `/api/projects/${encodeURIComponent(projectId)}`;
+      if (action === 'list') {
+        const conversationId = String(flags.conversation ?? '').trim();
+        const messageId = String(flags.message ?? '').trim();
+        if (!conversationId || !messageId) {
+          console.error('od project artifact-snapshot list requires --conversation <id> --message <id>');
+          process.exit(2);
+        }
+        const resp = await fetch(
+          `${base}${scope}/conversations/${encodeURIComponent(conversationId)}`
+            + `/messages/${encodeURIComponent(messageId)}/artifacts`,
+          { headers: workspaceHeaders },
+        );
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+        const artifacts = data?.artifacts ?? [];
+        if (artifacts.length === 0) {
+          console.log('No artifact refs on this message.');
+          return;
+        }
+        for (const ref of artifacts) {
+          console.log(
+            `${ref.label}\t${ref.kind}\tshows:${ref.displayPolicy}`
+              + `\topens:${ref.openPolicy}\t${ref.snapshotState}`
+              + `\t${ref.snapshotId ?? '-'}`,
+          );
+        }
+        return;
+      }
+      if (action === 'inspect') {
+        const snapshotId = String(rest[1] ?? '').trim();
+        if (!snapshotId) {
+          console.error('od project artifact-snapshot inspect requires <snapshotId>');
+          process.exit(2);
+        }
+        const resp = await fetch(
+          `${base}${scope}/chat-artifact-snapshots/${encodeURIComponent(snapshotId)}`,
+          { headers: workspaceHeaders },
+        );
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+        const snapshot = data?.snapshot ?? {};
+        console.log(`${snapshot.id}\t${snapshot.kind}\t${snapshot.state}`);
+        console.log(`  captured from: ${snapshot.sourcePathAtCapture}`);
+        console.log(`  digest:        ${snapshot.contentDigest ?? '-'}`);
+        console.log(`  bytes:         ${snapshot.byteSize ?? '-'}`);
+        if (snapshot.failureCode) console.log(`  failure:       ${snapshot.failureCode}`);
+        return;
+      }
+      if (action === 'export') {
+        const snapshotId = String(rest[1] ?? '').trim();
+        const out = String(flags.out ?? '').trim();
+        if (!snapshotId || !out) {
+          console.error('od project artifact-snapshot export requires <snapshotId> --out <path>');
+          process.exit(2);
+        }
+        const which = flags.thumbnail ? 'thumbnail' : 'content';
+        const resp = await fetch(
+          `${base}${scope}/chat-artifact-snapshots/${encodeURIComponent(snapshotId)}/${which}`,
+          { headers: workspaceHeaders },
+        );
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        writeFileSync(out, buffer);
+        if (flags.json) {
+          return process.stdout.write(
+            JSON.stringify({ snapshotId, out, byteSize: buffer.byteLength }, null, 2) + '\n',
+          );
+        }
+        console.log(`[project] wrote ${buffer.byteLength} bytes to ${out}`);
+        return;
+      }
+      console.error('usage: od project artifact-snapshot <list|inspect|export> …');
+      process.exit(2);
       return;
     }
     default:
