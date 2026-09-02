@@ -29,6 +29,12 @@ import {
   DECK_READY_MESSAGE_TYPE,
 } from '@open-design/contracts/runtime/deck-protocol';
 import {
+  DECK_CHROME_HIDE_CSS,
+  DECK_CHROME_HIDE_STYLE_MARKER,
+  DECK_STAGE_SHADOW_CHROME_HIDE_CSS,
+  DECK_STAGE_SHADOW_CHROME_HIDE_STYLE_ID,
+} from '@open-design/contracts/runtime/deck-presentation';
+import {
   buildPreviewBaseHrefBridge,
   buildPreviewObservabilityBridge,
 } from '@open-design/contracts/runtime/preview-observability';
@@ -2938,28 +2944,13 @@ export const DECK_MOTION_FREEZE_CSS = `*, *::before, *::after {
   scroll-behavior: auto !important;
 }`;
 
-export const DECK_CHROME_HIDE_CSS = `.deck-counter,
-.deck-hint,
-.deck-nav,
-.deck-floating-nav,
-.deck-floating-reset,
-.deck-controls,
-.slide-nav,
-.slides-nav,
-.slide-controls,
-.slide-counter,
-.presentation-nav,
-.presentation-controls,
-[role="navigation"][aria-label*="Deck"],
-[role="navigation"][aria-label*="deck"],
-[role="navigation"][aria-label*="Slide"],
-[role="navigation"][aria-label*="slide"],
-[data-deck-nav],
-[data-slide-nav] {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}`;
+/**
+ * Re-exported from `@open-design/contracts/runtime/deck-presentation`, which is
+ * the single source shared with the runtime presentation bridge. Existing
+ * consumers (deck thumbnails, `apps/web/src/runtime/srcdoc`) keep importing it
+ * from here.
+ */
+export { DECK_CHROME_HIDE_CSS };
 
 function injectMotionFreeze(doc: string): string {
   return injectBeforeHeadEnd(doc, `<style data-od-motion-freeze>
@@ -2968,15 +2959,15 @@ ${DECK_MOTION_FREEZE_CSS}
 }
 
 function injectDeckChromeHiding(doc: string): string {
-  return injectBeforeHeadEnd(doc, `<style data-od-deck-chrome-hidden>
+  return injectBeforeHeadEnd(doc, `<style ${DECK_CHROME_HIDE_STYLE_MARKER}>
 ${DECK_CHROME_HIDE_CSS}
 </style>`);
 }
 
 function injectDeckStageShadowChromeHiding(doc: string): string {
   return injectBeforeBodyEnd(doc, `<script data-od-deck-stage-shadow-chrome-hidden>(function(){
-  var HIDE_ID = 'od-deck-stage-shadow-chrome-hidden';
-  var CSS = '.overlay,.tapzones{display:none!important;visibility:hidden!important;pointer-events:none!important;}';
+  var HIDE_ID = ${JSON.stringify(DECK_STAGE_SHADOW_CHROME_HIDE_STYLE_ID)};
+  var CSS = ${JSON.stringify(DECK_STAGE_SHADOW_CHROME_HIDE_CSS)};
   function hideStage(stage){
     try {
       if (!stage || !stage.shadowRoot) return false;
