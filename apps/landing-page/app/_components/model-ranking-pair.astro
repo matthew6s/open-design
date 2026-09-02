@@ -28,15 +28,15 @@ interface Props {
 const { group, isZh, prominent = false } = Astro.props;
 /** 成本从 $0.035 到 $7.66，低于 $1 时保留三位小数才看得出差别。 */
 const formatCost = (cost: number) => (cost >= 1 ? cost.toFixed(2) : cost.toFixed(3));
-const scoreLabel = isZh ? '总分' : 'Score';
+const scoreLabel = isZh ? '平均分' : 'Avg. score';
 const deliveryLabel = isZh ? '可交付率' : 'Delivery rate';
-const scoreAxisLabel = isZh ? '总分' : 'Total score';
+const scoreAxisLabel = isZh ? '平均分' : 'Average score';
 const modelLabel = isZh ? '模型' : 'Model';
 // 场景名可能以拉丁字母结尾（Dashboard、Web 端 App），中西文之间要留空格
 const zhGap = /[A-Za-z0-9)\]]$/.test(group.label) ? ' ' : '';
 const rankingTitle = isZh ? `${group.label}${zhGap}排名` : `${group.label} ranking`;
-const costTitle = isZh ? `${group.label}${zhGap}· 总分 × 成本` : `${group.label} · score vs cost`;
-const costDescription = isZh ? '左上象限代表用更低成本拿到更高的总分。横轴是对数刻度，实测成本跨度超过 200 倍。' : 'The upper-left quadrant reaches a higher score at a lower cost. The x-axis is logarithmic — measured cost spans more than 200x.';
+const costTitle = isZh ? `${group.label}${zhGap}· 平均分 × 成本` : `${group.label} · average score vs cost`;
+const costDescription = isZh ? '左上象限代表用更低成本拿到更高的平均分。横轴是对数刻度，实测成本跨度超过 200 倍。' : 'The upper-left quadrant reaches a higher average score at a lower cost. The x-axis is logarithmic — measured cost spans more than 200x.';
 // 纵轴按本组真实分数自适应。写死 60–85 时，Web 应用这类低分场景会有
 // 四个模型同时被 clamp 到地板上，既看不出差距，标签也必然重叠。
 const scores = group.rows.map((row) => row.score);
@@ -194,7 +194,7 @@ for (let pass = 0; pass < 4; pass += 1) {
       <div class="cost-y-ticks" aria-hidden="true">{yTicks.map((tick) => <span>{tick}</span>)}</div>
       <div class="cost-x-ticks" aria-hidden="true"><span>$0.02</span><span>$0.10</span><span>$0.50</span><span>$2</span><span>$10</span></div>
       <div class="cost-plot">
-        <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高总分 / 低成本' : 'High score / low cost'}</span></div>
+        <div class="cost-ideal-zone" style={`--zone-w:${zoneWidth}%;--zone-h:${zoneHeight}%`}><span>{isZh ? '高分 / 低成本' : 'High score / low cost'}</span></div>
         <div class="cost-ref cost-ref-x" style={`--ref:${refX}%`} aria-hidden="true"><span>{isZh ? `成本中位 $${formatCost(medianCost)}` : `Median cost $${formatCost(medianCost)}`}</span></div>
         <div class="cost-ref cost-ref-y" style={`--ref:${refY}%`} aria-hidden="true"><span>{isZh ? `均分 ${medianScore.toFixed(1)}` : `Median score ${medianScore.toFixed(1)}`}</span></div>
         {group.rows.map((model, index) => (
@@ -202,7 +202,7 @@ for (let pass = 0; pass < 4; pass += 1) {
             class:list={['cost-point', { 'is-winner': index === 0 }]}
             data-label-dir={labelDirs.get(model.name)}
             style={`--x:${model.x}%;--y:${plotY(model.score)}%;--point-color:${model.color}`}
-            aria-label={`${model.name}: ${isZh ? '总分' : 'score'} ${model.score.toFixed(1)}, $${formatCost(model.cost)}`}
+            aria-label={`${model.name}: ${isZh ? '平均分' : 'average score'} ${model.score.toFixed(1)}, $${formatCost(model.cost)}`}
             tabindex="0"
           >
             <span class="cost-point-name">{model.name}</span>
