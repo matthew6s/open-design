@@ -142,6 +142,10 @@
   --chat-radius-sm: var(--radius-sm);
   --chat-radius: var(--radius);
   --chat-radius-lg: var(--radius-lg);
+  /* 卡片外壳那一档(16px)。`RunErrorCard` / `UpgradeCard` / `SupportDialog`
+     三处都写成 `var(--chat-radius-2xl, var(--radius-2xl))` 等这条落地 ——
+     别名缺席时 `var()` 静静走 fallback,画面一模一样,所以缺了也没人红。 */
+  --chat-radius-2xl: var(--radius-2xl);
   --chat-radius-pill: var(--radius-pill);
   --chat-shadow-sm: var(--shadow-sm);
   --chat-shadow-md: var(--shadow-md);
@@ -248,6 +252,7 @@
   --chat-radius-sm: var(--radius-sm);
   --chat-radius: var(--radius);
   --chat-radius-lg: var(--radius-lg);
+  --chat-radius-2xl: var(--radius-2xl);
   --chat-radius-pill: var(--radius-pill);
   --chat-shadow-sm: var(--shadow-sm);
   --chat-shadow-md: var(--shadow-md);

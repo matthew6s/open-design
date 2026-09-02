@@ -145,6 +145,11 @@
   color: var(--text-strong);
   border-radius: var(--radius-2xl);
 }
+/* 稿子 `.fold > summary:hover { background: var(--bg-fill-tertiary) }`
+   (`361b78253e:docs/design/chat-panel/src/components.css:908`,与交付稿
+   `8015870095` 同一行同一值)。标题行是可点的 —— 手型给了、点了会展开,
+   唯独没有悬停反馈,是这一行原来漏搬的那一条。 */
+.appliedCard > summary:hover { background: var(--bg-fill-tertiary); }
 .appliedCard > summary::-webkit-details-marker { display: none; }
 .appliedCard > summary::marker { content: ''; }
 /* 没有条目时点开是空的,索性不给手型也不给箭头 */

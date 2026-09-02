@@ -2321,12 +2321,6 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   scrollbar-width: thin;
 }
 
-.chat-queued-send-list.is-scrollable {
-  padding-right: 3px;
-  overscroll-behavior: contain;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
-}
-
 .chat-queued-send-header {
   display: flex;
   align-items: center;
@@ -2372,11 +2366,6 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
     background-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
     border-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
     opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.chat-queued-send-row-active {
-  border-color: color-mix(in srgb, var(--border) 80%, transparent);
-  background: color-mix(in srgb, var(--bg-subtle) 82%, transparent);
 }
 
 .chat-queued-send-row:hover {
@@ -3197,13 +3186,25 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   aspect-ratio: 1 / 1;
   height: auto;
 }
+/* 缩略图接上来之前,这一格不该是空的灰:一排纯灰方块读起来像「图没加载出来」,
+   摆上产品标才读得出「这里是一个传上来的文件」。
+   稿子 `.att-i .mini`(`361b78253e:docs/design/chat-panel/src/components.css:796`;
+   `8015870095` / `853da24ea5` / `361b78253e` 三版这一块 md5 相同):图源是设计给的
+   `src/att-placeholder.svg`,内联成 data URI —— 稿子是单文件不能外链,
+   我们这一轮授权动的也只有样式表,所以照它内联。
+   `cover` 不是 `contain`:卡 1:1、图 1:1,cover 不留边。
+   底下 `--bg-muted` 那一层留着 —— 图万一没解出来还是原来那块灰,不会露白。
+   作用域跟着稿子走,只盖【用户传的】附件(`.msg.user` / `.composer-att`);
+   生图结果、缩略图条、视觉选项不是用户传的东西,不盖产品标。 */
 .msg.user .msg-att-mini,
 .composer-att .msg-att-mini {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: var(--bg-muted);
+  background:
+    url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDQ0IiBoZWlnaHQ9IjQ0NCIgdmlld0JveD0iMCAwIDQ0NCA0NDQiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+IDxyZWN0IHdpZHRoPSI0NDQiIGhlaWdodD0iNDQ0IiBmaWxsPSIjMjAyMDIwIi8+IDxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8zNDlfMjgxKSI+IDxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMV8zNDlfMjgxKSI+IDxwYXRoIGQ9Ik0yMjIgNzEuOTk0MUMzMDQuODQzIDcxLjk5NDEgMzcyIDEzOS4xNTEgMzcyIDIyMS45OTRDMzcyIDMwNC44MzcgMzA0Ljg0MyAzNzEuOTk0IDIyMiAzNzEuOTk0SDkxLjk1N0M4MC45MTE0IDM3MS45OTQgNzIuMDAxIDM2My4wODUgNzIuMDAxIDM1Mi4wMzlDNzIuMDAwOCAzMTguNTg1IDcyIDI1MS45MTUgNzIgMjIxLjk5NEM3MiAxMzkuMTUxIDEzOS4xNTcgNzEuOTk0MSAyMjIgNzEuOTk0MVpNMjIyLjAwMSAxMDEuOTk0QzE1NS43MjcgMTAxLjk5NCAxMDIuMDAxIDE1NS43MiAxMDIuMDAxIDIyMS45OTRDMTAyLjAwMSAyODguMjY4IDE1NS43MjcgMzQxLjk5NCAyMjIuMDAxIDM0MS45OTRDMjg4LjI3NSAzNDEuOTk0IDM0Mi4wMDEgMjg4LjI2OCAzNDIuMDAxIDIyMS45OTRDMzQyLjAwMSAxNTUuNzIgMjg4LjI3NSAxMDEuOTk0IDIyMi4wMDEgMTAxLjk5NFoiIGZpbGw9IndoaXRlIi8+IDxwYXRoIGQ9Ik0yMTIuNjU0IDI5Mi40MDlMMTY2LjkyMSAxNzIuMDYxQzE2NS40NDEgMTY4LjE2NiAxNjkuMjQ1IDE2NC4zNDcgMTczLjExNCAxNjUuODQ0TDI5My41MTkgMjEyLjQyN0MyOTguNDc0IDIxNC4zNDQgMjk3LjEwOSAyMjEuNzQgMjkxLjggMjIxLjc0SDIyMS45MTdWMjkwLjY4OUMyMjEuOTE3IDI5Ni4wMzUgMjE0LjU1MiAyOTcuNDAzIDIxMi42NTQgMjkyLjQwOVoiIGZpbGw9IndoaXRlIi8+IDwvZz4gPC9nPiA8ZGVmcz4gPGNsaXBQYXRoIGlkPSJjbGlwMF8zNDlfMjgxIj4gPHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IndoaXRlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg3MiA3MikiLz4gPC9jbGlwUGF0aD4gPGNsaXBQYXRoIGlkPSJjbGlwMV8zNDlfMjgxIj4gPHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IndoaXRlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg3MiA3MikiLz4gPC9jbGlwUGF0aD4gPC9kZWZzPiA8L3N2Zz4=") center / cover no-repeat,
+    var(--bg-muted);
 }
 
 /* 文档卡:md / txt / csv 这些没有可看的画面。硬塞进 1:1 的灰方块,那块灰不传达
@@ -3727,7 +3728,12 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   color: inherit;
   font-family: inherit;
   font-size: var(--font-size-13);
-  font-weight: 400;
+  /* `inherit`,不是写死的 400。稿子的全局 button 复位**一条字重都不设**,
+     按钮就跟着 chat 根的排版基线走。原来那个 400 是为了把 `primitives.css`
+     全局 `button` 的 500「压回继承值」—— 在旧基线(body 400)下两者同值、
+     看不出来;基线抬到 500(`0334a6599d`,落在接缝层)之后它就变成
+     **面板里每一颗裸按钮都比周围正文轻一档**。 */
+  font-weight: inherit;
   cursor: pointer;
   /* 排版那几条也要归零 —— 稿子的全局 button 一条都不设,
      各组件自己写(`.grip { display:grid; place-items:center }`、
@@ -3896,4 +3902,29 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   flex: none;
   width: 12px;
   height: 12px;
+}
+/* 点出来的那两块要「落」一下(同一格)。静态地摆在那儿,分不出它是刚才那一下
+   带来的;落这一下(上方 4px + 淡入)说的就是「这是你刚点的那一下」。
+   线先落、脚注晚 60ms —— 脚注是线的注解,顺序照读的顺序来。
+   开关是 `.is-new`:只有 `AssistantMessage` 渲染的那两块挂,陈列页那一格
+   (手写的裸 `.fork-sep` / `.fork-note`)不挂,一加载就是已经落好的样子 ——
+   这正是稿子交代的「钉住展示的那一格不挂 .is-new」。
+   ⚠️ 缓动取的是稿子写的 `var(--ease-out)`(在我们 tokens.css 里解出来是
+   `cubic-bezier(0, 0, 0, 1)`)。仓库 `AGENTS.md` 的「UI 动效」一节写的默认
+   缓动是 `cubic-bezier(0.23, 1, 0.32, 1)`,本文件里 `.msg` 的入场用的也正是
+   后者 —— 两者对不上,按稿子照搬,取舍待拍板。
+   时值 200ms 与「进入约 200ms」一致;起手是 translateY 不是 scale(0),
+   不触碰「禁止从 scale(0) 起手」那一条。
+   reduced-motion 不另写:`styles/base.css` 已有全局的
+   `animation-duration: .01ms !important` 兜底。 */
+@keyframes fork-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.fork-sep.is-new,
+.fork-note.is-new {
+  animation: fork-in var(--duration-normal) var(--ease-out) both;
+}
+.fork-note.is-new {
+  animation-delay: 60ms;
 }

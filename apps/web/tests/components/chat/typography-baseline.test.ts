@@ -63,6 +63,14 @@ const PAUSE_LINE_CSS = readFileSync(resolve(SRC, 'components/chat/PauseLine.modu
 const decomment = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
+ * 稿子的字族**字面值**(`361b78253e:docs/design/chat-panel/src/tokens.css:155`,
+ * 稿子 tokens 三版 md5 相同):
+ *   --sans: "Albert Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+ * 我们 `tokens.css:149` 逐字节相同 —— 判据写稿子的值,不写「等于我们的 token」。
+ */
+const DESIGN_SANS = '"Albert Sans", "PingFang SC", "Microsoft YaHei", sans-serif';
+
+/**
  * 只留排版声明。
  *
  * 注入全量样式表会让 jsdom 在解析 `linear-gradient(… color-mix(…) …)` 时抛异常
@@ -321,38 +329,41 @@ describe('新基线下,面板里各层的最终计算值', () => {
   });
 
   /**
+   * 层四 · 面板里的裸按钮。它没有自己的字重,靠 `:where([data-chat-root]) button`
+   * 那条复位往下走 —— 稿子的全局 button 复位**一条字重都不设**
+   * (`button { font-family: inherit; border: none; background: none;
+   * cursor: pointer; color: inherit; font-size: var(--font-size-13) }`),
+   * 所以它该和周围正文同重。写死一个数(而不是「等于 prose」)是本组的规矩:
+   * 「等于基线」那种写法在基线被改坏时会跟着一起变。
+   */
+  it('层四 · 面板里的裸按钮(字重靠继承):13px / 500 / Albert Sans', () => {
+    mount(CHAT_ROOT_CSS);
+    const bare = read('bare-button');
+    // 稿子 `361b78253e:docs/design/chat-panel/src/components.css`
+    //   :170  button { font-family: inherit; border: none; background: none;
+    //                  cursor: pointer; color: inherit; font-size: var(--font-size-13) }
+    //   :151  body   { font-family: var(--sans); font-weight: 500;
+    //                  font-size: var(--font-size-13); line-height: 1.5 }
+    // 全局 button 复位**一条字重都不设** → 继承 body 的 500;字号 13px;
+    // 字族 `inherit` → body 的 `var(--sans)`。三样各钉一条具体值。
+    expect(bare.fontSize).toBe('13px');
+    expect(
+      bare.fontWeight,
+      '面板里的裸按钮比周围正文轻一档 —— `styles/chat.css` 的 ' +
+        '`:where([data-chat-root]) button` 又写死了一个字重,该写 `inherit`',
+    ).toBe('500');
+    expect(
+      getComputedStyle(document.getElementById('bare-button')!).fontFamily,
+      '字族也要跟着继承 —— 稿子的 button 复位写的是 font-family: inherit',
+    ).toBe(DESIGN_SANS);
+  });
+
+  /**
    * 层级还得站得住:发言人名(`.role` 600)必须仍然重于正文,
    * 否则基线一抬就把「标题 / 正文」两档压成一档。
    */
   it('发言人名仍然比正文重一档', () => {
     mount(CHAT_ROOT_CSS);
     expect(Number(read('role').fontWeight)).toBeGreaterThan(Number(read('prose').fontWeight));
-  });
-});
-
-describe('已知偏差 · 面板里的裸按钮(交给后续 PR)', () => {
-  /**
-   * `styles/chat.css` 的 `:where([data-chat-root]) button` 写了 `font-weight: 400`。
-   * 稿子的全局 button 复位**一条字重都不设**(`button { font-family: inherit;
-   * border: none; background: none; cursor: pointer; color: inherit;
-   * font-size: var(--font-size-13) }`),按稿子它应该继承 body 的 500。
-   *
-   * 那个 `400` 当初是为了把 `primitives.css` 全局 `button` 的 500「压回继承值」——
-   * 在旧基线(body 400)下两者同值,看不出来;基线一到 500,它就变成
-   * **面板里每一颗裸按钮都比周围正文轻一档**。
-   *
-   * 本 PR 只落基线、不动 `styles/chat.css`(那份文件同时有别的改动在飞)。
-   * 这条把当前读数钉住当绊线:后续 PR 把 `400` 改成 `inherit` 时,它会红,
-   * 提醒把这里一起更新成 `500`。
-   */
-  it('现在是 13px / 400 —— 稿子要的是继承来的 500', () => {
-    mount(CHAT_ROOT_CSS);
-    const bare = read('bare-button');
-    expect(bare.fontSize).toBe('13px');
-    expect(
-      bare.fontWeight,
-      '如果这里已经变成 500,说明 chat.css 的按钮复位已经改好了 —— ' +
-        '把这个 describe 整体删掉,并把期望并进上面那组层级断言',
-    ).toBe('400');
   });
 });
