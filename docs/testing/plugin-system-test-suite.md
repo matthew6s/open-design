@@ -191,7 +191,7 @@ pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 | PS-E05 | Provenance | marketplace install 保留 sourceMarketplaceId、entry name/version、resolved ref、integrity | `apps/daemon/tests/plugins-installer.test.ts` |
 | PS-E06 | Lockfile replay | daemon-managed plugin lockfile 可以重放 exact install；测试文档不得定义 daemon 数据路径，必须阅读 root `AGENTS.md` → **Daemon data directory contract** | `apps/daemon/tests/plugins-lockfile.test.ts` |
 | PS-E07 | Marketplace doctor | invalid name/source/capability/license/yank reason 被报告 | `apps/daemon/tests/plugins-marketplace-doctor.test.ts` |
-| PS-E08 | Public site renderer | `/plugins`、detail route、`/plugins/search.json` build 通过 | marketing site repository (extracted from `apps/landing-page`) |
+| PS-E08 | Public site renderer | `/plugins`、detail route、`/plugins/search.json` build 通过 | external marketing-site repository (renderer check runs there) |
 
 ### F. Pipeline, GenUI, Atoms
 
