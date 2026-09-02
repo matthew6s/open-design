@@ -190,29 +190,20 @@
 .fold.flat summary .meta,
 .fold.flat summary .chev { margin-left: 0; }
 /*
- * 壳里那两条列,以及串起它们的那条链的中轴 —— 全稿唯一一处写这三个数的地方。
+ * 壳 body 自己那点内距。
  *
- * 交付稿 `progress-running` / `progress-done` 逐行量过(真 Chrome,坐标相对壳 body 内容盒):
- *   · 壳 body 的直接子代(步骤)行首那一格落在 **0**,宽 15;步骤名落在 22
- *   · 步骤**里面**的子行(工具行、序号行、嵌一层的折叠块)一律落在 **22**
- *   · 链画在 **7.5** —— 行首那一格 15px 的中轴
- * 22 是怎么来的:稿子原话「缩进一格(状态点 15 + 间距 7 = 22)」—— 让开步骤自己那颗状态点。
+ * ⚠️ 这里曾经还挂着五枚变量(`--row-slot` / `--row-pad-block` / `--chain-gap` /
+ * `--chain-x` / `--row-outdent`),全部是为**那条串起各步骤的竖线**服务的:
+ * 线的中轴、线让开状态点的起点、各行盒子往左探出多少。
+ * 2026-09-02 设计裁决把那条线整个撤掉,五枚变量随之没有任何消费者 —— 一起清掉,
+ * 不留「哪天线回来还能用」的死代码。真要回来,重新按当时的量法推一遍比读旧常量可靠。
  *
- * 所以 `--chain-x` 不是拍出来的:它就是 `--row-slot` 那一格的中轴。
- * 两个数写在一起,谁动了另一个跟着动,链和图标不会各走各的。
+ * **两条列本身没有变**,它们由选择器分层给,不由这些变量给:
+ *   · 壳 body 的直接子代(顶层)行首落 **0**
+ *   · 步骤**里面**的子行落 **22**(稿子:「缩进一格(状态点 15 + 间距 7 = 22)」)
  */
 .fold.flat > .body.stack {
   padding: 0 0 2px;
-  /* 行首那一格的宽(状态点 / 图标 / 序号共用一格) */
-  --row-slot: 15px;
-  /* 链上每一行自己的上下内边距(步骤 summary 与工具行都是这一档) */
-  --row-pad-block: 5px;
-  /* 线和行首那枚标记之间的气口 —— 稿子的 25px 就是这几个数加出来的 */
-  --chain-gap: 3.5px;
-  /* 链的中轴,相对壳 body 的内容盒 */
-  --chain-x: 7.5px;
-  /* 这一行的盒子比壳 body 内容盒往左探出多少 —— 链要按各行自己的 0 点换算 */
-  --row-outdent: 0px;
 }
 .fold.flat[open] > summary + .body.stack {
   border-top: var(--chat-stroke) solid var(--chat-border);
@@ -221,63 +212,22 @@
 /* 开场白是**正文**:13px,不是壳里那些 12px 的注脚(稿子:「开头说明保留 13px」) */
 .fold.flat > .body.stack > .think { padding: 6px 0; font-size: var(--chat-t-body); }
 /*
- * 壳 body 的**直接子代**都是链上的一格,一律站在第 0 列。
+ * 壳 body 的**直接子代**一律站在第 0 列。
  *
  * 三种 DOM 走同一条:能展开的步骤 / 工具行(`details.fold`)、不能展开的工具行
  * (`div.tool`)、思考那一格(`details.fold.thoughts`)。它们在产线上是平级的兄弟,
- * 站在同一列才有「一条链」可言 —— 稿子里顶层清一色是步骤,行首那一格全落 0(逐行量过)。
+ * 站在同一列才成行 —— 稿子里顶层清一色是步骤,行首那一格全落 0(逐行量过)。
  *
- * `margin-inline: -7px` 把行的可点区域撑到壳的两侧(悬停底色齐边),
- * `--row-outdent` 记的就是这 7px:链的偏移要按各行自己的 0 点换算。
+ * `margin-inline: -7px` 把行的**可点区域**撑到壳的两侧,悬停底色因此齐边;
+ * 每行的 `summary`/`padding` 再把内容补回 0,所以字和图标仍然落在第 0 列。
+ * ⚠️ 这条不能删:删了所有行的悬停底会一起缩进去(`record-chain-scope.test.tsx`
+ * 的「反向守卫」两条钉着)。
+ *
+ * ⚠️ 同一条规则里原来还有 `position: relative` 和 `--row-outdent: 7px`,
+ * 两者都**只**为那条竖线的绝对定位服务(2026-09-02 线已撤销),一并清掉。
  */
 .fold.flat > .body.stack > :is(.fold, .tool) {
   margin-inline: -7px;
-  position: relative;
-  --row-outdent: 7px;
-}
-/*
- * 串起这些格的那条**竖直连接线**。稿子:
- *   .fold.mod-flat > .body.mod-stack > .fold:not(:last-of-type)::before,
- *   .fold.mod-flat > .body.mod-stack > .fold[open]:not(:first-of-type)::before
- *   { inset-inline-start: 14.5px; top: 25px; bottom: 0; width: 1px; background: var(--border) }
- *
- * 最后一格不画(下面没有东西了);展开的那一格即使排在第一位也要画
- * (它下面接着的是自己的内容)。我们原来一条都没有 —— 用户 2026-08-26 逐格指出。
- *
- * **两处偏离稿子,都是量出来的**(2026-08-27):
- *
- * ① `:is(.fold, .tool)` 而不是只认 `.fold`,`:has(~ …)` / `… ~ …` 而不是 `:*-of-type`。
- *    稿子顶层清一色是 `details`,所以 `:not(:last-of-type)` 够用;产线上顶层混着
- *    `div.tool`,`of-type` 按标签算,`details` 和 `div` 各数各的 —— 一条尾随的
- *    工具行不会让前一条 `details` 失去 `:last-of-type`,链在那里凭空多一截或少一截。
- *    同一处修正夹心正文那条规则已经做过(见下面 `:is(.fold, .tool)` 的注释)。
- *
- * ② `inset-inline-start` 不再写死 14.5px,按各行自己的缩进算。
- *    14.5 = 链的中轴 7.5 + 步骤行往左探出的 7 —— 两个数原来分别硬编码在这里(14.5)
- *    和夹心正文那里(7.5),表面上是两条线,实际必须落在同一条轴上。
- *    2026-08-27 就是在这儿出的事:思考那一格换了缩进,写死的 14.5 没跟着动,
- *    于是当时用 `:not(.thoughts)` 把它排除掉,链在那一格断开。现在偏移由
- *    `--chain-x + --row-outdent` 算出来,行怎么缩进线跟着走,不可能再错开。
- */
-.fold.flat > .body.stack > .stepRow:has(~ .stepRow)::before,
-.fold.flat > .body.stack > .stepRow ~ .stepRow[open]::before {
-  content: '';
-  position: absolute;
-  inset-inline-start: calc(var(--chain-x) + var(--row-outdent, 0px));
-  /*
-   * 让位给这一行自己的行首那一格 —— 稿子:「线不是被点盖住,是让位给点」。
-   *
-   * 稿子写的是 `top: 25px`,而 25 是**让位算出来的结果**,不是原因:
-   * 行内边距 5 + 标记微调 1.5 + 标记边长 15 + 气口 3.5 = 25。把结果写死,
-   * 上游任何一个数一动它就不成立 —— 本轮把步骤标题从 12px 提到 13px,
-   * 单行余量当场从 3.5px 掉到 2.75px(OPEND-2417 的漂移就是这么来的)。
-   * 现在按同一组数算出来,和 `.mark` 共用 `--row-slot`,不可能再错身。
-   */
-  top: calc(var(--row-pad-block) + 1.5px + var(--row-slot) + var(--chain-gap));
-  bottom: 0;
-  width: 1px;
-  background: var(--chat-border);
-  pointer-events: none;
 }
 /* 这张壳带清单 —— 只作层叠判据用。给一个没人读的自定义属性而不是留空块:
    空规则会被 CSS Module 优化掉,`styles.hasTodo` 就成了 undefined,标记静默失效。 */
@@ -326,7 +276,6 @@
  * 详见 `specs/current/chat-panel-feedback.md` §F-11。
  */
 .fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow) {
-  position: relative;
   padding-inline-start: 22px;
   /* 夹在两步中间的这几句是注脚,不是开场白:12px + 静音灰
      (稿子:「步骤间的小结用 12px;开头说明保留 13px」) */
@@ -336,20 +285,6 @@
 /* 行内代码自带 --chat-text-strong;不接管的话一段静音里会留下几个黑块 */
 .fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow) code {
   color: inherit;
-}
-.fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow)::before {
-  content: '';
-  position: absolute;
-  /* 和上面那条链**同一个表达式**。这一段叙述不带那 7px 负外边距,`--row-outdent`
-     吃壳 body 上的 0 —— 同一个式子在两种盒子里各算各的,落到同一条绝对轴上。
-     原来这里写 7.5、上面写 14.5,是同一条线被拆成两个各自维护的数。 */
-  inset-inline-start: calc(var(--chain-x) + var(--row-outdent, 0px));
-  /* 这一段没有自己的行首格,轴上没有它的点,不用让位 —— 通高,链从它身边直穿过去 */
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--chat-border);
-  pointer-events: none;
 }
 /*
  * 步骤标题 13px / 500(PR #7170:「执行计划和步骤标题统一为 13px / 500,
@@ -1139,31 +1074,43 @@
  * 的同一件事:容器是盒子,推的是盒子,不是盒子里的行。
  */
 /*
- * 列的偏移挂在**抽屉自己**身上,不挂在正文上。
+ * 灰底面板比标题栏的悬停底**窄一圈**,四边各让出一份行内距。
  *
- * 思考这一格是**一只面板**,不是一条裸行:标题栏是面板的顶、正文是面板的身子,
- * 两者共用同一只盒子,底色的左右两边才对得齐。
+ * ## 稿子给的就是这个关系
  *
- * ⚠️ 上一版把偏移写成正文的 `margin-inline-start`,和行盒那条
- * `margin-inline: -7px`(把悬停命中区撑到壳的两侧)**方向相反** ——
- * 于是一 hover,标题栏的底比下面那块灰底往左多探出一截。
- * 用户 2026-09-02:「这里怎么凸出来了,感觉很奇怪」,箭头指的就是这条边。
+ * 稿子里思考流是壳**自己**的 body:
+ *   `.fold.mod-flat > summary { margin-inline: -7px; padding: 6px 7px }`(components.css:1030)
+ *   `.fold.mod-flat > .body.mod-stream { padding: var(--stream-pad) }`(thinking-stream.css,8px,**不带** margin-inline)
+ * 于是标题的悬停底占 `-7 … W+7`,灰底面板占 `0 … W` —— **两边各差 7px**,
+ * 而这 7 就是 summary 自己那份 `padding-inline`。用户 2026-09-02:
+ * 「这个 hover 态有点丑,应该允许比下面的超出一点点,有个 padding 而已」——
+ * 说的就是这一圈。
  *
- * 现在偏移由抽屉的 `padding-inline-start` 给、标题栏的那份归零:
- *   标题文字 = 盒(-7)+ 抽屉内距(7 / 29)+ summary 内距(0)
- * 和原来的「盒(-7)+ summary 内距(7 / 29)」算到**同一个数**,
- * 所以字和图标一个像素都没动,动的只有底色那只盒子。
- * 右边自动齐:两者都不带结束侧外边距,一起吃行盒那 -7。
+ * ⚠️ 稿子基础规则里那个 `padding: 8px 11px`(components.css:898)**不适用于这里**:
+ * 扁平壳里的每一行都被 `.fold.mod-flat > .body.mod-stack > .fold > summary
+ * { padding: 5px 7px }`(1056)盖掉了。11 是**有框折叠块**那一档的数。
  *
- * 那条 `-7px` 一个字没动 —— 它管的是**别的行**的悬停命中区。思考这一格的命中区
- * 跟着面板收进来是对的:可点范围本来就该等于看得见的那只面板。
+ * ## 上一版为什么不对
+ *
+ * 上一版把 summary 的 `padding-inline-start` 归零、让两块底**齐平** —— 齐平之后
+ * 悬停底和面板变成同一个矩形,读起来像面板自己在闪,而不是「这一行可以点」。
+ * 再上一版则是只有左边探出(左 -7 / 右 0),歪的那半正是用户说的丑。
+ * 现在两边都让 7px:**对称**,而且是稿子自带的量,不是新拍的常数。
+ *
+ * ## 两层各自的数
+ *
+ * 面板永远比抽屉的内容盒窄一圈(`margin-inline: 7px`),所以抽屉的内容盒要落在
+ * 「这一行的列 − 7」上;summary 只留自己那份 7,两条加起来仍然等于原来的一档:
+ *   顶层    抽屉 0(不写)+ summary 7  = 7  → 文字落 0、悬停底 -7、面板 0
+ *   步骤里  抽屉 22      + summary 7  = 29 → 文字落 22、悬停底 15、面板 22
+ * 文字的落点一个像素没动,动的只有两块底的相对大小。
  */
-.fold.flat > .body.stack > .fold.thoughts { padding-inline-start: 7px; }
-.fold.flat > .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
-.fold .body.stack .body.stack > .fold.thoughts { padding-inline-start: 33px; }
-.fold .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
-.fold.flat .body.stack .body.stack > .fold.thoughts { padding-inline-start: 29px; }
-.fold.flat .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 0; }
+.fold .thoughts > .body { margin-inline: 7px; }
+.fold.flat .body.stack .body.stack > .fold.thoughts { padding-inline-start: 22px; }
+.fold.flat .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 7px; }
+/* 非扁平壳那一档:33 = 26 + 7,同一条推导 */
+.fold .body.stack .body.stack > .fold.thoughts { padding-inline-start: 26px; }
+.fold .body.stack .body.stack > .fold.thoughts > summary { padding-inline-start: 7px; }
 /*
  * 盒子里的字**只吃容器那一份 `--stream-pad`**,不再叠第二层缩进。
  * 稿子逐字:容器 `padding: var(--stream-pad)`(8px),窗里的正文

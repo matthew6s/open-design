@@ -345,17 +345,17 @@ describe('N7-f 缩进对齐工具行,两态之间不跳', () => {
     expect(toolPad).toBe('5px 7px');
 
     /*
-     * 思考那一格的**列**仍然和它们同一档,只是 2026-09-02 起换了个挂法:
-     * 它是一只面板(标题栏 + 灰底正文共用一只盒子),列因此挂在**抽屉**的
-     * `padding-inline-start` 上、标题栏那份归零 —— 两条加起来还是 7,
-     * 标题和图标一个像素没动,动的只有底色那只盒子的左边缘。
-     * (为什么必须这么挂:行盒的 `margin-inline: -7px` 把悬停底撑到壳的两侧,
-     *  而灰底要落在内容列上,方向相反;一 hover 两块底就错开 7px。
-     *  用户 2026-09-02:「这里怎么凸出来了」。)
-     * 所以这里钉的不再是「没有专属规则」,而是**两条加起来仍然等于同一档**。
+     * 思考那一格在**顶层**没有自己的缩进规则 —— 和步骤、工具行同吃那一档
+     * `padding: 5px 7px`。留一条专属规则就是留一个会各走各的地方。
+     *
+     * ⚠️ 2026-09-02 中间试过一版「列挂到抽屉、summary 归零」,为的是让悬停底和
+     * 灰底面板**齐平**;用户看了说齐平反而丑(「应该允许比下面的超出一点点,
+     * 有个 padding 而已」),于是收回 —— 顶层这一档回到没有专属规则的样子,
+     * 悬停底靠 summary 自己那 7px 内距比面板宽出一圈。只有**嵌在步骤里**那一档
+     * 还留着拆分(抽屉 22 + summary 7 = 原来的 29),因为那一列本来就要拆。
      */
-    expect(declOf('.fold.flat > .body.stack > .fold.thoughts', 'padding-inline-start')).toBe('7px');
-    expect(declOf('.fold.flat > .body.stack > .fold.thoughts > summary', 'padding-inline-start')).toBe('0');
+    expect(declOf('.fold.flat > .body.stack > .fold.thoughts > summary', 'padding-inline-start')).toBeNull();
+    expect(declOf('.fold.flat > .body.stack > .fold.thoughts', 'padding-inline-start')).toBeNull();
     expect(declOf('.fold.flat > .body.stack > .fold > summary', 'padding')).toBe('5px 7px');
   });
 
@@ -371,31 +371,30 @@ describe('N7-f 缩进对齐工具行,两态之间不跳', () => {
     );
   });
 
-  it('思考那一格**在**步骤链上,而且线和它自己的图标列对齐', () => {
-    /*
-     * ⚠️ **这条断言 2026-08-27 被推翻过一次。**
-     *
-     * 原来它断言的是相反的事 ——「思考那一格不画步骤之间那条竖线 —— 它是工具行,
-     * 不是步骤」,做法是给链那两条选择器挂 `:not(.thoughts)`。当时的理由:
-     *
-     *   > 步骤链那条竖线画在 `inset-inline-start: 14.5px`(壳里绝对位置 7.5px),
-     *   > 是按「折叠头贴左」算的。思考这一格缩到 22px 之后,那条线会孤零零落在
-     *   > 图标左边 14.5px 的地方 —— 量到过:foldBoxX=-7、线在 14.5、图标在 22。
-     *
-     * **观察没错,病根找反了**:错的不是线,是思考那一格当时缩到了 22。用户当天
-     * 指出顶层不该有那 22px 之后,这一格回到第 0 列,它自己的图标列就是 7.5 那条轴,
-     * 线不再「孤零零落在图标左边」——它正好压在图标中轴上。
-     *
-     * 留着这段历史是因为「为什么曾经排除过」比「现在没排除」更值钱:
-     * 下一个看到线和图标错开的人,要先问「是不是又有哪一行的列错了」,
-     * 而不是再把它从链上摘一次。链断在哪一格,用户当天用截图指过。
-     */
-    const railSelectors = CSS
+  /*
+   * ⚠️ **这条断言前后被推翻过两次,历史比结论值钱。**
+   *
+   * ① 2026-08-27 之前:断言「思考那一格**不**画步骤之间那条竖线」,做法是给链那两条
+   *    选择器挂 `:not(.thoughts)`。理由是量到「线在 14.5、图标在 22,线孤零零落在图标
+   *    左边」。**观察没错,病根找反了** —— 错的是思考那一格当时缩到了 22。
+   * ② 2026-08-27:那一格回到第 0 列,线正好压在它的图标中轴上,断言翻成「**在**链上」。
+   * ③ 2026-09-02:**设计裁决把那条线整个撤掉了**(用户原话「这个灰色竖线不要了,
+   *    设计同学说」)。所以现在断言的是:样式表里一段链都不许再有。
+   *
+   * 留着这一路是因为「为什么曾经排除过它」比「现在没排除」更值钱:哪天线要回来,
+   * 得先回答「思考那一格的列对不对」,而不是再把它从链上摘一次。
+   */
+  it('链已撤销 —— 样式表里一段竖线都不许再有', () => {
+    const chained = CSS
       .split('}')
-      .map((b) => (b.split('{')[0] ?? '').replace(/\s+/g, ' ').trim())
-      .filter((s) => s.includes('::before') && s.includes('.body.stack >'));
-    expect(railSelectors.length).toBeGreaterThan(0);          // 正向对照:规则找得到
-    for (const s of railSelectors) expect(s).not.toContain(':not(.thoughts)');
+      .map((block) => ({
+        sel: (block.split('{')[0] ?? '').replace(/\s+/g, ' ').trim(),
+        body: block.split('{')[1] ?? '',
+      }))
+      .filter((r) => r.sel.endsWith('::before')
+        && /width:\s*1px/.test(r.body)
+        && /background:\s*var\(--chat-border\)/.test(r.body));
+    expect(chained.map((r) => r.sel)).toEqual([]);
   });
 
   /*

@@ -488,18 +488,53 @@ describe('那条竖线只穿步骤,顶层的东西一概不挂', () => {
     expect(hasRail(topChild(root, '开场白'))).toBe(false);
   });
 
-  /* ⚠️ 反向守卫:线不能连着步骤一起摘掉,那是把这块的顺序语义整个删了 */
-  it('**步骤仍然挂线** —— 链是步骤之间的那根链', () => {
+  /*
+   * ⚠️ **2026-09-02 设计裁决:那条线整个不要了。**
+   * 上一轮把它从「顶层每一格都画」收窄成「只穿步骤」,这一轮连步骤那一段也撤掉。
+   * 所以这两条从「必须有线」翻成「一条都不许有」。
+   */
+  it('步骤也不挂线 —— 链整条撤掉了', () => {
     const root = mount(SCENE);
-    expect(hasRail(topChild(root, 'Run Design Jury review and apply'))).toBe(true);
-    expect(hasRail(topChild(root, '执行计划'))).toBe(true);
+    expect(hasRail(topChild(root, 'Run Design Jury review and apply'))).toBe(false);
+    expect(hasRail(topChild(root, '执行计划'))).toBe(false);
   });
 
-  it('**夹在两步中间的小结仍然挂线**,并且仍是 22px 那一列', () => {
+  it('夹在两步中间的小结不挂线,但**仍然落在 22px 那一列**', () => {
     const root = mount(SCENE);
+    const body = bodyOf(root);
     const mid = topChild(root, '两步之间的一句小结');
-    expect(hasRail(mid)).toBe(true);
-    expect(contentLeft(mid, bodyOf(mount(SCENE)))).toBe(22);
+    expect(hasRail(mid)).toBe(false);
+    // 缩进是层级表达,和线是两件事 —— 稿子第一句写的就是「让它的首字和上面那行步骤名对齐」
+    expect(contentLeft(mid, body)).toBe(22);
+  });
+
+  /*
+   * 最硬的一条:**整份样式表里一段链都不许再出现**。
+   * 逐个元素问「你有没有线」只能覆盖我想到的那几种格;这一条从规则那头封死,
+   * 谁把 `::before` 加回来都会当场红。
+   */
+  it('样式表里不再有任何「1px 描边色竖线」的伪元素', () => {
+    const css = readFileSync(
+      resolve(SRC, 'components/chat/primitives/record.module.css'),
+      'utf-8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const sel = (m[1] ?? '').trim();
+      const decls = (m[2] ?? '').replace(/\s+/g, ' ');
+      if (!sel.includes('::before') && !sel.includes('::after')) continue;
+      const isChain = /width: *1px/.test(decls) && /background: *var\(--chat-border\)/.test(decls);
+      expect(isChain, `这条又把链画回来了:${sel}`).toBe(false);
+    }
+  });
+
+  it('只为链服务的那几枚变量一起清干净了 —— 不留死代码', () => {
+    const css = readFileSync(
+      resolve(SRC, 'components/chat/primitives/record.module.css'),
+      'utf-8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const dead of ['--chain-x', '--chain-gap', '--row-slot', '--row-pad-block', '--row-outdent']) {
+      expect(css, `${dead} 只为链存在,链没了它就是死代码`).not.toContain(dead);
+    }
   });
 
   it('收尾那一句后面没有步骤,不挂线', () => {
@@ -658,52 +693,56 @@ describe('嵌在步骤里:灰底左缘和同层工具行对齐', () => {
  * 标题文字和图标的位置**一个像素都没动**:原来是「盒 -7 + summary 内距 7」,
  * 现在是「盒 -7 + 抽屉内距 7 + summary 内距 0」,两条路算到同一个 0。
  */
-describe('思考那一格:标题栏的底和正文的底是同一只盒子', () => {
+/** 悬停底比灰底面板宽出的那一圈 —— 就是行自己那份 `padding-inline`(稿子 5px **7px**) */
+const HOVER_BLEED = 7;
+
+describe('思考那一格:悬停底比灰底面板宽出一圈,左右对称', () => {
   const STEP = 'Run Design Jury review and apply';
 
-  it('顶层 · 标题栏的底左缘落在 0', () => {
-    const root = mount(SCENE);
-    const body = bodyOf(root);
-    const summary = topChild(root, '顶层这一段推理').querySelector<HTMLElement>(':scope > summary')!;
-    expect(boxLeft(summary, body)).toBe(0);
-  });
-
-  it('顶层 · 正文灰底左缘也落在 0', () => {
-    const root = mount(SCENE);
-    const body = bodyOf(root);
-    expect(boxLeft(thoughtsBox(topChild(root, '顶层这一段推理')), body)).toBe(0);
-  });
-
-  it('顶层 · 两块底的**右**缘同样齐(都往外探出 7px)', () => {
+  /*
+   * 用户 2026-09-02 两次指认,方向是相反的两头:
+   *  ① 「这里怎么凸出来了」—— 当时悬停底只在**左边**探出(左 -7 / 右 0),歪的;
+   *  ② 「这个 hover 态有点丑,应该允许比下面的超出一点点,有个 padding 而已」
+   *     —— 我把它改成齐平之后,两块底成了同一个矩形,像面板自己在闪。
+   * 现在的落点是稿子自带的关系:悬停底 = 面板 ± 一份行内距,**两边一样**。
+   */
+  it('顶层 · 悬停底左缘比面板左缘各让出 7px', () => {
     const root = mount(SCENE);
     const body = bodyOf(root);
     const drawer = topChild(root, '顶层这一段推理');
-    expect(boxRightInset(drawer.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(-7);
-    expect(boxRightInset(thoughtsBox(drawer), body)).toBe(-7);
+    const summary = drawer.querySelector<HTMLElement>(':scope > summary')!;
+    expect(boxLeft(summary, body)).toBe(-HOVER_BLEED);   // -7
+    expect(boxLeft(thoughtsBox(drawer), body)).toBe(0);
   });
 
-  it('顶层 · 标题文字仍然落在 0 —— 修的是底,不是字', () => {
+  it('顶层 · 右边让出**同样多**,不是只做左边', () => {
+    const root = mount(SCENE);
+    const body = bodyOf(root);
+    const drawer = topChild(root, '顶层这一段推理');
+    const summary = drawer.querySelector<HTMLElement>(':scope > summary')!;
+    expect(boxRightInset(summary, body)).toBe(-HOVER_BLEED);  // -7,往外探
+    expect(boxRightInset(thoughtsBox(drawer), body)).toBe(0); // 面板收在内容边上
+  });
+
+  it('顶层 · 标题文字仍然落在 0 —— 改的是底的大小,不是字', () => {
     const root = mount(SCENE);
     const body = bodyOf(root);
     const summary = topChild(root, '顶层这一段推理').querySelector<HTMLElement>(':scope > summary')!;
     expect(contentLeft(summary, body)).toBe(0);
   });
 
-  it('嵌套 · 标题栏的底左缘落在 22', () => {
+  it('嵌套 · 同一圈 7px:悬停底 15 / 面板 22', () => {
     const root = mount(SCENE);
     const body = bodyOf(root);
-    const summary = stepChild(root, STEP, 'Optimizing single render pass')
-      .querySelector<HTMLElement>(':scope > summary')!;
-    expect(boxLeft(summary, body)).toBe(22);
+    const drawer = stepChild(root, STEP, 'Optimizing single render pass');
+    const summary = drawer.querySelector<HTMLElement>(':scope > summary')!;
+    expect(boxLeft(summary, body)).toBe(22 - HOVER_BLEED);   // 15
+    expect(boxLeft(thoughtsBox(drawer), body)).toBe(22);
+    expect(boxRightInset(summary, body)).toBe(-HOVER_BLEED);
+    expect(boxRightInset(thoughtsBox(drawer), body)).toBe(0);
   });
 
-  it('嵌套 · 正文灰底左缘也落在 22', () => {
-    const root = mount(SCENE);
-    const body = bodyOf(root);
-    expect(boxLeft(thoughtsBox(stepChild(root, STEP, 'Optimizing single render pass')), body)).toBe(22);
-  });
-
-  it('嵌套 · 标题文字仍然落在 22', () => {
+  it('嵌套 · 标题文字仍然落在 22(抽屉 22 + summary 7 = 原来的 29)', () => {
     const root = mount(SCENE);
     const body = bodyOf(root);
     const summary = stepChild(root, STEP, 'Optimizing single render pass')
@@ -715,14 +754,21 @@ describe('思考那一格:标题栏的底和正文的底是同一只盒子', () 
     const root = mount(LIVE);
     const body = bodyOf(root);
     const drawer = topChild(root, '还在往里写的推理');
-    expect(boxLeft(drawer.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(0);
+    expect(boxLeft(drawer.querySelector<HTMLElement>(':scope > summary')!, body)).toBe(-HOVER_BLEED);
     expect(boxLeft(thoughtsBox(drawer), body)).toBe(0);
+  });
+
+  it('悬停底是圆角的 —— 底一大圈,直角会很硬', () => {
+    const css = readFileSync(
+      resolve(SRC, 'components/chat/primitives/record.module.css'),
+      'utf-8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.fold\.flat > \.body\.stack > \.fold > summary \{[^}]*border-radius: var\(--chat-radius-sm\)/);
+    expect(css).toMatch(/summary:hover \{[^}]*border-radius: var\(--chat-radius\)/);
   });
 
   /*
    * ⚠️ **反向守卫**:那条 `-7px` 是别的行悬停命中区的来源,不许顺手删掉。
-   * 删了之后上面几条照样绿(思考那一格的列改由抽屉的内距给),
-   * 只有这两条会红 —— 它们是这次改动唯一的护栏。
    */
   it('反向守卫 · 顶层普通工具行的悬停底仍然撑到 -7', () => {
     const root = mount(NO_STEPS);

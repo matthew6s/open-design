@@ -115,10 +115,19 @@ describe('N5 夹心正文落回 22px 竖线', () => {
     }
   });
 
-  it('缩进和竖线是**同一条**规则的两半,不能只搬一半', () => {
+  /*
+   * ⚠️ **2026-09-02 设计裁决:那条竖线整个不要了。** 这一条原来钉的是
+   * 「缩进和竖线是同一条规则的两半,不能只搬一半」;线撤销之后翻向成
+   * 「只剩缩进那一半,一段线都不许留」。
+   *
+   * 缩进为什么留:稿子写这条规则时第一句是「让它的**首字和上面那行步骤名对齐**」
+   * —— 那是层级表达,不依赖线。后面「不让的话线正好从这几个字头上穿过去」是**逼**出
+   * 这个数的那个理由,现在没有了;两者的取舍已上报,产品未拍板前保持原值。
+   */
+  it('只剩缩进那一半 —— 竖线那一半整条撤掉了', () => {
     const rail = selectors.filter((s) => s.includes('.think:has('));
-    expect(rail.some((s) => s.endsWith('::before'))).toBe(true);
     expect(rail.some((s) => !s.endsWith('::before'))).toBe(true);
+    expect(rail.some((s) => s.endsWith('::before'))).toBe(false);
   });
 
   it('祖先链一个都不能省 —— 少一段就换了一个层叠位置', () => {
@@ -154,7 +163,12 @@ describe('N5 夹心正文落回 22px 竖线', () => {
     expect(proseBlock).toMatch(/padding-inline-start:\s*22px/);
     // 正向对照:22 是从「7 内边距 + 15 状态点」来的,那两个数还在原处
     expect(CSS).toMatch(/\.fold\.flat > \.body\.stack > \.fold > summary \{[^}]*padding: 5px 7px/);
-    expect(CSS).toMatch(/--row-slot:\s*15px/);
+    /*
+     * 状态点那 15px 原来读的是 `--row-slot`,但那枚变量**只为竖线服务**
+     * (线的中轴 = 那一格的一半),2026-09-02 线撤销时一并清掉了。
+     * 15 现在直接写在 `.mark` 上 —— 读它才是读真正的出处。
+     */
+    expect(CSS).toMatch(/\.mark \{[^}]*width: 15px/);
   });
 
   /**
