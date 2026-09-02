@@ -19,6 +19,37 @@
  * Stripping is unconditional; only *acceptance* is keyed. A marker with the
  * wrong key, no key, or a malformed one is still removed from the visible
  * text and simply produces no suggestions.
+ *
+ * ---
+ *
+ * **Known duplication — read before "fixing" this in isolation.**
+ *
+ * Five hand-written streaming tag scanners live in this daemon, all the same
+ * shape (hold an ambiguous tail, release or drop it when the next delta
+ * decides) and all with *different* rules:
+ *
+ *   · `next-step-marker.ts`      — this file. Quote-aware tag-end scan, holds
+ *                                  256 chars, drops a half tag.
+ *   · `artifact-focus-marker.ts` — plain `indexOf('>')` plus a tag-name
+ *                                  boundary check, holds 4096, drops a half tag.
+ *   · `title-marker.ts`          — open/close pair, no attributes at all,
+ *                                  holds 512, and on overflow *swallows* the
+ *                                  content instead of releasing it.
+ *   · `panel-grammar-strip.ts`   — matches on the tag NAME only, holds 96.
+ *   · `role-marker-guard.ts`     — its own `pending`/`tail` withhold buffer.
+ *
+ * Four caps (96/256/512/4096) and two mutually contradictory overflow policies
+ * (release-as-prose vs swallow) is one bug surface, not five. It has already
+ * paid out twice: `<PANELIST role=…>` reached the chat because the name-only
+ * matcher could not see attributes, and `<od-next … value="…` reached the chat
+ * (and the database) because the quote-aware scan below could be poisoned by an
+ * unterminated quote.
+ *
+ * Consolidating them is the right end state and is deliberately NOT done here:
+ * `panel-grammar-strip.ts` was being fixed in parallel, and collapsing five
+ * scanners into one needs its own change with a behavioural diff against real
+ * transcripts, not a drive-by merge inside a bug fix. If you are the next
+ * person here, that is the ticket to write — do not rediscover this list.
  */
 
 import {
@@ -34,7 +65,10 @@ const CLOSE_TAG_RE = /<\/od-next\s*>/i;
 
 export interface NextStepMarkerStripper {
   strip(delta: string): string;
-  /** Stream ended: give back whatever is still held, verbatim. */
+  /**
+   * Stream ended: give back what is still held. Held *prose* comes back
+   * verbatim; a half-written opening tag is protocol and is dropped.
+   */
   flush(): string;
 }
 
@@ -82,6 +116,62 @@ function pendingOpenTagTail(text: string): number {
   return 0;
 }
 
+/**
+ * Where an opening tag ends — or the proof that it is not a tag at all.
+ *
+ *   · `{ kind: 'end' }`       — the `>` that closes the opening tag.
+ *   · `{ kind: 'undecided' }` — nothing yet disproves it; wait for more text.
+ *   · `{ kind: 'malformed' }` — this cannot be a tag, and `headLength` is the
+ *                               length of the tag-shaped prefix to discard.
+ */
+type OpenTagScan =
+  | { kind: 'end'; index: number }
+  | { kind: 'undecided' }
+  | { kind: 'malformed'; headLength: number };
+
+/**
+ * Scan `<od-next …` for the `>` that closes its opening tag.
+ *
+ * The scan is quote-aware because an attribute value may legally contain `>`
+ * (`value="a > b"`). That awareness is also how this function shipped a bug: a
+ * value whose closing quote never arrives pairs with the *next* tag's opening
+ * quote, and from there the scanner is permanently "inside a string" and skips
+ * every `>` that follows — including the `/>` of the marker after it. In the
+ * recorded failure a codex reconnect cut the stream mid-attribute, the buffer
+ * grew past the hold cap while poisoned this way, and the overflow path
+ * released the whole half tag onto the screen and into the database.
+ *
+ * The fix is an invariant the poisoned state violates immediately: **inside an
+ * attribute value there is no newline and no `<`** — the value is a quoted
+ * scalar and the `<` would have to be `&lt;`. Seeing either proves the quote
+ * was never closed, so the tag dies at that character instead of eating the
+ * rest of the answer. A `<` outside the quotes is the same proof: a tag cannot
+ * contain the start of another one.
+ *
+ * `headLength` stops at the offending character rather than consuming it, so
+ * the caller drops exactly the tag-shaped prefix and releases the real prose
+ * that follows it verbatim.
+ */
+function scanOpenTag(text: string): OpenTagScan {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === '\n' || char === '\r' || char === '<') {
+        return { kind: 'malformed', headLength: index };
+      }
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '>') {
+      return { kind: 'end', index };
+    } else if (char === '<' && index > 0) {
+      return { kind: 'malformed', headLength: index };
+    }
+  }
+  return { kind: 'undecided' };
+}
+
 export function createNextStepMarkerStripper(
   options: NextStepMarkerStripperOptions,
 ): NextStepMarkerStripper {
@@ -126,21 +216,6 @@ export function createNextStepMarkerStripper(
     if (selfClosingSuggestions.length >= MAX_NEXT_STEP_SUGGESTIONS) {
       emitOnce(selfClosingSuggestions);
     }
-  };
-
-  const tagEnd = (text: string): number => {
-    let quote: '"' | "'" | null = null;
-    for (let index = 0; index < text.length; index += 1) {
-      const char = text[index];
-      if (quote) {
-        if (char === quote) quote = null;
-      } else if (char === '"' || char === "'") {
-        quote = char;
-      } else if (char === '>') {
-        return index;
-      }
-    }
-    return -1;
   };
 
   const strip = (delta: string): string => {
@@ -195,19 +270,40 @@ export function createNextStepMarkerStripper(
 
       visible += buffer.slice(0, openIndex);
       buffer = buffer.slice(openIndex);
-      const gt = tagEnd(buffer);
-      if (gt === -1) {
+      const scan = scanOpenTag(buffer);
+      if (scan.kind !== 'end') {
+        /*
+         * The opening tag never closed. Two ways to get here, one exit:
+         *
+         *  · `malformed` — proven not a tag (see `scanOpenTag`). Drop the
+         *    tag-shaped prefix, keep everything from the offending character
+         *    on, and re-enter the loop so a genuine marker later in the same
+         *    buffer is still seen.
+         *  · `undecided` past the hold cap — `<od-next` followed by 256
+         *    characters with no `>`, no `<` and no newline. That is not prose;
+         *    prose would have tripped one of those long ago. It is either a
+         *    marker whose author wrote an essay into an attribute (the
+         *    docstring's "loses the marker, which is the right outcome") or a
+         *    tag that never ends. Either way the whole buffer is tag, so the
+         *    whole buffer is what dies.
+         *
+         * Both obey requirement 1: a protocol tag never paints. Neither
+         * releases the tag as prose, which is what the old overflow branch did
+         * and how the raw marker reached the database.
+         */
+        if (scan.kind === 'malformed') {
+          buffer = buffer.slice(scan.headLength);
+          continue;
+        }
         if (buffer.length > MAX_OPEN_TAG_HOLD) {
-          // A `<od-next` that never closes its own tag is prose, not protocol.
-          visible += buffer;
           buffer = '';
           break;
         }
         held = buffer;
         break;
       }
-      markerHead = buffer.slice(0, gt + 1);
-      buffer = buffer.slice(gt + 1);
+      markerHead = buffer.slice(0, scan.index + 1);
+      buffer = buffer.slice(scan.index + 1);
       if (/\/\s*>$/.test(markerHead)) {
         acceptSelfClosing(markerHead);
         markerHead = '';
@@ -223,7 +319,7 @@ export function createNextStepMarkerStripper(
   return {
     strip,
     /*
-     * Stream over. What is still held falls into two cases:
+     * Stream over. What is still held falls into three cases:
      *
      *  · We never saw a complete opening tag, so the tail is an ambiguous
      *    `<`-prefix that turned out to be prose — return it verbatim. This is
@@ -232,6 +328,8 @@ export function createNextStepMarkerStripper(
      *    the opening tag is protocol payload, so the tag itself is dropped
      *    (it must never paint) and only its content is returned, for the same
      *    reason the overflow path above returns it.
+     *  · The opening tag itself was still being typed. See the comment on the
+     *    return below: that one is protocol, and it dies.
      */
     flush() {
       const rest = held;
@@ -242,7 +340,18 @@ export function createNextStepMarkerStripper(
       inMarker = false;
       markerHead = '';
       suppressWhitespaceAfterSelfClosingMarker = false;
-      return rest;
+      /*
+       * The third case the comment above missed, and the second way a raw
+       * marker reached the screen: `held` can also be an opening tag that was
+       * still being typed when the stream ended (`<od-next key="…" value="…`).
+       * That is protocol, not prose, so it dies here — the same rule
+       * `artifact-focus-marker.ts` already applies to its own `flush()`.
+       *
+       * The test is `startsWith`, not `includes`, so it stays narrow: a tail
+       * that is merely a PREFIX of the tag name (`<`, `<od`) is still the
+       * ambiguous-prose case and is still returned verbatim.
+       */
+      return rest.toLowerCase().startsWith(OD_NEXT_OPEN_TAG) ? '' : rest;
     },
   };
 }

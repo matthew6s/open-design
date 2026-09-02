@@ -375,6 +375,23 @@ export function runSseEventToPersistedAgentEvent(
  * user-visible detail and must be suppressed at persistence time so that
  * history replay doesn't render empty expandable rows in the assistant
  * process panel.
+ *
+ * The membership test is "would replaying this row tell the reader anything?",
+ * not "is this label noisy while it streams". Everything listed here is
+ * polling-shaped: it fires repeatedly, describes a state rather than an event,
+ * and is superseded by whatever comes next — so the transcript is strictly
+ * better without it.
+ *
+ * `agent_reconnecting` used to be on this list and is deliberately NOT any
+ * more. It is the one label here that marks a real, irreversible, once-per-
+ * occurrence upstream event: the agent's connection to the model dropped
+ * mid-turn and the turn was restarted. When that happens the model can and does
+ * re-generate text it had already streamed, so the transcript legitimately
+ * contains the answer twice. Dropping the row left the reader with two
+ * conclusions and nothing at all to explain the seam — the duplicate looked
+ * like the product inventing text. Keeping one row is not a fix for the
+ * duplication (that is the codex-app-server message-restart question), but it
+ * turns "inexplicable" into "legible", which is worth one row.
  */
 const TRANSIENT_ACP_PERSISTED_STATUS_LABELS = new Set([
   'waiting_for_first_output',
@@ -382,7 +399,6 @@ const TRANSIENT_ACP_PERSISTED_STATUS_LABELS = new Set([
   'tool_call_update',
   'session_update',
   'opencode_compaction',
-  'agent_reconnecting',
 ]);
 
 export function daemonAgentPayloadToPersistedAgentEvent(data: unknown): PersistedAgentEvent | null {
