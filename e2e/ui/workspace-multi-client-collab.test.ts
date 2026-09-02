@@ -678,9 +678,9 @@ test('[P0] two isolated clients converge live content, presence, and owner unsha
       });
       const ownerHeading = ownerPreview.locator('[data-od-id="shared-heading"]');
       await expect(async () => {
-        await ownerHeading.click({ timeout: 5_000 });
+        await ownerHeading.click({ timeout: T.short });
         await expect(ownerHeading).toHaveAttribute('data-od-edit-selected', 'true', {
-          timeout: 2_000,
+          timeout: T.short,
         });
       }).toPass({ timeout: T.long });
       const contentSection = ownerPage.locator('.manual-edit-modal .cc-section')
