@@ -112,8 +112,24 @@ function isMarkdownPreviewFile(file: CandidateFile): boolean {
   return /\.(md|markdown)$/i.test(path);
 }
 
+// Extensions the daemon's `kindFor` (apps/daemon/src/projects.ts) files under
+// its image, video, and audio buckets. `.svg` is deliberately absent: the
+// daemon files it — and any root-level `sketch-*` raster — as 'sketch', which
+// is a surface the USER draws on, not a turn deliverable.
+const MEDIA_EXTENSION = /\.(png|jpe?g|gif|webp|avif|mp4|mov|webm|mp3|wav|m4a)$/i;
+const DAEMON_SKETCH_NAME_PREFIX = 'sketch-';
+
+// Media candidates do not always carry a `kind`. ProjectView's
+// `provenTraceTouchedFiles()` builds them from the agent's own Write/Edit tool
+// paths, which yield a name, a path, and an ordering mtime — nothing else — so
+// keying only off `kind` scored every image on that path as rank 0 and
+// silently declined it. Fall back to the extension the way the html and
+// markdown predicates above do, mirroring `kindFor`'s buckets so the fallback
+// and the field it stands in for cannot reach different verdicts.
 function isMediaPreviewFile(file: CandidateFile): boolean {
-  return file.kind === 'image' || file.kind === 'video' || file.kind === 'audio';
+  if (file.kind === 'image' || file.kind === 'video' || file.kind === 'audio') return true;
+  const path = file.path ?? file.name;
+  return MEDIA_EXTENSION.test(path) && !path.startsWith(DAEMON_SKETCH_NAME_PREFIX);
 }
 
 // Auto-open priority for a turn's produced files. Higher wins. HTML is the
