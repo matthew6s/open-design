@@ -659,6 +659,48 @@ export function createGenericDaemonDisconnectError(): Error & { code: string } {
   return error;
 }
 
+/**
+ * WORDING IS A DRAFT — `docs/design/run-errors/error-ux-design.md` has no cell
+ * for "the agent answered and Open Design refused the answer". S21 covers an
+ * empty or malformed model response, which this is not: the reply is complete,
+ * readable, and already on screen. Replace this sentence, and give the card its
+ * buttons, once product writes the cell; the reason code below is what a cell
+ * would key on.
+ */
+export const STRATEGY_TASK_BLOCKED_MESSAGE =
+  "Open Design could not accept the agent's reply as this task's next step.";
+
+/**
+ * Hand the user the daemon's OWN verdict on a blocked strategy task.
+ *
+ * The blocked projection already says why it blocked — `blockedContext`
+ * names the gate that refused the turn — and none of it used to leave this
+ * function. The user got one subject-less sentence, the card's raw-error view
+ * showed `error_code: n/a`, and `resolveRunFailureUi` had nothing to match on,
+ * so every gate in the strategy contract rendered the same anonymous card.
+ *
+ * The turn most often behind it: the user answers a question form, their
+ * answers go in, the agent replies — and the reply carries no Runtime State
+ * block, so the clarification stage lands terminal-`blocked`. Refusing it is
+ * right (the stage admits only `plan_ready`, which needs a Plan Contract the
+ * reply never had, `blocked`, or `canceled`), but the user is looking at their
+ * answers and a full prose plan while being told, without elaboration, that
+ * nothing could continue.
+ *
+ * The primary reason code rides on `code` — the same channel every other
+ * structured daemon failure uses — so the diagnostics text, the failure-UI
+ * resolver, and the error analytics can all name the gate. A projection from a
+ * daemon too old to send `blockedContext` still fails, just anonymously.
+ */
+function createStrategyTaskBlockedError(
+  strategyTask: StrategyTaskProjectionV2,
+): Error & { code?: string } {
+  const error = new Error(STRATEGY_TASK_BLOCKED_MESSAGE) as Error & { code?: string };
+  const reasonCode = strategyTask.blockedContext?.reasonCodes[0]?.trim();
+  if (reasonCode) error.code = reasonCode;
+  return error;
+}
+
 function notifyRunsChanged() {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new Event(RUNS_CHANGED_EVENT));
@@ -2093,7 +2135,7 @@ async function consumeDaemonPhysicalRun({
           && (await fetchChatRunStatus(runId, workspaceContext))?.deliverableValid === true;
         if (!deliveredDespiteBlock) {
           endStatus = 'failed';
-          pendingStructuredError ??= new Error('The strategy task could not continue.');
+          pendingStructuredError ??= createStrategyTaskBlockedError(endStrategyTask);
         }
       } else if (endStrategyTask.outcome === 'completed') {
         endStatus = 'succeeded';

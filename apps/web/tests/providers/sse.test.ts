@@ -8,6 +8,7 @@ import {
   latestUserPromptFromHistory,
   reattachDaemonRun,
   sanitizePriorAssistantTurnForTranscript,
+  STRATEGY_TASK_BLOCKED_MESSAGE,
   streamViaDaemon,
   type DaemonReconnectState,
   type DaemonRunFinishedEventDetail,
@@ -2332,7 +2333,7 @@ describe('streamViaDaemon', () => {
     expect(onRunStatus).toHaveBeenLastCalledWith(expectedStatus);
     if (expectsError) {
       expect(handlers.onError).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'The strategy task could not continue.' }),
+        expect.objectContaining({ message: STRATEGY_TASK_BLOCKED_MESSAGE }),
       );
       expect(handlers.onDone).not.toHaveBeenCalled();
     } else {
