@@ -29,7 +29,10 @@
   background: var(--chat-bg);
   font-size: var(--chat-t-mini);
   font-weight: 600;
-  color: var(--chat-text-strong);
+  /* 稿子 `.pmini .pill { color: var(--plan-current-text) }`(729fa43ce7:2016)——
+     和展开态「当前这一步」同一枚,收起 / 展开是同一件事的两个形态。
+     不是 `--chat-text-strong`:那一档(#202020)是正文最深的一格,深了一格。 */
+  color: var(--chat-plan-current-text);
   cursor: default;
   transition: border-color var(--chat-dur-quick) var(--chat-ease-out);
 }
@@ -123,8 +126,11 @@
 /* 「做完了」那一档的划线不在这儿 —— 它复用执行记录的 `.struck`
    (record.module.css),同一件事不在两个文件里各画一遍。 */
 .steps li.done { color: var(--chat-text-soft); }
+/* 「当前这一步」走稿子给 Plan 单独立的那一枚(`--plan-current-text` = #353535,
+   729fa43ce7:2008 / 2070),不是正文最深那一档 `--chat-text-strong`(#202020)。
+   这张卡里唯一深的一行只需要比周围的 `--chat-text-soft` 立得住,不需要重到像标题。 */
 .steps li.now {
-  color: var(--chat-text-strong);
+  color: var(--chat-plan-current-text);
   font-weight: 600;
 }
 /*

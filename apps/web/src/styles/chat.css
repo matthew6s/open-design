@@ -1886,6 +1886,29 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
 }
 .composer-row .icon-btn:active:not(:disabled) { background: var(--bg-muted); }
 .composer-row .icon-btn:disabled { opacity: 0.45; cursor: default; }
+/* 会话面板底栏那颗图标键的墨色 —— 稿子
+   `729fa43ce7:docs/design/chat-panel/src/components.css:3112-3116`:
+     .composer .bar button       { color: var(--text-strong) }        → #202020
+     .composer .bar button:hover { background: var(--bg-fill-secondary) }
+
+   两条必须**一起**改。静止态提到最深那一档之后,原来的 hover(`color: var(--text)`
+   = #494949)方向就反了 —— 鼠标停上去反而变浅,读成「失焦了」。稿子那段注释
+   把这件事写成了规则:提到最深之后 hover 只留底色。描边同理:静止态是
+   `1px solid transparent`,稿子 hover 一条边框都不写,所以这里把它按住在
+   `transparent`,而不是长出一圈 `--border`。
+
+   ⚠️ 同样挂 `[data-chat-root]` 收敛作用域:`.composer-row` 是共用类名 ——
+   批注侧栏「新建评论」的动作行(`FileViewer` 的
+   `.composer-row.comment-side-new-comment-actions`)也吃它,而那一行不在
+   这次对稿范围里。(0,3,0) / (0,5,0) 稳压各自的基线。 */
+[data-chat-root] .composer-row .icon-btn {
+  color: var(--text-strong);
+}
+[data-chat-root] .composer-row .icon-btn:hover:not(:disabled) {
+  background: var(--bg-fill-secondary);
+  color: var(--text-strong);
+  border-color: transparent;
+}
 .composer-spacer { flex: 1; }
 
 /* --- Composer footer: one control system ----------------------------------

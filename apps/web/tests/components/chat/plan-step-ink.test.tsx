@@ -51,9 +51,27 @@ describe('计划卡:非当前的几步同一档灰', () => {
     expect(declsOf(PLAN_CSS, '.steps li.done')).toMatch(/color: var\(--chat-text-soft\)/);
   });
 
+  /*
+   * ⚠️ 这一条 2026-09-02 由 W73 改过一次:原文钉的是 `--chat-text-strong`。
+   *
+   * 那个 `--chat-text-strong` **不是产品裁决**,是本文件建档那天(同一天,
+   * `1626b893df`)顺手写下的「当前步是唯一深的一行」这句话的实现细节 ——
+   * 本文件真正的锚点是**上面**那两条(非当前的三档收成同一枚灰),出处是
+   * PR #7170 的 `plan-todo.css`;这一条只是它的反向对照。
+   *
+   * 逐格对稿基线 `729fa43ce7`(= 更早的 `361b78253e`,这两枚变量一个字没改)
+   * 给的是**另一枚**变量:
+   *   `components.css:2007-2009` `.steps, .pmini { --plan-current-text: #353535 }`
+   *   `components.css:2070`      `.steps li.is-now { color: var(--plan-current-text) }`
+   * `#353535` 比 `--chat-text-strong`(#202020)浅一档。原来那枚是把「深」
+   * 就近映射到了现成的接缝 token,不是稿子写的东西。
+   * 现在收敛到 `--chat-plan-current-text`(接缝里亮暗两个作用域各一处,均 #353535)。
+   * 这一条要说的话没变:**当前这一步仍然是唯一深的一行**。
+   * 逐值对稿在 `w73-composer-and-plan-ink.test.tsx`。
+   */
   it('反向对照:当前这一步仍然是唯一深的一行', () => {
     const now = declsOf(PLAN_CSS, '.steps li.now');
-    expect(now).toMatch(/color: var\(--chat-text-strong\)/);
+    expect(now).toMatch(/color: var\(--chat-plan-current-text\)/);
     expect(now).toMatch(/font-weight: 600/);
   });
 

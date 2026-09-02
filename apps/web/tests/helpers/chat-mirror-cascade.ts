@@ -360,6 +360,21 @@ export function expand(prop: string, value: string): Array<[string, string]> {
     case 'padding-left':
     case 'font-weight':
     case 'font-size':
+    /*
+     * `line-height` / `font-family` 是 W73(输入框行高对稿)加进来的。
+     *
+     * 加进来之前它们**不在名单里**,读回 `<unset>` —— 而 `<unset>` 和「真的没人写」
+     * 长得一模一样,于是「两边都读回 `<unset>`」的相等断言看起来是绿的,实际一格都没量。
+     * 名单是加法:`resolved()` 只吐调用方点名的 `targets`,没点名这两项的文件读数不变。
+     *
+     * ⚠️ 仍然不在名单里的:`letter-spacing` / `-webkit-line-clamp` / `display` /
+     * `overflow-wrap` / `animation-*` / `transform`。要量它们得先照这里再加一格。
+     * ⚠️ `font` 简写不展开(`expand('font', …)` 返回空),所以「同一条规则里
+     * `font: inherit` 在长手之前」这种写法量出来的是长手值 —— 和浏览器一致;
+     * 但「只写 `font:` 简写、指望它带出 line-height」的规则,这把尺子看不见。
+     */
+    case 'line-height':
+    case 'font-family':
     case 'color':
     case 'cursor':
     case 'opacity':

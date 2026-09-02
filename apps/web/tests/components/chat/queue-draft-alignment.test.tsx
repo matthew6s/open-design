@@ -36,9 +36,9 @@
  * ── 量法 ───────────────────────────────────────────────────────────────
  * jsdom 不跑层叠、不解 `var()`,`getComputedStyle` 在这里恒为空串。所以:
  *   · 共享量尺 `helpers/chat-mirror-cascade`(只读)负责它白名单里的属性;
- *   · 它的 `expand()` 是**属性白名单**,`font-family` / `line-height` /
- *     `-webkit-line-clamp` / `display` / `overflow-wrap` 一律**静默丢掉**
- *     (读回 `<unset>`,和「真的没人写」分不开),而且它按 `el.matches()` 匹配,
+ *   · 它的 `expand()` 是**属性白名单**,`-webkit-line-clamp` / `display` /
+ *     `overflow-wrap` 一律**静默丢掉**(读回 `<unset>`,和「真的没人写」分不开;
+ *     `font-family` / `line-height` 在 W73 之后已进名单),而且它按 `el.matches()` 匹配,
  *     jsdom 里 `:hover` 永远为假 —— hover 那两条稿子规则它一条也看不见。
  *   · 因此本文件另配一把**只做长手属性 + 可指定伪类状态**的小尺子 `state()`,
  *     并在第一组用例里和共享量尺**对同一个属性交叉验一次**,证明两把尺子
