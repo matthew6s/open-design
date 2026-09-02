@@ -1597,9 +1597,23 @@ async function consumeDaemonPhysicalRun({
         // an unreachable daemon fails closed to the previous behaviour.
         const deliveredDespiteBlock = endStatus === 'succeeded'
           && (await fetchChatRunStatus(runId, workspaceContext))?.deliverableValid === true;
-        if (!deliveredDespiteBlock) {
+        // A block the agent already explained to the user is not a failure to
+        // report. Asked for a prototype with nothing to build on, the agent
+        // answers in the chat — "the requirement was skipped, so there is no
+        // runnable plan this round" — and that reply is the turn's outcome.
+        // Raising a run error on top of it restated the same sentence inside a
+        // red "task execution failed" card, so a turn that had simply asked for
+        // more detail read as a crash (OPEND-2565).
+        //
+        // Narrow on purpose: only a Run that reached the end on its own can be
+        // spoken for by its own output. A Run that failed keeps its error even
+        // when the agent narrated the failure, because that narration is not a
+        // substitute for the failure the user has to act on.
+        const explainedToUser = endStatus === 'succeeded'
+          && (endStrategyTask.blockedContext?.visibleText?.trim().length ?? 0) > 0;
+        if (!deliveredDespiteBlock && !explainedToUser) {
           endStatus = 'failed';
-          pendingStructuredError ??= new Error(strategyBlockedErrorMessage(endStrategyTask));
+          pendingStructuredError ??= new Error('The strategy task could not continue.');
         }
       } else if (endStrategyTask.outcome === 'completed') {
         endStatus = 'succeeded';
@@ -1707,26 +1721,6 @@ function markErrorResumable(err: Error, resumable: boolean): Error {
  *  error card can map `failureDetail` to a specific named failure type + fix
  *  (see resolveRunFailureUi). Only stamps present values so an older daemon that
  *  omits the fields leaves the error's classification undefined. */
-/**
- * What the error card says about a blocked strategy task.
- *
- * The gate records why it stopped, and when the agent is the one that stopped
- * the turn it writes that reasoning out for the user in their own language
- * ("no second clarification is available, so this task is blocked"). Preferring
- * it is the difference between naming the cause and asserting a generic
- * failure: this used to be a fixed English sentence regardless of cause, so a
- * clear explanation the agent had already produced was replaced by "the
- * strategy task could not continue" (OPEND-2565).
- *
- * Falls back to that sentence when the verdict carried no text — a machine gate
- * blocking on reason codes alone has nothing readable to show here, and its
- * codes stay in the task projection for diagnostics.
- */
-function strategyBlockedErrorMessage(strategyTask: StrategyTaskProjectionV2): string {
-  const visibleText = strategyTask.blockedContext?.visibleText?.trim();
-  return visibleText || 'The strategy task could not continue.';
-}
-
 function markErrorRunFailure(
   err: Error,
   fields: {
