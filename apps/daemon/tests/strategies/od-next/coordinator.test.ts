@@ -1391,6 +1391,94 @@ ${block('open-design-plan-contract', planContract(snapshot))}`),
     expect(withPlan.reasonCodes).toContain('od_next_protocol_runtime_state_missing');
   });
 
+  it('names a repeated clarification even when the turn carried no machine block', () => {
+    // The observed field failure: the user answers the one allowed question
+    // form, and the agent replies with ANOTHER form and no Runtime State block.
+    // The verdict is right — the clarification stage admits only plan_ready
+    // (which needs a Plan Contract this turn never had), blocked or canceled —
+    // but the attribution was the generic `runtime_state_missing`, because the
+    // missing-block gate fires before `validateAcceptedTurn` ever sees the
+    // repeat. The declared variant of the SAME failure (the sibling test
+    // 'persists the one clarification round and refuses a second question
+    // after restart') reports `od_next_clarification_repeated`; both shapes
+    // must name the same gate.
+    prepareStrategyRequest(db, {
+      taskExecutionId: 'task-1', preference: 'full_plan', directEdit: directEligible,
+      intake: intakePassed, updatedAt: 110,
+    });
+    const question = '<question-form id="scope">{"questions":[{"id":"surface","label":"Surface?"}]}</question-form>';
+    finalizeStrategyPlanningTurn(db, {
+      taskExecutionId: 'task-1', runId: 'run-request',
+      protocol: protocol(`${question}\n${block('open-design-runtime-state', runtimeState({
+        outcome: 'clarification_required',
+      }))}`),
+      updatedAt: 120,
+    });
+    beginStrategyClarification(db, {
+      taskExecutionId: 'task-1',
+      sourceRunId: 'run-request',
+      nextRunId: 'run-clarification',
+      answer: 'Use the operator console.',
+      updatedAt: 130,
+    });
+
+    const repeated = finalizeStrategyPlanningTurn(db, {
+      taskExecutionId: 'task-1', runId: 'run-clarification',
+      protocol: protocol(`还需要再确认一点。\n${question}`),
+      updatedAt: 140,
+    });
+
+    // Attribution: the precise gate, and ONLY it. `reasonCodes[0]` is what the
+    // web client turns into the user-visible error code, so a list that merely
+    // contains the precise name still shows the generic one.
+    expect(repeated.reasonCodes).toEqual(['od_next_clarification_repeated']);
+    // Guardrail: the verdict must NOT move. Fail-closed is correct here.
+    expect(repeated.action).toBe('blocked');
+    expect(repeated.task.outcome).toBe('blocked');
+    expect(repeated.task.inputStage).toBe('clarification');
+    expect(repeated.task.clarificationCount).toBe(1);
+    const persisted = getStrategyTaskExecution(db, 'task-1');
+    expect(persisted?.outcome).toBe('blocked');
+    expect(persisted?.blockedContext?.reasonCodes).toEqual([
+      'od_next_clarification_repeated',
+    ]);
+  });
+
+  it('keeps a block-less clarification turn that asked nothing on the generic gate', () => {
+    // Reverse control for the test above. Same stage, same missing block, but
+    // the agent did not ask again — it merely forgot the Runtime State. That is
+    // genuinely `runtime_state_missing`, and re-attributing it to a repeated
+    // clarification would fold two different failures back into one bucket.
+    prepareStrategyRequest(db, {
+      taskExecutionId: 'task-1', preference: 'full_plan', directEdit: directEligible,
+      intake: intakePassed, updatedAt: 110,
+    });
+    const question = '<question-form id="scope">{"questions":[{"id":"surface","label":"Surface?"}]}</question-form>';
+    finalizeStrategyPlanningTurn(db, {
+      taskExecutionId: 'task-1', runId: 'run-request',
+      protocol: protocol(`${question}\n${block('open-design-runtime-state', runtimeState({
+        outcome: 'clarification_required',
+      }))}`),
+      updatedAt: 120,
+    });
+    beginStrategyClarification(db, {
+      taskExecutionId: 'task-1',
+      sourceRunId: 'run-request',
+      nextRunId: 'run-clarification',
+      answer: 'Use the operator console.',
+      updatedAt: 130,
+    });
+
+    const proseOnly = finalizeStrategyPlanningTurn(db, {
+      taskExecutionId: 'task-1', runId: 'run-clarification',
+      protocol: protocol('明白了，我按操作台这个方向来做，下面是完整方案……'),
+      updatedAt: 140,
+    });
+
+    expect(proseOnly.action).toBe('blocked');
+    expect(proseOnly.reasonCodes).toEqual(['od_next_protocol_runtime_state_missing']);
+  });
+
   it('lets the main Agent choose Direct Edit on an unrouted first turn', () => {
     // Product spec 3.1: the main Agent decides Direct Edit vs Full Plan.
     // The daemon leaves the route unlocked through the request turn and
