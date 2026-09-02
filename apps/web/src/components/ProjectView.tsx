@@ -364,6 +364,7 @@ import {
   type ProjectDetailSeed,
 } from '../hooks/useProjectDetail';
 import { useTerminalLaunch } from '../hooks/useTerminalLaunch';
+import { createBoundedConcurrency } from '../lib/bounded-concurrency';
 import { buildContinueInCliToast } from '../lib/build-continue-in-cli-toast';
 import { buildClipboardPrompt } from '../lib/build-clipboard-prompt';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
@@ -923,6 +924,36 @@ function replayedRunStatusMayLand(
   if (!frameBelongsToVerdictRun) return true;
   return isTerminalRunStatus(frameStatus);
 }
+
+/**
+ * How many REPLAY reattaches may hold a connection at the same time.
+ *
+ * Reopening a conversation whose messages all ended in a daemon disconnect
+ * releases one reattach per message. Each one opens an SSE subscription, and
+ * the browser gives an origin about six HTTP/1.1 connections for the entire
+ * profile — shared with any other Open Design tab sitting in the background.
+ * Firing the whole batch at once does not make the batch finish sooner; it
+ * parks every other request the page still owes behind it.
+ *
+ * Two is deliberate rather than one: a replay is mostly connection setup plus
+ * a finite event log, so a second in-flight replay keeps the pipe busy while
+ * the first is being decoded, without approaching the connection budget.
+ *
+ * Module scope, not per-effect: the connection budget belongs to the tab, and
+ * this effect re-runs on every `messages` change. A gate that was recreated
+ * per run would let each re-run open its own pair.
+ */
+const REATTACH_REPLAY_CONCURRENCY = 2;
+/**
+ * A replay is a finite event log, so it settles — but a connection that dies
+ * without closing does not. Cap how long one replay may hold its slot so a
+ * wedged one can never stop the rest of the batch from reattaching at all;
+ * exceeding the cap only means we stop counting it, never that we drop it.
+ */
+const REATTACH_REPLAY_MAX_HOLD_MS = 30_000;
+const reattachReplayGate = createBoundedConcurrency(REATTACH_REPLAY_CONCURRENCY, {
+  maxHoldMs: REATTACH_REPLAY_MAX_HOLD_MS,
+});
 
 const MIN_NORMAL_SPLIT_WIDTH =
   MIN_CHAT_PANEL_WIDTH + SPLIT_RESIZE_HANDLE_WIDTH + MIN_WORKSPACE_PANEL_WIDTH;
@@ -6323,7 +6354,7 @@ export function ProjectView({
         // 已经不成立了,先把那一行撤掉。这次重挂的读数从 0 起,断不了就永远不会
         // 发 `cleared`,留着那一行会在正文重新流进来时挂着一句反话。
         pushReconnectSignal({ kind: 'dropped', runId });
-        void reattachDaemonRun({
+        const startReattach = () => reattachDaemonRun({
           agentId: message.agentId,
           runId: reattachRunId,
           projectId: project.id,
@@ -7019,6 +7050,24 @@ export function ProjectView({
             releaseReattachRuns();
             clearActiveRunRefs(reattachConversationId, controller, cancelController);
           });
+        /*
+         * 组件 22 · 重连 · 连接预算:重挂**排队**,但只排「回放」那一类。
+         *
+         * `reattachDaemonRun` 的 promise 要等这条流走完才 settle。daemon 还说
+         * 这条 run 活着时,那就是「等这次生成结束」——把它放进闸里,后面排队的
+         * run 在它跑完之前一个字都收不到,那不是限流,是丢输出。所以活着的 run
+         * 直接放行,只有终态回放(有限的事件日志,很快 settle)进闸。
+         *
+         * 闸只改**同时**开几条,不改开不开:被挡住的那条在前一条 settle 时立刻
+         * 补上(见 lib/bounded-concurrency.ts)。
+         */
+        const reattachIsLiveStream =
+          isActiveRunStatus(message.runStatus) || isActiveRunStatus(status.status);
+        if (reattachIsLiveStream) {
+          void startReattach();
+        } else {
+          void reattachReplayGate.run(startReattach);
+        }
       }
     };
 
