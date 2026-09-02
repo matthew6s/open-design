@@ -5784,6 +5784,8 @@ export const zhTW: Dict = {
   'chat.record.retry': "重試",
   'chat.record.viewImage': "查看第 {index} 張大圖",
   'chat.record.imagePending': "配圖生成中",
+  'chat.designSystemStatus.title': "正在創建設計系統工作區",
+  'chat.designSystemStatus.description': "Open Design 正在使用設定的來源生成此專案。",
   'labs.title': "Open Design 實驗室",
   'labs.itemAbout': "關於 {name}",
   'labs.navHint': "搶先體驗尚未正式發布的能力。",

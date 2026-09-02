@@ -5324,6 +5324,8 @@ export const fa: Dict = {
   'chat.record.retry': "تلاش دوباره",
   'chat.record.viewImage': "دیدن تصویر {index}",
   'chat.record.imagePending': "در حال تولید تصویر…",
+  'chat.designSystemStatus.title': "در حال ایجاد فضای کاری سیستم طراحی",
+  'chat.designSystemStatus.description': "Open Design در حال استفاده از منابع راه‌اندازی برای ساخت این پروژه است.",
   'labs.title': "آزمایشگاه Open Design",
   'labs.itemAbout': "درباره {name}",
   'labs.navHint': "قابلیت‌ها را پیش از انتشار امتحان کنید.",

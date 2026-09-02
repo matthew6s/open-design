@@ -5329,6 +5329,8 @@ export const ja: Dict = {
   'chat.record.retry': "再試行",
   'chat.record.viewImage': "{index} 枚目を表示",
   'chat.record.imagePending': "画像を生成中…",
+  'chat.designSystemStatus.title': "デザインシステムのワークスペースを作成中",
+  'chat.designSystemStatus.description': "Open Design がセットアップのソースを使ってこのプロジェクトを生成しています。",
   'labs.title': "Open Design ラボ",
   'labs.itemAbout': "{name} について",
   'labs.navHint': "未リリースの機能をひと足先に。",

@@ -5329,6 +5329,8 @@ export const ar: Dict = {
   'chat.record.retry': "إعادة المحاولة",
   'chat.record.viewImage': "عرض الصورة {index}",
   'chat.record.imagePending': "جارٍ إنشاء الصورة…",
+  'chat.designSystemStatus.title': "جارٍ إنشاء مساحة عمل نظام التصميم",
+  'chat.designSystemStatus.description': "يستخدم Open Design مصادر الإعداد لإنشاء هذا المشروع.",
   'labs.title': "مختبر Open Design",
   'labs.itemAbout': "حول {name}",
   'labs.navHint': "جرّب الإمكانات قبل إطلاقها.",

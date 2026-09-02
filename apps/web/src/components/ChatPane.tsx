@@ -105,6 +105,7 @@ import { chatSeam } from './chat/ChatRoot';
 import { PlanPill } from './chat/PlanPill';
 import { planPillState } from '../runtime/chat/plan-pill';
 import { Reconnect } from './chat/Reconnect';
+import { UserStatusCard } from './chat/UserStatusCard';
 import type { ChatReconnectView } from '../runtime/chat/reconnect-state';
 import { TodoCard } from './ToolCard';
 import type { BrandBrowserAssistConfirm } from './OdCard';
@@ -5953,12 +5954,20 @@ const UserMessage = memo(UserMessageImpl);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const isDesignSystemWorkspaceRequest = isDesignSystemWorkspacePrompt(message.content);
-  // The design-system handoff stores a long implementation prompt so the
-  // agent can build the workspace. In chat, represent the user's actual menu
-  // action instead: localized, concise, and rendered by the canonical user
-  // bubble from the chat-panel design.
+  /* 设计系统交接会把一整段给 agent 的实现 prompt 写进对话。用户这一侧要看到的
+     不是那段 prompt,而是稿子第「设计系统工作区 · 自动创建」格的那张状态卡
+     (`729fa43ce7:docs/design/chat-panel/src/body-components.html:45-53`)——
+     标题 + 一句说明,仍坐在用户消息那一列里。
+
+     ⚠️ 这张卡曾被主动删掉过一次(那一版改走「类型化语言字典 + 标准用户气泡」),
+     **2026-09-02 用户裁决**要求按稿子 1:1 实现,于是加回来。来龙去脉见
+     `components/chat/UserStatusCard.tsx` 与
+     `tests/components/ChatPane.streaming.test.tsx` 里那条翻转过的断言。
+
+     `displayContent` 仍留着:它是「复制」按钮真正会写进剪贴板的那一段,
+     用户复制到的应该是卡面上看得见的标题,不是内部 prompt。 */
   const displayContent = isDesignSystemWorkspaceRequest
-    ? t('designFiles.createDesignSystemFromProject')
+    ? t('chat.designSystemStatus.title')
     : message.content;
 
   useEffect(() => {
@@ -6020,7 +6029,14 @@ const UserMessage = memo(UserMessageImpl);
         ) : null}
         {message.content ? (
           <div className="user-text-wrap">
-            <UserBubble content={displayContent} t={t} />
+            {isDesignSystemWorkspaceRequest ? (
+              <UserStatusCard
+                title={t('chat.designSystemStatus.title')}
+                description={t('chat.designSystemStatus.description')}
+              />
+            ) : (
+              <UserBubble content={displayContent} t={t} />
+            )}
             <div className="user-actions">
               {/* 稿子**渲染出来**是「时间 → 复制 → 重试」(它的说明文字写的是「时间在最右」,
                   和自己的 DOM 打架;用户 2026-08-26 指认以渲染为准)。

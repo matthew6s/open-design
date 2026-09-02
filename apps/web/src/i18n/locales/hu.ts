@@ -5329,6 +5329,8 @@ export const hu: Dict = {
   'chat.record.retry': "Újra",
   'chat.record.viewImage': "{index}. kép megtekintése",
   'chat.record.imagePending': "Illusztráció készül…",
+  'chat.designSystemStatus.title': "Tervezési rendszer munkaterületének létrehozása",
+  'chat.designSystemStatus.description': "Az Open Design a beállítási forrásokat használja a projekt létrehozásához.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "{name} névjegye",
   'labs.navHint': "Próbáld ki a funkciókat a megjelenés előtt.",

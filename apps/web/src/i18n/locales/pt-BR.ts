@@ -5329,6 +5329,8 @@ export const ptBR: Dict = {
   'chat.record.retry': "Tentar novamente",
   'chat.record.viewImage': "Ver imagem {index}",
   'chat.record.imagePending': "Gerando ilustração…",
+  'chat.designSystemStatus.title': "Criando o workspace do design system",
+  'chat.designSystemStatus.description': "O Open Design está usando as fontes de configuração para gerar este projeto.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "Sobre {name}",
   'labs.navHint': "Teste recursos antes do lançamento.",

@@ -5329,6 +5329,8 @@ export const th: Dict = {
   'chat.record.retry': "ลองใหม่",
   'chat.record.viewImage': "ดูภาพที่ {index}",
   'chat.record.imagePending': "กำลังสร้างภาพประกอบ…",
+  'chat.designSystemStatus.title': "กำลังสร้างพื้นที่ทำงานดีไซน์ซิสเต็ม",
+  'chat.designSystemStatus.description': "Open Design กำลังใช้แหล่งที่มาจากการตั้งค่าเพื่อสร้างโปรเจกต์นี้",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "เกี่ยวกับ {name}",
   'labs.navHint': "ทดลองความสามารถก่อนเปิดตัวจริง",

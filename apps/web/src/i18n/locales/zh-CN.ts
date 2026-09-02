@@ -5777,6 +5777,8 @@ export const zhCN: Dict = {
   'chat.record.retry': "重试",
   'chat.record.viewImage': "查看第 {index} 张大图",
   'chat.record.imagePending': "配图生成中",
+  'chat.designSystemStatus.title': "正在创建设计系统工作区",
+  'chat.designSystemStatus.description': "Open Design 正在使用设置的来源生成此项目。",
   'labs.title': "Open Design 实验室",
   'labs.itemAbout': "关于 {name}",
   'labs.navHint': "抢先体验尚未正式发布的能力。",

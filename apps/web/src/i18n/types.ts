@@ -5532,6 +5532,17 @@ export interface Dict {
   'chat.record.retry': string;
   'chat.record.viewImage': string;
   'chat.record.imagePending': string;
+  /*
+   * 「设计系统工作区 · 自动创建」状态卡的两句文案。逐字取自稿子
+   * `729fa43ce7:docs/design/chat-panel/src/body-components.html:50-51`:
+   *   Creating design system workspace
+   *   Open Design is using the setup sources to generate this project.
+   * 和菜单项那句 `designFiles.createDesignSystemFromProject`(「基于此项目创建
+   * 设计系统」)是**两回事**:那一句说的是用户点了什么,这两句说的是系统正在做什么。
+   * 菜单项和首轮会话标题仍在用旧那枚,别顺手合并。
+   */
+  'chat.designSystemStatus.title': string;
+  'chat.designSystemStatus.description': string;
   'labs.title': string;
   'labs.itemAbout': string;
   'labs.navHint': string;

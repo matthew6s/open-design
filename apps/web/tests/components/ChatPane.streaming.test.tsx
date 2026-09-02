@@ -1195,13 +1195,28 @@ Expected output:
       />,
     );
 
-    // The test i18n stub returns keys. The important contract is that this
-    // system-authored summary now goes through the typed locale dictionary and
-    // the canonical user bubble, instead of a one-off grey status card.
-    const bubble = screen.getByText('designFiles.createDesignSystemFromProject').closest('.user-bubble');
-    expect(bubble).toBeTruthy();
+    /*
+     * ⚠️ 这里的断言**翻转过一次**,两次决定是相反的,别只看现在这一版:
+     *
+     *   旧:这条系统写的摘要走「类型化的语言字典 + 标准用户气泡」,而不是一张
+     *       一次性的灰色状态卡 —— 于是这里断言 `.user-status-card` 必须不存在,
+     *       并断言正文是 `designFiles.createDesignSystemFromProject`(菜单那句)。
+     *   新:**2026-09-02 用户裁决**「设计系统状态卡 也和设计稿 1:1 对齐」。
+     *       稿子 `729fa43ce7:docs/design/chat-panel/src/body-components.html:45-53`
+     *       这一格画的就是一张状态卡(调色盘图标 + 标题 + 一句说明),
+     *       所以卡加回来,「必须不存在」翻成「必须渲染出来」。
+     *
+     * 卡片本体的逐值判据在 `tests/components/chat/w88-design-system-status-card.test.tsx`;
+     * 这里只守两件事:命中那个 prompt 时**换的是卡不是气泡**,以及内部长 prompt
+     * 一个字都不上屏。文案换成了状态卡自己的两句(`chat.designSystemStatus.*`),
+     * 菜单那句 `designFiles.createDesignSystemFromProject` 仍归菜单项与首轮会话标题用。
+     */
+    const cardRoot = document.querySelector('[data-testid="design-system-generation-status"]');
+    expect(cardRoot).toBeTruthy();
+    expect(screen.getByText('chat.designSystemStatus.title')).toBeTruthy();
+    expect(screen.getByText('chat.designSystemStatus.description')).toBeTruthy();
+    expect(document.querySelector('.user-bubble')).toBeNull();
     expect(screen.queryByText(DESIGN_SYSTEM_WORKSPACE_PROMPT_PREFIX, { exact: false })).toBeNull();
-    expect(document.querySelector('.user-status-card')).toBeNull();
     expect(screen.getByRole('button', { name: 'chat.copyPrompt' })).toBeTruthy();
   });
 

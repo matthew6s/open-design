@@ -5329,6 +5329,8 @@ export const ko: Dict = {
   'chat.record.retry': "재시도",
   'chat.record.viewImage': "{index}번째 이미지 보기",
   'chat.record.imagePending': "이미지 생성 중…",
+  'chat.designSystemStatus.title': "디자인 시스템 워크스페이스 생성 중",
+  'chat.designSystemStatus.description': "Open Design이 설정 소스를 사용해 이 프로젝트를 생성하고 있습니다.",
   'labs.title': "Open Design 랩",
   'labs.itemAbout': "{name} 정보",
   'labs.navHint': "아직 출시되지 않은 기능을 미리 사용해 보세요.",

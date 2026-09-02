@@ -5329,6 +5329,8 @@ export const tr: Dict = {
   'chat.record.retry': "Yeniden dene",
   'chat.record.viewImage': "{index}. görseli aç",
   'chat.record.imagePending': "Görsel oluşturuluyor…",
+  'chat.designSystemStatus.title': "Tasarım sistemi çalışma alanı oluşturuluyor",
+  'chat.designSystemStatus.description': "Open Design bu projeyi oluşturmak için kurulum kaynaklarını kullanıyor.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "{name} hakkında",
   'labs.navHint': "Yayınlanmadan önce özellikleri deneyin.",

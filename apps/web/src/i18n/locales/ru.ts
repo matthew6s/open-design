@@ -5329,6 +5329,8 @@ export const ru: Dict = {
   'chat.record.retry': "Повторить",
   'chat.record.viewImage': "Открыть изображение {index}",
   'chat.record.imagePending': "Генерация изображения…",
+  'chat.designSystemStatus.title': "Создание рабочего пространства дизайн-системы",
+  'chat.designSystemStatus.description': "Open Design использует исходные материалы настройки, чтобы создать этот проект.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "О {name}",
   'labs.navHint': "Пробуйте возможности до релиза.",

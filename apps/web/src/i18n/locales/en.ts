@@ -5343,6 +5343,9 @@ export const en: Dict = {
   'chat.record.retry': "Retry",
   'chat.record.viewImage': "View image {index}",
   'chat.record.imagePending': "Generating illustration…",
+  /* 设计稿 729fa43ce7:docs/design/chat-panel/src/body-components.html:50-51,逐字 */
+  'chat.designSystemStatus.title': 'Creating design system workspace',
+  'chat.designSystemStatus.description': 'Open Design is using the setup sources to generate this project.',
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "About {name}",
   'labs.navHint': "Try capabilities before they ship.",

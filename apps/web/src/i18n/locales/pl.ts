@@ -5329,6 +5329,8 @@ export const pl: Dict = {
   'chat.record.retry': "Ponów",
   'chat.record.viewImage': "Zobacz obraz {index}",
   'chat.record.imagePending': "Generowanie ilustracji…",
+  'chat.designSystemStatus.title': "Tworzenie obszaru roboczego systemu projektowego",
+  'chat.designSystemStatus.description': "Open Design używa źródeł konfiguracji, aby wygenerować ten projekt.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "Informacje o {name}",
   'labs.navHint': "Wypróbuj funkcje przed premierą.",

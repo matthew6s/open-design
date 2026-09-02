@@ -5329,6 +5329,8 @@ export const id: Dict = {
   'chat.record.retry': "Coba lagi",
   'chat.record.viewImage': "Lihat gambar {index}",
   'chat.record.imagePending': "Membuat ilustrasi…",
+  'chat.designSystemStatus.title': "Membuat workspace design system",
+  'chat.designSystemStatus.description': "Open Design sedang memakai sumber penyiapan untuk membuat proyek ini.",
   'labs.title': "Open Design Labs",
   'labs.itemAbout': "Tentang {name}",
   'labs.navHint': "Coba fitur sebelum dirilis.",
