@@ -955,9 +955,16 @@
   /* 只继承字体族(稿子的全局 reset 就是 `button { font-family: inherit }`)。
      写成 `font: inherit` 会连带把上面那条规则的 font-size / line-height 一起冲掉。 */
   font-family: inherit;
-  /* 全局 `button` 规则把字重压成 500,稿子的 `.opt` 一个字重都不写(= 400)。
-     选中态的 600 在 `.qf-chip-on`,写在这条后面,不受影响。 */
-  font-weight: 400;
+  /* 稿子的 `.opt` 一个字重都不写 —— 它继承 `body { font-weight: 500 }`
+     (`361b78253e:151-153`),所以静息态在稿子里就是 500。上一版稿子
+     `1bbdce0b06:152` 的 `body` 还没有字重(= 400),我们这条 400 是照那一版落的。
+     产品这边同一次基线迁移在 `0334a6599d` 已经把 chat 接缝层抬到 500,这一格跟上。
+     ------------------------------------------------------------------
+     数值和 `primitives.css` 那条裸 `button { font-weight: 500 }` 撞上了,但这一格
+     **仍要自己说**:稿子里选项行的字重来源是 `body` 基线,不是「它恰好是个按钮」。
+     不写的话这张卡的静息字重就寄生在一条管着全站所有 `<button>` 的原语上,
+     那条一动这张卡跟着漂,而漂的原因和这张卡毫无关系。 */
+  font-weight: 500;
   /* OPEND-2402 的**病根**。`primitives.css` 的裸 `button { white-space: nowrap }`
      是给「一行字的按钮」定的 —— 那种按钮的文案断行只会更难读。可选项行是一段
      会换行的正文:一句话的标题,底下还挂一行描述。继承下来之后整行不许换行,
@@ -1260,7 +1267,7 @@
   padding: 0 11px 10px;
 }
 .qf-amount-readout {
-  min-height: 36px;
+  min-height: 42px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1268,15 +1275,22 @@
   color: var(--text-strong);
   font-variant-numeric: tabular-nums;
 }
-/* 稿子 `.amount-value-input` —— 32px 的大字号数字**本身就是**输入框,
-   平时看不出边框,悬停给一层底、聚焦给一圈描边。 */
+/* 稿子 `.amount-value-input`(`361b78253e:1726-1731`)—— 32px 的大字号数字
+   **本身就是**输入框。
+   ------------------------------------------------------------------
+   09-02 那一版稿子把它从「看不出边框」改成了**平时就带一圈描边**:
+   `1.35em × 42px`、内距 `3px 2px`、`border: var(--stroke-thin) solid var(--border)`,
+   悬停压深边框、聚焦换成「边框染色 + 外扩一圈」而不再用 `outline`。
+   改判的道理是「这是一个能敲字的框」得先看得出来 —— 上一版要把指针移上去才知道。
+   高度 42 和 `.amount-readout` 的 `min-height: 42px` 是同一个数,两处一起改。
+   `box-sizing` 不写:`base.css` 的 `* { box-sizing: border-box }` 已经给了这一档,
+   而描边一旦存在,`content-box` 会让 1.35em 连边框一起往外长。 */
 .qf-amount-value {
-  box-sizing: content-box;
-  width: 2.4em;
-  height: 34px;
-  padding: 0 2px;
+  width: 1.35em;
+  height: 42px;
+  padding: 3px 2px;
   appearance: textfield;
-  border: 0;
+  border: var(--stroke-thin) solid var(--border);
   border-radius: var(--radius-sm);
   outline: none;
   background: transparent;
@@ -1293,11 +1307,15 @@
   appearance: none;
 }
 .qf-amount-value:hover:not(:disabled) {
+  border-color: var(--border-strong);
   background: var(--bg-subtle);
 }
+/* 聚焦不再画 `outline`,改成「边框染色 + 外扩一圈」(稿子 `361b78253e:1735-1738`)。
+   平时已经有一圈边之后,再在外面套一圈 outline 就是两条同心线;染现有那一条
+   更省一层,外扩的柔光只负责说「焦点在这儿」。 */
 .qf-amount-value:focus-visible {
-  outline: 1px solid var(--selected);
-  outline-offset: 2px;
+  border-color: var(--selected);
+  box-shadow: 0 0 0 2px var(--selected-soft);
   background: var(--bg);
 }
 /* 稿子这条进度色写的是字面绿 `#00FF08`;换成产品的「已选」token ——
@@ -1306,7 +1324,7 @@
   position: relative;
   height: var(--qf-amount-track);
   overflow: hidden;
-  border-radius: var(--radius-circular);
+  border-radius: var(--radius-pill);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--selected) 22%, var(--bg-panel)) 0 var(--qf-range-pct),
@@ -1321,6 +1339,7 @@
   width: 100%;
   height: var(--qf-amount-track);
   margin: 0;
+  border-radius: var(--radius-pill);
   background: transparent;
   cursor: grab;
 }
@@ -1333,6 +1352,7 @@
 }
 .qf-range::-webkit-slider-runnable-track {
   height: var(--qf-amount-track);
+  border-radius: var(--radius-pill);
   background: transparent;
 }
 .qf-range::-webkit-slider-thumb {
@@ -1348,6 +1368,7 @@
 .qf-range::-moz-range-track {
   height: var(--qf-amount-track);
   border: 0;
+  border-radius: var(--radius-pill);
   background: transparent;
 }
 .qf-range::-moz-range-thumb {
@@ -1358,11 +1379,12 @@
   background: var(--selected);
   box-shadow: var(--shadow-sm);
 }
+/* 稿子 `.amount-limits { font-size: var(--t-cap) }` —— 12px,不是更小的一档。 */
 .qf-amount-limits {
   display: flex;
   justify-content: space-between;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-12);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1389,11 +1411,18 @@
 .qf-select-more {
   margin-top: 8px;
 }
+/* 稿子 `.language-group-label { font-size: var(--t-cap); font-weight: 500 }`。
+   ------------------------------------------------------------------
+   字号走产品梯子,**最低就是 12px**。稿子把 `--t-cap` / `--t-mini` 两档
+   一起绑到 `--font-size-12`,并在文件开头写明理由:「原稿的 11px 档在产品体系里
+   没有对应值……要恢复 11px 需先在 typography.css 加 `--font-size-11`,
+   不能在本文件里私开」(`361b78253e:components.css:101-104`)。
+   这一族里凡是 11px 都是没跟上梯子的旧值,不是刻意压小。 */
 .qf-select-group-label {
   display: block;
   padding: 7px 10px 3px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-12);
   font-weight: 500;
 }
 /* 稿子 `.language-option, .language-more-toggle` —— 32px 是一行的基准高度,
@@ -1444,11 +1473,13 @@
   overflow-wrap: anywhere;
 }
 /* 稿子 `.language-code` —— 行尾那枚短标记,等宽数字免得几行之间跳动 */
+/* 稿子 `.language-option .language-code { font-size: var(--t-cap) }` —— 行尾那枚短标记,
+   等宽数字免得几行之间跳动。字号同样是梯子最低那一档 12px,不是 11。 */
 .qf-select-trailing {
   flex: none;
   margin-inline-start: auto;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-12);
   font-variant-numeric: tabular-nums;
 }
 /* 稿子:勾平时是**占位不显形**(opacity:0),这样选中与否行宽不变、不抖。
@@ -1474,11 +1505,14 @@
 .qf-select-more-gap {
   flex: 1;
 }
+/* 稿子 `.language-more-toggle svg { transition: transform var(--duration-faster) var(--ease-out) }`。
+   时长走 token 而不是写死毫秒 —— `--duration-faster`(100ms)由 `tokens.css` 的 `:root`
+   提供,全站在这一档上同步;写死 140ms 就是这颗箭头自己一个速度。 */
 .qf-select-more-toggle svg {
   flex: none;
   width: 14px;
   height: 14px;
-  transition: transform 140ms var(--ease-out);
+  transition: transform var(--duration-faster) var(--ease-out);
 }
 .qf-select-more-toggle[aria-expanded='true'] svg {
   transform: rotate(180deg);
@@ -1522,14 +1556,27 @@
   padding: 0;
   border: 0;
 }
-/* 稿子 `.color-field legend, .color-label`,覆盖层把字重降到 500 */
+/* 稿子 `361b78253e:1566-1570`:
+     `.color-field legend, .color-label {
+        display: block; margin: 0 0 6px;
+        font-size: var(--t-mini); font-weight: 600; color: var(--text-strong); }`
+   —— 12px / #202020 / 600。
+   ------------------------------------------------------------------
+   稿子随后**只**给 `<legend>` 单独降一档:
+     `.opts.mod-color .color-field > legend { font-weight: 500 }`(`:1700`)。
+   示例页里这两句正好落在两种元素上(`chat-panel-next.html:4904` 与 `:4917`):
+   预设那句是 `<legend>`(→ 500),自定义那句是 `<label class="color-label">`(→ 留在 600)。
+   我们两句复用同一个类名,所以按元素分档才等价 —— 只写一档会把自定义那句一起降。 */
 .qf-color-legend {
   display: block;
   margin: 0 0 6px;
   padding: 0;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-12);
+  font-weight: 600;
   color: var(--text-strong);
+}
+legend.qf-color-legend {
+  font-weight: 500;
 }
 .qf-color-presets {
   display: grid;
@@ -1590,6 +1637,7 @@
   border: 0;
   border-radius: var(--radius-circular);
 }
+/* 稿子 `.color-hex { font-family: var(--mono); font-size: var(--t-mini) }` —— 12px。 */
 .qf-color-hex {
   min-width: 0;
   height: 34px;
@@ -1599,7 +1647,7 @@
   background: var(--bg);
   color: var(--text-strong);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-12);
 }
 .qf-color-hex:hover {
   border-color: var(--border-strong);
@@ -1613,7 +1661,12 @@
 }
 /* 稿子只把边框标红。红框说得出「这里不对」,说不出「哪里不对」——
    而这道题的规则(6 位、不收 alpha / 简写)恰恰不是看一眼就知道的,
-   所以补一句话。位置紧跟在输入框下面,`aria-describedby` 把它接给读屏。 */
+   所以补一句话。位置紧跟在输入框下面,`aria-describedby` 把它接给读屏。
+   ------------------------------------------------------------------
+   ⚠️ 稿子里**没有这一条**(它只有 `.color-hex[aria-invalid="true"] { border-color: var(--red) }`,
+   `361b78253e:1602`),所以这一格的字号/字色在稿子上**没有可对照的原值**。
+   11px 是我们自己定的,先原样留着 —— 按「梯子下限是 12px」把它推到 12 属于自行发挥,
+   要改得由产品对着稿子拍板。 */
 .qf-color-error {
   color: var(--red);
   font-size: 11px;
@@ -1628,7 +1681,9 @@
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--qf-choice-color) 12%, var(--bg));
   color: var(--qf-choice-color);
-  font-size: 11px;
+  /* 稿子 `.color-preview { font-size: var(--t-mini) }`(`361b78253e:1607`)—— 12px。
+     这一格其余属性早就和稿子一致,只有字号漏在 11。 */
+  font-size: var(--font-size-12);
   line-height: 1.5;
 }
 .qf-file-wrap {
@@ -4427,20 +4482,19 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-subtle);
 }
 
-/* ── 「已确认」陈述块(交付稿 `.answered`,#23 / #24 / #25)─────────────────
-   回答完就收成一条陈述,不再把整张表单锁住置灰。规则逐条照抄**最新**交付稿
-   (PR #7170 `components.css:2107-2113`;上一版没有底色那三条,这段注释原来
-   引的就是旧稿,和代码一起过时了):
+/* ── 「已确认」陈述块(稿子 `.answered`,#23 / #24 / #25)───────────────────
+   回答完就收成一条陈述,不再把整张表单锁住置灰。规则逐条照抄**最新稿**
+   `361b78253e:components.css:2064-2106`:
      .answered { --answered-radius: 16px; --answered-padding: 12px;
                  width: fit-content; max-width:100%; padding: var(--answered-padding);
                  background: var(--bg-panel); border-radius: var(--answered-radius);
                  font-size: var(--t-mini); line-height: var(--lh-row); }
      .answered.mod-visual-answer { --answered-radius: var(--radius-lg); }
-     .answered .k   { margin-bottom:3px; color: var(--brand-text); }
+     .answered .k   { margin-bottom:3px; font-size: var(--t-lead); color: var(--brand-text); }
      .answered .ab  { color: var(--text); }
      .answered b    { color: var(--text-strong); font-weight: inherit; }
      .answered .al  { margin:0; padding:0; list-style:none; }
-     .answered .ak  { margin-inline-end:6px; color: var(--text-soft); font-weight:400; }
+     .answered .ak  { margin-inline-end:6px; color: var(--text-soft); font-weight:500; }
      .answered .av  { display:block; margin-top:5px; width:57px; aspect-ratio:1/1; … }
    `--t-mini` / `--lh-row` 是稿子自己的别名(= font-size-12 / 1.5),我们这边没有,
    照抄会静默失效 —— 所以映射成我们的 token。
@@ -4465,8 +4519,12 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .answered.mod-visual-answer {
   --answered-radius: var(--radius-lg);
 }
+/* 「已确认」那个词比块里的正文高一档(稿子 `--t-lead` = 我们的 `--font-size-14`)。
+   最新稿 `361b78253e:2081` 才补上这条字号,09-01 的交付稿 `8015870095:2124` 还没有 —— 它是整块唯一
+   一个标题性的词,和 12px 的答案正文同号时读起来像另一条答案。 */
 .answered .k {
   margin-bottom: 3px;
+  font-size: var(--font-size-14);
   color: var(--brand-text);
 }
 .answered .ab {
@@ -4487,10 +4545,13 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .answered .al li + li {
   margin-top: 2px;
 }
+/* 每条前面的重点词。稿子写死 `font-weight: 500`(`361b78253e:2099`;`853da24ea5:2098` /
+   `8015870095:2142` 同值,三版没分叉)—— 它和答案的分层靠**颜色**(`--text-soft` vs
+   `--text-strong`),不靠字重,所以这一格跟基线同档、不往下压。 */
 .answered .ak {
   margin-inline-end: 6px;
   color: var(--text-soft);
-  font-weight: 400;
+  font-weight: 500;
 }
 .answered .ab,
 .answered .al li {
@@ -4594,17 +4655,17 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   display: block;
 }
-/* 稿子这条是 `.opt .own-l { display: block; font-weight: 600 }` —— 祖先 `.own`
-   不是可有可无的修饰,它承担的是**作用域**:稿子的 `.own-l` 只存在于展开态
-   (`<span class="own"><span class="own-l">…</span><textarea class="own-ta">`),
-   收起态那一格写的是**没有类名的裸 `<span>自己填</span>`**,拿的是 400。
-   我们两态复用同一个 `qf-own-label`,把选择器搬成裸类名之后,收起态也被刷成 600。
-   把 `.qf-own` 补回来,600 就只落在稿子让它落的那一态。 */
+/* 稿子 `.opt .own-l { display: block; font-weight: 500 }`(`361b78253e:1489`)。
+   600 出自**上一版**稿子 `1bbdce0b06:1524` —— 那一版的 `body` 还没有字重、
+   全局基线是 400,这句标题得自己加粗才跳得出来。基线抬到 500 之后它跟着降到 500,
+   和旁边的选项行同档。
+   ------------------------------------------------------------------
+   两态因此不再需要分开写:稿子的 `.own-l` 只存在于展开态(收起态是个没有类名的
+   裸 `<span>`,继承 `body` 的 500),我们两态复用同一个 `qf-own-label`,
+   现在两边要的都是 500,祖先 `.qf-own` 那层作用域就没有活干了,合成一条。 */
 .qf-own-label {
   display: block;
-}
-.qf-own .qf-own-label {
-  font-weight: 600;
+  font-weight: 500;
 }
 .qf-own-input {
   display: block;
@@ -4617,19 +4678,17 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: none;
   color: var(--text-strong);
   /* 稿子 `.opt .own-ta { font-family: inherit; font-size: var(--t-mini);
-     line-height: var(--lh-row) }` —— 只继承**字族**这一条,字重不继承。
-     展开态那一整项是 `.opt.is-on`(字重 600),`font: inherit` 会把 600 一起
-     继承下来,用户自己打的字比选项标题还粗;`<textarea>` 本来就不继承字重,
-     稿子只点名 family / size / line-height,就是要让正文停在 400。
-     旁边 `.qf-custom .qf-input` 早就是这么写的,这一处是漏网的另一半。 */
+     font-weight: 500; line-height: var(--lh-row) }`(`361b78253e:1497-1503`)——
+     四条都点名,不写 `font: inherit`。 */
   font-family: inherit;
   font-size: var(--font-size-12);
   line-height: 1.5;
-  /* 稿子靠**不写**拿到 400(浏览器不给 textarea 继承字重);我们的全局
-     `input, textarea, select { font: inherit }`(styles/primitives.css)把继承
-     打开了,所以这里必须把 400 说出来才等价 —— 少这一条,`font-family` 那半条
-     还是压不住 `.opt.is-on` 的 600。 */
-  font-weight: 400;
+  /* 字重必须**说出来**。上一版稿子 `1bbdce0b06:1532-1538` 这条不写字重,靠的是
+     「浏览器不给 textarea 继承字重」+ 那时的全局基线 400;基线抬到 500 之后,
+     交付稿同一条补上了 `font-weight: 500`。我们这边全局
+     `input, textarea, select { font: inherit }`(`styles/primitives.css`)
+     把继承打开了,不写就会顺着选项行往下继承 —— 那是"碰巧对",不是等价。 */
+  font-weight: 500;
   resize: none;
   field-sizing: content;
 }

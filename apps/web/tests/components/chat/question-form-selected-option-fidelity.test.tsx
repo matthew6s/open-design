@@ -4,9 +4,10 @@
  * (`question-form-option-cascade-leak.test.tsx`)时路过看到、按守住范围没动的。
  *
  * ── ① 选中项的字重跟稿子差一档 ─────────────────────────────────────────
- * 交付稿 `8015870095:docs/design/chat-panel/src/components.css` L1457-1459:
+ * 最新稿 `361b78253e:docs/design/chat-panel/src/components.css` L1410-1412(交付稿
+ * `8015870095` L1457-1459 同值):
  *   `.opt.is-on { color: var(--select-ink); font-weight: 500; }`
- * 上面那段注释(L1454-1455)写得很明白:「选中态因此只剩两处变化:前面的控件
+ * 上面那段注释(`361b78253e:1407-1408`)写得很明白:「选中态因此只剩两处变化:前面的控件
  * 填实(--pick),**文字使用 500** 并换成 --select-ink」。
  * 我们写的是 600。
  *
@@ -15,11 +16,12 @@
  * --brand-text」;我们那条是 `38aa03bff4`(2026-08-26,照那一版稿子重建聊天面板)
  * 落的,当时对。2026-09-01 稿子在 `8015870095` 里把这一档降到 500(顺带把
  * --brand-text 换成 --select-ink —— 颜色那一半我们已经跟上了,字重这一半漏了)。
- * 本分支对齐的就是 `8015870095`,所以这一格照 500。
+ * 本分支对齐的是**最新稿** `361b78253e`(这一格 `853da24ea5` / `8015870095` 三版同值),
+ * 所以这一格照 500。
  *
  * ── ② 「自己填」那颗勾的描边:hover 压过了选中 ──────────────────────────
- * 稿子 L1485 `.opt:hover .box { border-color: var(--text-soft) }` 是 (0,3,0),
- * 稳输给 L1493 / L1511 的 `.opts.mod-* .opt.is-on .box`(0,5,0)—— 选中的勾在
+ * 稿子 `361b78253e:1438` `.opt:hover .box { border-color: var(--text-soft) }` 是 (0,3,0),
+ * 稳输给 `:1446` / `:1464` 的 `.opts.mod-* .opt.is-on .box`(0,5,0)—— 选中的勾在
  * hover 时不会被描回一圈灰边。
  *
  * 我们搬过来时,固定选项那一路(`.qf-chip-box`)上一轮已经把祖先补回去了
@@ -40,8 +42,9 @@
  *
  * ── 量法照 `question-form-maxed-option-hover.test.tsx` ────────────────────
  * 不用 CSS Module 代理;按 `index.css` 的顺序注入整条样式链自己算层叠
- * (`primitives.css` 里的全局 `button { font-weight: 500 }` 是 ① 的另一端,
- *  少注它这条对不上);hover 用真事件并**当场核实**指针位置;断言盯具体值。
+ * (`primitives.css` 里还有一条全局 `button { font-weight: 500 }` 在跟选项行抢
+ *  同一个属性,少注它就量不出「到底是谁给的」);hover 用真事件并**当场核实**
+ * 指针位置;断言盯具体值。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
@@ -174,35 +177,33 @@ function expandOther(container: HTMLElement): { row: HTMLElement; box: HTMLEleme
   return { row, box };
 }
 
-/* ── 稿子的原值(light,`8015870095` 的 `.opt` 一族) ─────────────────── */
+/* ── 稿子的原值(light,`361b78253e` 的 `.opt` 一族) ─────────────────── */
 
 /*
- * ⚠️ **400 是我们的现状,不是稿子的值。**
+ * 稿子 `361b78253e:components.css:151-153` 的 `body { font-weight: 500 }` 是全局基线,
+ * 而 `.opt` 一个字重都不写 —— 在稿子里它**继承 500**。产品这边的对应基线在
+ * `0334a6599d` 已经抬到 500(chat 接缝层 `ChatRoot.module.css`),`.qf-chip` 这一格
+ * 现在跟上了,两边同档。
  *
- * 稿子 `8015870095:components.css:151-153` 的 `body { font-weight: 500 }` 是全局基线,
- * 而 `.opt` 一个字重都不写 —— 在稿子里它**继承 500**。我们这边基线另算,量出来是 400。
- *
- * 这条断言的作用是**钉住现状、并把偏差记在案**,不是宣称我们和稿子一致。
- * 产品字重基线已在 `0334a6599d` 抬到 500(chat 接缝层),`.qf-*` 一族的字面字重
- * 还没跟着复核 —— 那是一整批要一起动的活(见 W43 审计 §5 第 9 条),
- * 单独改这一格会和相邻几格打架。
+ * 上一版稿子 `1bbdce0b06:152` 的 `body` 不写字重(= 400),所以「静息 400」曾经是对的;
+ * 交付稿起 `body` 抬到 500,这一格才成了欠账。
  */
-const OPT_WEIGHT = '400';
-const OPT_WEIGHT_ON = '500'; // `.opt.is-on { font-weight: 500 }`(L1458)
+const OPT_WEIGHT = '500';
+const OPT_WEIGHT_ON = '500'; // `.opt.is-on { font-weight: 500 }`(`361b78253e:1410-1412`)
 const STALE_WEIGHT_ON = '600'; // 上一版稿子 `1bbdce0b06:1524` 的旧值,选项行已经不在这儿了
-const BOX_HOVER = '#848484'; // `.opt:hover .box { border-color: var(--text-soft) }`(L1485)
+const BOX_HOVER = '#848484'; // `.opt:hover .box { border-color: var(--text-soft) }`(`:1438`)
 const BOX_ON = 'transparent'; // `.opts.mod-* .opt.is-on .box { border-color: transparent }`
 
-describe('① 选中的选项行照交付稿的 500,不是上一版稿子的 600', () => {
+describe('① 选中的选项行照最新稿的 500,不是上一版稿子的 600', () => {
   it('防真空:解析器确实看得见全局原语那条 `button { font-weight: 500 }`', () => {
-    // 它是「没选中 = 400」这一档真正要压的对手。解析器要是根本没读到
-    // primitives.css,下面「没选中是 400」会在解析器瞎了的时候假绿。
+    // 它和选项行抢同一个属性。解析器要是根本没读到 primitives.css,
+    // 下面「静息档是谁给的」就无从分辨,几条断言会在解析器瞎了的时候假绿。
     const container = mount(FORM);
     const sources = CSS.declaring(options(container)[0]!, 'font-weight').map((r) => r.selector);
     expect(sources).toContain('button');
   });
 
-  it('防真空:没选中那一档确实是稿子的 400(比较的另一端不是空读数)', () => {
+  it('没选中那一档是基线的 500(比较的另一端不是空读数)', () => {
     const container = mount(FORM);
     const chip = options(container)[0]!;
     expect(chip.getAttribute('aria-checked')).toBe('false');
@@ -220,6 +221,23 @@ describe('① 选中的选项行照交付稿的 500,不是上一版稿子的 600
     expect(weight).toBe(OPT_WEIGHT_ON);
   });
 
+  it('护栏:选中那条**自己**给了 500,不是从静息档漏下来的', () => {
+    /*
+     * 基线抬到 500 之后静息和选中同档,只盯读数就分不出「选中那条还在不在」——
+     * 把 `.qf-options .qf-chip.qf-chip-on` 整条删掉,读数照样是 500(静息给的)。
+     * 所以这里直接指认那条规则,并钉住它**严格压得过**静息档(踩坑 25 的口径:
+     * 不打平靠源码顺序)。稿子那边同理:`.opt.is-on { font-weight: 500 }`
+     * 是显式写着的一条,不是省略。
+     */
+    const container = mount(FORM);
+    fireEvent.click(options(container)[0]!);
+    const on = options(container)[0]!;
+    const onRule = soleRule(on, 'font-weight', 'qf-chip-on');
+    const restRule = CSS.declaring(on, 'font-weight').find((r) => r.selector === '.qf-chip');
+    expect(restRule, '静息那条不叫 `.qf-chip` 了 —— 先修这里').toBeDefined();
+    expect(specificity(onRule.selector)).toBeGreaterThan(specificity(restRule!.selector));
+  });
+
   it('已提交表单里选中的那一项,同样是 500', () => {
     const container = mount(FORM, { surfaces: ['web'] });
     const on = options(container).find((chip) => chip.getAttribute('aria-checked') === 'true');
@@ -227,24 +245,22 @@ describe('① 选中的选项行照交付稿的 500,不是上一版稿子的 600
     expect(atRest(on!)['font-weight']).toBe(OPT_WEIGHT_ON);
   });
 
-  it('边界:「自己填」那句标题仍停在 600(未迁移)—— 选项行那一改不许漏到它身上', () => {
+  it('「自己填」那句标题和稿子一致,是 500 不是旧稿的 600', () => {
     /*
-     * ⚠️ **600 是我们的现状,不是稿子的值。上一版注释说反了,这里更正。**
-     *
-     * 交付稿 `8015870095:components.css:1536` 写的是
+     * 最新稿 `361b78253e:components.css:1489`(`853da24ea5:1488` / `8015870095:1536` 同值)写的是
      * `.opt .own-l { display: block; font-weight: 500 }`;600 出自**上一版**
-     * `1bbdce0b06:1524`。同一个 commit(`cac28b1a6f`)在隔壁把 `.opt.is-on`
-     * 正确改成了 500,却在这里照旧稿钉死 600,还把它写成"稿子的值"。
+     * `1bbdce0b06:1524`,那一版的 `body` 还没有字重、全局基线是 400,
+     * 所以标题要靠自己加粗才跳得出来。基线抬到 500 之后这一档跟着降到 500。
      *
-     * 这条断言的作用是**隔离**:选项行那一改不许漏到这句标题上。
-     * 至于它自己该不该迁到 500 —— 要和 `.qf-*` 一族的字重一起复核(W43 §5 第 9 条),
-     * 单独动它会和相邻几格打架。**迁移时这个数要跟着改成 500。**
+     * 稿子里 `.own-l` 只存在于展开态(收起态是个没有类名的裸 `<span>`),
+     * 我们两态复用同一个 `qf-own-label` —— 两态现在都是 500,不再需要用祖先
+     * `.qf-own` 把 600 圈在展开态里。
      */
     const container = mount(FORM);
     const { row } = expandOther(container);
     const label = row.querySelector('.qf-own .qf-own-label');
     expect(label).not.toBeNull();
-    expect(CSS.resolved(label!)['font-weight']).toBe('600');
+    expect(CSS.resolved(label!)['font-weight']).toBe(OPT_WEIGHT);
   });
 });
 

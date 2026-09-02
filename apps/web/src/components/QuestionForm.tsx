@@ -2800,7 +2800,7 @@ function AnsweredSummary({
     <div className={`answered${summary.visualItems.length > 0 ? ' mod-visual-answer' : ''}`}>
       <div className="k">{t('qf.answeredConfirmed')}</div>
       {single ? (
-        <div className={`ab${flat[0]!.swatch ? ' mod-value' : ''}`}>
+        <div className={`ab${isShortValueAnswer(flat[0]!) ? ' mod-value' : ''}`}>
           <span className="ak">{flat[0]!.label}</span>
           <AnsweredValue item={flat[0]!} />
         </div>
@@ -2838,6 +2838,20 @@ function AnsweredSummary({
  * —— 色块 + 规范化后的 Hex。规范不出来的旧值(历史里存着一句话)按纯文本念,
  * **不给它编一块颜色**。
  */
+/**
+ * 稿子把「短答案」单拎出来做行内垂直居中(`.answered .ab.mod-value`,
+ * `361b78253e:components.css:2084-2086`,规则上方的注释原文是
+ * 「**颜色和数值**的短答案行内部垂直居中;卡片位置及其它回答的排版不变」)。
+ * 示例页里正好并排两格:主题色(`chat-panel-next.html:5078`)和版面密度(`:5087`,
+ * `<div class="ab mod-value"><span class="ak">版面密度</span><b>2 档</b></div>`)。
+ *
+ * 判据因此是**答案本身是不是一个值** —— 色值或数字 —— 而不是「这一格有没有色块」。
+ * 按色块判会把数值那一半漏掉:它没有色块,却同样是一个跟标签并排的短值。
+ */
+function isShortValueAnswer(item: QuestionFormAnsweredSummary['items'][number]): boolean {
+  return item.swatch !== undefined || item.numeric === true;
+}
+
 function AnsweredValue({ item }: { item: QuestionFormAnsweredSummary['items'][number] }) {
   if (!item.swatch) return <b>{item.value}</b>;
   return (
@@ -2852,7 +2866,11 @@ function AnsweredValue({ item }: { item: QuestionFormAnsweredSummary['items'][nu
 }
 
 export interface QuestionFormAnsweredSummary {
-  items: Array<{ label: string; value: string; swatch?: string }>;
+  /**
+   * `swatch` 是色值(那一格要画一块真颜色);`numeric` 标的是「这条答案本身就是
+   * 一个数」。两者一起构成稿子说的「短答案」——见 {@link isShortValueAnswer}。
+   */
+  items: Array<{ label: string; value: string; swatch?: string; numeric?: true }>;
   visualItems: Array<{
     label: string;
     cards: Array<{ title: string; src: string }>;
@@ -2948,12 +2966,19 @@ export function summarizeQuestionFormAnswers(
     const readableWithoutPreview = normalized
       .filter((value) => !catalog.some((card) => card.value === value && card.preview))
       .map((value) => catalog.find((card) => card.value === value)?.title ?? readable(question, value));
+    // 滑块和数字框答出来的是一个标量,和颜色同属稿子说的「短答案」(见
+    // `isShortValueAnswer`)。跳过那一档不在这里 —— 它念的是「已跳过」,是句话不是值。
+    const numeric = question.type === 'range' || question.type === 'number';
     if (splitMultiValueItems) {
       for (const value of readableWithoutPreview) {
-        items.push({ label: question.label, value });
+        items.push({ label: question.label, value, ...(numeric ? { numeric: true } : {}) });
       }
     } else if (readableWithoutPreview.length > 0) {
-      items.push({ label: question.label, value: readableWithoutPreview.join(', ') });
+      items.push({
+        label: question.label,
+        value: readableWithoutPreview.join(', '),
+        ...(numeric ? { numeric: true } : {}),
+      });
     }
   }
 
