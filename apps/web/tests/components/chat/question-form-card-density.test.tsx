@@ -31,6 +31,18 @@ import type { QuestionForm } from '../../../src/artifacts/question-form';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CSS_PATH = resolve(HERE, '../../../src/styles/viewer/composio.css');
 const CSS = readFileSync(CSS_PATH, 'utf-8');
+/*
+ * `primitives.css` 必须一起注进来,而且**顺序照 `index.css`**(它在 composio 之前)。
+ *
+ * 理由不是「更真实」这种笼统的好处,而是:这一族的病根就在它里面 ——
+ * 裸元素选择器 `button { white-space: nowrap }`。选项行 `.qf-chip` 是个 `<button>`,
+ * 于是整行连同描述文字都不许换行。少注这一份,jsdom 里 `white-space` 会读回
+ * 浏览器默认的 `normal`,断言不用修就是绿的 —— 那种测试从没红过,证明不了任何事。
+ */
+const PRIMITIVES = readFileSync(
+  resolve(HERE, '../../../src/styles/primitives.css'),
+  'utf-8',
+);
 
 /** 稿子写死的竖线单位:`.opts.mod-stack` 的 6 + `.opt` 的 5。 */
 const RAIL = 11;
@@ -38,7 +50,9 @@ const RAIL = 11;
 beforeAll(() => {
   // 整表原样注进去,不切片 —— 切片等于自己挑对手
   const style = document.createElement('style');
-  style.textContent = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+  style.textContent = [PRIMITIVES, CSS]
+    .map((sheet) => sheet.replace(/\/\*[\s\S]*?\*\//g, ''))
+    .join('\n');
   document.head.append(style);
 });
 
@@ -107,6 +121,48 @@ describe('OPEND-2402 · 选项文案不许压到卡的右边框上', () => {
     const root = mount();
     const copy = root.querySelector<HTMLElement>('.qf-chip-copy')!;
     expect(['anywhere', 'break-word']).toContain(getComputedStyle(copy).overflowWrap);
+  });
+
+  /*
+   * 这一条才是用户看到的那个缺陷的真正病根,`min-width` / `overflow-wrap` 都是
+   * 在它下面空转:`primitives.css` 的裸 `button { white-space: nowrap }` 命中了
+   * 选项行(`.qf-chip` 就是个 `<button>`),并**继承**给里面的标题和描述。
+   * 不许换行的时候,「能缩到多窄」和「能不能在词中间断」都不会被用到 ——
+   * 无头 Chrome 量出来的是描述行 scrollWidth 373 / clientWidth 327,溢出 46px,
+   * 被卡片的 `overflow: hidden` 裁掉。
+   */
+  it('选项行不继承全局 button 的 nowrap —— 描述文字必须能换行', () => {
+    const root = mount();
+    const chip = root.querySelector<HTMLElement>('.qf-chip')!;
+    expect(chip.tagName, '前提变了:选项行不再是 <button>,这条守的东西就不存在了').toBe(
+      'BUTTON',
+    );
+    expect(
+      getComputedStyle(chip).whiteSpace,
+      '选项行还在吃 primitives.css 的 `button { white-space: nowrap }`',
+    ).toBe('normal');
+  });
+
+  /*
+   * 描述行靠**继承**拿到可换行,而 jsdom 不做继承计算:`.qf-chip-desc` 上
+   * `getComputedStyle().whiteSpace` 读回空串,修不修都一样。所以这一层只守
+   * 两件 jsdom 真能看见的事 ——(1)描述行确实长在选项行里面(继承的前提),
+   * (2)没有任何一条规则在这棵子树上把 `nowrap` 又写回来。
+   * 真实换行与溢出由无头 Chrome 量:修复前描述行 scrollWidth 373 / clientWidth 327
+   * (溢出 46px),修复后 scrollWidth === clientWidth。
+   */
+  it('描述行长在选项行里面 —— 可换行是继承来的', () => {
+    const root = mount();
+    const desc = root.querySelector<HTMLElement>('.qf-chip-desc');
+    expect(desc, '这一格没渲染出描述行,下面守的东西不存在').toBeTruthy();
+    expect(desc!.closest('.qf-chip'), '描述行不在选项行里,继承链断了').toBeTruthy();
+  });
+
+  it('没有任何一条规则把 nowrap 写回选项行子树', () => {
+    const offenders = rules().filter(
+      (r) => /\.qf-chip/.test(r.sel) && /white-space:\s*nowrap/.test(r.body),
+    );
+    expect(offenders.map((r) => r.sel)).toEqual([]);
   });
 
   /*

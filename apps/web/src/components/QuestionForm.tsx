@@ -2587,7 +2587,12 @@ function AnsweredSummary({
   if (flat.length === 0 && summary.visualItems.length === 0) return null;
 
   return (
-    <div className="answered">
+    /*
+     * 稿子给带缩略图的那一格单独一档圆角(`.answered.mod-visual-answer`,12px 而非
+     * 16px)—— 判据是**这块里有没有图**,不是「这道题是不是视觉方向题」:
+     * 目录里的卡不一定都有预览图,没图的那些收成的是纯文字陈述,和其它答案一样。
+     */
+    <div className={`answered${summary.visualItems.length > 0 ? ' mod-visual-answer' : ''}`}>
       <div className="k">{t('qf.answeredConfirmed')}</div>
       {single ? (
         <div className={`ab${flat[0]!.swatch ? ' mod-value' : ''}`}>

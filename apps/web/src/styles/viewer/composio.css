@@ -958,6 +958,16 @@
   /* 全局 `button` 规则把字重压成 500,稿子的 `.opt` 一个字重都不写(= 400)。
      选中态的 600 在 `.qf-chip-on`,写在这条后面,不受影响。 */
   font-weight: 400;
+  /* OPEND-2402 的**病根**。`primitives.css` 的裸 `button { white-space: nowrap }`
+     是给「一行字的按钮」定的 —— 那种按钮的文案断行只会更难读。可选项行是一段
+     会换行的正文:一句话的标题,底下还挂一行描述。继承下来之后整行不许换行,
+     描述文字直接冲出 380px 的卡,被 `.question-form { overflow: hidden }` 裁掉
+     (无头 Chrome 量:描述行 scrollWidth 373 / clientWidth 327,溢出 46px)。
+     注意上面那两条 `min-width: 0` / `overflow-wrap` 在这条之前是**空转**的:
+     压根不许换行的时候,「能缩多窄」和「能不能在词中间断」都轮不到被用上。
+     `nowrap` 只能在这儿归零 —— `primitives.css` 是全局原语,那条规则对真正的
+     单行按钮是对的,不该为这张卡去动它。 */
+  white-space: normal;
   appearance: none;
   cursor: pointer;
 }
@@ -4209,8 +4219,14 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* ── 「已确认」陈述块(交付稿 `.answered`,#23 / #24 / #25)─────────────────
-   回答完就收成一条陈述,不再把整张表单锁住置灰。规则逐条照抄交付稿:
-     .answered      { width: fit-content; max-width:100%; font-size: var(--t-mini); line-height: var(--lh-row); }
+   回答完就收成一条陈述,不再把整张表单锁住置灰。规则逐条照抄**最新**交付稿
+   (PR #7170 `components.css:2107-2113`;上一版没有底色那三条,这段注释原来
+   引的就是旧稿,和代码一起过时了):
+     .answered { --answered-radius: 16px; --answered-padding: 12px;
+                 width: fit-content; max-width:100%; padding: var(--answered-padding);
+                 background: var(--bg-panel); border-radius: var(--answered-radius);
+                 font-size: var(--t-mini); line-height: var(--lh-row); }
+     .answered.mod-visual-answer { --answered-radius: var(--radius-lg); }
      .answered .k   { margin-bottom:3px; color: var(--brand-text); }
      .answered .ab  { color: var(--text); }
      .answered b    { color: var(--text-strong); font-weight: inherit; }
@@ -4218,12 +4234,27 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
      .answered .ak  { margin-inline-end:6px; color: var(--text-soft); font-weight:400; }
      .answered .av  { display:block; margin-top:5px; width:57px; aspect-ratio:1/1; … }
    `--t-mini` / `--lh-row` 是稿子自己的别名(= font-size-12 / 1.5),我们这边没有,
-   照抄会静默失效 —— 所以映射成我们的 token。 */
+   照抄会静默失效 —— 所以映射成我们的 token。
+
+   稿子给底色的理由:「已确认结果统一加浅灰底…16px 圆角只属于答案块,不改变
+   其它卡片的圆角;12px 内边距让文字避开圆角」。这三条原来一条都没落地,
+   那块在本地 runtime 上是纯白无底(用户指认)。
+   两个数走自定义属性而不是各写一条规则 —— 变体只需要换属性,不用重写整块;
+   16px 用产品 token `--radius-2xl`(= --radius-2xlarge),不写裸值。 */
 .answered {
+  --answered-radius: var(--radius-2xl);
+  --answered-padding: 12px;
   width: fit-content;
   max-width: 100%;
+  padding: var(--answered-padding);
+  background: var(--bg-panel);
+  border-radius: var(--answered-radius);
   font-size: var(--font-size-12);
   line-height: 1.5;
+}
+/* 稿子:视觉方向答案带缩略图,圆角降到内容卡同档的 12px(我们的 `--radius-lg`)。 */
+.answered.mod-visual-answer {
+  --answered-radius: var(--radius-lg);
 }
 .answered .k {
   margin-bottom: 3px;
