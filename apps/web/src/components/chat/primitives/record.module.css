@@ -533,12 +533,36 @@
 .tool:has(.delta) .name { flex: 0 1 auto; }
 .fold.flat .tool .name { flex: 0 1 auto; }
 
-/* 行首那一格。**永远有图标** —— 产品 2026-08-25 裁决不许出现圆点,
-   交付稿的 `.ti:empty::before` 圆点兜底已撤(见 icons.tsx 的 toolIcon) */
+/*
+ * 行首那一格。**永远有图标** —— 产品 2026-08-25 裁决不许出现圆点,
+ * 交付稿的 `.ti:empty::before` 圆点兜底已撤(见 icons.tsx 的 toolIcon)。
+ *
+ * 【槽 16px,和它装的图标同宽】(W76)。稿子把这一格按「装的是什么」分成两档,
+ * 并且把理由写在规则上面(`729fa43ce7:components.css:2239-2241`):
+ *
+ *     「工具调用图标占 16px;没有图标的行首圆点和计划序号保持原尺寸。」
+ *     .tool .ti:has(> svg),
+ *     .fold > summary .ti:has(> svg) { width: 16px; height: 16px; }
+ *
+ * 我们原来只搬了下面 `.icon > svg` 的 16px,槽本身留在 15 —— 一只 15px 的盒子
+ * 装着 16px 的字形,`place-items: center` 让它左右各探出 0.5px。
+ * 那条 `:has(> svg)` 从上一版基线 `361b78253e` 起就在稿子里,从来没被搬过来。
+ *
+ * **不照抄 `:has(> svg)` 这个条件**:稿子加条件是为了把圆点和计划序号留在 15,
+ * 而这两样在产品里根本不住这只槽(圆点已裁,序号是 `.step`)。这只槽在产品里
+ * 还多住着一位:思考行「思考中」那一态放的是 `Orb` 的 `<canvas>`
+ * (`ExecutionShell.tsx`,box 20 + 左右各 −2px = 16px 实宽),**不是 svg** ——
+ * 照抄条件会让「思考中」停在 15、「思考过程」跳到 16,左边缘在两态之间横跳,
+ * 正是 `thinking-embedded.test.tsx` 钉死不许发生的事。
+ * 所以搬的是那个值和意图(装图标的槽 = 图标那么大),条件在这边恒真。
+ *
+ * ⚠️ `.step`(计划序号)和 `.mark`(状态记号)**不跟着动**,对应稿子的
+ * `.pk` / `.mk`,两者全程 15。判据在 `tests/components/chat/w76-icon-slot.test.tsx`。
+ */
 .icon {
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
   color: var(--chat-text-strong);
