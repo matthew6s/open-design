@@ -2204,9 +2204,15 @@ process.stdin.on("end", () => {
     expect(handoffScript).toContain("def self_check()");
     expect(handoffScript).toContain('"report"');
     expect(handoffScript).toContain('"convergence"');
-    expect(convergenceWorkflow).toContain("handoff.py resolve-run-artifact convergence ci-results");
+    expect(convergenceWorkflow).toContain(
+      "HANDOFF_ID: ${{ github.event.workflow_run.name == 'release-exact' && 'exact-scenes' || 'ci-results' }}",
+    );
+    expect(convergenceWorkflow).toContain('handoff.py resolve-run-artifact convergence "$HANDOFF_ID"');
     expect(convergenceWorkflow).toContain("Checkout trusted convergence code");
-    expect(convergenceWorkflow).toContain("convergence.py admit");
+    expect(convergenceWorkflow).toContain('config=(--config .github/config/convergence-exact.json)');
+    expect(convergenceWorkflow).toContain(
+      'python3 .github/scripts/convergence.py "${config[@]}" admit --handoff-root "$RUNNER_TEMP/handoff-convergence"',
+    );
     expect(convergenceWorkflow).toContain("python3 .github/scripts/convergence.py publish");
     expect(convergenceWorkflow).toContain("convergence.py stage-products");
     expect(convergenceWorkflow).toContain("convergence.py storage-status");
