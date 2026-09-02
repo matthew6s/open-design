@@ -644,38 +644,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          root = Path(os.environ["RUNNER_TEMP"])
-          published = json.loads((root / "published" / "publish-receipt.json").read_text())
-          required = json.loads((root / "required-acceptance.json").read_text())
-          proof = json.loads((root / "installed-proof.json").read_text(encoding="utf-8-sig"))
-          runtime = {operation: json.loads((root / f"runtime-{operation}.json").read_text()) for operation in ("start", "status", "stop")}
-          shell = required["shell"]
-          if proof.get("target") != required["target"] or proof.get("shell", {}).get("type") != shell["type"] or proof.get("shell", {}).get("version") != shell["version"] or proof.get("shell", {}).get("digest") != shell["buildHash"]:
-              raise SystemExit("installed Shell proof does not bind the published contribution")
-          started, status, stopped = (runtime[operation].get("result", {}) for operation in ("start", "status", "stop"))
-          if any(runtime[operation].get("outcome") != "ready" for operation in runtime):
-              raise SystemExit("installed Shell lifecycle did not complete")
-          if started.get("state") != "running" or started.get("references") != 1 or not isinstance(started.get("attachmentCapability"), str):
-              raise SystemExit("installed Shell did not establish an attached generation")
-          if status.get("state") != "running" or status.get("generationId") != started.get("generationId") or status.get("bindingDigest") != started.get("bindingDigest"):
-              raise SystemExit("installed Shell status lost its exact generation binding")
-          if status.get("sidecar", {}).get("generationPid") != started.get("sidecar", {}).get("generationPid") or status.get("sidecar", {}).get("status") != "ready":
-              raise SystemExit("installed Shell status lost its Sidecar generation")
-          if stopped.get("state") != "stopped" or stopped.get("sidecar", {}).get("remainingPids") != []:
-              raise SystemExit("installed Shell did not stop its lifecycle and physical Sidecar")
-          credential = {
-              "schemaVersion": 1, "operation": "exact.acceptance", "status": "accepted",
-              "channel": published["channel"], "releaseVersion": published["releaseVersion"], "sourceCommit": published["sourceCommit"],
-              "shell": shell, "target": required["target"], "artifact": required["artifact"], "shellMetadata": required["shellMetadata"],
-              "installed": {"shell": shell, "target": required["target"], "proof": proof, "runtime": runtime},
-          }
-          destination = root / "acceptance"
-          destination.mkdir()
-          destination.joinpath(f"{os.environ['SHELL_TYPE']}-{os.environ['TARGET']}.json").write_text(json.dumps(credential, sort_keys=True, separators=(",", ":")) + "\n")
-          PY
+          python3 .github/scripts/release/installed_acceptance.py \
+            --root "$RUNNER_TEMP" \
+            --installed-root "$RUNNER_TEMP/installed-shell" \
+            --shell-type "$SHELL_TYPE" \
+            --target "$TARGET"
 
       - uses: actions/upload-artifact@v4
         with:

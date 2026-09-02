@@ -34,6 +34,42 @@ async function describeFile(file: string) {
 }
 
 describe("exact phased release control", () => {
+  it("binds installed acceptance to the manifest while treating the fossil probe as liveness", async () => {
+    const root = await mkdtemp(join(tmpdir(), "terminal-installed-acceptance-"));
+    roots.push(root);
+    const installedRoot = join(root, "installed-shell");
+    await mkdir(installedRoot);
+    const shell = { type: "terminal", version: "0.1.0", buildHash: "b".repeat(64) };
+    const artifact = { url: "https://releases.invalid/terminal.tar.gz", sha256: "a".repeat(64), size: 1 };
+    const shellMetadata = { url: "https://releases.invalid/terminal.json", sha256: "c".repeat(64), size: 1 };
+    await mkdir(join(root, "published"));
+    await writeFile(join(root, "published/publish-receipt.json"), JSON.stringify({ channel: "somechan", releaseVersion: "0.1.0-somechan.1", sourceCommit: "d".repeat(40) }));
+    await writeFile(join(root, "required-acceptance.json"), JSON.stringify({ shell, target: "darwin-arm64", artifact, shellMetadata }));
+    await writeFile(join(root, "installed-proof.json"), JSON.stringify({ outcome: "ready", operation: "probe", shell: { type: "terminal", version: "0.1.0", digest: "e".repeat(64) }, result: {} }));
+    const manifest = JSON.stringify({ schemaVersion: 1, shell, target: "darwin-arm64" });
+    await writeFile(join(installedRoot, "install-manifest.json"), manifest);
+    await writeFile(join(installedRoot, "install-manifest.sha256"), `${createHash("sha256").update(manifest).digest("hex")}  install-manifest.json\n`);
+    const generation = { state: "running", generationId: "generation-1", bindingDigest: "binding-1", sidecar: { generationPid: 123, status: "ready" } };
+    await writeFile(join(root, "runtime-start.json"), JSON.stringify({ outcome: "ready", result: { ...generation, references: 1, attachmentCapability: "capability" } }));
+    await writeFile(join(root, "runtime-status.json"), JSON.stringify({ outcome: "ready", result: generation }));
+    await writeFile(join(root, "runtime-stop.json"), JSON.stringify({ outcome: "ready", result: { state: "stopped", sidecar: { remainingPids: [] } } }));
+
+    const result = await execFileAsync("python3", [
+      ".github/scripts/release/installed_acceptance.py", "--root", root, "--installed-root", installedRoot,
+      "--shell-type", "terminal", "--target", "darwin-arm64",
+    ], { cwd: resolve(import.meta.dirname, "../../.."), encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(await readFile(join(root, "acceptance/terminal-darwin-arm64.json"), "utf8"))).toMatchObject({
+      installed: { shell, target: "darwin-arm64", proof: { outcome: "ready", operation: "probe" } },
+    });
+
+    await writeFile(join(installedRoot, "install-manifest.sha256"), `${"0".repeat(64)}  install-manifest.json\n`);
+    await expect(execFileAsync("python3", [
+      ".github/scripts/release/installed_acceptance.py", "--root", root, "--installed-root", installedRoot,
+      "--shell-type", "terminal", "--target", "darwin-arm64",
+    ], { cwd: resolve(import.meta.dirname, "../../.."), encoding: "utf8" })).rejects.toMatchObject({ stderr: expect.stringContaining("manifest digest mismatch") });
+  });
+
   it("replays deterministic prepare documents and rejects incomplete Shell contributions", async () => {
     const root = await mkdtemp(join(tmpdir(), "terminal-pack-control-"));
     roots.push(root);
