@@ -325,8 +325,19 @@
   border-left: 0;
 }
 /* 稿子 `.fb button { display: grid; place-items: center; width: 26px; height: 26px;
-   border-radius: var(--radius-sm); color: var(--text-soft) }`;字号跟稿子的全局
-   `button { font-size: var(--font-size-13) }`(我们全局是 14px)。 */
+   border-radius: var(--radius-sm); color: var(--message-muted-ink) }`;字号跟稿子的全局
+   `button { font-size: var(--font-size-13) }`(我们全局是 14px)。
+   ------------------------------------------------------------
+   〔静音档〕稿子(PR #7170)把这一排的未选中图标从「全局次级文字」换到一枚
+   **专用**静音色,和消息旁的时间 / 复制、fork 脚注同一档。值只有一个出处 ——
+   `styles/chat.css` 在 `.msg, .fork-note` 上声明的 `--chat-message-muted-ink`,
+   这里只消费,不再抄一遍那个色号(抄第二遍,两处早晚分叉)。
+   这一排住在 `.msg.assistant` 里,那枚 token 是**继承**得到的;兜底写
+   `var(--text-soft)` 是防着将来有人把这一排挪出 `.msg` —— 自定义属性解析失败
+   **不报错**,没有兜底就会静悄悄地退成「没有颜色」。
+   稿子这一条的原文是 `.fb button`,一条规则罩住整排(赞 / 踩 / 复制 / Fork)。
+   产品把它拆成了 `.assistant-copy-button` 和 `.assistant-feedback-button` 两个类,
+   所以这两处必须同进同退:只改一半,一行四枚就会摆出两种灰。 */
 .assistant-copy-button {
   position: relative;
   display: grid;
@@ -334,7 +345,7 @@
   width: 26px;
   height: 26px;
   font-size: var(--font-size-13);
-  color: var(--text-soft);
+  color: var(--chat-message-muted-ink, var(--text-soft));
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -358,18 +369,24 @@
 }
 
 .assistant-copy-button:hover {
-  /* 稿子只上一层底色,不描边 —— 一排小按钮各自套一圈框会像四个独立控件 */
+  /* 稿子只上一层底色,不描边 —— 一排小按钮各自套一圈框会像四个独立控件。
+     字色**不跟着跳档**(稿子 `.fb button:hover` 把 `--message-muted-ink` 又写了一遍,
+     就是在说这件事):一 hover 就变色,这排东西读起来就不再是「一档静音色」
+     而是两档;而 hover 要说的事(「这个能点」)由底色说完就够了。 */
   background: var(--bg-fill-secondary);
-  color: var(--text-strong);
+  color: var(--chat-message-muted-ink, var(--text-soft));
 }
 .assistant-copy-button:disabled {
   cursor: default;
   opacity: 0.55;
 }
 .assistant-copy-button:disabled:hover {
+  /* 这一条是把上面那层 hover 待遇**撤回去**,不是另立一档颜色。
+     所以它必须和静止态同色 —— 原来写的是 `--text-muted`(#5c5c5c,比静止态更深),
+     那是 hover 还会换字色那阵子留下的近似值,现在会让「按不动的那颗」反而最重。 */
   background: transparent;
   border-color: transparent;
-  color: var(--text-muted);
+  color: var(--chat-message-muted-ink, var(--text-soft));
 }
 .assistant-copy-button:focus-visible {
   outline: 2px solid var(--accent);
@@ -381,8 +398,10 @@
   border-color: var(--accent-soft);
 }
 /* 稿子 `.fb button { display: grid; place-items: center; width: 26px; height: 26px;
-   border-radius: var(--radius-sm); color: var(--text-soft) }`;字号跟稿子的全局
-   `button { font-size: var(--font-size-13) }`(我们全局是 14px)。 */
+   border-radius: var(--radius-sm); color: var(--message-muted-ink) }`;字号跟稿子的全局
+   `button { font-size: var(--font-size-13) }`(我们全局是 14px)。
+   静音档的出处与兜底理由见上面 `.assistant-copy-button` 那段 —— 稿子里这两块
+   本来就是同一条 `.fb button`。 */
 .assistant-feedback-button {
   position: relative;
   display: grid;
@@ -390,7 +409,7 @@
   width: 26px;
   height: 26px;
   font-size: var(--font-size-13);
-  color: var(--text-soft);
+  color: var(--chat-message-muted-ink, var(--text-soft));
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -399,10 +418,19 @@
   overflow: visible;
 }
 .assistant-feedback-button:hover {
-  /* 稿子只上一层底色,不描边 —— 一排小按钮各自套一圈框会像四个独立控件 */
+  /* 稿子只上一层底色,不描边;字色不跳档 —— 同 `.assistant-copy-button:hover`。 */
   background: var(--bg-fill-secondary);
-  color: var(--text-strong);
+  color: var(--chat-message-muted-ink, var(--text-soft));
 }
+/*
+ * ⚠️ 下面这两条**必须留在 `:hover` 之后**。
+ *
+ * `.assistant-feedback-button:hover` 与 `.assistant-feedback-button[data-selected="true"]`
+ * 特异性打平,都是 (0,2,0) —— 谁写在后面谁赢。一旦有人把 hover 挪到这两条下面
+ * (或者给 hover 多加一档特异性),鼠标划过去的一瞬间「我选过了」就会被静音色
+ * 抹掉,而 CSS 文本上一个字都看不出来。
+ * `tests/components/chat/feedback-muted-ink.test.tsx` 的「选中 + hover」两格钉的就是它。
+ */
 .assistant-feedback-button[data-selected="true"] {
   color: var(--brand-text);
   /* #00FF04 掺 55% 底色:这枚底是 26×26 的实心方块,而完成勾那枚底片只有 14px,

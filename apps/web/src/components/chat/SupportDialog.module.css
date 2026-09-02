@@ -37,12 +37,21 @@
   border-radius: var(--chat-radius);
 }
 
-/* 稿子 `.modal { width:100%; max-width:316px; border-radius: var(--radius-lg);
+/* 稿子 `.modal { width:100%; max-width:316px; border-radius: var(--radius-2xl);
    background: var(--bg); box-shadow: var(--shadow-lg); overflow: hidden }` */
 .modal {
   width: 100%;
   max-width: 316px;
-  border-radius: var(--chat-radius-lg);
+  /* 16px 那一档(PR #7170:`.modal` 从 `--radius-lg` 换到 `--radius-2xl`)。
+     稿子把报错卡、升级卡、记忆卡和这个弹窗一起拉到同一档 —— 这不是弹窗自己的
+     装饰,是这一屏上「大卡片」这一族共同的外形。
+     chat 组件按 `components/chat/AGENTS.md` §2 只消费 `--chat-*` 接缝层,可这一档
+     今天在 `ChatRoot.module.css` 里还没有别名(那个文件属于另一条工作线),
+     所以先落到产品 token 上;别名补上的当天这里自动接管。写法和
+     `RunErrorCard.module.css` 的 `.card` 一致 —— 同一族同一个写法。
+     两种写法都不是写死的 16px —— 形状刻度整体调整时,写死的那一处会静静地
+     留在旧档上,而旁边走 token 的卡全都跟着动了。 */
+  border-radius: var(--chat-radius-2xl, var(--radius-2xl));
   background: var(--chat-bg);
   box-shadow: var(--chat-shadow-lg);
   overflow: hidden;
