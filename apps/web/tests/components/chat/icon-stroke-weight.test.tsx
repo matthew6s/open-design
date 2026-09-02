@@ -57,6 +57,21 @@
  * `non-scaling-stroke` 会把 1.75 钉成 1.75 设备像素 —— 比稿子粗 1.7 倍。
  * 所以下面第三条**反向对照**盯的就是这个:三档的实际粗细必须**各不相同**。
  *
+ * ## 行首那一格现在有**两族**图标(W72)
+ *
+ * 稿子 `729fa43ce7` 把「新建」换成了 `fill="currentColor"` 的实心节点字形
+ * (`docs/design/chat-panel/src/body-components.html:909`:四处「新建」全换,
+ * 同一行里唯一那处「改写」仍是描边铅笔)。**实心字形走不了描边那套基线** ——
+ * 它压根没有 stroke,1.75 对它没有意义。
+ *
+ * 这里的处理不是「把它从断言里摘出去」——摘出去等于这一枚从此没人守。
+ * 改成**按族各问各的**:描边族问「吃到 1.75 没有 / 端头是不是 round」,
+ * 填充族问「上色的是不是 fill / 有没有混进描边几何 / 路径是不是空的」。
+ * 族的**成员名单**由 `DESIGN_FILL_KINDS` 一并钉住,免得哪天某一格悄悄换了族、
+ * 却因为「另一族不问这个」而全绿溜过去。
+ *
+ * ⚠️ 1.75 那条基线本身没动,动的只是「谁归描边族」。
+ *
  * ## jsdom 的局限(说明,不拿假断言凑数)
  *
  * jsdom 不做层叠、不算 CTM,`getComputedStyle().strokeWidth` 永远是空的。
@@ -95,7 +110,32 @@ const DESIGN_EFFECTIVE = {
   quotedRefs: 0.948,
 } as const;
 
+/**
+ * 行首那一格里走**填充**的类别名单,取自稿子 `729fa43ce7`(见文件头「两族」)。
+ * 名单本身就是判据:多一个、少一个、换了一个都要红。
+ */
+const DESIGN_FILL_KINDS: readonly ToolKind[] = ['write'];
+
 afterEach(cleanup);
+
+type IconFamily = 'stroke' | 'fill';
+
+/**
+ * 判一枚图标归哪一族。**两族都像、两族都不像,都算坏**:
+ * `fill="none"` 又没有 stroke 的图标什么都画不出来;有 stroke 却没写
+ * stroke-width 的会掉回浏览器默认的 1 用户单位(0.667px,看不见)。
+ */
+function iconFamily(svg: SVGSVGElement, kind: string): IconFamily {
+  const fill = svg.getAttribute('fill');
+  const stroke = svg.getAttribute('stroke');
+  const isStroke = fill === 'none' && stroke === 'currentColor';
+  const isFill = fill === 'currentColor' && stroke === null;
+  expect(
+    [isStroke, isFill].filter(Boolean).length,
+    `${kind} 既不是干净的描边图标也不是干净的填充图标(fill=${fill} stroke=${stroke})`,
+  ).toBe(1);
+  return isFill ? 'fill' : 'stroke';
+}
 
 /** 从一份 CSS Module 文本里取某条规则的 `width: Npx`。取不到就炸,不给默认值。 */
 function cssWidth(file: string, selector: string): number {
@@ -132,19 +172,34 @@ function renderSvg(node: ReactElement): SVGSVGElement {
 const TOOL_KINDS: ToolKind[] = ['read', 'write', 'edit', 'delete', 'search', 'exec', 'image', 'other'];
 
 describe('聊天面板描边图标的笔画粗细', () => {
-  it('执行记录行首那一格:全部类别图标都落在稿子量出来的 1.167px 上', () => {
+  it('执行记录行首那一格:描边族落在稿子量出来的 1.167px 上,填充族按填充判据走', () => {
     const displayPx = cssWidth('components/chat/primitives/record.module.css', '.icon > svg');
     /* 先钉尺寸本身 —— 粗细是「基线 × 尺寸」的乘积,只断言乘积的话,
        尺寸错了也能被另一个因子的改动补偿回来,读起来还像是笔画的问题。 */
     expect(displayPx, '行首图标的尺寸和稿子 components.css:2173 对不上')
       .toBe(DESIGN_TOOL_ICON_PX);
+    const filledKinds: ToolKind[] = [];
     for (const kind of TOOL_KINDS) {
       const svg = renderSvg(toolIcon(kind));
-      expect(Number(svg.getAttribute('stroke-width')), `${kind} 没吃到基线`).toBe(DESIGN_BASELINE);
-      expect(effectiveStroke(svg, displayPx), `${kind} 画出来的粗细和稿子对不上`)
-        .toBeCloseTo(DESIGN_EFFECTIVE.toolRow, 2);
+      if (iconFamily(svg, kind) === 'fill') {
+        filledKinds.push(kind);
+        /* 填充族问的是另一套判据,不是不问:上色必须靠 fill,不许混进任何描边几何,
+           路径也不能是空的(`d` 为空时 <path> 会静默消失,格子看着就是空的)。 */
+        expect(svg.getAttribute('fill'), `${kind} 的实心字形没上色`).toBe('currentColor');
+        expect(svg.getAttribute('stroke-width'), `${kind} 是填充图标却带着 stroke-width`).toBeNull();
+        const ds = [...svg.querySelectorAll('path')].map((p) => p.getAttribute('d') ?? '');
+        expect(ds.length, `${kind} 的填充图标一条路径都没有,格子会是空的`).toBeGreaterThan(0);
+        expect(ds.filter((d) => d.length === 0), `${kind} 的填充图标有空的 d`).toEqual([]);
+      } else {
+        expect(Number(svg.getAttribute('stroke-width')), `${kind} 没吃到基线`).toBe(DESIGN_BASELINE);
+        expect(effectiveStroke(svg, displayPx), `${kind} 画出来的粗细和稿子对不上`)
+          .toBeCloseTo(DESIGN_EFFECTIVE.toolRow, 2);
+      }
       cleanup();
     }
+    /* 成员名单也是判据:少一个 = 有格子悄悄从填充退回描边;多一个 = 有格子
+       悄悄改走填充,从此不再被 1.75 那条守着。两个方向都要红。 */
+    expect(filledKinds, '填充族的成员名单和稿子 729fa43ce7 对不上').toEqual([...DESIGN_FILL_KINDS]);
   });
 
   it('折叠箭头:11px 的格子里落在 0.802px', () => {
@@ -170,8 +225,15 @@ describe('聊天面板描边图标的笔画粗细', () => {
   it('端头和拐角跟着稿子走 round —— 1px 以下的线,butt + miter 会让笔画更淡', () => {
     for (const kind of TOOL_KINDS) {
       const svg = renderSvg(toolIcon(kind));
-      expect(svg.getAttribute('stroke-linecap'), `${kind} 的端头不是 round`).toBe('round');
-      expect(svg.getAttribute('stroke-linejoin'), `${kind} 的拐角不是 round`).toBe('round');
+      if (iconFamily(svg, kind) === 'fill') {
+        /* 实心字形没有笔画,端头/拐角对它是**死属性** —— 留着会让下一个人以为
+           这一枚也在描边,照着改 1.75 却看不出任何变化。 */
+        expect(svg.getAttribute('stroke-linecap'), `${kind} 是填充图标却带着 stroke-linecap`).toBeNull();
+        expect(svg.getAttribute('stroke-linejoin'), `${kind} 是填充图标却带着 stroke-linejoin`).toBeNull();
+      } else {
+        expect(svg.getAttribute('stroke-linecap'), `${kind} 的端头不是 round`).toBe('round');
+        expect(svg.getAttribute('stroke-linejoin'), `${kind} 的拐角不是 round`).toBe('round');
+      }
       cleanup();
     }
     const chev = renderSvg(<ChevronIcon />);

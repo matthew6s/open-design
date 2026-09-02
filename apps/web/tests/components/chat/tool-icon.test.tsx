@@ -25,11 +25,18 @@ describe('行首图标', () => {
     }
   });
 
-  it('删除使用垃圾桶语义图标,不再复用写入的铅笔', () => {
+  it('删除使用垃圾桶语义图标,不再复用铅笔', () => {
     const { container: deleteContainer } = render(<span>{toolIcon('delete')}</span>);
-    const { container: writeContainer } = render(<span>{toolIcon('write')}</span>);
-    expect(deleteContainer.innerHTML).not.toBe(writeContainer.innerHTML);
+    // 铅笔现在只归「改写」—— 稿子 729fa43ce7 把「新建」换成了实心节点字形(W72)
+    const { container: editContainer } = render(<span>{toolIcon('edit')}</span>);
+    expect(deleteContainer.innerHTML).not.toBe(editContainer.innerHTML);
     expect(deleteContainer.querySelectorAll('path')).toHaveLength(4);
+  });
+
+  it('新建和改写是两枚不同的图标 —— 不再共用一支铅笔(W72)', () => {
+    const { container: create } = render(<span>{toolIcon('write')}</span>);
+    const { container: edit } = render(<span>{toolIcon('edit')}</span>);
+    expect(create.innerHTML, '新建和改写还共用同一枚图标').not.toBe(edit.innerHTML);
   });
 
   it('PowerShell 认成「跑命令的工具」,再按命令内容分类(D7)', () => {

@@ -6,6 +6,10 @@
  * 所以每个图标都不写 width/height。
  *
  * 笔画则相反 —— 见 `STROKE_ICON` 的注释。
+ *
+ * 稿子里有**两族**字形,别把它们混成一族:描边的摊 `STROKE_ICON`,
+ * 实心的摊 `FILL_ICON`(「新建」、失败记号、重试箭头)。两族各有各的判据,
+ * 见 `tests/components/chat/icon-stroke-weight.test.tsx`。
  */
 import type { ReactElement } from 'react';
 import type { ToolKind } from '../../../runtime/chat/tool-kind';
@@ -56,6 +60,33 @@ export const STROKE_ICON = {
   'aria-hidden': true,
 } as const;
 
+/**
+ * chat **填充**图标的基线。和 `STROKE_ICON` 是并列的两族,不是它的变体。
+ *
+ * 稿子里不是所有字形都描边:`729fa43ce7` 把「新建」那一格换成了实心节点字形
+ * (`docs/design/chat-panel/src/body-components.html:909`),同族的还有失败记号和
+ * 重试箭头。实心字形**上色靠 `fill`,压根没有 stroke** —— 把 `STROKE_ICON` 摊给
+ * 它会得到 `fill="none"`(整枚看不见)外加一组永远画不出来的 `stroke-*`。
+ *
+ * 所以两族各有各的基线,共存而不互相拆台:
+ *
+ *   描边族 `fill="none"` + `stroke="currentColor"` + 1.75 那一套
+ *   填充族 `fill="currentColor"`,**一个 stroke-* 都不带**
+ *
+ * 「一个都不带」是有意的:带着 `stroke-width` 却不描边是死属性,会让下一个人
+ * 以为这一枚也吃 1.75、照着调却看不出任何变化。判据在
+ * `tests/components/chat/icon-stroke-weight.test.tsx` —— 那里按族分别提问,
+ * 并且把两族的**成员名单**也钉住,免得哪一格悄悄换族之后从此没人守。
+ *
+ * 尺寸和颜色仍然由 CSS 决定(`.icon > svg { width: 16px; color: … }`),
+ * `currentColor` 让填充族跟着同一个 `color` 走,和描边族在一列里色号一致。
+ */
+export const FILL_ICON = {
+  viewBox: '0 0 24 24',
+  fill: 'currentColor',
+  'aria-hidden': true,
+} as const;
+
 /** 读取 —— 眼睛 */
 export const ReadIcon = (): ReactElement => (
   <svg {...STROKE_ICON}>
@@ -64,10 +95,47 @@ export const ReadIcon = (): ReactElement => (
   </svg>
 );
 
-/** 新建 / 改写 —— 笔 */
+/**
+ * 改写 —— 笔。**只归改写**,新建另有一枚(见 `CreateIcon`)。
+ *
+ * 设计 2026-09-02 在 `e8726686ae`(建成品)/ `b51302425b`(源文件)把「新建」
+ * 换成了实心节点字形,同一行里的「改写」原样留着这支铅笔。两个 commit 的标题
+ * 说的都是别的事,所以判据取的是**稿子里真实的字形**,不是说明文字。
+ */
 export const WriteIcon = (): ReactElement => (
   <svg {...STROKE_ICON}>
     <path d="M17 3a2.83 2.83 0 014 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+  </svg>
+);
+
+/**
+ * 新建 —— 实心的「节点 + 加号」。
+ *
+ * 路径逐字取自稿子 `729fa43ce7`
+ * (`docs/design/chat-panel/src/body-components.html:909`,建成品
+ * `docs/design/chat-panel-next.html:5214`)。那一行里「新建」出现四次、字形完全相同,
+ * 「改写」出现一次、仍是铅笔 —— 4 : 1 就是「这两格分家」的全部证据。
+ *
+ * ## 这枚字形不是「设计还在犹豫」
+ *
+ * 上一版稿子 `361b78253e` 里,四处「新建」**已经有一处**是这枚实心字形了
+ * (`settings.html` 那一行),另外三处还是铅笔 —— 稿子当时自己是花的。所以
+ * `b51302425b`「sync create-file icon source」不是改设计,是**把早就定下来的
+ * 那一枚补齐到剩下三处**。计数就是证据:`361b78253e` 是 1 新 : 4 铅笔,
+ * `729fa43ce7` 是 4 新 : 1 铅笔 —— 少掉的三支铅笔正好是那三处「新建」。
+ *
+ * ## 为什么没照抄 `xmlns`
+ *
+ * 稿子这枚 `<svg>` 上带 `xmlns="http://www.w3.org/2000/svg"`,同族其它图标没有。
+ * 那是建成品从独立 svg 文件内联进来的残留,不是设计意图 —— React 挂到 HTML
+ * 文档里的 `<svg>` 不需要它(HTML 解析器本来就把它放进 SVG 命名空间)。
+ *
+ * 这一枚走 `FILL_ICON` 而不是 `STROKE_ICON`:它是实心字形,`fill="none"` 会让它
+ * 整枚消失。逐字节判据在 `tests/components/chat/w72-create-icon-glyph.test.tsx`。
+ */
+export const CreateIcon = (): ReactElement => (
+  <svg {...FILL_ICON}>
+    <path d="M2.5 7C2.5 9.48528 4.51472 11.5 7 11.5C9.48528 11.5 11.5 9.48528 11.5 7C11.5 4.51472 9.48528 2.5 7 2.5C4.51472 2.5 2.5 4.51472 2.5 7ZM2.5 17C2.5 19.4853 4.51472 21.5 7 21.5C9.48528 21.5 11.5 19.4853 11.5 17C11.5 14.5147 9.48528 12.5 7 12.5C4.51472 12.5 2.5 14.5147 2.5 17ZM12.5 17C12.5 19.4853 14.5147 21.5 17 21.5C19.4853 21.5 21.5 19.4853 21.5 17C21.5 14.5147 19.4853 12.5 17 12.5C14.5147 12.5 12.5 14.5147 12.5 17ZM9.5 7C9.5 8.38071 8.38071 9.5 7 9.5C5.61929 9.5 4.5 8.38071 4.5 7C4.5 5.61929 5.61929 4.5 7 4.5C8.38071 4.5 9.5 5.61929 9.5 7ZM9.5 17C9.5 18.3807 8.38071 19.5 7 19.5C5.61929 19.5 4.5 18.3807 4.5 17C4.5 15.6193 5.61929 14.5 7 14.5C8.38071 14.5 9.5 15.6193 9.5 17ZM19.5 17C19.5 18.3807 18.3807 19.5 17 19.5C15.6193 19.5 14.5 18.3807 14.5 17C14.5 15.6193 15.6193 14.5 17 14.5C18.3807 14.5 19.5 15.6193 19.5 17ZM16 11V8H13V6H16V3H18V6H21V8H18V11H16Z" />
   </svg>
 );
 
@@ -155,14 +223,14 @@ export const ChevronIcon = (): ReactElement => (
  * 把它带进执行记录里等于给这一格开一扇没人预料的样式后门。
  */
 export const FailIcon = (): ReactElement => (
-  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+  <svg {...FILL_ICON}>
     <path d={REMIX_ICON_PATHS['error-warning-line']} />
   </svg>
 );
 
 /** 重试 —— 生图失败格上那枚 */
 export const RetryIcon = (): ReactElement => (
-  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+  <svg {...FILL_ICON}>
     <path d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z" />
   </svg>
 );
@@ -186,7 +254,8 @@ export const TICK_IMAGE_VAR = 'var(--chat-tick-img)';
 export function toolIcon(kind: ToolKind): ReactElement {
   switch (kind) {
     case 'read': return <ReadIcon />;
-    case 'write':
+    /* 新建和改写**不共用图标** —— 稿子 729fa43ce7 只换了新建那一格(W72) */
+    case 'write': return <CreateIcon />;
     case 'edit': return <WriteIcon />;
     case 'delete': return <DeleteIcon />;
     case 'search': return <SearchIcon />;
