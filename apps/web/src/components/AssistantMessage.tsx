@@ -4471,7 +4471,13 @@ export function AssistantFeedbackReasons({
   /** 稿子第 40 格右下角那颗「取消」—— 收起面板,不提交 */
   onCancel?: () => void;
   panelRef?: React.Ref<HTMLDivElement>;
-  t: (key: never, vars?: Record<string, unknown>) => string;
+  /* `key: never` 是坏的:它的意思是「任何 key 都不能传」,写下的那天起这个 prop 就
+     调不动。它没被发现,是因为唯一的外部调用点(镜像陈列页)也把自己的 `t` 断言成了
+     `as never` —— 两个错误互相盖住,`tsc` 两边都不报。
+     `Record<string, unknown>` 同理:比真实的 `Record<string, string | number>` 宽,
+     宽出来的那部分是插不进文案的。
+     现在和 `useI18n` / `SettingsDialog` / `DesignBrowserPanel` 用同一个签名。 */
+  t: (key: keyof Dict, vars?: Record<string, string | number>) => string;
 }) {
   return (
     <div className="assistant-feedback-reasons" ref={panelRef}>
