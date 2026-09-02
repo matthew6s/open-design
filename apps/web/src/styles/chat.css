@@ -3640,8 +3640,11 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   overflow-y: auto;
 }
 /* 稿子 `.queue .q { align-items: flex-start; gap: 8px; padding: 7px 10px;
-   font-size: var(--t-mini); color: var(--text) }`(`display` 不动:我们这一行还挂着
-   头像 / 发送人 / 芯片几段稿子没有的内容,靠四列栅格排,换成 flex 会把它们掀了) */
+   font-size: var(--t-mini); color: var(--text) }`。
+   `display` 这里不重复写:整行的排版模型在上面 `.chat-queued-send-row` 那条里,
+   已经是稿子同一套 `flex`(把手 / 序号 / 动作 `flex: none`,正文 `flex: 1; min-width: 0`)。
+   ⚠️ 这条注释原来写着「靠四列栅格排,换成 flex 会把它们掀了」—— 那是栅格时代的旧话,
+   和上面那条规则自相矛盾;换 flex 的那次改动没顺手把它改过来。 */
 .chat-queued-send-row {
   align-items: flex-start;
   gap: 8px;

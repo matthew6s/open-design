@@ -1,11 +1,11 @@
 /**
- * 逐格对照页:左边交付稿的组件实体,右边我们的实现,84 格全覆盖。
+ * 逐格对照页:左边交付稿的组件实体,右边我们的实现,90 格全覆盖。
  *
  * 给产品 / 设计走一轮验收用 —— 他们不读代码,只逐格看两张图一不一样。
- * 每格的编号、组件名、状态名都从镜像陈列页的表头原样取,和 `matrix-82.html` 同号。
+ * 每格的编号、组件名、状态名都从镜像陈列页的表头原样取,和 `build-matrix.mjs` 出的那一页同号。
  *
- * 前置:两边的截图已经拍好(`shots-design/` 与 `shots-ours/`,各 84 张)
- *   MIRROR_URL=…/chat-matrix/matrix-82.html  MIRROR_PICK=.ent-b  MIRROR_OUT=shots-design  node shoot.mjs
+ * 前置:两边的截图已经拍好(`shots-design/` 与 `shots-ours/`,各 90 张)
+ *   MIRROR_URL=…/chat-matrix/matrix.html     MIRROR_PICK=.ent-b  MIRROR_OUT=shots-design  node shoot.mjs
  *   MIRROR_URL=…/chat-mirror/mirror-exec.html MIRROR_PICK=.cell  MIRROR_OUT=shots-ours   node shoot.mjs
  *
  * 用法:node docs/design/chat-mirror/build-compare.mjs
@@ -21,19 +21,26 @@ const cells = [...mirror.matchAll(
   /<header>\s*<span class="no">#(\d+)<\/span><span class="sub">([^<]*)<\/span>\s*<span class="cmp">([^<]*)<\/span><span class="st">([^<]*)<\/span>/g,
 )].map((m) => ({ no: Number(m[1]), sub: m[2], cmp: m[3], st: m[4] }));
 
-if (cells.length !== 84) {
-  console.error(`表头只解出 ${cells.length} 格,预期 84 —— 陈列页的结构变了,先修这里再生成`);
+/*
+ * 格数**从镜像页自己数出来**,不写死。
+ * 这里原来钉着 84;交付稿长到 90 格之后,那个 84 一边挡着重新生成、一边还在文案里
+ * 印着「84 格全覆盖」—— 数量是派生量,派生量不许有第二个出处。
+ * 仍然要有下限:解不出格子说明表头结构变了(那才是这条守卫真正要拦的)。
+ */
+if (cells.length < 1) {
+  console.error('表头一格都没解出来 —— 陈列页的结构变了,先修这里再生成');
   process.exit(1);
 }
+const TOTAL = cells.length;
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const pad = (n) => String(n).padStart(2, '0');
 const has = (rel) => fs.existsSync(path.join(DIR, rel));
 
 /*
- * 逐属性比对的结果(`node diff-cells.mjs 1 84 > diff.json`)。
+ * 逐属性比对的结果(`node diff-cells.mjs 1 90 > diff.json`)。
  * 有它就在每格头上打一枚状态章:对齐的绿章、还差几处的黄章 ——
- * 验收的人一眼能看出哪几格要看,而不是 84 格从头翻。
+ * 验收的人一眼能看出哪几格要看,而不是九十格从头翻。
  * 还差的那几格,原因写在 `specs/current/chat-panel-next.md` §12.0 的表里。
  */
 const diffPath = path.join(DIR, 'diff.json');
@@ -80,7 +87,7 @@ const rows = cells.map((c) => {
 </section>`;
 }).join('\n');
 
-const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>逐格对照 · 84 格</title><style>
+const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>逐格对照 · ${TOTAL} 格</title><style>
 :root{color-scheme:light}
 body{margin:0;padding:20px 24px 80px;background:#fff;color:#202020;font:13px/1.6 -apple-system,"PingFang SC",sans-serif}
 h1{margin:0 0 4px;font-size:19px}
@@ -106,7 +113,7 @@ nav{position:sticky;top:0;background:#fff;padding:8px 0 10px;border-bottom:1px s
 nav a{display:inline-block;margin:0 6px 4px 0;padding:1px 6px;border:1px solid #e5e5e5;border-radius:5px;color:#404040;text-decoration:none;font-family:ui-monospace,monospace;font-size:11px}
 nav a:hover{background:#f5f5f5}
 </style></head><body>
-<h1>逐格对照 · 84 格</h1>
+<h1>逐格对照 · ${TOTAL} 格</h1>
 <p class="lede">左边是<b>交付稿里那一格的组件实体</b>(从 <code>chat-panel-next.html</code> 抽出、编号与 <code>matrix-82.html</code> 一致),右边是<b>我们真实渲染出来的同一格</b>。
 两边都是无头 Chrome 按 2× 拍的,同一套字体、同一套 token。<br>
 看法:只比<b>形状、间距、颜色、字号</b>;文案两边本来就不同(设计稿用的是示意文案),不必对文字内容。<br>

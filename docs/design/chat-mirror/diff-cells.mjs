@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process';
 
 const [fromArg, toArg] = process.argv.slice(2);
 const FROM = Number(fromArg ?? 1);
-const TO = Number(toArg ?? 84);
+const TO = Number(toArg ?? 90);
 const BASE = process.env.DIFF_BASE ?? 'http://127.0.0.1:17699';
 const PORT = 9571;
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -68,18 +68,52 @@ const PROPS = [
 /**
  * 交付稿**自己那份**样式表里出现过的选择器。
  *
- * 为什么需要它:量的是陈列矩阵页(`chat-matrix/matrix-82.html`),那张页面除了把交付稿的
- * 样式整份带进来,还有**它自己的陈列用样式**。其中一条是
+ * 为什么需要它:量的是陈列矩阵页,那张页面除了把交付稿的样式整份带进来,还有
+ * **它自己的陈列用样式**(载体宽度、行距、编号那一列……)。旧矩阵页里有一条
  *   `.nm { text-align:left!important; font-weight:600; color:var(--text-strong); width:150px }`
  * —— 本意是给左边那列组件名用的,却顺手命中了格子里组件的 `span.nm`。
  * 于是「稿子规定了 font-weight:600」这句话根本不成立,而我们每一格都被它记一条假差异
  * (量到过 69 条)。所以 authored 只认**交付稿原文里出现过的选择器**。
+ *
+ * ## 从**正在量的那张页面**上取,不去另外找一份稿子
+ *
+ * 矩阵页本身就是交付稿(`build-matrix.mjs` 只往它末尾追加了载体样式与重排脚本),
+ * 所以选择器直接从它身上扫,把注入的那一块 `#od-matrix-style` 剔掉就行。
+ * 原来是另外去 fetch 一份 `${BASE}/chat-panel-next.html`:那份**可能根本不在服务上**
+ * (404 时 `fetch` 不抛错,拿回一段 404 页面),也可能和矩阵页不是同一版。
+ * 踩过一次:换了一个只放矩阵页的服务目录,那条 fetch 静默 404,`fromDesign` 空掉,
+ * authored 滤网于是把**所有**属性都跳过 —— 属性差从 207 掉到 153,看起来像是修好了。
  */
 const designSelectors = await (async () => {
-  const html = await (await fetch(`${BASE}/chat-panel-next.html`)).text();
+  const url = `${BASE}${process.env.DIFF_MATRIX ?? '/chat-matrix/matrix.html'}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`取不到矩阵页 ${url}(HTTP ${res.status})—— 先把它铺到服务上`);
+  const html = await res.text();
   const set = new Set();
-  for (const block of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)) {
-    const css = block[1].replace(/\/\*[\s\S]*?\*\//g, '');
+  const blocks = [...html.matchAll(/<style([^>]*)>([\s\S]*?)<\/style>/g)]
+    // 载体样式是**这张陈列页自己的**,不是稿子写的 —— 收进来就等于把载体差异算成设计规定
+    .filter((m) => !m[1].includes('od-matrix-style'))
+    .map((m) => m[2]);
+  /*
+   * **外链的样式表也要跟进去。**
+   *
+   * 交付稿现在把一大块样式放在 `<link>` 出去的 `chat-panel/src/*.css` 里
+   * (visual-samples.css 一份就 452KB)。只扫内联 `<style>` 的话,那一整份会被判成
+   * 「稿子没写过」—— authored 滤网于是把那一族的每一条属性都跳过,视觉方向那几格
+   * **整族变成盲区**:报出来是干干净净的零差异,而它其实一条都没量。
+   */
+  for (const link of html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*>/g)) {
+    const href = /href=["']([^"']+)["']/.exec(link[0])?.[1];
+    if (!href) continue;
+    const at = new URL(href, url).href;
+    const sheet = await fetch(at);
+    // 取不到就**当场停**:静默跳过等于把那一整份判成「稿子没写过」,
+    // 而报告上看不出这是缺料 —— 那正是上面这段注释说的盲区。
+    if (!sheet.ok) throw new Error(`矩阵页的外链样式取不到:${at}(HTTP ${sheet.status})`);
+    blocks.push(await sheet.text());
+  }
+  for (const block of blocks) {
+    const css = block.replace(/\/\*[\s\S]*?\*\//g, '');
     for (const rule of css.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
       for (const part of rule[1].split(',')) {
         const s = part.trim().replace(/\s+/g, ' ');
@@ -87,6 +121,16 @@ const designSelectors = await (async () => {
       }
     }
   }
+  /*
+   * 下限守卫:选择器少得不像话,说明上面某一步悄悄空了(取错页、样式没铺、正则没命中)。
+   * 这条判据不精确,但它拦的是**整族盲区**那一类失效 —— 那种失效在报告上长得像
+   * 「差异变少了」,不拦住就会被当成好消息。
+   */
+  if (set.size < 500) {
+    throw new Error(`只从 ${url} 扫出 ${set.size} 条选择器,太少了 —— 稿子的样式没被完整读到,`
+      + '这一趟量出来的属性差会**整体偏小**(authored 滤网会把没读到的那些全部跳过)。先修这里。');
+  }
+  console.error(`稿子选择器 ${set.size} 条(来自 ${url} 及其外链)`);
   return [...set];
 })();
 
@@ -260,9 +304,24 @@ const send = (m, p = {}) => new Promise((res, rej) => {
   sock.send(JSON.stringify({ id, method: m, params: p }));
 });
 
+/*
+ * 量之前**把 CSS 动画冻掉**(`DIFF_FREEZE=0` 关掉)。
+ *
+ * 静态比对本来就照不出动画;而一边在动、一边不动的时候,读数会**每跑一次都不一样**。
+ * 实测:音频那一格我们这边挂着 `data-playing`,`wave-pulse` 让 28 根竖条一直在起伏,
+ * 同一份页面连跑两次量出 24.5 / 23、18 / 17 …… 位置差跟着在 16 / 17 之间跳;
+ * 稿子那一侧因为演示格靠 IntersectionObserver 起播、而比对窗口从不滚动,反而是静止的。
+ * 两边一起冻在「没有动画」那一帧,读数才是可复现的 —— 那也正是关掉动效的人看到的那一帧。
+ */
+const FREEZE = '*, *::before, *::after { animation: none !important; transition: none !important; }';
+
 async function grab(url, selector, inner, neutralize) {
   await send('Page.navigate', { url });
   await sleep(Number(process.env.DIFF_WAIT ?? '3500'));
+  if (process.env.DIFF_FREEZE !== '0') {
+    await send('Runtime.evaluate', { expression:
+      `(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(FREEZE)}; document.head.appendChild(s); })()` });
+  }
   if (neutralize) {
     await send('Runtime.evaluate', { expression:
       `(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(neutralize)}; document.head.appendChild(s); })()` });
@@ -302,19 +361,25 @@ await send('Emulation.setEmulatedMedia', {
 });
 
 /*
- * 量陈列矩阵页 —— 不能改量交付稿原文那张:两张页面的组件**顺序不一样**
- * (原文是 1,2,20,21,22,23,3,4…,矩阵页是重新编过号的 1..84),换过去 gid 全错位。
+ * 量陈列矩阵页(`build-matrix.mjs` 的产物)—— 不能改量交付稿原文那张:两张页面的
+ * 组件**顺序不一样**(原文是 1,2,20,21,22,23,3,4…,矩阵页是重新编过号的 1..90),
+ * 换过去 gid 全错位。
  *
- * 矩阵页自己那套陈列样式里有一条裸
- *   .nm { font-weight:600; color:var(--text-strong); width:150px; text-align:left!important }
- * 本意给左边那列组件名,却顺手命中了格子里组件的 span.nm。直接命中的那部分已经靠
- * designSelectors 挡住了,但**继承**挡不住:.nm 里面的 button 写着 font: inherit,
- * 继承到的就是被污染过的 600 / --text-strong —— 每一行文件名都要记一条假差异。
- * 所以量之前先把它在格子内还原成「自然继承」,这正是交付稿原文里的样子
- * (原文那条是有作用域的 `.cmp-h .nm`,漏不出来)。
+ * ## 这里曾经有一条 `NEUTRALIZE`,已经撤掉
+ *
+ * 它注的是 `.ent-b .nm { font-weight: inherit; … }`,为的是压掉旧矩阵页那条裸
+ * `.nm { font-weight:600; width:150px; text-align:left!important }`(本意给左边那列
+ * 组件名,却顺手命中了格子里组件的 `span.nm`)。
+ *
+ * **撤掉的理由**:`build-matrix.mjs` 出的载体不带那条陈列样式,而注进去的这条
+ * 反过来会盖掉稿子**真正写过**的 `.tool .nm { font-weight: 400 }` —— 同特异性、
+ * 后来者赢。也就是说它现在只会凭空造差异。
+ *
+ * 需要时仍可用 `DIFF_NEUTRALIZE=<css>` 现给一段;默认不注。
  */
-const NEUTRALIZE = `.ent-b .nm { font-weight: inherit; color: inherit; width: auto; text-align: inherit !important; }`;
-const design = await grab(`${BASE}/chat-matrix/matrix-82.html`, '.ent-b', undefined, NEUTRALIZE);
+const neutralize = process.env.DIFF_NEUTRALIZE || undefined;
+const MATRIX = process.env.DIFF_MATRIX ?? '/chat-matrix/matrix.html';
+const design = await grab(`${BASE}${MATRIX}`, '.ent-b', undefined, neutralize);
 const ours = await grab(`${BASE}/chat-mirror/mirror-exec.html`, '.cell', '.stage');
 
 /**
@@ -347,8 +412,26 @@ function pair(a, b) {
    * 各自进 onlyDesign / onlyOurs —— 那本身就是要看的结构差异。
    * 两边都没有自己的文字时(纯容器 / 图标)仍然只按标签配。
    */
+  /*
+   * ## 配对时把数字串抹成通配(`DIFF_NUMWILD=0` 关掉)
+   *
+   * 镜像页的夹具不是逐字抄稿子的:同一枚耗时标签稿子写 `18.2s`、我们写 `2.5s`,
+   * 计数写 `2/4` 对 `3/4`,时间写 `14:32` 对 `06:32`。「文字要一样」这条判据
+   * 于是把**所有带数字的元素**都推进 onlyDesign / onlyOurs ——
+   * 秒数、计数、时间这三族的样式一条都量不到,而报告里看不出这是盲区
+   * (它长得就像「结构不一致」,和真正的结构差异混在一起)。
+   * 抹掉数字之后 `18.2s` / `2.5s` 都成 `#s`,配得上;LCS 仍保证顺序,不会乱配。
+   *
+   * ## 它会不会把**真的**数字差异一起抹掉?
+   *
+   * 会,如果只做到这里 —— `2/4` 对 `3/4` 配上之后就再没人提这件事了。
+   * 所以下面另开了一列 {@link texts}:凡是配上、但**原文**不一样的,逐条报出来。
+   * 通配只影响「谁和谁配对」,不影响「配上之后报什么」。
+   */
+  const NUMWILD = process.env.DIFF_NUMWILD !== '0';
+  const t = (v) => (NUMWILD ? String(v).replace(/[0-9]+/g, '#') : v);
   const same = (x, y) => (x.tag === y.tag || (x.pic && y.pic))
-    && (x.text === y.text || (!x.text && !y.text));
+    && (t(x.text) === t(y.text) || (!x.text && !y.text));
   const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
   for (let i = n - 1; i >= 0; i -= 1) {
     for (let j = m - 1; j >= 0; j -= 1) {
@@ -379,6 +462,23 @@ for (let gid = FROM; gid <= TO; gid += 1) {
   // 第 0 个是两张页面各自的外框(.ent-b / .stage),那是载体不是组件 —— 比它只会得到载体差异
   const { pairs, onlyDesign, onlyOurs } = pair(d.slice(1), o.slice(1));
   const diffs = [];
+  /**
+   * 不过 authored 滤网的「一眼能看出来」的那几条。
+   *
+   * authored 挡住的不只是承载页噪音 —— 稿子把字号写在祖先上、我们写在自己身上
+   * (或反过来)时,这个元素两边都没被「亲自写过」,于是 13px vs 12px 一条都不报。
+   * 第 4 格那句「复刻商品列表页」稿子 91px 宽、我们 84px 宽,属性表里干干净净,
+   * 差的正是没人亲自写过的那个 font-size。漏进来的承载页噪音由人逐条判,
+   * 好过整族看不见。
+   */
+  const rawDiffs = [];
+  /**
+   * 配上了、但**原文不一样**的那些(`DIFF_NUMWILD` 的配套)。
+   *
+   * 通配让 `2/4` 和 `3/4` 配得上,是为了量它们的样式;而「一个 2 一个 3」本身
+   * 也可能是要修的差异。配对那一层放过去,这一层原样报出来 —— 两件事各归各。
+   */
+  const texts = [];
   /** 位置/尺寸对不上的元素(和 `diffs` 分开报:一个是「规则不同」,一个是「落点不同」) */
   const geom = [];
   /**
@@ -425,6 +525,30 @@ for (let gid = FROM; gid <= TO; gid += 1) {
     }
 
     /*
+     * 第二遍:**不看 authored**,只比这几条「一眼能看出来」的。见上面 rawDiffs 的说明。
+     */
+    const RAW = ['fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'fontFamily',
+      'color', 'backgroundColor'];
+    const rbad = {};
+    for (const p of RAW) {
+      const a = norm(p, x.style[p]);
+      const b = norm(p, y.style[p]);
+      if (a !== b) rbad[p] = { 稿: a, 我: b };
+    }
+    if (Object.keys(rbad).length) {
+      rawDiffs.push({ at: i, tag: `${x.tag}/${y.tag}`, 稿文: x.text, 我文: y.text, props: rbad });
+    }
+
+    /*
+     * 配上了但原文不一样 —— 数字通配放过去的那一批,在这儿原样报出来。
+     * 夹具本来就不是逐字抄稿子的,所以这一列**多数是夹具差**不是实现差;
+     * 但「我们显示 2/4、稿子显示 3/4」这种真差异也只有它照得到。
+     */
+    if (x.text && y.text && x.text !== y.text) {
+      texts.push({ at: i, tag: `${x.tag}/${y.tag}`, 稿文: x.text, 我文: y.text });
+    }
+
+    /*
      * 几何比对 —— 属性比对证明不了的那一半。
      *
      * 两边可以每条属性都相同,元素照样落在不同的 y 上:中间任何一层没被收进来的
@@ -456,8 +580,14 @@ for (let gid = FROM; gid <= TO; gid += 1) {
   const walks = process.env.DIFF_WALKS === '1'
     ? { 稿: d.map((x) => `${x.tag}:${x.text}`), 我: o.map((x) => `${x.tag}:${x.text}`) }
     : undefined;
-  rows.push({ gid, designEls: d.length, ourEls: o.length, onlyDesign, onlyOurs, diffs, geom, ...(walks ? { walks } : {}) });
+  rows.push({
+    gid, designEls: d.length, ourEls: o.length, onlyDesign, onlyOurs,
+    diffs, rawDiffs, texts, geom, ...(walks ? { walks } : {}),
+  });
 }
+/* 报告里要写清楚这一趟是怎么配对的 —— 通配开着的时候,onlyDesign / onlyOurs
+   里就**不该**再有「只是数字不同」的那一批,它们改在 texts 里念。 */
+console.error(`配对判据:数字${process.env.DIFF_NUMWILD === '0' ? '**未**通配(带数字的元素会整批进 onlyDesign / onlyOurs)' : '已通配(原文差异改在 texts 一列里报)'}`);
 console.log(JSON.stringify(rows, null, 1));
 
 sock.close();
