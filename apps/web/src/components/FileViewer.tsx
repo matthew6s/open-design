@@ -24,6 +24,7 @@ import {
   type SocialShareRequest,
   type SocialShareResponse,
   type WorkspaceCollabContext,
+  buildProjectFileVersionDocumentUrl,
 } from '@open-design/contracts';
 import {
   DECK_PRESENTATION_NAVIGATE_MESSAGE_TYPE,
@@ -54,6 +55,7 @@ import {
   appendResourceQuery,
   workspaceIdentityCacheKey,
   workspaceProjectHeaders,
+  workspaceResourceUrl,
 } from '../collab/workspace-identity';
 import {
   anonymizeArtifactId,
@@ -405,6 +407,10 @@ const MAX_BRIDGE_COORDINATE = 1_000_000;
 // the user presents. The bridge is inert until the host tells it to present, and
 // asking for it later would change the URL — which is a navigation, exactly what
 // entering presentation must not cause.
+// A historical version is read-only and never edited, commented, presented or
+// measured, so it asks for the passive guards only — not the interactive set
+// the live preview negotiates.
+const VERSION_PREVIEW_BRIDGE_QUERY = 'odPreviewBridge=sandbox&odPreviewBridge=redirect&odPreviewBridge=focus';
 const BASE_PREVIEW_BRIDGE_QUERY = 'odPreviewBridge=scroll&odPreviewBridge=selection&odPreviewBridge=snapshot&odPreviewBridge=observability&odPreviewBridge=presentation';
 const HTML_PASSIVE_PREVIEW_FULL_TEXT_LIMIT = 2 * 1024 * 1024;
 const HTML_ROUTING_TEXT_PREVIEW_LIMIT = 96 * 1024;
@@ -3336,18 +3342,6 @@ export function fileVersionPreviewOptions(
   };
 }
 
-function fileVersionPreviewSrcDoc(
-  projectId: string,
-  fileName: string,
-  source: string,
-  workspaceContext?: WorkspaceCollabContext | null,
-) {
-  return buildSrcdoc(source, {
-    ...fileVersionPreviewOptions(projectId, fileName, source, workspaceContext),
-    previewFocusGuard: true,
-  });
-}
-
 function fileVersionExportTitle(fileName: string, version: ProjectFileVersion): string {
   const base = fileName.replace(/\.html?$/i, '') || fileName;
   return `${base}-v${version.version}`;
@@ -3448,11 +3442,12 @@ function FileVersionManagerModal({
   const [versionImageExportInFlight, setVersionImageExportInFlight] = useState(false);
   const versionImageExportTitleId = useId();
   const versionPreviewIframeRef = useRef<HTMLIFrameElement | null>(null);
-  // Track which srcDoc the iframe has finished rendering. Deriving readiness by
-  // comparing to the current srcDoc during render (rather than toggling a bool
+  // Track which version document the iframe has finished rendering. Deriving
+  // readiness by comparing to the current URL during render (rather than
+  // toggling a bool
   // in a post-paint effect) keeps the overlay up across a switch with no
   // one-frame flicker while the new document reparses.
-  const [loadedSrcDoc, setLoadedSrcDoc] = useState<string | null>(null);
+  const [loadedVersionUrl, setLoadedVersionUrl] = useState<string | null>(null);
   // Client-side cache of fetched version HTML keyed by version id. Revisiting a
   // version is then zero-fetch (and, because the srcDoc string value is stable,
   // zero-reparse). `inFlightRef` dedupes concurrent hover-prefetch + click.
@@ -3558,11 +3553,23 @@ function FileVersionManagerModal({
   const selectedContentMatchesVersion = Boolean(selectedId && selectedContentVersionId === selectedId && selectedContent);
   const restoreDisabled =
     viewerOnly || !selectedVersion || selectedVersion.current || restoring || loadingContent || !selectedContentMatchesVersion;
-  const srcDoc = useMemo(() => {
-    if (!selectedContent) return '';
-    return fileVersionPreviewSrcDoc(projectId, file.name, selectedContent);
-  }, [file.name, projectId, selectedContent]);
-  const frameReady = loadedSrcDoc === srcDoc;
+  // A historical version is served as a real document, not rebuilt from the
+  // fetched string. The project-relative path stays last in the URL, so the
+  // browser resolves that version's own `./app.js`, stylesheets, images and
+  // fonts natively as siblings under the same `/version-preview/<id>/` prefix.
+  // Under srcdoc they resolved against nothing and silently never loaded, which
+  // is why an old version could look broken in the panel while having rendered
+  // correctly when it was captured.
+  const versionDocumentUrl = useMemo(() => {
+    if (!selectedId) return '';
+    const url = buildProjectFileVersionDocumentUrl('', projectId, selectedId, file.name);
+    if (!url) return '';
+    return workspaceResourceUrl(
+      appendResourceQuery(url, VERSION_PREVIEW_BRIDGE_QUERY),
+      workspaceContext,
+    );
+  }, [file.name, projectId, selectedId, workspaceContext]);
+  const frameReady = loadedVersionUrl === versionDocumentUrl;
 
   useEffect(() => {
     tRef.current = t;
@@ -3703,10 +3710,10 @@ function FileVersionManagerModal({
   // Safety net: if the iframe's load event is ever missed, clear the overlay
   // after a grace period so it can't get stuck over a rendered document.
   useEffect(() => {
-    if (!srcDoc || loadedSrcDoc === srcDoc) return;
-    const fallback = window.setTimeout(() => setLoadedSrcDoc(srcDoc), 6000);
+    if (!versionDocumentUrl || loadedVersionUrl === versionDocumentUrl) return;
+    const fallback = window.setTimeout(() => setLoadedVersionUrl(versionDocumentUrl), 6000);
     return () => window.clearTimeout(fallback);
-  }, [srcDoc, loadedSrcDoc]);
+  }, [versionDocumentUrl, loadedVersionUrl]);
 
   useEffect(() => {
     if (!isDeckPreview || !selectedContentMatchesVersion || loadingContent) return;
@@ -4017,13 +4024,14 @@ function FileVersionManagerModal({
           </div>
         </header>
         <div className="artifact-version-panel__preview">
-          {srcDoc ? (
+          {versionDocumentUrl ? (
             <iframe
               ref={versionPreviewIframeRef}
               title={selectedVersion ? `${file.name} v${selectedVersion.version}` : file.name}
               sandbox="allow-scripts allow-downloads"
-              srcDoc={srcDoc}
-              onLoad={() => setLoadedSrcDoc(srcDoc)}
+              data-od-render-mode="url-load"
+              src={versionDocumentUrl}
+              onLoad={() => setLoadedVersionUrl(versionDocumentUrl)}
             />
           ) : null}
           {selectedVersion ? (
@@ -4032,7 +4040,7 @@ function FileVersionManagerModal({
               <strong>{selectedDate}</strong>
             </div>
           ) : null}
-          {loading || loadingContent || (srcDoc && !frameReady) ? (
+          {loading || loadingContent || (versionDocumentUrl && !frameReady) ? (
             <div
               className="file-version-preview-overlay"
               role="status"
