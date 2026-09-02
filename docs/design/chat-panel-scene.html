@@ -2510,12 +2510,11 @@ button.att-d:hover { border-color: var(--border-strong); }
    文件名说明不了什么),写文件这一行给文件名 —— 文件的身份就是它的名字和
    路径,一个 csv 的缩略图是四条灰线,什么也没说。两者是同一条规则的两面:
    【把这类东西的身份物做成可点的】,点开就是它。
-   用真的 <button> 而不是给 <code> 挂个 hover:这是个能点的东西,
-   键盘要够得着,focus 环也得有。 */
+   用真的 <button> 并让 <code> 默认带下划线:这是个能点的东西,
+   不需要先 hover 才发现;键盘也要够得着,focus 环也得有。 */
 .tool .fn { font: inherit; color: inherit; border-radius: var(--radius-sm); }
 .tool .fn code { font-family: var(--mono); font-size: var(--t-mini); color: inherit;
-  text-underline-offset: 2px; transition: text-decoration-color var(--duration-faster) var(--ease-out); }
-.tool .fn:hover code { text-decoration: underline; text-decoration-color: #A3A3A3; }
+  text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 2px; }
 .tool.is-fail .fn code { color: #A3A3A3; }
 /* 跑命令这一行本身就是可折叠的:输出是它吐出来的,不是它旁边的另一块。
    ------------------------------------------------------------
@@ -2558,7 +2557,6 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat .tool:not(.is-fail) :is(.ti, .ti > svg, .pk, .nm code, .ms, .dst),
 .fold.mod-flat .tool.is-fail,
 .fold.mod-flat .tool.is-fail :is(.nm code, .ms, .dst) { color: var(--text-strong); }
-.fold.mod-flat .tool .fn:hover code { text-decoration-color: currentColor; }
 
 .mk { flex: none; display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; }
 .mk svg { width: 10px; height: 10px; }
@@ -3044,7 +3042,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fb .sp { flex: 1; }
 .fb .fin {
   display: inline-flex; align-items: center; gap: 5px;
-  margin-inline-end: 4px; font-size: var(--t-cap); color: var(--brand-text);
+  margin-inline-end: 4px; font-size: var(--font-size-14); color: var(--brand-text);
 }
 /* 停止不跟着变绿:绿是"跑通了",而停止只是没跑完 —— 中性灰,红留给真的错误。
    这也正是这行只有一个词该染色的原因:颜色只标要注意的那一个。 */
