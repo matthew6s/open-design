@@ -189,6 +189,10 @@ import {
 } from './runtime/amr-auth-retry-continuation';
 import { installFontRecovery } from './runtime/font-recovery';
 import {
+  runWithConcurrency,
+  STAGED_UPLOAD_CONCURRENCY,
+} from './runtime/chat/staged-attachment';
+import {
   bootstrapFirstOpenTeamProjectRoute,
   bootstrapProjectRoute,
   createDesignSystemProjectFromProject,
@@ -272,6 +276,12 @@ type AppCreateProjectInput = Omit<CreateInput, 'metadata'> & {
 interface PendingProjectCreation {
   projectId: string;
   prompt: string;
+  /**
+   * The files the user staged on Home, still as local `File` objects. The
+   * preparing surface draws them from these bytes, so the first project frame
+   * shows the attachments without reading a project that is not persisted yet.
+   */
+  files: readonly File[];
 }
 
 const APP_CONFIG_CHANGED_EVENT = 'open-design:app-config-changed';
@@ -2944,6 +2954,9 @@ function AppInner() {
       let createWorkspaceContext: WorkspaceCollabContext | null = null;
       let optimisticProjectId: string | null = null;
       let result;
+      const stagedFiles = Array.isArray(input.pendingFiles)
+        ? input.pendingFiles.filter((file): file is File => file instanceof File)
+        : [];
       try {
         // PRODUCT INVARIANT: ordinary project creation is local. Reuse a
         // current in-memory Workspace snapshot for `personal` + `local_only`
@@ -2993,6 +3006,7 @@ function AppInner() {
             setPendingProjectCreation({
               projectId: optimisticProjectId!,
               prompt: derivedPendingPrompt ?? '',
+              files: stagedFiles,
             });
             setProjects((current) => [
               optimisticProject,
@@ -3106,9 +3120,7 @@ function AppInner() {
         });
       }
       try {
-        const pendingFiles = Array.isArray(input.pendingFiles)
-          ? input.pendingFiles.filter((file): file is File => file instanceof File)
-          : [];
+        const pendingFiles = stagedFiles;
         // Flip the project onto the user-picked working directory BEFORE
         // uploading staged Home attachments. `replaceProjectWorkingDir` changes
         // `metadata.baseDir`, so the project starts reading from the external
@@ -3152,16 +3164,25 @@ function AppInner() {
           // `area='chat_composer'` so it's distinguishable from the
           // file_manager Upload button and the chat_panel composer.
           const cohort = deriveUploadCohort(pendingFiles);
-          const uploadResult = await uploadProjectFiles(
-            result.project.id,
+          // One request per file at `STAGED_UPLOAD_CONCURRENCY`, the same shape
+          // the in-project composer has used since the staged-attachment work.
+          // The single 12-file batch this replaces made every attachment wait
+          // on the slowest one, and reported one failure as a failure for the
+          // whole batch plus every file queued behind it.
+          const outcomes = await runWithConcurrency(
             pendingFiles,
-            undefined,
-            createWorkspaceContext,
+            STAGED_UPLOAD_CONCURRENCY,
+            (file) =>
+              uploadProjectFiles(result.project.id, [file], undefined, createWorkspaceContext),
           );
-          firstMessageAttachments = uploadResult.uploaded;
-          const partial = uploadResult.failed.length > 0;
+          // `runWithConcurrency` answers in input order, so the first message
+          // keeps the order the user picked, not the order the uploads landed.
+          firstMessageAttachments = outcomes.flatMap((outcome) => outcome.uploaded);
+          const failedUploads = outcomes.flatMap((outcome) => outcome.failed);
+          const firstUploadError = outcomes.find((outcome) => outcome.error)?.error;
+          const partial = failedUploads.length > 0;
           if (partial) {
-            console.warn('Some Home attachments failed to upload', uploadResult.failed);
+            console.warn('Some Home attachments failed to upload', failedUploads);
           }
           trackFileUploadResult(analytics.track, {
             page_name: 'home',
@@ -3169,8 +3190,8 @@ function AppInner() {
             project_id: result.project.id,
             ...cohort,
             result: partial ? 'failed' : 'success',
-            ...(partial && uploadResult.error
-              ? { error_code: uploadResult.error }
+            ...(partial && firstUploadError
+              ? { error_code: firstUploadError }
               : {}),
           });
         }
@@ -5177,8 +5198,8 @@ function AppInner() {
           <ProjectCreationPendingView
             project={activeProject}
             prompt={pendingCreation.prompt}
+            files={pendingCreation.files}
             agentId={config.agentId}
-            onBack={handleBack}
           />
         </div>
       );
