@@ -52,6 +52,8 @@ let originalGetBoundingClientRect: PropertyDescriptor | undefined;
  * `rerender` 的同一拍里就跑完了,渲染之后再补 stub 已经晚了(第一版就栽在这)。
  */
 let formTopInViewport = 0;
+/** 反馈「选择原因」面板上边在视口里的位置。见文件末尾那一组用例。 */
+let reasonPanelTopInViewport = 0;
 let originalResizeObserver: typeof ResizeObserver | undefined;
 
 /** 平滑滚动还没落地的那一段 */
@@ -99,6 +101,7 @@ beforeEach(() => {
   pendingSmooth = null;
   scrollIntoViewBehaviors = [];
   formTopInViewport = 0;
+  reasonPanelTopInViewport = 0;
 
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
     rafCallbacks.push(callback);
@@ -180,6 +183,18 @@ beforeEach(() => {
           y: formTopInViewport,
         } as DOMRect;
       }
+      if (
+        typeof this.classList?.contains === 'function'
+        && this.classList.contains('assistant-feedback-reasons')
+      ) {
+        return {
+          ...zeroRect(),
+          top: reasonPanelTopInViewport,
+          bottom: reasonPanelTopInViewport + 96,
+          height: 96,
+          y: reasonPanelTopInViewport,
+        } as DOMRect;
+      }
       return zeroRect() as DOMRect;
     },
   });
@@ -200,9 +215,32 @@ beforeEach(() => {
       scrollIntoViewBehaviors.push(options.behavior);
       const log = document.querySelector<HTMLElement>('.chat-log');
       if (!log) return;
-      const topInContent = geom.scrollTop + (this.getBoundingClientRect().top
-        - log.getBoundingClientRect().top);
-      const to = Math.min(Math.max(0, topInContent), maxScrollTop());
+      const rect = this.getBoundingClientRect();
+      const logTop = log.getBoundingClientRect().top;
+      const topInContent = geom.scrollTop + (rect.top - logTop);
+      const bottomInContent = geom.scrollTop + (rect.bottom - logTop);
+      /*
+       * CSSOM-View 的 `block` 语义。两者的差别正是这条缺陷的全部内容:
+       *   · `'start'` —— **无条件**把目标顶到视口上沿。目标本来就在眼前也照顶,
+       *     于是屏幕上的一切平移一段。
+       *   · `'nearest'` —— 目标已经完整可见就**一步都不走**;露不全时只补上
+       *     「让它露出来」所需的最小位移。
+       */
+      const block = options.block ?? 'start';
+      let desired: number;
+      if (block === 'nearest') {
+        const viewTop = geom.scrollTop;
+        const viewBottom = geom.scrollTop + geom.clientHeight;
+        if (topInContent >= viewTop && bottomInContent <= viewBottom) desired = geom.scrollTop;
+        else if (topInContent < viewTop) desired = topInContent;
+        else desired = bottomInContent - geom.clientHeight;
+      } else {
+        desired = topInContent;
+      }
+      const to = Math.min(Math.max(0, desired), maxScrollTop());
+      // 位置没变就不是一次滚动:浏览器不会为它跑动画,也不会发 scroll / scrollend
+      // (csswg-drafts #8218)。夹具照做,否则「没滚」和「滚了 0 像素」分不开。
+      if (to === geom.scrollTop) return;
       if (options.behavior === 'smooth') {
         // 平滑:当场一动不动,浏览器随后一帧一帧地挪。
         pendingSmooth = { from: geom.scrollTop, to };
@@ -491,6 +529,195 @@ describe('恢复跟随:用户的滚动和内容增长撞在同一帧', () => {
     geom.contentHeight += 160;
     await act(async () => {
       rerender(chatPaneEl(conversation(false), true));
+    });
+    await triggerResize();
+    expect(geom.scrollTop).toBe(maxScrollTop());
+  });
+});
+
+/** 点最后一条回合的赞 —— 和用户在屏幕上做的是同一件事。 */
+async function clickThumbsUp() {
+  const buttons = document.querySelectorAll<HTMLElement>(
+    '[data-testid="assistant-feedback-positive"]',
+  );
+  const button = buttons[buttons.length - 1];
+  if (!button) throw new Error('no thumbs-up button rendered');
+  await act(async () => {
+    fireEvent.click(button);
+    await Promise.resolve();
+  });
+  await flushFrames();
+}
+
+/*
+ * ── 点赞不该把视图挪走 ───────────────────────────────────────────────
+ *
+ * 现场:用户回看一条**已经跑完**的历史消息,点了回合底部的赞 → 下面展开
+ * 「选择原因」面板 → 滚动条自己滚了一下。用户原话:「为什么我点击这个,
+ * 滚动条会自动滚动一下啊?」
+ *
+ * 机制不是贴底跟随(他在回看历史,压根不在跟随态),而是面板挂载时**无条件**
+ * 调了一次 `scrollIntoView({ block:'start' })`:那是「把面板顶到视口上沿」,
+ * 面板本来就在眼前也照顶不误 —— 于是屏幕上的一切平移了一段。
+ *
+ * 判据很朴素:**用户主动打开一个面板,不该导致视图跳动。**
+ * 面板在视口外时滚它进来是合理的;就在眼前时,一个像素都不该动。
+ */
+describe('点赞展开原因面板', () => {
+  function chatPaneWithFeedback(messages: ChatMessage[]) {
+    return (
+      <ChatPane
+        messages={messages}
+        streaming={false}
+        error={null}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={() => {}}
+        onStop={() => {}}
+        onAssistantFeedback={() => {}}
+        conversations={[]}
+        activeConversationId="conv-1"
+        onSelectConversation={() => {}}
+        onDeleteConversation={() => {}}
+      />
+    );
+  }
+
+  function finishedConversation(): ChatMessage[] {
+    const messages: ChatMessage[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      messages.push({ id: `u${i}`, role: 'user', content: `request ${i}`, createdAt: 1_700_000_000_000 + i * 2 });
+      messages.push({
+        id: `a${i}`,
+        role: 'assistant',
+        content: `reply ${i}`,
+        createdAt: 1_700_000_000_000 + i * 2 + 1,
+        runStatus: 'succeeded',
+      });
+    }
+    return messages;
+  }
+
+  it('夹具自检:赞按钮和原因面板真的渲染出来了', async () => {
+    render(chatPaneWithFeedback(finishedConversation()));
+    await flushFrames();
+    expect(document.querySelector('[data-testid="assistant-feedback-positive"]')).not.toBeNull();
+    await clickThumbsUp();
+    expect(document.querySelector('.assistant-feedback-reasons')).not.toBeNull();
+  });
+
+  it('面板就在眼前时,点赞不许挪动视图一个像素', async () => {
+    render(chatPaneWithFeedback(finishedConversation()));
+    await flushFrames();
+
+    // 用户回看历史:停在流水中间,不在底部,也就不在跟随态。
+    await act(async () => {
+      geom.scrollTop = 2000;
+      fireEvent.scroll(chatLog());
+      await Promise.resolve();
+    });
+    const before = geom.scrollTop;
+    // 面板展开后落在视口正中 —— 用户本来就看得见它。
+    reasonPanelTopInViewport = 180;
+
+    await clickThumbsUp();
+
+    expect(geom.scrollTop).toBe(before);
+    expect(pendingSmooth).toBeNull();
+  });
+
+  it('面板确实被挤到视口外时,才允许滚它进来', async () => {
+    render(chatPaneWithFeedback(finishedConversation()));
+    await flushFrames();
+    await act(async () => {
+      geom.scrollTop = 2000;
+      fireEvent.scroll(chatLog());
+      await Promise.resolve();
+    });
+    // 面板下沿在视口下沿之外(视口高 400,面板 180→276 是可见的;这里推到 380→476)。
+    reasonPanelTopInViewport = 380;
+
+    await clickThumbsUp();
+    // 平滑的话让它走完;瞬时的话这一步什么都不做。
+    await advanceSmoothScroll(4);
+
+    // 滚进来了,而且只滚了「让它露出来」所需的那么多 —— 不是顶到上沿。
+    // 顶到上沿会落在 2380,那是把用户正在看的内容整段推走。
+    expect(geom.scrollTop).toBeGreaterThan(2000);
+    expect(geom.scrollTop).toBe(2000 + 476 - geom.clientHeight);
+  });
+});
+
+/*
+ * ── 顺带:这枚 `scrollIntoView` 还是第四个「程序平滑滚动」站点 ──────────
+ *
+ * 上一轮给判据写下的不变量是「自己发起的滚动一律瞬时;要动画,先 release()」。
+ * 当时清点过三个站点(anchor-to-top / 回到最新 / rail 导航)都各自守住了,
+ * 并且记了一句「哪天冒出第四个再回头看」。反馈面板就是那第四个,而且它
+ * 一条都没守:既是 `'smooth'`,也没有 release。
+ *
+ * 所以这里除了「不许挪视图」,还要钉住它不能把流式跟随打掉 —— 用户在跟着
+ * 最新输出跑的时候顺手点了个赞,不该因此就再也不跟了。
+ */
+describe('点赞不许把流式跟随打掉', () => {
+  it('跟着最新输出跑的时候点赞,之后的内容仍然跟着走', async () => {
+    const messages: ChatMessage[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      messages.push({ id: `u${i}`, role: 'user', content: `request ${i}`, createdAt: 1_700_000_000_000 + i * 2 });
+      messages.push({
+        id: `a${i}`,
+        role: 'assistant',
+        content: `reply ${i}`,
+        createdAt: 1_700_000_000_000 + i * 2 + 1,
+        runStatus: 'succeeded',
+      });
+    }
+    const { rerender } = render(
+      <ChatPane
+        messages={messages}
+        streaming
+        error={null}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={() => {}}
+        onStop={() => {}}
+        onAssistantFeedback={() => {}}
+        conversations={[]}
+        activeConversationId="conv-1"
+        onSelectConversation={() => {}}
+        onDeleteConversation={() => {}}
+      />,
+    );
+    await flushFrames();
+    expect(geom.scrollTop).toBe(maxScrollTop());
+
+    // 面板展开时落在视口里(用户就贴在底部,最后一条就在眼前)。
+    reasonPanelTopInViewport = 240;
+    await clickThumbsUp();
+    await advanceSmoothScroll(4);
+
+    // 模型继续吐字。用户没碰过滚轮,必须还跟着走。
+    geom.contentHeight += 200;
+    await act(async () => {
+      rerender(
+        <ChatPane
+          messages={messages}
+          streaming
+          error={null}
+          projectId="project-1"
+          projectFiles={[]}
+          onEnsureProject={async () => 'project-1'}
+          onSend={() => {}}
+          onStop={() => {}}
+          onAssistantFeedback={() => {}}
+          conversations={[]}
+          activeConversationId="conv-1"
+          onSelectConversation={() => {}}
+          onDeleteConversation={() => {}}
+        />,
+      );
     });
     await triggerResize();
     expect(geom.scrollTop).toBe(maxScrollTop());

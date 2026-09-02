@@ -180,9 +180,10 @@ describe('还在想的那一格:一只灰底容器,里面是普通正文', () =>
     expect(markdown).not.toBeNull();
     expect(markdown!.parentElement).toBe(body);
     // 反向对照:它的类名**不是** record 那份 `.think` —— 这正是按 `.think` 选会落空的原因
-    expect(typeof record.think).toBe('string');
-    expect(record.think.length).toBeGreaterThan(0);
-    expect(markdown!.className).not.toContain(record.think);
+    const recordThink = record.think;
+    expect(typeof recordThink).toBe('string');
+    expect(recordThink!.length).toBeGreaterThan(0);
+    expect(markdown!.className).not.toContain(recordThink!);
   });
 
   it('那只慢速分步滚的窗整个删掉了,写滚动位置的路径只剩跟随那一条', () => {

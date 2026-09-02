@@ -2402,7 +2402,7 @@ export function AssistantFeedback({
   }, [selected]);
   useEffect(() => {
     if (!reasonRating) return;
-    reasonsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    reasonsRef.current?.scrollIntoView({ block: "nearest", behavior: "auto" });
     // P0 surface_view assistant_feedback_reason_panel — fires when the
     // reason panel actually appears (reasonRating flips from null to
     // truthy), not when the buttons render.

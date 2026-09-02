@@ -159,7 +159,7 @@ function findMarkerOutsideCode(re: RegExp, text: string): RegExpExecArray | null
 }
 
 /** 这一轮的 key —— 整段事件里的第一条 `done_key`。没有就是历史消息 / 旧链路 */
-function readRunDoneKey(events: PersistedAgentEvent[]): string | null {
+function readRunDoneKey(events: readonly PersistedAgentEvent[]): string | null {
   for (const e of events) {
     if (e.kind !== 'done_key') continue;
     const key = typeof e.key === 'string' ? e.key.trim() : '';
