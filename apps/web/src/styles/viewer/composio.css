@@ -996,7 +996,14 @@
 .qf-chip:hover {
   background: var(--bg-panel);
 }
-.qf-chip-on {
+/* 稿子 `.opt.is-on { color: var(--select-ink); … }`(L1457)。
+   稿子里它只需要 (0,2,0) 就压得过 `.opt` 的 (0,1,0) —— 因为稿子没有
+   `primitives.css` 那条全局 `button:disabled` 要对付。我们这儿静息档为了
+   压过全局原语已经被抬到 `.qf-chip:disabled` 的 (0,2,0)(见下文),选中档
+   必须跟着抬,否则**一张已提交的表单会把选中项也刷成静息色**。
+   补的是 `.qf-options` 这层祖先(和下面勾的描边同一个手段),(0,3,0)
+   **严格大于**而不是打平靠源码顺序 —— 踩坑 25 栽的就是打平那一下。 */
+.qf-options .qf-chip.qf-chip-on {
   color: var(--select-ink);
   font-weight: 600;
 }
@@ -1016,13 +1023,29 @@
   background: var(--bg);
   transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out);
 }
-/* 同上。这条还多担一件事:选中的勾是靠 `.qf-chip-on .qf-chip-box` 的
-   `border-color: transparent` + `--tick-img` 画出来的,而本条 (0,3,0) 压得过它。
-   不排除禁用态的话,一张**已锁的**表单在鼠标扫过时会把勾的底描回一圈灰边。 */
-.qf-chip:hover:not(:disabled) .qf-chip-box {
+/* 稿子 `.opt:hover .box { border-color: var(--text-soft) }`(L1485),逐字照抄。
+   稿子里它 (0,3,0) 稳输给 `.opts.mod-* .opt.is-on .box` 的 (0,5,0) —— 选中的
+   勾在 hover 时**不会**被描回一圈灰边;禁用那一档稿子没有,下面两条按我们自己的
+   环境补,并且都排在这条之后。 */
+.qf-chip:hover .qf-chip-box {
   border-color: var(--text-soft);
 }
-.qf-chip-on .qf-chip-box {
+/* 禁用态照静息还原(稿子 `.btn:disabled:hover`「把静息值原样重述一遍」)。
+   和上面那条同为 (0,3,0),靠**写在后面**取胜 —— 与底色那一对
+   (`.qf-chip:hover` / `.qf-chip:disabled`)完全同一个做法,顺序是有意的。
+   这条**不能**并回上面写成 `:hover:not(:disabled)`:那样 hover 那条会涨到
+   (0,4,0),把下面选中那条压下去,就是本轮修的缺陷 ②。 */
+.qf-chip:disabled .qf-chip-box {
+  border-color: var(--border-strong);
+}
+/* 稿子 `.opts.mod-multi .opt.is-on .box`(L1511)/ `.opts.mod-single …`(L1493)
+   是 (0,5,0),**稳压** hover 那条的 (0,3,0)。我们搬过来时把 `.opts` 那层祖先和
+   `.opt` 那格元素类都省了,只剩 `.qf-chip-on .qf-chip-box` 的 (0,2,0),于是
+   反过来输给 hover:一颗**可点的**选中项,鼠标一扫就把勾的描边从 transparent
+   跳成 `--text-soft`。这是规格踩坑 25 的同一类事故(搬稿子时省掉祖先,层叠就反了),
+   处方也一样:祖先补回去,并且要**严格大于**——(0,4,0) 压过上面两条的 (0,3,0),
+   不打平靠源码顺序。 */
+.qf-options .qf-chip.qf-chip-on .qf-chip-box {
   border-color: transparent;
   background: var(--tick-img) center / 120% no-repeat;
   background-origin: border-box;
@@ -1042,8 +1065,15 @@
 
    这一条**同时**管住 hover:它和上面的 `.qf-chip:hover` 同为 (0,2,0),
    写在后面所以指针停在禁用选项上时底色仍是 transparent —— 也就是稿子
-   `.btn:disabled:hover`「把静息值原样重述一遍」的那条规矩。位置是有意的。 */
-.qf-chip:disabled { background: transparent; cursor: default; }
+   `.btn:disabled:hover`「把静息值原样重述一遍」的那条规矩。位置是有意的。
+
+   `color` 是同一条渗漏的第二处,上一轮只抢回了底色没跟着抢它:
+   `button:disabled { color: var(--text-faint) }` 同样是 (0,1,1),把选项
+   **标题**刷成 `#bdbdbd`;而底下那行说明是个 `<span class="qf-chip-desc">`,
+   全局原语匹配不到它,保留着 `--text-muted` `#5c5c5c` —— 于是标题比它自己的
+   说明还淡,主次颠倒。照静息还原成稿子 `.opt` 的 `var(--text)`;
+   选中档由上面 `.qf-options .qf-chip.qf-chip-on` 的 (0,3,0) 接着压回来。 */
+.qf-chip:disabled { background: transparent; color: var(--text); cursor: default; }
 /* The collapsed custom field still occupies a slot in .qf-field's 6px
    column gap; cancel it so a closed accordion leaves no phantom spacing. */
 .qf-custom-collapsible:not(.open) { margin-top: -6px; }
