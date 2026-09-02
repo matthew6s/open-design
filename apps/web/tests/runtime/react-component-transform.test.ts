@@ -91,10 +91,24 @@ describe('react component preview document', () => {
     expect(doc).not.toMatch(/babel/i);
   });
 
-  // Remaining half of the offline defect: React and ReactDOM are still fetched
-  // from unpkg with no fallback, so this surface still cannot render in the
-  // packaged client offline or behind a firewall. Serving them locally is the
-  // next step; this is left explicit rather than implied by a passing suite.
+  // Remaining half of the offline defect. React and ReactDOM are still fetched
+  // from unpkg with no fallback, so the packaged client offline — and any
+  // machine that cannot reach unpkg — still cannot render this surface. It now
+  // fails readably ("React preview runtime failed to load") rather than as a
+  // white screen, because compilation already succeeded in the host.
+  //
+  // Decided approach, not yet built: generate the UMD builds into `public/`
+  // from the installed `react` / `react-dom` at install and build time, and
+  // gitignore the output. React is already a dependency of this app, so it is
+  // the single source of truth and drift is structurally impossible — no
+  // vendored copy in git, and nothing for anyone to remember to re-sync. A CDN
+  // swap (R2 or otherwise) was considered and rejected: it relocates the
+  // external dependency instead of removing it, and offline still fails.
+  //
+  // Unverified and deliberately not assumed: whether a classic <script src>
+  // from `public/` loads inside the opaque-origin sandbox under the packaged
+  // client's `od://` protocol. That needs a real DMG, offline. Do not claim
+  // "works offline in the packaged client" until it has been run there.
   it.todo('runs without reaching the public internet at all');
 });
 
