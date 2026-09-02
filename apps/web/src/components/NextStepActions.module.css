@@ -64,15 +64,22 @@
   font-size: 12px;
   /*
    * 稿子 `.nexts button { … font-weight: 500 … }`(PR #7170 @ `8015870`)。
-   * OPEND-2558「视觉重心加强」补的就是这一档:三行建议原来继承 400,和它们
-   * 上面那段正文一样轻,收在整轮最末尾压不住。medium 让它们成为一组可点的
-   * 东西,又停在这一块标题行(`.label`,600)下面 —— 稿子对这一块的分寸是
-   * 「不画框、不画分割线……静止时不显形」,再重就抢产物卡的注意力了。
    *
-   * 裸数值不是遗漏:仓库里没有字重 token(`styles/tokens.css` 没有字重梯度),
-   * 稿子本身也是裸数值,同族的 QuoteBar / SupportDialog / RunErrorCard /
-   * `packages/components` 全部照抄数值。为这一条新造一枚全局 token 等于
-   * 顺手立一条新约定,不在本次范围内。
+   * ⚠️ 这一行**不改变渲染结果**,别指望它治「这块太轻」。
+   * `styles/primitives.css` 的全局 `button` 规则本来就写着 `font-weight: 500`,
+   * 建议行一直是 500 —— 实测见 `tests/components/next-step-suggestion-weight.test.tsx`:
+   * 把这一行删掉,真实层叠下仍然是 500。它的作用只有一个:**把稿子的值钉在
+   * 组件自己身上**,这样将来清理那条遗留的全局按钮样式时,这一行不会跟着掉档。
+   *
+   * 稿子那个 500 的语义也不是「强调」:稿子 `body` 自己就是 `font-weight: 500`,
+   * 而稿子的全局 `button` 复位只写 `font-family: inherit`、没有复位字重,所以
+   * `.nexts button { font-weight: 500 }` 是「把按钮拉回正文同档」。我们的 `body`
+   * 没有字重声明(继承 400),于是同样是 500 的建议行,在我们这里反而比身边的
+   * 助手正文重一档 —— 方向与稿子相反。这层 body 基线差属于全局问题,不在这个
+   * 组件里修;跟进与否待产品拍板(见 OPEND-2558 交接结论)。
+   *
+   * 裸数值不是遗漏:仓库里没有字重 token(`styles/tokens.css` 没有字重梯度,
+   * W5 清点全仓 1256 处 `font-weight` 走 token 的 0 处),稿子本身也是裸数值。
    */
   font-weight: 500;
   color: var(--text);

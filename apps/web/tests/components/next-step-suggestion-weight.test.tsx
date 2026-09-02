@@ -2,41 +2,44 @@
 /**
  * OPEND-2558「next step 视觉重心加强」—— 下一步建议行的字重。
  *
- * 最新设计基准 PR #7170 @ `8015870` 的 `.nexts button` 写的是:
+ * ## 先说这个文件的来历,免得后来人重踩
  *
- *   .nexts button {
- *     display:flex; align-items:center; gap:8px; width:100%;
- *     padding: 9px 11px; border:none; background:none;
- *     font-size: var(--t-mini); font-weight: 500; color: var(--text); text-align:left;
- *   }
+ * 这条测试的**第一版是假的**:它只注入了 `NextStepActions.module.css`,
+ * 量到「补 `font-weight: 500` 之前是 `normal`」,于是宣称补上这一档就是修复。
+ * 真实层叠里根本不是这样 —— `styles/primitives.css` 的全局 `button` 规则
+ * 本来就写着 `font-weight: 500`(特异性 (0,0,1)),建议行**一直**是 500。
+ * 少注入一层样式表,量出来的就是另一个产品。
  *
- * 我们这一档其余度量早已 1:1(内距、间隙、字号、hover 换底、箭头 12px),
- * **只差 `font-weight: 500`** —— 三行建议现在继承 400,和它们上面那段正文
- * 一样轻,整块在收尾处压不住。这一条就是补这一档。
+ * 所以这一版把**真实层叠**摆全:全局 `button` 规则 + 组件 CSS Module,
+ * 顺序和产品里一致。
  *
- * ## 为什么这么测
+ * ## 稿子里 500 是什么意思
  *
- * jsdom 跑层叠但不解析 `var()`,而字重恰好是个**裸数值**,层叠算得出来。
- * 所以把 CSS Module 文件当普通样式表注入(文件里的选择器是未哈希的原名),
- * 用稿子的 DOM 形状挂上去,直接问最终计算值。真实像素另有无头 Chrome 量;
- * 这一层要挡的是「补了一条规则,却被同文件后面某处覆盖掉」。
+ * 最新基准 PR #7170 @ `8015870` 的 `.nexts button` 写 `font-weight: 500`,
+ * 但稿子的 `body` 也是 `font-weight: 500`(`components.css` 的 body 规则),
+ * 而稿子的全局 `button` 复位只写了 `font-family: inherit`、**没有**复位字重 ——
+ * 也就是说稿子那一行 500 的语义是「把这个按钮**拉回正文同档**」,不是强调。
+ *
+ * 我们的 `body` 没有字重声明(继承 400),但全局 `button` 自己是 500。
+ * 净效果:我们的建议行相对身边的助手正文**已经重一档**,方向和稿子相反。
+ * 这层基线差(body 400 vs 500)是全局问题,不归这一个组件修 —— 待产品拍板,
+ * 结论见交接报告。这里只锁住两件事:值是稿子的 500,且**由组件自己钉住**。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../src');
+const GLOBAL_BUTTON_CSS = readFileSync(resolve(SRC, 'styles/primitives.css'), 'utf-8');
 const MODULE_CSS = readFileSync(
-  resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '../../src/components/NextStepActions.module.css',
-  ),
+  resolve(SRC, 'components/NextStepActions.module.css'),
   'utf-8',
 );
 
 /** 稿子的形状:外层无框容器 → 三条建议行,每行一枚箭头 + 一句话。 */
-const SUGGESTIONS = `
+const MARKUP = `
   <div class="root">
     <div class="suggestions">
       <button type="button" class="suggestionRow" id="row-0">
@@ -51,23 +54,47 @@ const SUGGESTIONS = `
     </div>
   </div>`;
 
-beforeAll(() => {
-  const style = document.createElement('style');
-  style.textContent = MODULE_CSS;
-  document.head.appendChild(style);
-});
+/** 按产品里的真实顺序铺样式表:全局在前,组件 Module 在后。 */
+function mount(sheets: readonly string[]): void {
+  document.head.innerHTML = '';
+  for (const css of sheets) {
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+  document.body.innerHTML = MARKUP;
+}
 
 afterEach(() => {
+  document.head.innerHTML = '';
   document.body.innerHTML = '';
 });
 
-describe('下一步建议行的视觉重心(OPEND-2558)', () => {
-  it('每一行都落在稿子的 medium(500),不是继承来的 400', () => {
-    document.body.innerHTML = SUGGESTIONS;
+describe('下一步建议行的字重(OPEND-2558)', () => {
+  it('真实层叠下三行都落在稿子的 500', () => {
+    mount([GLOBAL_BUTTON_CSS, MODULE_CSS]);
     for (const id of ['row-0', 'row-1', 'row-2']) {
-      const row = document.getElementById(id)!;
-      expect(getComputedStyle(row).fontWeight).toBe('500');
+      expect(getComputedStyle(document.getElementById(id)!).fontWeight).toBe('500');
     }
+  });
+
+  /*
+   * 这一条才是真正有信息量的:全局 `button { font-weight: 500 }` 是**遗留的
+   * 全局按钮样式**,不是这一块的设计意图,随时可能被按钮体系的清理拿掉
+   * (它同时还漏给这一行 `white-space: nowrap` / `height: 36px` /
+   * `line-height: 1`,那三条本来就不该由全局按钮规则决定,见交接报告)。
+   * 所以组件必须**自己钉住**稿子的值:把全局那一句拿掉之后,行仍然是 500。
+   * 少了组件里那一行声明,这条会掉回浏览器默认的 `normal`。
+   */
+  it('组件自己钉住,不靠全局按钮规则施舍', () => {
+    const withoutGlobalWeight = GLOBAL_BUTTON_CSS.replace(
+      /(\n\s*)font-weight:\s*500;/,
+      '$1/* removed for this test */',
+    );
+    expect(withoutGlobalWeight).not.toBe(GLOBAL_BUTTON_CSS);
+
+    mount([withoutGlobalWeight, MODULE_CSS]);
+    expect(getComputedStyle(document.getElementById('row-0')!).fontWeight).toBe('500');
   });
 
   /*
@@ -76,12 +103,11 @@ describe('下一步建议行的视觉重心(OPEND-2558)', () => {
    * 冒出第二个标题级重量,跟刚交付的产物卡抢注意力 —— 而稿子对这一块的原话
    * 是「不画框、不画分割线……静止时不显形」。
    */
-  it('只加一档,不越过这一块自己的标题行', () => {
-    document.body.innerHTML = `<div class="root"><div class="label" id="label">标题</div>${SUGGESTIONS}</div>`;
-    const row = document.getElementById('row-0')!;
-    const label = document.getElementById('label')!;
-    expect(Number(getComputedStyle(row).fontWeight)).toBeLessThan(
-      Number(getComputedStyle(label).fontWeight),
-    );
+  it('只到 medium,不越过这一块自己的标题行', () => {
+    mount([GLOBAL_BUTTON_CSS, MODULE_CSS]);
+    document.body.innerHTML = `<div class="root"><div class="label" id="label">标题</div>${MARKUP}</div>`;
+    const row = Number(getComputedStyle(document.getElementById('row-0')!).fontWeight);
+    const label = Number(getComputedStyle(document.getElementById('label')!).fontWeight);
+    expect(row).toBeLessThan(label);
   });
 });
