@@ -1422,6 +1422,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) { color: var(--progress-detail-ink); }
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.ti, .ms),
 .fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > .ti > svg { color: inherit; }
+.fold.mod-flat .fold:not(.is-fail) > summary:has(> .ti) > :is(.nm, .ms) { color: #202020; }
 /* 终端块同样把 7px 的负外边距补回来:左边跟着它上面那行命令,右边收回卡内。
    只改左右两边 —— 上下那份间距是 .code 自己的,写成 margin 简写会把它顶掉。 */
 .fold.mod-flat .body.mod-stack .code { margin-inline: 29px 18px; }
@@ -2395,7 +2396,7 @@ button.att-d:hover { border-color: var(--border-strong); }
    而且旁边的执行计划、工具行、已完成任务全带 .mk.is-ok 那枚绿勾,
    「已确认」再挂一枚,就混进那一列勾里去了 —— 恰恰丢掉了要它显眼的初衷。
    一个不带勾的绿词在一屏绿勾里反而更跳。 */
-.answered .k { margin-bottom: 3px; color: var(--brand-text); }
+.answered .k { margin-bottom: 3px; font-size: var(--t-lead); color: var(--brand-text); }
 .answered .ab { color: var(--text); }
 /* 颜色和数值的短答案行内部垂直居中;卡片位置及其它回答的排版不变。 */
 .answered .ab.mod-value { display: flex; align-items: center; }
@@ -2509,7 +2510,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .tool .fn { font: inherit; color: inherit; border-radius: var(--radius-sm); }
 .tool .fn code { font-family: var(--mono); font-size: var(--t-mini); color: var(--text-strong);
   text-underline-offset: 2px; transition: text-decoration-color var(--duration-faster) var(--ease-out); }
-.tool .fn:hover code { text-decoration: underline; text-decoration-color: var(--text-soft); }
+.tool .fn:hover code { text-decoration: underline; text-decoration-color: #A3A3A3; }
 .tool.is-fail .fn code { color: #A3A3A3; }
 /* 跑命令这一行本身就是可折叠的:输出是它吐出来的,不是它旁边的另一块。
    ------------------------------------------------------------
