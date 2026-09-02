@@ -1031,20 +1031,43 @@
 }
 /* Hover-revealed footer below the user bubble: time + copy (Lobe style) */
 /* 操作位在气泡【下方】,距气泡 4px、右缘对齐:单行 / 多行合并成同一种情况,
-   气泡的 padding 或 line-height 再怎么改都不会错位(#50 / #51)。
-   藏起来用 opacity 不用 display —— 位置一直占着,浮出时这一行不跳。 */
+   气泡的 padding 或 line-height 再怎么改都不会错位(#50 / #51)。 */
 .msg.user .user-actions {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-top: 4px;
   min-height: 30px;
+}
+/* 藏的是**这一行里的时间和复制**,不是这一行本身。
+   ------------------------------------------------------------
+   稿子(PR #7170 `components.css`)把「藏」写在孩子身上,并且把重试排除在外:
+
+       .msg-act .tm,
+       .msg-act button:not(.keep) { opacity: 0; pointer-events: none; … }
+
+   写在父级 `.user-actions` 上是不等价的:`opacity` 不继承,它建的是**合成组**,
+   孩子无法把祖先的 0 撤销。于是「重试」跟着一起被藏 —— 消息没发出去,
+   屏幕上什么都不出,要先 hover 才知道有这么一颗按钮。
+   而重试恰恰是这条消息**随时可能要用的出口**:没发成功、或者结果不对,
+   手要能直接够到。`ChatPane.tsx` 那颗按钮旁边的注释写的也正是「不跟着 hover 出没」。
+
+   藏起来用 opacity 不用 display —— 位置一直占着,浮出时这一行不跳。
+   pointer-events 一并关掉:看不见的按钮不该点得到。
+   守卫见 `tests/components/chat/user-retry-always-visible.test.tsx`
+   (量的是「从按钮乘到消息根」的有效不透明度 —— 按钮自己的 opacity 是假读数)。 */
+.msg.user .user-actions-time,
+.msg.user .user-actions button:not(.user-keep-btn) {
   opacity: 0;
+  pointer-events: none;
   transition: opacity 140ms var(--ease-out);
 }
-.msg.user .user-text-wrap:hover .user-actions,
-.msg.user .user-text-wrap:focus-within .user-actions {
+.msg.user .user-text-wrap:hover .user-actions-time,
+.msg.user .user-text-wrap:hover .user-actions button:not(.user-keep-btn),
+.msg.user .user-text-wrap:focus-within .user-actions-time,
+.msg.user .user-text-wrap:focus-within .user-actions button:not(.user-keep-btn) {
   opacity: 1;
+  pointer-events: auto;
 }
 /* 气泡 hover **不变色**(2026-08-26 用户裁决:「不要 hover 变色反正,你干掉吧」)。
    ------------------------------------------------------------
@@ -1087,9 +1110,13 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* 触屏没有 hover 这一档,所以时间和复制常驻 —— 否则它们永远够不到。
+   目标跟着上面那条一起从整行改成行里的两样(重试本来就不藏)。 */
 @media (hover: none) {
-  .msg.user .user-actions {
+  .msg.user .user-actions-time,
+  .msg.user .user-actions button:not(.user-keep-btn) {
     opacity: 1;
+    pointer-events: auto;
   }
 }
 .msg.assistant .prose { margin-top: 8px; }

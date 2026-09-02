@@ -2857,7 +2857,11 @@ h1{margin:0 0 6px;font-size:20px;}
 .cell[data-scroll="both"] .msg-att-nav.mod-next,
 .cell[data-scroll="prev"] .msg-att-nav.mod-prev,
 .cell[data-scroll="both"] .msg-att-nav.mod-prev{display:flex;}
-.cell[data-hover] .msg.user .user-actions{opacity:1;}
+/* 藏的是行里的时间和复制,不是整行(重试常驻,见 chat.css 那段长注释),
+   所以重放 hover 的目标也要跟着落到那两样身上 —— 打在整行上等于没打。 */
+.cell[data-hover] .msg.user .user-actions-time,
+.cell[data-hover] .msg.user .user-actions button:not(.user-keep-btn){
+  opacity:1;pointer-events:auto;}
 /* 图卡的缩略图指向 daemon 的 /api/projects/:id/raw/…,离开 daemon 就是一张打不开的图。
    取不到就把 <img> 藏掉,露出卡自己的底色当占位(标记由下面那段脚本打)——
    浏览器画的「碎图」图标会盖住要比的那件事:卡多大、圆角多少、一行里两种卡同不同高。 */

@@ -22,7 +22,11 @@ export interface AudioArtifactProps {
   durationSec?: number;
   /** 真采样。没有就按时长生成一条稳定的伪采样(契约里还没有波形数据,T17) */
   samples?: number[];
-  /** 竖条数量 —— 稿子那一条 406px 宽的卡是 40 条 */
+  /**
+   * 竖条数量。稿子那一条 406px 宽的卡是 **28** 条(`--i:0` … `--i:27`,数过)。
+   * 这个数不是随便取的:3px 柱 + 3px 间距,28 条正好铺满 `.wave` 那一段净宽;
+   * 给多了会被 `overflow: hidden` 从右边裁掉,波形看着像被切了一刀。
+   */
   bars?: number;
   onDownload?: () => void;
   /** 陈列页 / 测试用:直接摆出播放中的样子,不真的播 */
@@ -35,7 +39,7 @@ export function AudioArtifact({
   name,
   durationSec,
   samples,
-  bars = 40,
+  bars = 28,
   onDownload,
   previewCurrentSec,
   previewPlaying,
@@ -92,26 +96,39 @@ export function AudioArtifact({
             <i
               key={i}
               className={i < lit ? styles.on : undefined}
-              style={{ ['--h' as string]: String(h) }}
+              /*
+               * `--h` 是这根柱子多高(采样值),`--i` 是它排第几根。
+               * 后者只为起伏那条动画服务:CSS 用 `calc(var(--i) * 18ms)` 把每根
+               * 的起点错开。不写它的话整排柱子会齐步走 —— 看着像一整块在呼吸,
+               * 不像一条波形。稿子的静态 DOM 里两个变量也是并排写在 style 上的。
+               */
+              style={{ ['--h' as string]: String(h), ['--i' as string]: String(i) }}
             />
           ))}
         </span>
         <span className={`${styles.time} ${styles.timeEnd}`}>{formatClock(duration)}</span>
+        {/*
+         * 播放键在白行【里面】(稿子的 `.aud-b` 是 `.aud-in` 的最后一个孩子)。
+         * 它操作的是这段音频本身 —— 播 / 停,属于内容;挂到白行外面会让白行
+         * 右端凭空短一截,而那一截是外层灰底。
+         * 下面那颗下载键相反:它拿的是整条附件,不是音频里的某一段,所以留在外面
+         * (稿子那个位置是「×」,2026-08-27 裁决换成下载原件)。
+         */}
+        <button
+          type="button"
+          className={styles.play}
+          onClick={toggle}
+          aria-label={playing ? t('chat.audio.pause') : t('chat.audio.play')}
+        >
+          {playing ? (
+            <Icon name="pause" size={12} />
+          ) : (
+            <span className={styles.playGlyph}>
+              <Icon name="play" size={12} />
+            </span>
+          )}
+        </button>
       </div>
-      <button
-        type="button"
-        className={styles.play}
-        onClick={toggle}
-        aria-label={playing ? t('chat.audio.pause') : t('chat.audio.play')}
-      >
-        {playing ? (
-          <Icon name="pause" size={12} />
-        ) : (
-          <span className={styles.playGlyph}>
-            <Icon name="play" size={12} />
-          </span>
-        )}
-      </button>
       <button type="button" className={styles.download} onClick={onDownload} aria-label={t('chat.audio.download', { name })}>
         <Icon name="download" size={14} />
       </button>
