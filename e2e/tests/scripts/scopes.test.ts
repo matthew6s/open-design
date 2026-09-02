@@ -97,6 +97,17 @@ describe("workflow scope planner", () => {
     });
   });
 
+  test("routes canonical DSH installer sources to E2E Vitest", () => {
+    expect(plan("pr", ["tools/release/resources/dsh-bootstrap/install-dsh.sh"])).toMatchObject({
+      scopes: { web_tests_required: true },
+      enabled: { e2e_vitest: true },
+    });
+    expect(plan("pr", ["tools/release/resources/dsh-bootstrap/install-dsh.ps1"])).toMatchObject({
+      scopes: { web_tests_required: true },
+      enabled: { e2e_vitest: true },
+    });
+  });
+
   test("runs planner contract tests for CI control-plane changes", () => {
     const controlPlaneFiles = [
       ".github/config/scopes.json",

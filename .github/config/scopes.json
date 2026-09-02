@@ -40,6 +40,9 @@
       "exclude": ["match://daemon-doc"]
     },
     "daemon-doc": { "exact": ["docs/agent-adapters.md"] },
+    "dsh-bootstrap-installer": {
+      "prefixes": ["tools/release/resources/dsh-bootstrap/"]
+    },
     "packaged-leaf": {
       "prefixes": [
         "apps/desktop/src/", "apps/desktop/tests/", "apps/packaged/src/", "apps/packaged/tests/",
@@ -119,6 +122,11 @@
       "id": "runtime-content",
       "match": { "prefixes": ["scripts/", "assets/", "skills/", "prompt-templates/", "design-systems/", "design-templates/", "craft/"] },
       "effects": ["daemon_tests_required", "web_tests_required"], "confidence": "medium"
+    },
+    {
+      "id": "dsh-bootstrap-installer",
+      "match": { "include": ["match://dsh-bootstrap-installer"] },
+      "effects": ["web_tests_required"], "confidence": "medium"
     },
     {
       "id": "script-contract-tests", "match": { "prefixes": ["e2e/tests/scripts/"] },
