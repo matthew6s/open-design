@@ -59,6 +59,8 @@ function isRunCancelOrigin(value: unknown): value is RunCancelOrigin {
 }
 import { workspaceProjectHeaders } from '../state/projects';
 import { setRuntimeAmrConsoleOrigin } from '../runtime/amr-guidance';
+import { coalescedGet } from '../lib/coalesced-get';
+import { currentWorkspaceAccountGeneration } from '../collab/workspace-identity';
 
 /**
  * Returns the front-end carrier that's about to send this request:
@@ -1320,12 +1322,66 @@ export interface VelaLoginAuthStage {
 //   POST /api/integrations/vela/login/cancel — terminate a still-pending login
 //   POST /api/integrations/vela/logout   — clear ~/.amr auth and Settings-backed AMR auth env
 // The Settings UI polls /status after kicking off /login to detect completion.
+/** One `/api/integrations/vela/status` response, before any owner interprets it. */
+export interface VelaLoginStatusRead {
+  readonly ok: boolean;
+  readonly httpStatus: number;
+  /** Parsed JSON body, or `null` when the response carried none. */
+  readonly body: unknown;
+}
+
+/**
+ * The ONE transport read of the AMR status projection.
+ *
+ * Three independent owners ask the daemon this same question on a cold open,
+ * and none of them can drop its read: `App` drives analytics identity and the
+ * model refresh, `MessageCenter` drives its signed-in/anonymous message split,
+ * `ChatPane` drives the inline sign-in pill. Measured on one cold conversation
+ * open they produced SEVEN requests — three, two and two, each owner's effect
+ * replayed while the previous request was still open.
+ *
+ * So they share the request, not the state: this returns the raw response and
+ * every owner keeps its own mapping (see `fetchVelaLoginStatus` and
+ * `isAmrLoggedIn`, which disagree about what a non-ok status means).
+ *
+ * SINGLE-FLIGHT ONLY (ttl 0). Nothing is retained once a read settles, so no
+ * caller can ever be handed a projection it did not itself trigger — this can
+ * only remove a request the browser would have opened concurrently with an
+ * identical one. That matters here: `refresh: true` exists precisely to make
+ * the daemon re-probe after the user returned from the browser sign-in, and a
+ * shared settled answer would defeat it. It cannot, because `?refresh=1` is a
+ * different URL and therefore a different key.
+ *
+ * The key also carries the account generation. This endpoint sends no Workspace
+ * headers — it is an ACCOUNT-level projection of `~/.amr/config.json` — so the
+ * account boundary IS its scope. A sign-out/sign-in leaves the URL identical
+ * while the authority behind it changed, and ttl 0 does not catch that: it
+ * stops settled-result reuse, not a post-boundary reader joining a request
+ * issued before the boundary. Captured once, up front, before any await.
+ */
+export function readVelaLoginStatus(
+  options: { refresh?: boolean } = {},
+): Promise<VelaLoginStatusRead> {
+  const query = options.refresh ? '?refresh=1' : '';
+  const url = `/api/integrations/vela/status${query}`;
+  const accountGeneration = currentWorkspaceAccountGeneration();
+  return coalescedGet(
+    `vela-login-status:${accountGeneration}:${url}`,
+    async (): Promise<VelaLoginStatusRead> => {
+      const resp = await fetch(url, { cache: 'no-store' });
+      const body = await resp.json().catch(() => null);
+      return { ok: resp.ok, httpStatus: resp.status, body };
+    },
+    // ttl 0 — join an open request, retain nothing after it settles.
+    0,
+  );
+}
+
 export async function fetchVelaLoginStatus(options: { refresh?: boolean } = {}): Promise<VelaLoginStatus | null> {
   try {
-    const query = options.refresh ? '?refresh=1' : '';
-    const resp = await fetch(`/api/integrations/vela/status${query}`, { cache: 'no-store' });
-    if (!resp.ok) return null;
-    const status = (await resp.json()) as VelaLoginStatus;
+    const read = await readVelaLoginStatus(options);
+    if (!read.ok) return null;
+    const status = read.body as VelaLoginStatus;
     // Every AMR status read refreshes the runtime console origin, so the console
     // links stay correct no matter which surface (login pill, model switcher,
     // avatar menu, low-balance dialog) triggered the fetch. Doing it here rather
