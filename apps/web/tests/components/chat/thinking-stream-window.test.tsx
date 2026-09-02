@@ -32,6 +32,7 @@ import { resolve } from 'node:path';
 import type { ReactElement } from 'react';
 import { I18nProvider } from '../../../src/i18n';
 import { ExecutionShell } from '../../../src/components/chat/ExecutionShell';
+import record from '../../../src/components/chat/primitives/record.module.css';
 import type { ExecutionShell as Shell, ShellItem } from '../../../src/runtime/chat/contract';
 
 afterEach(cleanup);
@@ -139,6 +140,43 @@ describe('还在想的那一格:一只灰底容器,里面是普通正文', () =>
     expect(cap).toMatch(/overflow-y: auto/);
     // 同一件事只能有一套机制:限高不许在 `.stream` 上再写一遍
     expect(declsOf('.stream')).not.toMatch(/max-height/);
+  });
+
+  it('推理正文的字重是 400,而且那条规则真能落到它身上', () => {
+    /*
+     * 稿子 `thinking-stream.css:81`:
+     *   `.fold.mod-flat > .body.mod-stream > .stream-viewport > .think
+     *      { padding: 0; font-weight: 400; color: var(--stream-ink) }`
+     * 我们当初只搬了颜色,**字重没搬**。旧基线的正文是 400,继承下来恰好蒙对;
+     * W8 把面板基线换成 500 之后,思考正文跟着变重 —— 这是一次真回归。
+     *
+     * ⚠️ 但光把 `font-weight: 400` 加在 `.stream > .think` 上**没有用**:
+     * 那一格的正文是 `ThinkingMarkdown` 渲染的,它的 `.think` 来自**另一个 CSS Module**
+     * (`ThinkingMarkdown.module.css`),和 `record.module.css` 的 `.think` 是两个不同的
+     * 哈希类名。所以规则必须按「流窗里的那一层」来选,而不是按 `.think` 选。
+     *
+     * 特异性也不能只求命中:`ThinkingMarkdown.module.css` 里那条 `.think` 是 (0,1,0),
+     * 打平就要按两个 module 谁先进 bundle 判 —— 那是「今天碰巧对」。要严格压过它。
+     */
+    const rule = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ sel: (m[1] ?? '').replace(/\s+/g, ' ').trim(), body: (m[2] ?? '').replace(/\s+/g, ' ').trim() }))
+      .find((r) => /\.body\.stream\s*>\s*\*/.test(r.sel) && /font-weight:\s*400/.test(r.body));
+    expect(rule, '找不到给流窗正文定字重的规则').toBeTruthy();
+    const classCount = (rule!.sel.match(/\.[A-Za-z0-9_-]+|:[a-z-]+/g) ?? []).length;
+    expect(classCount, '必须严格压过 ThinkingMarkdown 那条 (0,1,0) 的 .think').toBeGreaterThan(1);
+  });
+
+  it('结构对照:流窗那一层的直接孩子就是推理正文本身', () => {
+    // `> *` 能不能落到正文上,取决于正文是不是这一层的**直接**孩子
+    const { container } = render(show(shellOf([think(LONG)], { status: 'running', thinking: true })));
+    const body = thoughtsBody(container);
+    const markdown = body!.querySelector('[data-testid="thinking-markdown"]');
+    expect(markdown).not.toBeNull();
+    expect(markdown!.parentElement).toBe(body);
+    // 反向对照:它的类名**不是** record 那份 `.think` —— 这正是按 `.think` 选会落空的原因
+    expect(typeof record.think).toBe('string');
+    expect(record.think.length).toBeGreaterThan(0);
+    expect(markdown!.className).not.toContain(record.think);
   });
 
   it('那只慢速分步滚的窗整个删掉了,写滚动位置的路径只剩跟随那一条', () => {

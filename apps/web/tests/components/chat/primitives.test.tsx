@@ -39,6 +39,8 @@ function row(over: Partial<ToolRowData> = {}): ToolRowData {
     name: 'Read',
     title: '读取规格',
     rawTitle: false,
+    /* 没回来的调用才是 pending —— 这几份 fixture 造的都是**已经回来**的行 */
+    pending: false,
     file: null,
     pattern: null,
     hits: null,

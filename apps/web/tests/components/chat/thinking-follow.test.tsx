@@ -83,10 +83,15 @@ const maxTopOf = (geom: Geom): number => Math.max(0, geom.content - geom.client)
 
 const think = (text: string): ShellItem => ({ kind: 'text', text, thinking: true });
 function liveShell(text: string): Shell {
+  /*
+   * 不带 `as`:这份 fixture 的价值就是「它长得像真的」,强转等于把这份价值关掉。
+   * (原来这里既多了一个 `seq`(契约里根本没有这个字段)、又少了 `id`,
+   *  两边互不可赋值,才会报「类型不够重叠」。)
+   */
   return {
-    kind: 'shell', seq: 0, status: 'running', items: [think(text)], segments: [],
+    kind: 'shell', id: 'shell-1', status: 'running', items: [think(text)], segments: [],
     thinking: true, stopped: false, elapsedMs: null, quietMs: null,
-  } as Shell;
+  };
 }
 const show = (shell: Shell): ReactElement => (
   <I18nProvider initial="zh-CN">

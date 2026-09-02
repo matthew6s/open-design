@@ -308,6 +308,8 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
         onRetry={ctx.onRetryImage}
         onOpenImage={ctx.onOpenFile ? (path) => ctx.onOpenFile?.(path) : undefined}
         imageSrc={ctx.imageSrc}
+        /* 没回来的格子画成转圈还是中性灰,取决于这一轮还在不在跑(同 `ToolRow`) */
+        running={ctx.running}
       />
     );
   }

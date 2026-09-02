@@ -26,20 +26,22 @@ import type { ExecutionShell as Shell, ShellItem, ToolRow } from '../../../src/r
 
 afterEach(cleanup);
 
-function toolItem(over: Partial<ToolRow> = {}): ShellItem {
+/* 字段给全就不用强转:`ToolRow` 本来就是 `ShellItem` 联合的一支 */
+function toolItem(over: Partial<ToolRow> = {}): ToolRow {
   return {
     kind: 'tool', id: 't1', tool: 'read', name: 'Read', title: '读取 a.ts', rawTitle: false,
     file: null, pattern: null, hits: null, delta: null, elapsedMs: null,
     pending: false, failed: false, failReason: null, command: null, terminal: null,
     ...over,
-  } as ToolRow as ShellItem;
+  };
 }
 
 function shellOf(items: ShellItem[], over: Partial<Shell> = {}): Shell {
+  /* 不带 `as`,也没有 `seq`(契约里没有这个字段)—— fixture 的价值就是它长得像真的 */
   return {
-    kind: 'shell', seq: 0, status: 'running', items, segments: [],
+    kind: 'shell', id: 'shell-1', status: 'running', items, segments: [],
     thinking: false, stopped: false, elapsedMs: null, quietMs: null, ...over,
-  } as Shell;
+  };
 }
 
 const show = (shell: Shell): ReactElement => (
@@ -77,7 +79,7 @@ describe('进行中的工具行', () => {
 
   it('可展开的命令行同样:球 + 空槽', () => {
     const { container } = render(show(shellOf([toolItem({
-      pending: true, tool: 'run', name: 'Bash', title: '构建产物,看能不能跑通',
+      pending: true, tool: 'exec', name: 'Bash', title: '构建产物,看能不能跑通',
       command: 'npm run build',
     })])));
     const row = rowOf(container);

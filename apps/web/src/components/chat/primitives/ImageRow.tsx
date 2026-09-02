@@ -28,9 +28,17 @@ export interface ImageRowProps {
   onOpenImage?: (path: string, index: number) => void;
   /** Resolve a project-relative output name to its authenticated preview URL. */
   imageSrc?: (path: string) => string;
+  /**
+   * 这一轮还在跑吗 —— 只决定**还没回来的格子**画成哪一档标记。
+   *
+   * `row.pending` 说的是「还有格子没回来」,不是「还在生成」。取消 / 失败之后那几张
+   * 确实没回来,但轮次已经停了,再转下去就读成「还在生成」(和 `ToolRow` 同一个 bug)。
+   * 默认 false:拿不到上下文时宁可画中性灰,也不要一颗停不下来的球。
+   */
+  running?: boolean;
 }
 
-export function ImageRow({ row, onRetry, onOpenImage, imageSrc }: ImageRowProps): ReactElement {
+export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false }: ImageRowProps): ReactElement {
   const t = useT();
   const settled = !row.pending && row.done + row.failed >= row.total;
 
@@ -71,7 +79,7 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc }: ImageRowProps)
     <>
       <div className={styles.tool}>
         {row.pending
-          ? <StatusMark status="running" />
+          ? <StatusMark status={running ? 'running' : 'pending'} />
           : <span className={styles.icon}><ImageIcon /></span>}
         <span className={styles.name}>{t('chat.record.imageBatch')}</span>
         <span className={`${styles.meta} ${styles.num}`}>{row.done}/{row.total}</span>

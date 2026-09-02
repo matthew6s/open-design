@@ -976,6 +976,32 @@
   margin-inline-start: calc(29px - var(--stream-pad));
 }
 .fold .body.stack .body.stream > * { padding-inline-start: 0; }
+/*
+ * 流窗里的正文走**常规字重**(稿子 `thinking-stream.css:81`:
+ * `… > .think { padding: 0; font-weight: 400; color: var(--stream-ink) }`)。
+ *
+ * ⚠️ 选择器**不能按 `.think` 选**。那一格的正文是 `ThinkingMarkdown` 渲染的,它的
+ * `.think` 来自另一个 CSS Module,和这里的 `.think` 是两个不同的哈希类名 ——
+ * 按 `.think` 写的规则一条都落不到它身上(下面那条就是这么空转到今天的)。
+ * 所以按「流窗里的那一层」选。
+ *
+ * 特异性 (0,3,0) 是**故意的**:`ThinkingMarkdown.module.css` 里那条 `.think` 是
+ * (0,1,0),打平就要按两个 module 谁先进 bundle 判,那是「今天碰巧对」。
+ *
+ * 字重原来靠继承 400 蒙对;W8 把面板基线换成 500 之后,思考正文跟着变重 —— 真回归。
+ */
+.fold .body.stream > * {
+  font-weight: 400;
+}
+/*
+ * ⚠️ 下面这条**目前空转**:`.stream > .think` 里的 `.think` 是 record 自己这份
+ * (`SayText` 的段落用它),而流窗里住的是 `ThinkingMarkdown` 的 `.think`,两者
+ * 类名不同。所以稿子那句「滚动流里的推理比普通的 .think 淡(`--stream-ink`)」
+ * 至今**没有真正生效**,思考正文实际取的是 `--chat-text-strong`。
+ * 字重那一半已经按上面的选择器修好了;颜色这一半是**可见的外观变化**
+ * (#202020 → #a3a3a3),不在这一轮的授权范围里自行改,已上报待裁决。
+ * 规则先留着:哪天 `SayText` 之类 record 自有的段落落进流窗,它就是对的。
+ */
 .stream > .think {
   padding: 0;
   color: var(--chat-stream-ink);
