@@ -82,7 +82,7 @@ const OPENING_WITH_STEPS = '.fold.flat > .body.stack:has(> .fold) > .think';
  * `record-muted-ink.test.tsx`(后者用真层叠在两种壳上各量一次)。
  */
 const INTERLUDE =
-  '.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))';
+  '.fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow)';
 
 describe('执行记录的三档轻重', () => {
   it('步骤标题是 13px / 500,不再是继承来的 12px / 600', () => {

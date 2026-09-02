@@ -427,6 +427,8 @@ function PlanRow({ steps, t, deferBody }: {
     <Foldable
       summary={<><StatusMark status="ok" /><span>{t('chat.record.plan', { count: steps.length })}</span></>}
       deferBody={deferBody}
+      /* 计划卡是这条链的头:它和下面几条 todo 一起构成「步骤」那一层(见 `TodoRow` 的注释) */
+      className={styles.stepRow}
     >
       {steps.map((step, i) => (
         <div className={styles.tool} key={`${step}-${i}`}>
@@ -477,6 +479,16 @@ function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): Re
       expandable={expandable}
       defaultOpen={segment.status === 'in_progress'}
       deferBody={ctx.deferCollapsedBodies}
+      /*
+       * **这一行是一步** —— 那条竖线和它带来的 22px 那一列只属于步骤这一层。
+       *
+       * 判据必须是**正面**的:壳顶层混着思考、工具行、正文、计划卡、步骤五种东西,
+       * 靠 `:not(.thoughts)` 之类逐个排除,每加一种新块型就漏一次;挂一个 `stepRow`
+       * 之后,新块型默认**不在链上**,漏的方向是安全的那一边。
+       * 用户 2026-09-02:「如果是在 todo 外的 toolrow 或者普通文本,或者 thinking,
+       * 不要有任何的缩进了,也不要这个竖着的灰线」。
+       */
+      className={styles.stepRow}
     >
       {expandable
         ? items.map((item, i) => renderItem(item, i, {

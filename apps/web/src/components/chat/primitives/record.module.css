@@ -259,8 +259,8 @@
  *    于是当时用 `:not(.thoughts)` 把它排除掉,链在那一格断开。现在偏移由
  *    `--chain-x + --row-outdent` 算出来,行怎么缩进线跟着走,不可能再错开。
  */
-.fold.flat > .body.stack > :is(.fold, .tool):has(~ :is(.fold, .tool))::before,
-.fold.flat > .body.stack > :is(.fold, .tool) ~ .fold[open]::before {
+.fold.flat > .body.stack > .stepRow:has(~ .stepRow)::before,
+.fold.flat > .body.stack > .stepRow ~ .stepRow[open]::before {
   content: '';
   position: absolute;
   inset-inline-start: calc(var(--chain-x) + var(--row-outdent, 0px));
@@ -325,7 +325,7 @@
  *
  * 详见 `specs/current/chat-panel-feedback.md` §F-11。
  */
-.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) {
+.fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow) {
   position: relative;
   padding-inline-start: 22px;
   /* 夹在两步中间的这几句是注脚,不是开场白:12px + 静音灰
@@ -334,10 +334,10 @@
   color: var(--chat-progress-detail-ink);
 }
 /* 行内代码自带 --chat-text-strong;不接管的话一段静音里会留下几个黑块 */
-.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool)) code {
+.fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow) code {
   color: inherit;
 }
-.fold.flat > .body.stack > :is(.fold, .tool) ~ .think:has(~ :is(.fold, .tool))::before {
+.fold.flat > .body.stack > .stepRow ~ .think:has(~ .stepRow)::before {
   content: '';
   position: absolute;
   /* 和上面那条链**同一个表达式**。这一段叙述不带那 7px 负外边距,`--row-outdent`
@@ -477,18 +477,18 @@
  *
  * 稿子用 `:not(.is-fail)` 守住:失败行的图标是红的(稿子 2219
  * `.fold.is-fail > summary .ti > svg { color: var(--red) }`),整行染灰会把它盖掉。
- * 产品的 `ToolRow` **没有**在可折叠那一支上挂失败类(`styles.fail` 只发给 `div.tool`),
- * 所以这里按**这一行自己报出来的失败**判:summary 里挂着「失败」那枚 `.why` 标记。
- * 这是同一件事的另一个正面证据,不是另立判据。
- * 更干净的收口是给那只 `Foldable` 补上 `styles.fail`(要动 `ToolRow.tsx`,已上报)。
+ * 产品这边 `ToolRow` 2026-09-02 起在可折叠那一支上也挂 `styles.fail`(和 `div.tool`
+ * 那几支一致),所以这里就是稿子那条 `:not(.is-fail)` 的逐字对应。
+ * 上一版靠 summary 里那枚「失败」标记(`.why`)反推,能用但绕:失败是**这一行**的状态,
+ * 判据就该挂在行上。
  */
-.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) {
+.fold.flat .fold:not(.fail) > summary:has(> .summaryContent > .icon) {
   color: var(--chat-progress-detail-ink);
 }
 /* 标题、耗时、图标一律跟着整行走 —— 稿子那句「文字、耗时和标记同色」 */
-.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) > .meta,
-.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) .icon,
-.fold.flat .fold > summary:has(> .summaryContent > .icon):not(:has(> .summaryContent > .why)) .icon > svg {
+.fold.flat .fold:not(.fail) > summary:has(> .summaryContent > .icon) > .meta,
+.fold.flat .fold:not(.fail) > summary:has(> .summaryContent > .icon) .icon,
+.fold.flat .fold:not(.fail) > summary:has(> .summaryContent > .icon) .icon > svg {
   color: inherit;
 }
 
@@ -576,8 +576,10 @@
  */
 .icon > svg { width: 14px; height: 14px; color: var(--chat-progress-detail-ink); }
 /* 失败行:记号和图标转红,红只标要注意的那一个(稿子 2218 / 2223 两条各管一层) */
-.tool.fail .icon { color: var(--chat-red); }
-.tool.fail .icon > svg { color: var(--chat-red); }
+.tool.fail .icon,
+.fold.fail > summary .icon { color: var(--chat-red); }
+.tool.fail .icon > svg,
+.fold.fail > summary .icon > svg { color: var(--chat-red); }
 
 /* 计划里的序号占图标那一格 —— 还没跑的步骤没有「哪类调用」可标 */
 .step {
@@ -918,6 +920,14 @@
 .fold.flat .body.stack .body.stack > .code { padding-inline-start: 0; }
 .fold.flat > .body.stack > .code { margin-inline: 22px 11px; }
 .fold.flat .body.stack .code { margin-inline: 29px 18px; }
+/*
+ * 顶层那条命令行的终端块跟着**顶层**的列走(0),不吃步骤那一格。
+ * 用户 2026-09-02:「todo 外的 toolrow…不要有任何的缩进了」——
+ * 终端块是那一行吐出来的东西,行不缩进,它也不缩。
+ * 29 / 7 这两个数是同一件事在两层的写法:行盒都往左探出 7px,
+ * 补回来之后一个落 22(步骤那一列)、一个落 0(壳的内容边)。
+ */
+.fold.flat > .body.stack > .fold > .body.stack > .code { margin-inline: 7px 18px; }
 
 .term {
   max-height: 104px;
@@ -1108,16 +1118,22 @@
  * 这也是稿子那条「缩进不能落在盒子上」例外(`.fold.mod-flat … > .fold { padding-inline: 0 }`)
  * 的同一件事:容器是盒子,推的是盒子,不是盒子里的行。
  */
-.fold .body.stack .body.stream,
-.fold .body.stack .thoughts > .body.stack {
-  margin-inline-start: calc(33px - var(--stream-pad));
-}
-.fold.flat .body.stack .body.stream,
-.fold.flat .body.stack .thoughts > .body.stack {
-  margin-inline-start: calc(29px - var(--stream-pad));
-}
-.fold .body.stack .body.stream > *,
-.fold .body.stack .thoughts > .body.stack > * { padding-inline-start: 0; }
+/* 顶层:落在壳的内容边(行盒往左探出 7px,补回来正好是 0) */
+.fold.flat > .body.stack > .thoughts > .body { margin-inline-start: 7px; }
+/* 嵌在步骤里:落在步骤那一列(状态点 15 + 间距 7 = 22;行盒探出 7,所以写 29) */
+.fold .body.stack .body.stack > .thoughts > .body { margin-inline-start: 33px; }
+.fold.flat .body.stack .body.stack > .thoughts > .body { margin-inline-start: 29px; }
+/*
+ * 盒子里的字**只吃容器那一份 `--stream-pad`**,不再叠第二层缩进。
+ * 稿子逐字:容器 `padding: var(--stream-pad)`(8px),窗里的正文
+ * `… > .think { padding: 0 }` —— 一层内距,不是两层。
+ * 用户 2026-09-02 并排对比时箭头指的就是「灰底左边缘到文字之间那段空白」。
+ *
+ * 特异性要压过上面那条 `:is(.body.stack, .body.stream) > *` 的 (0,6,0),
+ * 所以带上 `.flat`;非扁平壳那份留着,两处各算各的。
+ */
+.fold .body.stack .thoughts > .body > *,
+.fold.flat .body.stack .thoughts > .body > * { padding-inline-start: 0; }
 /*
  * 流窗里的正文走**常规字重**(稿子 `thinking-stream.css:81`:
  * `… > .think { padding: 0; font-weight: 400; color: var(--stream-ink) }`)。
@@ -1135,8 +1151,7 @@
  * **两态都写**(2026-09-02):容器统一之后,同一段字在「想的时候」和「想完了」
  * 之间换字重就成了新的断裂。
  */
-.fold .body.stream > *,
-.fold .thoughts > .body.stack > * {
+.fold .thoughts > .body > * {
   font-weight: 400;
 }
 /*
@@ -1156,8 +1171,7 @@
  * 两态共用一只灰底容器(见上面 `.stream, .thoughts > .body.stack`),同一只盒子里
  * 换墨色比换容器更突兀。
  */
-.fold .body.stream > *,
-.fold .thoughts > .body.stack > * {
+.fold .thoughts > .body > * {
   color: var(--chat-stream-ink);
 }
 /*
@@ -1172,8 +1186,7 @@
  * `md-h` 是 markdown 渲染器发的**全局**类,所以要用 `:global()` 包住,
  * 否则 CSS Module 会把它也改写成哈希名,规则又是一条空转的。
  */
-.fold .body.stream :global(.md-h),
-.fold .thoughts > .body.stack :global(.md-h) {
+.fold .thoughts > .body :global(.md-h) {
   color: inherit;
   font-weight: 500;
 }

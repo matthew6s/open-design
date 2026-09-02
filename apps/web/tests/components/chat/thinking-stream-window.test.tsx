@@ -160,7 +160,13 @@ describe('还在想的那一格:一只灰底容器,里面是普通正文', () =>
      */
     const rule = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .map((m) => ({ sel: (m[1] ?? '').replace(/\s+/g, ' ').trim(), body: (m[2] ?? '').replace(/\s+/g, ' ').trim() }))
-      .find((r) => /\.body\.stream\s*>\s*\*/.test(r.sel) && /font-weight:\s*400/.test(r.body));
+      /*
+       * ⚠️ 2026-09-02:选择器从「流窗里那一层」(`.body.stream > *`)收成
+       * 「**思考那一格**的 body 里那一层」(`.thoughts > .body > *`)——
+       * 想完了那一态也共用同一只灰底容器之后,两态必须走同一条规则,
+       * 否则字重会在「想完」那一刻跳一档。
+       */
+      .find((r) => /\.thoughts\s*>\s*\.body\s*>\s*\*/.test(r.sel) && /font-weight:\s*400/.test(r.body));
     expect(rule, '找不到给流窗正文定字重的规则').toBeTruthy();
     const classCount = (rule!.sel.match(/\.[A-Za-z0-9_-]+|:[a-z-]+/g) ?? []).length;
     expect(classCount, '必须严格压过 ThinkingMarkdown 那条 (0,1,0) 的 .think').toBeGreaterThan(1);

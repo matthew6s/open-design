@@ -71,13 +71,23 @@ const selectors = CSS
 const has = (needle: string): boolean => selectors.some((s) => s === needle);
 
 describe('N5 夹心正文落回 22px 竖线', () => {
-  it('认**两种**步骤形态,不只认可折叠的那种', () => {
+  /*
+   * ⚠️ **2026-09-02 又翻了一次。** 这一条原来钉的是「认两种步骤形态」——
+   * `:is(.fold, .tool)`,把工具行也算成一步(§F-11 ① 的口径)。
+   * 用户当天把「步骤」收窄成**清单那一层**:「如果是在 todo 外的 toolrow 或者
+   * 普通文本,或者 thinking,不要有任何的缩进了,也不要这个竖着的灰线」。
+   * 判据因此从「是哪种 DOM」换成「**是不是一步**」——
+   * `ExecutionShell` 给 todo / plan 那两种 `Foldable` 挂 `stepRow`,CSS 只认它。
+   * 这是正面判据:以后新增块型默认不在链上,漏的方向是安全的那一边。
+   */
+  it('前后都要认**步骤**这一层,不再把工具行当成一步', () => {
     const rail = selectors.filter((s) => s.includes('.think:has('));
     expect(rail.length).toBeGreaterThan(0);
     for (const s of rail) {
-      // 前一个兄弟(谁在我上面)和后一个兄弟(我下面还有没有)都要认 .tool
-      expect(s).toMatch(/:is\(\.fold, ?\.tool\) ~ \.think/);
-      expect(s).toMatch(/:has\(~ :is\(\.fold, ?\.tool\)\)/);
+      expect(s).toMatch(/\.stepRow ~ \.think/);
+      expect(s).toMatch(/:has\(~ \.stepRow\)/);
+      // 旧口径不许回来:工具行不是一步
+      expect(s).not.toMatch(/:is\(\.fold, ?\.tool\) ~ \.think/);
     }
   });
 
@@ -101,7 +111,7 @@ describe('N5 夹心正文落回 22px 竖线', () => {
     // 开场白是壳 body 的第一个孩子,一条都命中不了。
     const rail = selectors.filter((s) => s.includes('.think:has('));
     for (const s of rail) {
-      expect(s).toMatch(/> :is\(\.fold, ?\.tool\) ~ \.think/);
+      expect(s).toMatch(/> \.stepRow ~ \.think/);
     }
   });
 

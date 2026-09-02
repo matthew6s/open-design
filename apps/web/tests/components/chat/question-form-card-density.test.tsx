@@ -221,24 +221,37 @@ describe('OPEND-2401 · 必填角标与「下一步」的可读性', () => {
     expect(rule!.body).toMatch(/border:\s*1px solid var\(--border-strong\)/);
   });
 
-  it('「下一步」左右留出稳定的安全间距,并有最小宽度', () => {
+  /*
+   * 这一条原来断言的是 `min-width: 76px` + `padding-inline: ≥14px`。两个数在
+   * 交付稿(`8015870095:docs/design/chat-panel/src/components.css`)里**零命中** ——
+   * 稿子的底栏主按钮是 `.btn.mod-primary.mod-sm`,内距来自
+   * `.btn.mod-sm { padding: 4px 11px }`,而 `.btn` 一族一条 `min-width` 都没有。
+   * 那 14px 属于**非 sm 档**的基底 `.btn { padding: 6px 14px }`,写到这颗按钮上
+   * 等于把档位改回去,用户看到的就是「又宽又肥」。
+   * 稿子只写死高度,理由写在它自己的注释里(字号一动,靠内距撑出来的尺寸就漂),
+   * 而 W8 把 chat 基线字号 14 → 13 之后正好漂了。
+   * 尺寸的完整判据挪到 `question-form-next-button-size.test.tsx`(带层叠解析器,
+   * 能量到共享 `Button` 的 `.sm` 真的给了 11px);这里只留稿子那一个指定值。
+   */
+  it('「下一步」只钉稿子指定的 32px 高,宽度和内距都交给共享 `Button` 的 sm 档', () => {
     const root = mount();
     const next = root.querySelector<HTMLElement>('.qf-primary-action');
     expect(next, '找不到 `.qf-primary-action`').toBeTruthy();
-    const cs = getComputedStyle(next!);
-    expect(cs.minWidth, '没有最小宽度,短文案会缩成一颗小圆球').toBe('76px');
     // 高度这一条是稿子定的,不许被顺手改掉
-    expect(cs.height).toBe('32px');
+    expect(getComputedStyle(next!).height).toBe('32px');
 
-    // 水平内距同样走逻辑属性(jsdom 看不见,改用拍平后的规则)。
-    // 这颗按钮在卡里被钉成 32px 高的胶囊(圆角 16),共享 Button `.sm` 档的 11px
-    // 会被两端的圆弧吃掉大半,文字看着贴边 —— 抬到稿子非 sm 档的 14px。
-    const rule = rules().find(
-      (r) => r.sel === '.question-form .qf-primary-action' && /padding-inline/.test(r.body),
-    );
-    expect(rule, '找不到给「下一步」加水平内距的规则').toBeTruthy();
-    const pad = /padding-inline:\s*(\d+)px/.exec(rule!.body);
-    expect(pad, '水平内距没写成 padding-inline').toBeTruthy();
-    expect(Number(pad![1])).toBeGreaterThanOrEqual(14);
+    // 宽度地板:稿子没有,我们也不许有(jsdom 的初值就是 auto)
+    expect(
+      getComputedStyle(next!).minWidth,
+      '稿子的 `.btn` 一族零 min-width —— 给地板值会把短文案的按钮撑开',
+    ).toBe('auto');
+
+    // 水平内距走逻辑属性(jsdom 看不见),改用拍平后的规则:这里不该再有覆盖
+    expect(
+      rules()
+        .filter((r) => /\.qf-primary-action/.test(r.sel) && /padding-inline|min-width/.test(r.body))
+        .map((r) => r.sel),
+      '又有人给「下一步」加内距 / 宽度地板了 —— 稿子把这两件事交给 `.mod-sm`',
+    ).toEqual([]);
   });
 });

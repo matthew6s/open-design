@@ -189,6 +189,13 @@ export function ToolRow({
         elapsed={elapsed ?? (row.pending ? '' : undefined)}
         defaultOpen={row.failed}
         deferBody={deferBody}
+        /*
+         * 失败标记要落在**这一行自己**身上,和 `div.tool` 那几支一致
+         * (稿子同样是 `class="fold is-fail"`)。少了它,CSS 只能靠 summary 里
+         * 那枚「失败」标记反推,而「整行静音灰」的例外(稿子 `:not(.is-fail)`)
+         * 正是挂在这个类上的。
+         */
+        className={row.failed ? styles.fail : undefined}
       >
         <div className={styles.code}>
           <div className={`${styles.term} ${styles.cmd}`}><div>{row.command}</div></div>

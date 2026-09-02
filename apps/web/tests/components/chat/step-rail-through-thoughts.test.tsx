@@ -113,9 +113,20 @@ const px = (v: string | null): number => Number.parseFloat(v ?? 'NaN');
 /* ── N8-a 顶层每一格都在链上 ────────────────────────────────── */
 
 describe('N8-a 顶层三种 DOM 同一列,链一格都不落下', () => {
-  it('链的选择器认**两种**行,不只认可折叠的那种', () => {
+  /*
+   * ⚠️ **2026-09-02 换判据。** 这一条原来钉的是「链认两种 DOM」——
+   * `:is(.fold, .tool)`,把顶层每一格都算成链上的一格。
+   * 用户当天指认:顶层的思考左边挂着一条线、整块往右缩了一格,而它排在清单**之前**,
+   * 根本不在任何一步里面。原话:「如果是在 todo 外的 toolrow 或者普通文本,或者
+   * thinking,不要有任何的缩进了,也不要这个竖着的灰线」。
+   * 链因此收回**步骤那一层**:`ExecutionShell` 给 todo / plan 那两种 `Foldable` 挂
+   * `stepRow`,CSS 只认它。判据是正面的 —— 以后新增块型默认不在链上。
+   */
+  it('链的选择器只认**步骤**这一层', () => {
     expect(rowRails.length).toBeGreaterThan(0);               // 正向对照:规则找得到
-    for (const rule of rowRails) expect(rule.selector).toMatch(/:is\(\.fold, ?\.tool\)/);
+    for (const rule of rowRails) expect(rule.selector).toMatch(/\.stepRow/);
+    // 旧口径不许回来:工具行 / 思考 / 正文都不是一步
+    for (const rule of rowRails) expect(rule.selector).not.toMatch(/:is\(\.fold, ?\.tool\)/);
   });
 
   it('思考那一格**没有被排除**在链外', () => {
@@ -134,9 +145,9 @@ describe('N8-a 顶层三种 DOM 同一列,链一格都不落下', () => {
      * `details` 失去 `:last-of-type`,链在那里会凭空多一截或少一截。
      */
     for (const rule of rowRails) expect(rule.selector).not.toMatch(/:(first|last)-of-type/);
-    // 换成了「后面还有格」/「前面已经有格」这两个真判据
-    expect(rowRails.some((r) => /:has\(~ :is\(\.fold, ?\.tool\)\)/.test(r.selector))).toBe(true);
-    expect(rowRails.some((r) => /:is\(\.fold, ?\.tool\) ~ \.fold\[open\]/.test(r.selector))).toBe(true);
+    // 换成了「后面还有一步」/「前面已经有一步」这两个真判据
+    expect(rowRails.some((r) => /:has\(~ \.stepRow\)/.test(r.selector))).toBe(true);
+    expect(rowRails.some((r) => /\.stepRow ~ \.stepRow\[open\]/.test(r.selector))).toBe(true);
   });
 
   it('**反向对照**:抽屉**里面**的工具行照旧一条线都不画', () => {
