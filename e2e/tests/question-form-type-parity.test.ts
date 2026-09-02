@@ -106,7 +106,7 @@ describe('question-form 提示词跨路径一致性', () => {
        * 单选且选项多用 select,多选永远是竖排列表。
        * 第一版按「需不需要比较」分,已作废 —— 别再写回去。
        */
-      expect(src, `${rel} 没有说什么时候用 select`).toMatch(/how many options/i);
+      expect(src, `${rel} 没有说什么时候用 select`).toMatch(/by option count/i);
     }
   });
 
@@ -114,7 +114,7 @@ describe('question-form 提示词跨路径一致性', () => {
     for (const { rel } of PROMPT_PATHS) {
       // 这条必须在**通用**的表单规则里。discovery 那条 "Hard cap: 5 questions"
       // 只管开场简报,中途追问的表单不受它管 —— 那正是选项失控的入口。
-      expect(read(rel), `${rel} 没有给单题选项数上限`).toMatch(/6.{0,4}7 options/i);
+      expect(read(rel), `${rel} 没有给单题选项数上限`).toMatch(/6-7 options/i);
     }
   });
 
@@ -128,7 +128,7 @@ describe('question-form 提示词跨路径一致性', () => {
     for (const { rel } of PROMPT_PATHS) {
       const src = read(rel);
       // 模糊的形容词模型执行不了,必须是一个数
-      expect(src, `${rel} 没给具体字数`).toMatch(/40 characters/i);
+      expect(src, `${rel} 没给具体字数`).toMatch(/~?40 characters/i);
       expect(src, `${rel} 没说长解释该放哪`).toMatch(ticked('description'));
     }
   });

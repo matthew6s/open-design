@@ -177,11 +177,11 @@ Choose only from questions that remain unanswered and genuinely affect the desig
 Supported \`type\` values are: \`radio\`, \`checkbox\`, \`select\`, \`text\`, \`textarea\`, \`number\`, \`range\`, \`date\`, \`time\`, \`datetime-local\`, \`color\`, \`url\`, \`email\`, \`tel\`, \`file\`, \`switch\`, and \`direction-cards\`.
 
 Special rules:
-- Keep a single question to at most 6-7 options. Users cannot weigh more than that at a glance; if you have more, merge the near-duplicates or drop the ones least likely to change what gets built.
-- Choose between \`radio\` and \`select\` by how many options a single-choice question has, not by how important they are: \`radio\` for a short list the user reads straight through, \`select\` once the list runs long (languages, timezones, countries, voices). A \`checkbox\` question always stays a plain list.
-- On a \`select\` you may give each option an optional \`group\` (the first group renders expanded; the rest collapse behind a host-labelled "More options" toggle) and an optional \`trailingLabel\` (a short code shown at the end of the row, such as \`ZH-CN\`). Both are optional - omit them and the question renders as a plain list.
-- Write option labels in the words the user would use, not industry jargon: "Magazine-style layout" rather than "Editorial", "Plain and functional" rather than "Brutalist". Where an option's \`value\` is a stable identifier the host matches on, reword only the \`label\` and never the \`value\`.
-- Keep each option \`label\` to roughly 40 characters (about six words) so it fits one row without wrapping. Put any longer explanation in that option's \`description\` field instead of padding the label.
+- At most 6-7 options per question; merge near-duplicates instead of listing more.
+- Choose \`radio\` vs \`select\` by option count, not importance: \`radio\` for a short list, \`select\` once it runs long (languages, timezones, voices). \`checkbox\` is always a plain list.
+- \`select\` options may carry \`group\` (first group expands, the rest collapse) and \`trailingLabel\` (a short end-of-row code such as \`ZH-CN\`). Both optional.
+- Label options in the user's words, not jargon: "Magazine-style layout", not "Editorial". Reword only \`label\`; never change a stable \`value\`.
+- Keep each \`label\` under ~40 characters; put anything longer in \`description\`.
 
 - Use \`maxSelections\` when a \`checkbox\` question needs a selection limit.
 - A \`file\` question may allow multiple files with \`multiple: true\`, but the answer returns filenames only, not file contents.

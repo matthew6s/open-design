@@ -36,7 +36,31 @@ const repoRoot = path.resolve(__dirname, '../../../..');
 // geometry, provenance check) is load-bearing product behavior that could not
 // be delegated to the web-prototype skill, because it must hold for every
 // skill and for skill-less runs.
-const SLIM_CORE_BYTE_BUDGET = 29_696;
+//
+// 29_696 → 30_720: five option-authoring rules (option cap, radio-vs-select by
+// option count, the `group`/`trailingLabel` fields, plain-language labels, and
+// a 40-character label ceiling). Cost after compressing them from prose to
+// short imperatives: 644B, down from 1_315B in the first draft.
+//
+// Why they have to live here, at per-turn cost:
+//   - `### <question-form> Writing Guidelines` is unconditional in this charter,
+//     so every slim run already pays ~4.8KB for it. These rules govern the forms
+//     that section authorizes; splitting them out would leave the authorization
+//     without its quality bar.
+//   - There is no "this turn will emit a form" signal at compose time. The 51
+//     conditional sections in `composeSystemPrompt` key on session mode, design
+//     system, and project shape — none of them predicts a clarification turn.
+//     The one gate that touches this (`isSlimCharterHead`, system.ts:1432) runs
+//     the other way: it *suppresses* the duplicate block precisely because the
+//     charter already carries it.
+//   - The `discovery-question-form` atom is on-demand, but OD Next only. Moving
+//     the rules there would lose them for every skill-less slim run — the same
+//     reason the imagery contract above could not be delegated.
+//
+// Sized to the next 1KiB step rather than to fit: the previous raise left only
+// 44B of slack, so the next person to add a sentence hit this wall. 30_720
+// restores ~424B of headroom.
+const SLIM_CORE_BYTE_BUDGET = 30_720;
 
 describe('renderSlimCoreCharter — byte budget', () => {
   it('stays under the byte budget in both execution profiles', () => {
