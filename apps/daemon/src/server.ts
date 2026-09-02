@@ -1807,7 +1807,7 @@ export function createAgentRuntimeToolPrompt(
     '- On PowerShell use `& $env:OD_NODE_BIN $env:OD_BIN tools ...`; on cmd.exe use `"%OD_NODE_BIN%" "%OD_BIN%" tools ...`.',
     tokenLine,
     '- Prefer project wrapper commands through `OD_NODE_BIN` + `OD_BIN` over raw HTTP. The wrappers read these environment values automatically.',
-    '- Only when this run creates or updates a final Web deliverable, run `"$OD_NODE_BIN" "$OD_BIN" tools deliverable-syntax check --json` after the final edit and before ending. If it reports `repairable`, fix only the reported syntax error and run it again, with at most 3 repair attempts. Stop immediately when it passes. Skip this for planning/analysis turns and non-Web deliverables; do not loop on `skipped`, `incomplete`, or `exhausted`.',
+    '- Only when this run creates or updates a final Web deliverable, invoke `"$OD_NODE_BIN" "$OD_BIN" tools deliverable-syntax check --json` exactly once immediately after the final edit. Do not perform a self-review, manual validation, extra reads, or any other checks before this invocation. If it reports `pass`, stop immediately without further tool calls or edits. Only if it reports `repairable`, fix only the reported syntax location and invoke this same wrapper once more; allow at most 3 repair attempts. Do not run `node --check`, custom validation scripts, tests, or broader correctness reviews as part of this syntax gate. Skip the gate for planning/analysis turns and non-Web deliverables; stop without retrying on `skipped`, `incomplete`, or `exhausted`.',
   ].join('\n');
 }
 

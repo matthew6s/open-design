@@ -130,5 +130,9 @@ describe('deliverable syntax repair policy', () => {
     expect(prompt).toContain('index.html:12:8');
     expect(prompt).toContain('Unterminated string constant.');
     expect(prompt).toContain('Do not redesign');
+    expect(prompt).toContain('Do not perform a self-review');
+    expect(prompt).toContain('node --check');
+    expect(prompt).toContain('wrapper exactly once');
+    expect(prompt).toContain('stop immediately');
   });
 });
