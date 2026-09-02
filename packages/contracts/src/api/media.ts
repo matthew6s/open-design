@@ -43,6 +43,30 @@ export interface ProjectMediaTaskError {
 /** A project media task snapshot consumed by ChatPanel's per-output progress row. */
 export interface ProjectMediaTask {
   taskId: string;
+  /**
+   * Creation order within the daemon's media task store. Compare it, never
+   * persist or display it. `startedAt` ties on every parallel fan-out, so this
+   * is the only field that keeps a batch's cells in their real positions
+   * across polls. Absent from a producer that does not report it — fall back
+   * to `startedAt` then.
+   */
+  sequence?: number;
+  /**
+   * Identity of the generation batch this task belongs to: same-run,
+   * same-surface tasks whose lifetimes overlap, which is what a user perceives
+   * as one "generate the illustrations" action. Absent means the producer did
+   * not group; treat the task as a batch of one rather than guessing a total.
+   */
+  batchId?: string;
+  /** 1-based position within `batchId`. The N in "N/M". */
+  batchIndex?: number;
+  /**
+   * Tasks known in `batchId`. The M in "N/M". It grows while the batch is open
+   * and freezes once its last member ends, so a progress row's denominator
+   * never walks backwards. A one-at-a-time generation reports 1 here: the
+   * product ruling is a single spinner, not a fabricated total.
+   */
+  batchSize?: number;
   runId?: string;
   status: MediaTaskStatus;
   startedAt: number;

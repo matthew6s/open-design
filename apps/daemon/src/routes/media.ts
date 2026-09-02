@@ -33,6 +33,7 @@ import {
   type ToolTokenGrant,
 } from '../tool-tokens.js';
 import { scaffoldHyperFramesComposition } from '../media/hyperframes-scaffold.js';
+import { assignMediaTaskBatches } from '../media/task-batches.js';
 import { normalizePersistedAutomationWorkspaceScope } from '../automations/workspace-scope.js';
 
 const LONG_MEDIA_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -43,31 +44,99 @@ function finiteNumber(value: unknown): number | null {
 }
 
 /**
- * Resolve a media task's generation-time file metadata to the path that is
- * currently registered in the project. A rename/move preserves size + mtime,
- * which gives us a bounded identity witness without guessing from filenames.
- * Ambiguous matches fail closed so ChatPanel never previews an unrelated file.
+ * Files a media task's recorded metadata could still be, after the agent moved
+ * or renamed it.
+ *
+ * An in-project move preserves size and mtime, so the pair is a bounded
+ * identity witness that needs no filename guessing. The tolerance absorbs a
+ * destination filesystem storing fewer sub-millisecond digits than the source;
+ * it is deliberately far below any real filesystem's timestamp granularity,
+ * because a wider window buys nothing for a move (which preserves the value
+ * exactly) and only makes unrelated files collide. A witness that has drifted
+ * past it is not a witness, and staying blind beats showing the wrong image.
+ *
+ * `claimedNames` are files another task has already proven it owns. A witness
+ * may never point at one of those: two chat cards showing the same image is
+ * the same lie as one card showing a stranger's.
+ */
+function mediaTaskFileCandidates(
+  taskFile: unknown,
+  projectFiles: readonly ProjectFile[],
+  claimedNames: ReadonlySet<string>,
+): ProjectFile[] {
+  if (!taskFile || typeof taskFile !== 'object') return [];
+  const file = taskFile as Partial<ProjectMediaTaskFile>;
+  const name = typeof file.name === 'string' ? file.name.trim() : '';
+  if (!name) return [];
+
+  const size = finiteNumber(file.size);
+  const mtime = finiteNumber(file.mtime);
+  if (size === null || mtime === null) return [];
+  const kind = typeof file.kind === 'string' && file.kind ? file.kind : null;
+  return projectFiles.filter((candidate) => (
+    !claimedNames.has(candidate.name)
+    && candidate.size === size
+    && Math.abs(candidate.mtime - mtime) <= MEDIA_FILE_MTIME_TOLERANCE_MS
+    && (kind === null || candidate.kind === kind)
+  ));
+}
+
+/**
+ * Resolve one media task's generation-time file metadata to the path that is
+ * currently registered in the project. Ambiguous matches fail closed so
+ * ChatPanel never previews an unrelated file.
  */
 export function resolveMediaTaskProjectFile(
   taskFile: unknown,
   projectFiles: ProjectFile[],
+  claimedNames: ReadonlySet<string> = new Set(),
 ): ProjectFile | null {
   if (!taskFile || typeof taskFile !== 'object') return null;
   const file = taskFile as Partial<ProjectMediaTaskFile>;
   const name = typeof file.name === 'string' ? file.name.trim() : '';
   if (!name) return null;
 
-  const exact = projectFiles.find((candidate) => candidate.name === name);
-  if (exact) return exact;
+  if (!claimedNames.has(name)) {
+    const exact = projectFiles.find((candidate) => candidate.name === name);
+    if (exact) return exact;
+  }
 
-  const size = finiteNumber(file.size);
-  const mtime = finiteNumber(file.mtime);
-  if (size === null || mtime === null) return null;
-  const matches = projectFiles.filter((candidate) => (
-    candidate.size === size
-    && Math.abs(candidate.mtime - mtime) <= MEDIA_FILE_MTIME_TOLERANCE_MS
-  ));
+  const matches = mediaTaskFileCandidates(taskFile, projectFiles, claimedNames);
   return matches.length === 1 ? matches[0]! : null;
+}
+
+/**
+ * Resolve every moved media task against the project at once, so no surviving
+ * file is handed to two of them.
+ *
+ * Per-task uniqueness is not enough: two tasks that recorded the same witness
+ * each see exactly one candidate and each would take it. A file that more than
+ * one task can claim proves nothing about either, so it is withdrawn from all
+ * of them — the same fail-closed rule, applied across tasks instead of within
+ * one.
+ */
+export function resolveMovedMediaTaskFiles(
+  candidates: ReadonlyArray<{ taskId: string; file: unknown }>,
+  projectFiles: readonly ProjectFile[],
+  claimedNames: ReadonlySet<string> = new Set(),
+): Map<string, ProjectFile> {
+  const matchesByTask = new Map<string, ProjectFile[]>();
+  const claimCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    const matches = mediaTaskFileCandidates(candidate.file, projectFiles, claimedNames);
+    matchesByTask.set(candidate.taskId, matches);
+    for (const match of matches) {
+      claimCounts.set(match.name, (claimCounts.get(match.name) ?? 0) + 1);
+    }
+  }
+
+  const resolved = new Map<string, ProjectFile>();
+  for (const [taskId, matches] of matchesByTask) {
+    const uncontested = matches.filter((match) => (claimCounts.get(match.name) ?? 0) === 1);
+    const only = uncontested.length === 1 ? uncontested[0] : undefined;
+    if (only) resolved.set(taskId, only);
+  }
+  return resolved;
 }
 
 function reconciledMediaTaskFile(
@@ -1113,16 +1182,31 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
           projectId,
           { metadata: project.metadata },
         );
-        for (const task of movedCandidates) {
-          const resolved = resolveMediaTaskProjectFile(task.file, projectFiles);
-          if (resolved) confirmedFiles.set(task.id, resolved);
-        }
+        // Files a task still resolves by its recorded path are already
+        // spoken for; a moved task must not take one of them.
+        const claimedNames = new Set(
+          [...confirmedFiles.values()].map((file) => file.name),
+        );
+        const resolved = resolveMovedMediaTaskFiles(
+          movedCandidates.map((task: any) => ({ taskId: task.id, file: task.file })),
+          projectFiles,
+          claimedNames,
+        );
+        for (const [taskId, file] of resolved) confirmedFiles.set(taskId, file);
       } catch {
         // Task status remains useful when an imported folder is temporarily
         // unavailable. Omit unconfirmed files and let the client's bounded
         // terminal poll reconcile them if the project root returns.
       }
     }
+    const batches = assignMediaTaskBatches(taskRows.map((task: any) => ({
+      id: task.id,
+      runId: task.runId,
+      surface: task.surface,
+      startedAt: task.startedAt,
+      endedAt: task.endedAt,
+      sequence: task.sequence,
+    })));
     const tasks = taskRows.map((t: any) => {
       const resolvedFile = confirmedFiles.get(t.id) ?? null;
       let confirmedFile: Record<string, unknown> | null = null;
@@ -1136,8 +1220,11 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
           }
         }
       }
+      const batch = batches.get(t.id);
       return {
         taskId: t.id,
+        sequence: t.sequence,
+        ...(batch ?? {}),
         ...(t.runId ? { runId: t.runId } : {}),
         status: t.status,
         startedAt: t.startedAt,
@@ -1151,7 +1238,9 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         ...(t.status === 'failed' || t.status === 'interrupted' ? { error: t.error } : {}),
       };
     });
-    tasks.sort((a: any, b: any) => b.startedAt - a.startedAt);
+    // Newest first, with creation order breaking the ties a parallel fan-out
+    // always produces.
+    tasks.sort((a: any, b: any) => (b.startedAt - a.startedAt) || (b.sequence - a.sequence));
     res.json({ tasks });
   });
 

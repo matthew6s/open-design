@@ -32,6 +32,13 @@ export interface MediaTaskError {
 export interface MediaTaskRow {
   id: string;
   projectId: string;
+  /**
+   * Monotonic creation order (SQLite's rowid). Only the ordering it induces is
+   * meaningful — never persist or display the value. It exists because
+   * `started_at` ties on every parallel fan-out, and a tie broken by storage
+   * order lets a batch's cells swap places between two reads.
+   */
+  sequence: number;
   runId?: string;
   status: MediaTaskStatus;
   surface?: string;
@@ -77,6 +84,7 @@ export interface MediaTaskPatch {
 interface RawMediaTaskRow {
   id: string;
   projectId: string;
+  sequence: number;
   runId: string | null;
   status: string;
   surface: string | null;
@@ -102,6 +110,7 @@ const TERMINAL_STATUSES = new Set(['done', 'failed', 'interrupted']);
 
 const COLS = `
   id,
+  rowid AS sequence,
   project_id AS projectId,
   run_id AS runId,
   status,
@@ -311,6 +320,7 @@ function normalizeRow(raw: RawMediaTaskRow): MediaTaskRow {
   const row: MediaTaskRow = {
     id: raw.id,
     projectId: raw.projectId,
+    sequence: Number(raw.sequence),
     status: raw.status as MediaTaskStatus,
     progress: parseArray(raw.progressJson),
     file: parseJson(raw.fileJson),

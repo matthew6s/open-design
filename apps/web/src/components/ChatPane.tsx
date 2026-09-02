@@ -1092,6 +1092,23 @@ function latestAssistantRunId(messages: ChatMessage[]): string | undefined {
 const TERMINAL_MEDIA_FILE_CONFIRMATION_INTERVAL_MS = 750;
 const TERMINAL_MEDIA_FILE_CONFIRMATION_MAX_POLLS = 8;
 
+/**
+ * Creation order of a run's media tasks, which is the order their cells sit in.
+ *
+ * `startedAt` ties on every parallel fan-out, so sorting by it alone leaves the
+ * order to whatever the transport happened to produce: a failed cell can drift
+ * to a different slot between two polls, taking its retry coordinate with it.
+ * `sequence` is the producer's own creation counter and settles those ties;
+ * a producer that does not report one falls back to the timestamp.
+ */
+function byMediaTaskCreationOrder(a: ProjectMediaTask, b: ProjectMediaTask): number {
+  if (a.startedAt !== b.startedAt) return a.startedAt - b.startedAt;
+  if (typeof a.sequence === 'number' && typeof b.sequence === 'number') {
+    return a.sequence - b.sequence;
+  }
+  return 0;
+}
+
 export function ChatPane({
   messages,
   streaming,
@@ -1249,6 +1266,13 @@ export function ChatPane({
     return Boolean(runId && trackedMediaRunKey.split(',').includes(runId));
   }, [displayMessages, streaming, trackedMediaRunKey]);
   const [projectMediaTasks, setProjectMediaTasks] = useState<ProjectMediaTask[]>([]);
+  /*
+   * Runs whose media work this pane actually watched happen. Only those have a
+   * settling window worth re-reading: a run replayed from history stopped
+   * writing files long ago, and re-polling it would spend a burst of requests
+   * on every conversation open to prove something that cannot have changed.
+   */
+  const watchedLiveMediaRunsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!projectId || !trackedMediaRunKey) {
       setProjectMediaTasks([]);
@@ -1264,14 +1288,35 @@ export function ChatPane({
         if (canceled) return;
         const relevant = response.tasks
           .filter((task) => task.surface === 'image' && task.runId && trackedRunIds.has(task.runId))
-          .sort((a, b) => a.startedAt - b.startedAt);
+          .sort(byMediaTaskCreationOrder);
         setProjectMediaTasks((current) => sameMediaTasks(current, relevant) ? current : relevant);
-        const hasActiveTask = relevant.some(
-          (task) => task.status === 'queued' || task.status === 'running',
-        );
-        const needsTerminalFileConfirmation = relevant.some(
-          (task) => task.status === 'done' && !task.file?.name?.trim(),
-        );
+        let hasActiveTask = false;
+        for (const task of relevant) {
+          if (task.status !== 'queued' && task.status !== 'running') continue;
+          hasActiveTask = true;
+          if (task.runId) watchedLiveMediaRunsRef.current.add(task.runId);
+        }
+        /*
+         * A completed image's registered path stays provisional for a moment
+         * after its run reports terminal: the agent's last normalize/move is an
+         * ordinary file write the run status does not wait for. So for a run we
+         * watched generate, keep asking the daemon to re-resolve its finished
+         * images for a bounded window even after it answered with a path — that
+         * first answer can be the pre-rename one, and the card would then
+         * request a 404 forever.
+         *
+         * This reconciles a task's *path* only. Which version of a same-named
+         * file a historical card shows is a separate design
+         * (specs/current/chat-artifact-versioning-design.md), so a task whose
+         * name is unchanged reconciles to itself and nothing re-renders.
+         */
+        const needsTerminalFileConfirmation = relevant.some((task) => (
+          task.status === 'done'
+          && (
+            !task.file?.name?.trim()
+            || (!!task.runId && watchedLiveMediaRunsRef.current.has(task.runId))
+          )
+        ));
         if (liveMediaRun || hasActiveTask) {
           timer = window.setTimeout(() => void refresh(), 750);
         } else if (
