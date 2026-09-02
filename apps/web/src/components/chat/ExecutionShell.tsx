@@ -353,8 +353,20 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
  * 壳头的跨度只由带时刻的事件撑开,第一个工具之前的推理根本不在里面
  * (真机 `4347efff`:整轮 6m 12s,壳头当时只写 3m 11s,掐掉的正是开头那 2m 34s 推理)。
  *
- * **正在想的时候不显示** —— 和进行中的 todo 同一条规矩(`TodoRow` 的
- * `status === 'in_progress'` 那一档):还没结束的事报不出时长,报了也只会每帧跳。
+ * **正在想的那一格也挂**(产品 2026-09-02,**有意偏离设计稿**)。
+ * 这一行原来是 `live ? null : formatElapsed(...)`,依据是稿子里那一格的说明:
+ *   「不挂耗时:这一行**只活到第一个字落地为止**,给一个马上要消失的状态配一个跳动的
+ *     秒数,只会把注意力钉在一个从此不再相关的数字上;总耗时在任务进度那一格里。」
+ * 产品推翻的是它的**前提**:对推理模型来说这一行根本不「马上消失」—— 真实数据里有
+ * 单轮思考 28.5 分钟、单个 Bash 卡住 14.1 分钟的案例(诊断包 run `3fc3b3ae`),
+ * 用户的实感是「跑了 40 分钟什么都没出来」,而那 40 分钟里执行记录上一个数字都没有。
+ * 产品原话:「为啥思考中不会有计时?我感觉**进行中的 toolrow 都得有计时**吧?」
+ *
+ * 秒数**不是这里算的**,也没有新起定时器:`build-turn-blocks` 用轮次共用的实时终点
+ * (`liveEndMs`,由 `AssistantMessage` 那一个既有 interval 每秒喂进来)把它算好,
+ * 这一层只负责画。判据钉在 `tests/components/chat/live-row-elapsed.test.tsx`。
+ *
+ * ⚠️ 这个 span **不许挂 `aria-live`** —— 挂了读屏会每秒念一遍秒数。
  */
 function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
   texts: string[];
@@ -363,7 +375,8 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
   t: RenderCtx['t'];
   deferBody: boolean;
 }): ReactElement {
-  const elapsed = live ? null : formatElapsed(elapsedMs);
+  /* 两态同一句话:有数就画。「正在想的不报时长」那条已被产品推翻(见上面的注释) */
+  const elapsed = formatElapsed(elapsedMs);
   /*
    * 还在写的时候贴底跟随(用户 2026-09-02)。判据复用 ChatPane 那一套
    * (`runtime/chat/stick-to-bottom.ts`),这里只负责把限高盒子交给它。
@@ -459,7 +472,25 @@ function PlanRow({ steps, t, deferBody }: {
 function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): ReactElement {
   const expandable = isExpandable(segment);
   const struck = isStruck(segment);
-  const elapsed = segment.status === 'in_progress' ? null : formatElapsed(segment.elapsedMs);
+  /**
+   * **进行中那一条也挂耗时**(产品 2026-09-02,**有意偏离设计稿**)。
+   *
+   * 这里原来是 `segment.status === 'in_progress' ? null : …`。稿子确实这么画:
+   * 组件 7 全稿 10/10 条进行中都没有 `.ms` 槽,理由写在 Thinking 那一格 ——
+   * 「这一行只活到第一个字落地为止,给一个马上要消失的状态配一个跳动的秒数,
+   * 只会把注意力钉在一个从此不再相关的数字上;总耗时在任务进度那一格里」,
+   * 而那颗会跳的绿点就是秒数的替代品。
+   *
+   * 推翻的理由是**前提不成立**:一步活能跑上半小时(真实数据:单轮思考 28.5 分钟、
+   * 单个 Bash 卡住 14.1 分钟,诊断包 run `3fc3b3ae`),用户的实感是「跑了 40 分钟
+   * 什么都没出来」。产品原话:「为啥思考中不会有计时?我感觉**进行中的 toolrow
+   * 都得有计时**吧?」—— 裁决覆盖思考中 / 工具行 / 步骤行三类。
+   *
+   * 秒数由 `build-turn-blocks` 从轮次共用的实时终点推出来(零新增定时器),
+   * 这一层只负责画;槽本身不许挂 `aria-live`(读屏会每秒念一遍)。
+   * 守卫在 `tests/components/chat/live-row-elapsed.test.tsx`。
+   */
+  const elapsed = formatElapsed(segment.elapsedMs);
   /**
    * 抽屉里的推理也要收(用户问题二的真因)。
    *
@@ -482,7 +513,15 @@ function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): Re
       }
       elapsed={elapsed ?? undefined}
       expandable={expandable}
-      defaultOpen={segment.status === 'in_progress'}
+      /*
+       * **相位,不是初始值**(W24 的 `lifecycleOpen`)。这里原来是 `defaultOpen`,
+       * 而 `defaultOpen` 只在挂载那一帧被看一眼 —— 这一行的 key 是
+       * `todo-${segment.content}-${index}`,状态从 `in_progress` 翻成 `completed`
+       * 时内容和位置一个字都没变,于是同一个实例、同一份内部折叠态,**跑完还摊着**。
+       * `lifecycleOpen` 每次变都跟,但用户自己动过之后就不再跟。
+       * 守卫在 `tests/components/chat/todo-row-lifecycle-collapse.test.tsx`。
+       */
+      lifecycleOpen={segment.status === 'in_progress'}
       deferBody={ctx.deferCollapsedBodies}
       /*
        * **这一行是一步** —— 那条竖线和它带来的 22px 那一列只属于步骤这一层。

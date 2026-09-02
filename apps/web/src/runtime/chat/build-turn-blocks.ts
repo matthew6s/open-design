@@ -379,6 +379,33 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
    */
   const turnIsLive = (input.runStatus ?? 'running') === 'running'
     || input.runStatus === 'queued';
+  /**
+   * **进行中的行走到哪一刻为止** —— 一轮只有这一个实时终点,所有还没结算的行共用它。
+   *
+   * 和壳头 `shellElapsed` 里那句 `running ? input.nowMs : input.endedAtMs` 是**同一个
+   * 表达式**:跑着的时候终点是「现在」,轮次停了就钉在轮次收尾。两处同源,壳头和行内
+   * 的秒数才会在终态那一帧一起换算,不会一个还在跑、一个已经定住。
+   *
+   * ── 为什么进行中的行开始报耗时(**有意偏离设计稿**)─────────────────────
+   *
+   * 稿子(`docs/design/chat-panel/src/body-components.html`,Thinking 那一格)明确
+   * **不给**进行中的行挂耗时,理由逐字是:「这一行**只活到第一个字落地为止**,给一个
+   * 马上要消失的状态配一个跳动的秒数,只会把注意力钉在一个从此不再相关的数字上;
+   * 总耗时在任务进度那一格里。」
+   *
+   * 产品 2026-09-02 推翻了它,因为**那个前提对推理模型不成立**:真实数据里有单轮思考
+   * 28.5 分钟、单个 Bash 卡住 14.1 分钟的案例(诊断包 run `3fc3b3ae`)。一个要持续
+   * 半小时的状态,说它「马上要消失」是错的 —— 用户当时的实感是「跑了 40 分钟什么都
+   * 没出来」,而那 40 分钟里执行记录上一个数字都没有。产品原话:「为啥思考中不会有
+   * 计时?我感觉**进行中的 toolrow 都得有计时**吧?」
+   *
+   * ── 零新增 timer ─────────────────────────────────────────────────────
+   *
+   * 秒表**早就有了**:`AssistantMessage` 的 `useTickingNow` 每秒把 `nowMs` 喂进来
+   * (一个 message 一个 `setInterval`)。所以整件事在这一层算完 —— 没有新的定时器、
+   * 没有组件 state,「多行同时跑只有一个 timer」和「卸载要清 timer」在构造上就满足了。
+   */
+  const liveEndMs = (turnIsLive ? input.nowMs : input.endedAtMs) ?? null;
   const blocks: TurnBlock[] = [];
   const previous = recalledContents(input.previousTodos);
   /**
@@ -813,6 +840,14 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     // 还在飞的调用没有终点可 stamp,但**起点**要记 —— 否则壳的跨度停在上一条
     // 结束的时刻,一次长调用期间整只壳看起来没有在推进。
     else if (row.pending) stamp(event.startedAt);
+    /*
+     * 还没回来的那一行也报耗时(产品 2026-09-02 推翻稿子,理由见 `liveEndMs`)。
+     * 终点换成全轮共用的实时终点,起点仍是这次调用自己的 `startedAt` ——
+     * 和结算值同一个 `spanElapsed`,所以结果回来那一帧只换终点,不换算法。
+     *
+     * **必须排在 `stamp()` 之后**:实时值不许进跨度记账(见 `buildToolRow` 的注释)。
+     */
+    if (row.pending) row.elapsedMs = spanElapsed(event.startedAt, liveEndMs);
     openText = null;
     sink().push(row);
   }
@@ -1037,11 +1072,28 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     const running = status === 'running' || status === 'queued';
 
     /*
-     * 收尾那一段推理:轮次终止之后,它填掉的那段空白的终点就是**轮次的收尾时刻**。
-     * 还在跑时**不结账** —— 那一格正在写,正在想的不报时长(和进行中的 todo 同一条规矩)。
+     * 收尾那一段推理:它填掉的那段空白的终点就是**轮次的实时终点** ——
+     * 轮次终止了是收尾时刻,还在跑就是「现在」。
+     *
+     * ⚠️ 这里曾经写着 `if (!running …)`,理由是「正在想的不报时长」(稿子那条)。
+     * 产品 2026-09-02 推翻:单轮思考能持续 28.5 分钟,那半小时里执行记录上
+     * 一个数字都没有 —— 完整因果见 `liveEndMs` 的注释。现在两档共用同一个终点,
+     * 所以轮次一停、`liveEndMs` 从 `nowMs` 换成 `endedAtMs`,这一格的数字只换
+     * 终点、不换算法,不会塌一下。
      */
-    if (!running && input.endedAtMs != null) closeThink(input.endedAtMs);
+    if (liveEndMs != null) closeThink(liveEndMs);
     settleThink();
+
+    /*
+     * 进行中的那条 todo 走到**轮次的实时终点**为止 —— 和上面那段推理、和壳头
+     * `shellElapsed` 的 `isLast` 是同一句话。
+     *
+     * 不补这一下的话,`segSpan` 只被**带时刻的事件**撑开,而带时刻的只有
+     * `tool_use.startedAt` 与 `tool_result.completedAt`;一条 todo 里最后一次调用
+     * 之后的推理全部被切掉。于是「进行中」那一条要么一个数都没有(名下只有推理),
+     * 要么冻在最后一次调用结束的时刻 —— 正是产品指认的「思考中不会有计时」。
+     */
+    if (current && liveEndMs != null) widen(segSpan, current, liveEndMs);
 
     /* 每条 todo 落自己的耗时(稿子每条抽屉右侧那个 `18.2s`) */
     for (const [seg, span] of segSpan) {
@@ -1456,6 +1508,28 @@ function readImageCall(
 /* ── 工具行 ─────────────────────────────────────────────────── */
 
 /**
+ * 一段跨度算成耗时。**进行中和已结算走的是同一个表达式** —— `终点 − 起点` ——
+ * 唯一的差别是终点从哪来:结算了用事件自带的终点,没结算就用全轮共用的实时终点
+ * (`liveEndMs`)。
+ *
+ * ⚠️ 这是「终态切换不回退」的落法。两边各写一套算法,切换那一帧就会**塌**:
+ * 进行中报的是「到现在为止」,结算却报「到最后一个带时刻的事件为止」,
+ * 屏幕上「1m 2s」当场变成「2.0s」。同一个表达式之后,切换只换终点,
+ * 回退幅度最多等于两个终点之差。
+ *
+ * 并且**结算终点优先**:`completedAt` 一到手,实时终点再往前走也读不到了 ——
+ * 这就是「实时值钳制到不超过已结算值」,跑完的行不会继续跳。
+ *
+ * 门槛沿用 `UNKNOWN_ELAPSED_BELOW_MS`:算出来不到 100ms 的是「同一批到达」,
+ * 那是「不知道」不是「跑得快」(§2.2b,见 `format.ts` 开头)。
+ */
+function spanElapsed(from: number | null | undefined, to: number | null | undefined): number | null {
+  if (from == null || to == null) return null;
+  const ms = to - from;
+  return ms >= UNKNOWN_ELAPSED_BELOW_MS ? ms : null;
+}
+
+/**
  * 一次调用落成一行。
  *
  * ⚠️ **D3「调用没回来就不落行」已作废**(产品 2026-09-02,OPEND-2419)。
@@ -1487,12 +1561,12 @@ function buildToolRow(
   /**
    * 耗时:两端都拿得到才算。codex 的 `tool_use` 在 `item.completed` 才发出,
    * 与 `tool_result` 同时到达 —— 差值接近 0 表示「不知道」,不是「跑得快」(§2.2b / W10)。
+   *
+   * 这里只算**结算值**。还没回来的那一档由调用处补上实时值(同一个 `spanElapsed`,
+   * 只换终点)—— 分开写是因为壳 / todo 的跨度记账只能吃结算值:拿实时值去
+   * `stamp()` 会把 `nowMs` 记成「最后一件事发生的时刻」,S12 的静默立刻恒等于 0。
    */
-  let elapsedMs: number | null = null;
-  if (event.startedAt != null && result?.completedAt != null) {
-    const d = result.completedAt - event.startedAt;
-    if (d >= UNKNOWN_ELAPSED_BELOW_MS) elapsedMs = d;
-  }
+  const elapsedMs = spanElapsed(event.startedAt, result?.completedAt);
 
   return {
     kind: 'tool',

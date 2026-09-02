@@ -111,8 +111,18 @@ describe('思考那一格的耗时 · 它填掉的那段空白', () => {
     expect(thoughtsOf(shell).map((g) => g.elapsedMs)).toEqual([18_000]);
   });
 
-  /** 反向对照:还在跑的时候不结账 —— 没结束的事报不出时长 */
-  it('轮次还在跑:收尾那一段一个数都不给', () => {
+  /**
+   * 还在跑的时候**也结账**,终点换成「现在」(产品 2026-09-02,有意偏离设计稿)。
+   *
+   * 这一条原来断言的是 `[null]`,依据是稿子「进行中的行不挂耗时」。产品推翻了它的
+   * 前提 —— 真实数据里有单轮思考 28.5 分钟的案例,那半小时里执行记录上一个数字都没有。
+   * 完整因果在 `build-turn-blocks.ts` 的 `liveEndMs` 注释与
+   * `tests/runtime/chat/live-row-elapsed.test.ts`。
+   *
+   * 关键是**同一个表达式**:收尾那一段的终点在跑着的时候是 `nowMs`、停了是 `endedAtMs`,
+   * 上一条用例(`收尾那一段:最后一次调用结束 → 轮次收尾`)和这一条只差这一个终点。
+   */
+  it('轮次还在跑:收尾那一段结算到「现在」', () => {
     const shell = sole({
       events: [
         ...call('t1', 1_000_000, 1_002_000),
@@ -121,6 +131,19 @@ describe('思考那一格的耗时 · 它填掉的那段空白', () => {
       runStatus: 'running',
       startedAtMs: 1_000_000,
       nowMs: 1_020_000,
+    });
+    expect(thoughtsOf(shell).map((g) => g.elapsedMs)).toEqual([18_000]);
+  });
+
+  /** 反向对照:没有「现在」可用(历史消息重渲染)时仍然不编数 */
+  it('轮次还在跑但拿不到 `nowMs`:一个数都不给', () => {
+    const shell = sole({
+      events: [
+        ...call('t1', 1_000_000, 1_002_000),
+        { kind: 'thinking', text: '还在想…' },
+      ],
+      runStatus: 'running',
+      startedAtMs: 1_000_000,
     });
     expect(thoughtsOf(shell).map((g) => g.elapsedMs)).toEqual([null]);
   });

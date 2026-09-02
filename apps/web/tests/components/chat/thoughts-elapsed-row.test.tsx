@@ -10,9 +10,13 @@
  * 那句话的**前提是假的**:壳头的跨度只由带时刻的事件撑开,第一个工具之前的推理
  * 根本不在里面(见 `runtime/chat/shell-elapsed-includes-thinking.test.ts`)。
  *
- * 「正在想不挂」这一半和进行中的 todo 是同一条规矩(`TodoRow` 的
- * `status === 'in_progress'` 那一档,守卫在 `running-todo-no-elapsed.test.tsx`)——
- * 还没结束的事报不出时长,报了也只会每帧跳。
+ * ⚠️ **「正在想不挂」那一半 2026-09-02 被产品推翻了**(有意偏离设计稿)。
+ * 稿子的理由是「这一行只活到第一个字落地为止」,而那个前提对推理模型不成立:
+ * 真实数据里有单轮思考 28.5 分钟的案例(诊断包 run `3fc3b3ae`),用户的实感是
+ * 「跑了 40 分钟什么都没出来」。产品原话:「为啥思考中不会有计时?我感觉
+ * **进行中的 toolrow 都得有计时**吧?」完整因果与三类行的守卫在
+ * `tests/components/chat/live-row-elapsed.test.tsx`;这个文件只留「想完了那一格」
+ * 这一半,以及「拿不到就不编数」那条纪律。
  *
  * ⚠️ 两个用例的**数据完全一样**,只有「在不在想」这一位不同 ——
  * 否则「显示了」这条断言可以靠挂一个常量蒙混过去。
@@ -49,16 +53,17 @@ describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决
     expect(root.textContent).toContain('2m 34s');
   });
 
-  it('**正在想**:同一份数据,一个数都不显示', () => {
+  it('**正在想**:同一份数据,同样写出来(产品 2026-09-02 推翻了稿子那一条)', () => {
     const root = show({
       status: 'running',
       thinking: true,
       items: [thought('先想清楚要动哪几个文件。', 154_000)],
     });
-    expect(root.textContent).not.toContain('2m 34s');
+    expect(root.textContent).toContain('思考中');
+    expect(root.textContent).toContain('2m 34s');
   });
 
-  it('同一摞里两格并存:只有想完的那一格带数字', () => {
+  it('同一摞里两格并存:两格**各报各的**,不是共用一个数', () => {
     const root = show({
       status: 'running',
       thinking: true,
@@ -75,7 +80,7 @@ describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决
       ],
     });
     expect(root.textContent).toContain('5.4s');
-    expect(root.textContent).not.toContain('8.9s');
+    expect(root.textContent).toContain('8.9s');
   });
 
   it('拿不到耗时的那一格什么都不写 —— 不用 `0.0s` 顶上', () => {
