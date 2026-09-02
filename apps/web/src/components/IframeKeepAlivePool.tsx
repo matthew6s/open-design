@@ -14,6 +14,13 @@ import {
   type SyntheticEvent,
 } from 'react';
 
+import type { PreviewPhaseReclaimReason } from '@open-design/contracts/runtime/preview-phase-events';
+import { useAnalytics } from '../analytics/provider';
+import {
+  reportPreviewPoolReclaim,
+  setPreviewPhaseSink,
+} from '../runtime/preview-phase-reporter';
+
 export const OD_PREVIEW_KEEP_ALIVE =
   typeof process === 'undefined' || process.env.OD_PREVIEW_KEEP_ALIVE !== '0';
 export const DEFAULT_IFRAME_KEEP_ALIVE_POOL_SIZE = 5;
@@ -24,6 +31,10 @@ interface PoolEntry {
   fileName: string;
   element: HTMLIFrameElement;
   lastUsedAt: number;
+  /** For `cache_reclaimed.retained_ms`: how long this context stayed alive. */
+  createdAt: number;
+  /** For `cache_reclaimed.reuse_count`: attaches served, including the first. */
+  attachCount: number;
 }
 
 type AtomicMoveTarget = HTMLElement & {
@@ -148,7 +159,12 @@ export function IframeKeepAliveProvider({
     for (const listener of keyListenersRef.current.get(key) ?? []) listener();
   };
 
-  const removeEntry = (key: string): boolean => {
+  // Every path that destroys a browsing context funnels through here, so this
+  // is the one place a reclaim can be observed without a second bookkeeping
+  // surface drifting out of sync with the pool's own state. The reason is
+  // passed in rather than inferred: only the caller knows whether this was the
+  // LRU bound, a project switch, or a teardown.
+  const removeEntry = (key: string, reason: PreviewPhaseReclaimReason): boolean => {
     const entry = entriesRef.current.get(key);
     if (!entry) return false;
     const wasActive = activeKeysRef.current.has(key);
@@ -157,6 +173,16 @@ export function IframeKeepAliveProvider({
     activeKeysRef.current.delete(key);
     if (wasActive) invalidateKey(key);
     if (!keyListenersRef.current.has(key)) keyRevisionsRef.current.delete(key);
+    // No-ops unless this key was registered as a preview document. The pool
+    // stays generic; the preview mapping lives in the preview-owned module.
+    reportPreviewPoolReclaim({
+      cacheKey: key,
+      reason,
+      retainedMs: Math.max(0, Date.now() - entry.createdAt),
+      reuseCount: Math.max(0, entry.attachCount - 1),
+      retainedEntryCount: entriesRef.current.size,
+      evictedEntryCount: 1,
+    });
     return wasActive;
   };
 
@@ -167,7 +193,7 @@ export function IframeKeepAliveProvider({
     while (entriesRef.current.size > maxEntriesRef.current && inactive.length > 0) {
       const evicted = inactive.shift();
       if (!evicted) break;
-      removeEntry(evicted.key);
+      removeEntry(evicted.key, 'lru_budget');
     }
   };
 
@@ -182,10 +208,13 @@ export function IframeKeepAliveProvider({
           fileName,
           element: create(),
           lastUsedAt: Date.now(),
+          createdAt: Date.now(),
+          attachCount: 0,
         };
         entriesRef.current.set(key, entry);
       }
       entry.lastUsedAt = Date.now();
+      entry.attachCount += 1;
       activeKeysRef.current.add(key);
       if (moveIframeElement(host, entry.element)) {
         preservedOnLastAttach.add(entry.element);
@@ -211,12 +240,12 @@ export function IframeKeepAliveProvider({
       enforceLimit();
     },
     evict(key) {
-      removeEntry(key);
+      removeEntry(key, 'version_superseded');
     },
     evictFrame(frame) {
       for (const entry of entriesRef.current.values()) {
         if (entry.element !== frame) continue;
-        removeEntry(entry.key);
+        removeEntry(entry.key, 'version_superseded');
         return;
       }
     },
@@ -226,7 +255,7 @@ export function IframeKeepAliveProvider({
           entry.projectId === projectId
           && (options?.includeActive || !activeKeysRef.current.has(entry.key))
         ) {
-          removeEntry(entry.key);
+          removeEntry(entry.key, 'project_switch');
         }
       }
     },
@@ -236,7 +265,7 @@ export function IframeKeepAliveProvider({
           (options?.includeActive || !activeKeysRef.current.has(entry.key))
           && predicate(entry)
         ) {
-          removeEntry(entry.key);
+          removeEntry(entry.key, 'manual');
         }
       }
     },
@@ -261,8 +290,24 @@ export function IframeKeepAliveProvider({
   }, [maxEntries]);
 
   useEffect(() => () => {
-    for (const key of Array.from(entriesRef.current.keys())) removeEntry(key);
+    for (const key of Array.from(entriesRef.current.keys())) {
+      removeEntry(key, 'session_closed');
+    }
   }, []);
+
+  const { track } = useAnalytics();
+  // Bind preview phase telemetry to the consent-gated analytics channel. This
+  // provider is mounted once, above every preview surface and inside
+  // AnalyticsProvider, which makes it the only place in the tree that can hand
+  // the whole preview runtime a live `track` without a second context.
+  //
+  // Declared last on purpose: React runs effect cleanups in declaration order,
+  // so the teardown above must get to report its reclaims before this one
+  // removes the sink they report through.
+  useEffect(() => {
+    setPreviewPhaseSink((event, properties) => track(event, properties));
+    return () => setPreviewPhaseSink(null);
+  }, [track]);
 
   return (
     <IframeKeepAliveContext.Provider value={pool}>
@@ -299,10 +344,13 @@ export function useIframeKeepAlivePool(): IframeKeepAlivePoolValue {
             fileName,
             element: create(),
             lastUsedAt: Date.now(),
+            createdAt: Date.now(),
+            attachCount: 0,
           };
           fallbackEntriesRef.current.set(key, entry);
         }
         entry.lastUsedAt = Date.now();
+        entry.attachCount += 1;
         fallbackActiveKeysRef.current.add(key);
         host.appendChild(entry.element);
         return entry.element;
