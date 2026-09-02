@@ -69,6 +69,7 @@ import {
   markProjectFileVersionStoreDeleted,
   readProjectFileVersion,
   renameProjectFileVersionStore,
+  resolveProjectFileVersionDocument,
   withProjectFileVersionLock,
 } from '../../project-file-versions.js';
 import {
@@ -7394,6 +7395,170 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
         status,
         status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
         String(err),
+      );
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Historical version documents.
+  //
+  // A stored version used to reach the browser only as a JSON string that the
+  // host re-wrapped into `srcdoc`. A `srcdoc`/`blob:` document has no
+  // directory, so every relative `./app.js`, stylesheet, image, font, and
+  // dynamic import inside an old version failed to load and the user compared
+  // versions against a stripped or blank page.
+  //
+  // This route gives a version the one thing `srcdoc` cannot: a real URL with
+  // a real directory. `<relPath>` is the document's ordinary project-relative
+  // path, so the browser resolves `./app.js` and `../fonts/x.woff2` by its own
+  // rules into sibling paths under the same `/version-preview/<versionId>/`
+  // prefix — which this route answers.
+  //
+  // Which bytes those sibling paths return is the one semantic choice here:
+  //
+  //   * The addressed HTML document is served from the captured version,
+  //     byte-exact. An HTML path that does not own `versionId` is refused, so
+  //     "this is that version" can never degrade into "this is roughly that
+  //     version".
+  //   * Every other subresource is served from the project file that is on
+  //     disk NOW. Version history is captured for HTML documents only
+  //     (`ensureCurrentProjectFileVersion` returns null for anything else), so
+  //     the assets as they were at capture time simply do not exist to serve.
+  //     Today's assets are the deliberate trade-off that makes an old version
+  //     render at all; a caller comparing versions is comparing documents
+  //     against a shared, current asset baseline.
+  // ---------------------------------------------------------------------
+
+  // Preflight parity with /raw: preview iframes without an opaque-origin
+  // document still send `Origin: null`, and this route grants them the same
+  // local-only allowance.
+  app.options(/^\/api\/projects\/([^/]+)\/version-preview\/([^/]+)\/(.+)$/u, (req, res) => {
+    if (req.headers.origin === 'null') {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    res.sendStatus(204);
+  });
+
+  app.get(/^\/api\/projects\/([^/]+)\/version-preview\/([^/]+)\/(.+)$/u, async (req, res) => {
+    let documentRequest = false;
+    try {
+      const params = req.params as unknown as { 0?: string; 1?: string; 2?: string };
+      const projectId = String(params[0] ?? '');
+      const versionId = String(params[1] ?? '');
+      const relPath = String(params[2] ?? '');
+      if (rejectInternalVersionPath(res, relPath)) return;
+      const project = getProject(db, projectId);
+      if (!project) {
+        return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+      }
+      // A historical version is the same project data as the working file, so
+      // it carries the same read authority as /raw — no weaker because the
+      // bytes are old, and no stronger (this is a read, not a mutation).
+      if (!await authorizeProjectRequest(
+        req,
+        res,
+        project.id,
+        { mode: 'read', allowNavigationQuery: true },
+      )) return;
+      if (project?.metadata?.teamMirrorRevokedAt) {
+        return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
+      }
+      if (req.headers.origin === 'null') {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+
+      if (!/\.html?$/iu.test(relPath)) {
+        // A subresource of the historical document: current bytes, current
+        // validators, exactly what /raw would return for the same path.
+        await sendProjectFile(
+          req,
+          res,
+          project.id,
+          relPath,
+          project?.metadata,
+          undefined,
+          undefined,
+          true,
+        );
+        return;
+      }
+
+      documentRequest = true;
+      const versionDocument = await resolveProjectFileVersionDocument(
+        PROJECTS_DIR,
+        project.id,
+        relPath,
+        versionId,
+        project?.metadata,
+      );
+      // Byte-exact identity of the served representation, the same
+      // `sha256:` shape `preview-url` reports for the working document. A
+      // stored version file is written once and never rewritten, so this
+      // digest names one specific document forever — it is the identity the
+      // head-scan cache is keyed on and the one the host may bind a preview
+      // runtime to.
+      //
+      // The HTTP validator below is separately safe. `sendProjectFile` derives
+      // the streamed-path ETag from size+mtime, which is too weak for the
+      // working file (an in-place rewrite can land on the same pair) but not
+      // here: this URL carries the version id, a version id maps to exactly
+      // one immutable content file, and a cache entry is keyed by URL. There
+      // is no second representation for these bytes to be confused with.
+      const documentVersion = await htmlPreviewDocumentVersion(versionDocument);
+      res.setHeader('X-Od-Document-Version', documentVersion);
+      const sourceMeta: ProjectFileSendMeta = {
+        filePath: versionDocument.filePath,
+        mime: versionDocument.mime,
+        size: versionDocument.size,
+        mtime: versionDocument.mtime,
+      };
+      const streamHtmlPreviewBridge =
+        /^text\/html(?:;|$)/iu.test(sourceMeta.mime)
+        && sourceMeta.size > PREVIEW_URL_GUARD_MAX_HTML_BYTES;
+
+      await sendProjectFile(
+        req,
+        res,
+        project.id,
+        relPath,
+        project?.metadata,
+        undefined,
+        streamHtmlPreviewBridge
+          ? undefined
+          : async (file) => applyUrlPreviewBridgesToHtml(
+              file.buffer,
+              file.mime,
+              req.query.odPreviewBridge,
+            ),
+        true,
+        streamHtmlPreviewBridge && req.query.odPreviewBridge !== undefined
+          ? async (streamMeta) => {
+              const { scan } = await htmlPreviewPolicyIndex.get({
+                filePath: streamMeta.filePath,
+                documentVersion,
+              });
+              return {
+                insertionOffset: scan.insertionOffset,
+                content: Buffer.from(buildStreamingUrlPreviewBridgeInjection(
+                  req.query.odPreviewBridge,
+                  scan.hasLoadTimeLocationNavigation,
+                )),
+              };
+            }
+          : undefined,
+        sourceMeta,
+      );
+    } catch (err: any) {
+      const status = err && err.code === 'ENOENT' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404
+          ? (documentRequest ? 'VERSION_NOT_FOUND' : 'FILE_NOT_FOUND')
+          : 'BAD_REQUEST',
+        String(err?.message || err),
       );
     }
   });

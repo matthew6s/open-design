@@ -322,6 +322,46 @@ export function buildProjectRawFileUrl(
  * ProjectPreviewIsolationResponse — NOT a relative path — so the iframe runs
  * at an origin isolated from the app shell and from normal daemon APIs.
  */
+/**
+ * Build the URL that serves ONE stored version of a project file as a real
+ * HTML document — the transport the version-history panel loads instead of
+ * re-wrapping `ProjectFileVersionResponse.content` into `srcdoc`.
+ *
+ * `filePath` is the document's ordinary project-relative path and stays LAST
+ * in the URL on purpose: the browser then resolves the document's relative
+ * references (`./app.js`, `../fonts/x.woff2`) by its own rules into sibling
+ * paths under the same `/version-preview/<versionId>/` prefix, which the
+ * daemon answers.
+ *
+ * Semantics of what those siblings return: the addressed HTML document is the
+ * captured version, byte-exact; every non-HTML subresource is the project file
+ * on disk NOW. Version history exists for HTML documents only, so the assets
+ * as they were at capture time cannot be reconstructed — serving today's
+ * assets is the deliberate trade-off that makes an old version render at all.
+ *
+ * Append `?odPreviewBridge=<tokens>` to request the same preview bridges the
+ * current document gets from `/raw`.
+ */
+export function buildProjectFileVersionDocumentUrl(
+  baseUrl: string,
+  projectId: string,
+  versionId: unknown,
+  filePath: unknown,
+): string | null {
+  if (typeof versionId !== 'string' || versionId.length === 0) return null;
+  if (typeof filePath !== 'string' || filePath.length === 0) return null;
+  const segments = filePath
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .map(encodeURIComponent)
+    .join('/');
+  if (segments.length === 0) return null;
+
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+  return `${normalizedBaseUrl}/api/projects/${encodeURIComponent(projectId)}`
+    + `/version-preview/${encodeURIComponent(versionId)}/${segments}`;
+}
+
 export function buildProjectPoweredFileUrl(
   baseOrigin: string,
   projectId: string,
