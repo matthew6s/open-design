@@ -412,12 +412,14 @@ const gapRows = [...rankedModels].sort((a, b) => b.score - a.score).map((model) 
   };
 });
 const gapInconclusive = gapRows.filter((row) => row.inconclusive).length;
+/** 误差范围整段落在 0 一侧的模型 —— 只有这些能说「确实和场均不一样」 */
+const gapConclusive = gapRows.filter((row) => !row.inconclusive);
 const gapDesc = isZh
-  ? `每个模型的平均分减去场均（${rankedModels.length} 个模型，${fieldAverage.toFixed(1)} 分）。横线是 95% 置信区间，跨过 0 就说明这个差距还说不准。`
-  : `Each model's average score minus the ${rankedModels.length}-model field average (${fieldAverage.toFixed(1)}). The whisker is the 95% confidence interval.`;
+  ? `每个模型的平均分减去场均（${rankedModels.length} 个模型，${fieldAverage.toFixed(1)} 分）。横线是这个差距的误差范围（95% 置信区间）：只要它盖住中间那条 0 线，就说明这个模型和场均谁高谁低，这批数据还分不出来。`
+  : `Each model's average score minus the ${rankedModels.length}-model field average (${fieldAverage.toFixed(1)}). The whisker is the margin of error on that gap (95% confidence interval): where it covers the zero line, this model and the field average cannot be told apart.`;
 const gapNote = isZh
-  ? `${rankedModels.length} 个里有 ${gapInconclusive} 个跨过 0，也就是说只有排在最后的那个真正低于场均，其余名次的先后都在噪声范围内。要把它们分开，得加样本或者换更难的题。`
-  : `${gapInconclusive} of the ${rankedModels.length} intervals cross zero: only the last-placed model is genuinely below the field, and every ordering above it is noise. Separating them needs more samples or harder tasks.`;
+  ? `${rankedModels.length} 个里有 ${gapInconclusive} 个的误差范围盖住了 0 线${gapConclusive.length === 1 ? `，只有 ${gapConclusive[0]!.name} 确实和场均拉开了差距` : ''}。其余模型谁高谁低，这批数据还说不清 —— 想分出来，要么加样本，要么换更难的题。`
+  : `${gapInconclusive} of the ${rankedModels.length} whiskers cover the zero line${gapConclusive.length === 1 ? `, leaving ${gapConclusive[0]!.name} as the only model measurably apart from the field` : ''}. For the rest, this dataset cannot say which is better — separating them needs more samples or harder tasks.`;
 
 /** 综合榜顶部的三项高亮，各自独立取最优，不跟推荐区的五个维度共用。 */
 const overallRows = decisionRowsFor('overall');
