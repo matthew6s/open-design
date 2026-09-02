@@ -587,43 +587,43 @@ const clientCopyJson = JSON.stringify({
           ))}
         </ul>
       )}
-    </section>
 
-    <section class="model-section gap-section" aria-labelledby="gap-title">
-      <div class="section-heading">
-        <div><h2 id="gap-title">{copy.gapHeading}</h2><p>{gapDesc}</p></div>
-      </div>
-      <div class="gap-chart" style={`--gap-zero:${gapZero}%`}>
-        <div class="gap-row gap-head" aria-hidden="true">
-          <span></span><span>{copy.model}</span><span>{copy.gapAxis}</span>
-          <span class="gap-track">
-            {gapTicks.map((tick) => (
-              <i class:list={['gap-tick', { 'is-zero': tick === 0 }]} style={`left:${gapX(tick)}%`}>
-                <b>{tick > 0 ? `+${tick}` : tick}</b>
-              </i>
-            ))}
-          </span>
+      <div class="gap-block">
+        <div class="gap-block-head">
+          <h3 id="gap-title">{copy.gapHeading}</h3><p>{gapDesc}</p>
         </div>
-        {gapRows.map((row, index) => (
-          <div class:list={['gap-row', { 'is-inconclusive': row.inconclusive, 'is-below': row.delta < 0 }]}>
-            <span class="gap-rank">{index + 1}</span>
-            <span class="gap-model">
-              <span class="model-icon"><img src={row.icon} alt="" width="24" height="24" /></span>
-              <strong>{row.name}</strong>
-            </span>
-            <span class="gap-value">
-              <strong>{row.delta >= 0 ? `+${row.delta.toFixed(1)}` : row.delta.toFixed(1)}</strong>
-              <small>±{row.ci95.toFixed(1)}</small>
-            </span>
+        <div class="gap-chart" style={`--gap-zero:${gapZero}%`}>
+          <div class="gap-row gap-head" aria-hidden="true">
+            <span></span><span>{copy.model}</span><span>{copy.gapAxis}</span>
             <span class="gap-track">
-              <i class="gap-bar" style={`left:${row.barStart}%;width:${row.barWidth}%`}></i>
-              <i class="gap-whisker" style={`left:${row.whiskerStart}%;width:${row.whiskerWidth}%`}></i>
-              {row.inconclusive ? <span class="sr-only">{copy.gapInconclusiveTag}</span> : null}
+              {gapTicks.map((tick) => (
+                <i class:list={['gap-tick', { 'is-zero': tick === 0 }]} style={`left:${gapX(tick)}%`}>
+                  <b>{tick > 0 ? `+${tick}` : tick}</b>
+                </i>
+              ))}
             </span>
           </div>
-        ))}
+          {gapRows.map((row, index) => (
+            <div class:list={['gap-row', { 'is-inconclusive': row.inconclusive, 'is-below': row.delta < 0 }]}>
+              <span class="gap-rank">{index + 1}</span>
+              <span class="gap-model">
+                <span class="model-icon"><img src={row.icon} alt="" width="24" height="24" /></span>
+                <strong>{row.name}</strong>
+              </span>
+              <span class="gap-value">
+                <strong>{row.delta >= 0 ? `+${row.delta.toFixed(1)}` : row.delta.toFixed(1)}</strong>
+                <small>±{row.ci95.toFixed(1)}</small>
+              </span>
+              <span class="gap-track">
+                <i class="gap-bar" style={`left:${row.barStart}%;width:${row.barWidth}%`}></i>
+                <i class="gap-whisker" style={`left:${row.whiskerStart}%;width:${row.whiskerWidth}%`}></i>
+                {row.inconclusive ? <span class="sr-only">{copy.gapInconclusiveTag}</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p class="gap-note">{gapNote}</p>
       </div>
-      <p class="gap-note">{gapNote}</p>
     </section>
 
     <section class="model-section scenario-rankings-section" aria-labelledby="task-title">

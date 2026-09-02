@@ -1082,31 +1082,36 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
  * 置信区间跨过 0 的行整体降饱和 —— 那些名次这批数据分不出高下，
  * 视觉上就不该和真正拉开差距的行一样抢眼。
  */
-.gap-chart { margin-top: 30px; border-top: 1px solid var(--model-line); }
+/* 这是「模型综合表现」里的一个模块，不是独立章节，所以标题降一级、整体压扁 */
+.gap-block { margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--model-line); }
+.gap-block-head h3 { margin: 0; font-size: 17px; font-weight: 690; letter-spacing: -.02em; }
+.gap-block-head p { max-width: 660px; margin: 6px 0 0; color: var(--ink-mute); font-size: 13px; line-height: 1.55; }
+.gap-chart { margin-top: 16px; border-top: 1px solid var(--model-line); }
 .gap-row {
   display: grid;
-  grid-template-columns: 34px minmax(140px,1.05fr) 84px minmax(0,3.2fr);
+  grid-template-columns: 28px minmax(126px,1fr) 74px minmax(0,3.4fr);
   align-items: center;
-  gap: 0 14px;
-  padding: 11px 0;
+  gap: 0 12px;
+  padding: 5px 0;
   border-bottom: 1px solid var(--line-soft);
 }
-.gap-head { padding: 12px 0 16px; color: var(--ink-faint); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.gap-head .gap-track { height: 14px; }
-.gap-rank { color: var(--ink-faint); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
-.gap-model { min-width: 0; display: flex; align-items: center; gap: 10px; }
-.gap-model .model-icon { width: 26px; height: 26px; flex: 0 0 auto; }
-.gap-model strong { min-width: 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
-.gap-value { text-align: right; font-variant-numeric: tabular-nums; }
-.gap-value strong { display: block; color: var(--model-accent-ink); font-size: 15px; font-weight: 720; }
-.gap-value small { display: block; margin-top: 1px; color: var(--ink-faint); font-size: 11px; }
-.gap-track { height: 26px; position: relative; border-radius: 3px; background: color-mix(in srgb,var(--model-line) 34%,transparent); }
+.gap-head { padding: 7px 0 9px; color: var(--ink-faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.gap-head .gap-track { height: 12px; background: none; }
+.gap-head .gap-track::before { display: none; }
+.gap-rank { color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.gap-model { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.gap-model .model-icon { width: 21px; height: 21px; flex: 0 0 auto; }
+.gap-model strong { min-width: 0; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.gap-value { display: flex; align-items: baseline; justify-content: flex-end; gap: 5px; font-variant-numeric: tabular-nums; }
+.gap-value strong { color: var(--model-accent-ink); font-size: 13.5px; font-weight: 720; }
+.gap-value small { color: var(--ink-faint); font-size: 10.5px; }
+.gap-track { height: 18px; position: relative; border-radius: 3px; background: color-mix(in srgb,var(--model-line) 34%,transparent); }
 /* 0 线贯穿整张图，是所有条形的共同基准 */
-.gap-track::before { content: ''; width: 1px; position: absolute; top: -11px; bottom: -11px; left: var(--gap-zero); background: color-mix(in srgb,var(--model-ink) 22%,transparent); }
-.gap-bar { height: 14px; position: absolute; top: 6px; border-radius: 2px; background: var(--model-accent-ink); }
-.gap-whisker { height: 1px; position: absolute; top: 12.5px; background: color-mix(in srgb,var(--model-ink) 42%,transparent); }
+.gap-track::before { content: ''; width: 1px; position: absolute; top: -5px; bottom: -5px; left: var(--gap-zero); background: color-mix(in srgb,var(--model-ink) 22%,transparent); }
+.gap-bar { height: 10px; position: absolute; top: 4px; border-radius: 2px; background: var(--model-accent-ink); }
+.gap-whisker { height: 1px; position: absolute; top: 8.5px; background: color-mix(in srgb,var(--model-ink) 42%,transparent); }
 .gap-whisker::before,
-.gap-whisker::after { content: ''; width: 1px; height: 9px; position: absolute; top: -4px; background: inherit; }
+.gap-whisker::after { content: ''; width: 1px; height: 7px; position: absolute; top: -3px; background: inherit; }
 .gap-whisker::before { left: 0; }
 .gap-whisker::after { right: 0; }
 .gap-tick { position: absolute; top: 0; bottom: 0; width: 0; }
@@ -1118,7 +1123,7 @@ body:has(.model-index-page) .site-chrome.is-condensed .nav {
 .gap-row.is-inconclusive .gap-bar { background: color-mix(in srgb,var(--model-accent-ink) 30%,transparent); }
 .gap-row.is-inconclusive.is-below .gap-bar { background: color-mix(in srgb,var(--model-ink) 18%,transparent); }
 .gap-row.is-inconclusive .gap-value strong { color: var(--ink-mute); font-weight: 650; }
-.gap-note { max-width: 760px; margin: 20px 0 0; color: var(--ink-mute); font-size: 13px; line-height: 1.65; }
+.gap-note { max-width: 760px; margin: 14px 0 0; color: var(--ink-mute); font-size: 12.5px; line-height: 1.6; }
 
 @media (max-width: 900px) {
   .gap-row { grid-template-columns: 26px minmax(96px,1fr) 70px minmax(0,1.6fr); gap: 0 10px; }
