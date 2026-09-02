@@ -70,7 +70,52 @@ export const ARTIFACT_CARD_LOAD_BUDGET = 4;
 
 // How far outside the viewport a card may be and still start loading. Small
 // on purpose: one row of overscan, not the whole grid.
+//
+// ⚠️ 对**聊天里的产物卡**这条 margin 是不生效的,别拿它当缓冲区。产物卡住在
+// `.chat-log`(`overflow-y: auto`)里,IntersectionObserver 的相交矩形要先被祖先
+// 裁剪框裁一刀再跟 root 比,而 `rootMargin` 撑的是 root(视口),撑不开中间那一刀。
+// 2026-09-03 真机实测:同一批卡同时挂 `0px` / `160px` / `3000px` 三个观察器,滚到
+// 三个位置,三条读数一模一样。所以产物卡的「缓冲」只能按**最近可见时间**做,
+// 见下面的 `ARTIFACT_CARD_RETAIN_BUFFER`。
 export const THUMBNAIL_OVERSCAN_MARGIN = '160px';
+
+/**
+ * 已经加载完的产物卡 iframe,**离开视口后还留几张**。
+ *
+ * 为什么需要它:`useInView` 默认 `once: true`,进过一次视口 iframe 就永远挂着。
+ * 2026-09-02 真机滚一条 4 张卡的会话,数量是 2→3→4 —— **只增不减**。一条 assistant
+ * 消息实测最多产出 28 张卡(13 张 html),而 `ChatPane` 的虚拟化要到 80 条消息才
+ * 启动,所以 79 条以内的会话滚到底,前面每一张卡的 live 文档全都还活在渲染器里。
+ *
+ * ── 为什么按「最近可见」而不是按「离视口多远」 ──────────────────────────
+ * 按距离**量不了**,理由写在上面 `THUMBNAIL_OVERSCAN_MARGIN` 那条注释里:聊天里的
+ * 裁剪框把 rootMargin 整个吃掉了。按最近可见时间做 LRU 只需要「现在看得见吗」这一个
+ * 信号,裁剪反而正好给出这个语义;而且它天然带迟滞 —— 在视口边缘抖动的卡每次都刷新
+ * 自己的时间戳,永远排在淘汰队尾,不会被抖出去。
+ *
+ * ── 这 8 张是怎么来的 ────────────────────────────────────────────────
+ * ① **一屏**。2026-09-03 真机量的产物卡栅格:`.chat-log` 594×476,卡 275×173,
+ *    行距 181px,一屏 2.6 行 ≈ 5~6 张(行错位时最多 8 张)。取 8 就是**整整一屏
+ *    的缓冲**:看完卡下面那段文字再滚回来,一张都不用重新加载。
+ * ② **p90 的会话根本不会触发回收**。实测 45 个带卡会话:p50 = 2 张、p90 = 7 张。
+ *    7 ≤ 8,所以十个会话里有九个从头到尾一张都不卸 —— 谁也不会为这条策略付出
+ *    重新加载的代价,它只为那条长尾存在。
+ * ③ **= 2 × `ARTIFACT_CARD_LOAD_BUDGET`**。缓冲区整个凉掉时,正好两轮排队就能重新
+ *    填满,不会出现一次几十个文档的重挂潮。
+ *
+ * ── 卸载的代价,以及为什么不敢再小 ────────────────────────────────────
+ * 卸掉再挂回来 = **完整重走一遍文档加载**:daemon 的 raw 路由发 `Cache-Control:
+ * no-cache`,一次往返;页面脚本从头再跑;`<head>` 里的外链重新拉。2026-09-02 现场
+ * 那份产物挂着一条 `https://cdn.tailwindcss.com`,那个域名在测试机上打不通,卡面
+ * 因此空白了 6~59 秒 —— 回收太激进的话,「滚回去看一眼」就会变成一次几十秒的空白,
+ * 比内存问题刺眼得多。所以这里的取舍是**偏保守**:只有真的走远了(整整一屏之外
+ * 且被更新的卡挤出去了)才卸,而 LRU 的「最近」语义保证了刚看过的那批永远排在最后。
+ *
+ * ⚠️ 这个数只管**离开视口的**卡。视口里的一律钉住不卸(大屏一次能看见更多,那就
+ * 留更多),所以它是「缓冲区大小」,不是「总上限」—— 没有任何一屏会因为这个数而
+ * 被拆掉。
+ */
+export const ARTIFACT_CARD_RETAIN_BUFFER = 8;
 
 type SlotPhase = 'idle' | 'queued' | 'granted' | 'settled';
 
@@ -136,7 +181,21 @@ function releaseSlot(slot: ThumbnailLoadSlot): void {
   if (slot.phase === 'queued') {
     removeFromQueue(slot);
     slot.phase = 'idle';
+    return;
   }
+  /*
+   * 已经加载完的槽位也要还回来。
+   *
+   * `settled` 的意思是「这一份文档已经画完了,不再占预算」,不是「这张卡从此
+   * 免检」。被回收掉的产物卡如果留着 settled,滚回去时 `canLoad` 一直是 true,
+   * 一整屏冷卡会**同时**重挂,把 `ARTIFACT_CARD_LOAD_BUDGET` 整条绕过去。
+   * 计数在 settle 那一刻已经减过,这里只改状态,不再动 `loadingCount`。
+   *
+   * 注意这条路只有「组件自己不要槽位了」才会走到(`wanted` 变 false 或卸载);
+   * `suspendThumbnailLoads()` 走的是另一条路,它只收 granted,已加载完的网格
+   * 封面照旧不动。
+   */
+  if (slot.phase === 'settled') slot.phase = 'idle';
 }
 
 function settleSlot(slot: ThumbnailLoadSlot): void {
@@ -212,6 +271,110 @@ export function useArtifactCardLoadSlot(wanted: boolean): {
   return useLoadSlot(foregroundLane, wanted);
 }
 
+// ── 产物卡的保留策略(LRU 缓冲区)──────────────────────────────────────
+//
+// 上面那两条泳道管的是「**同时在加载**几个」;这一段管的是「**总共留着**几个」。
+// 两件事不要混:一张卡可以早就加载完(不占任何泳道预算)却仍然占着一份文档。
+
+interface RetainedCard {
+  /** 此刻在不在视口里。视口里的一律钉住,永远不会被挤出去。 */
+  visible: boolean;
+  /** 宿主该不该挂着 iframe。 */
+  retained: boolean;
+  /**
+   * 最近一次**可见性变化**的序号 —— LRU 里的「最近」。
+   *
+   * ⚠️ 关键在于它在**离开视口那一刻**也要重新打戳,而不是只在进入时打。只在进入
+   * 时打的话,一张「一直在屏幕上没动过」的卡永远停在它入场时那个很老的号上;等它
+   * 终于滚出去,它会以「最老」的身份排在淘汰队头,**刚看过的反而第一个被拆**。
+   * 这条踩过:小幅来回滚动时,视口里待得最久的那两张先被卸掉。
+   */
+  seenAt: number;
+  notify: () => void;
+}
+
+const retainedCards = new Set<RetainedCard>();
+let retainClock = 0;
+let evictionScheduled = false;
+
+/**
+ * 把离开视口的卡按「最近可见」排队,超出缓冲区的那些从队头卸掉。
+ *
+ * 只挑 `visible === false` 的下手:屏幕上正显示的东西不许被拆,所以留下的总数
+ * 是「这一屏 + 缓冲区」,大屏自然留得多,而不是把用户正在看的卡拆掉去凑数。
+ */
+function evictColdCards(): void {
+  const cold: RetainedCard[] = [];
+  for (const card of retainedCards) {
+    if (card.retained && !card.visible) cold.push(card);
+  }
+  if (cold.length <= ARTIFACT_CARD_RETAIN_BUFFER) return;
+  cold.sort((a, b) => a.seenAt - b.seenAt);
+  for (const card of cold.slice(0, cold.length - ARTIFACT_CARD_RETAIN_BUFFER)) {
+    card.retained = false;
+    card.notify();
+  }
+}
+
+/**
+ * 一次滚动 = 一个淘汰决定。
+ *
+ * 一次滚动会让一整批卡同时改变可见性,而 React 是**一张卡一个 effect**依次跑的。
+ * 如果每个 effect 都当场淘汰一次,前几个 effect 看到的是一份「后面那些卡还没来得及
+ * 报告」的残缺快照,会先超额卸一批再由后面的补回来。推迟到微任务,让这一轮所有卡
+ * 都报告完再一次性算 —— 决定只做一次,依据是完整快照。
+ */
+function scheduleEviction(): void {
+  if (evictionScheduled) return;
+  evictionScheduled = true;
+  queueMicrotask(() => {
+    evictionScheduled = false;
+    evictColdCards();
+  });
+}
+
+/**
+ * 这张产物卡现在该不该留着它的 iframe。
+ *
+ * `active` 为 false(首页/设计页的项目网格)时整条策略不参与,永远返回 true ——
+ * 网格那条泳道有自己的「进项目就挂起」,不需要也不该被这里回收。
+ *
+ * `visible` 必须是**实时**的可见性(不是 `useInView` 那种进过一次就锁死的),
+ * 否则 LRU 拿不到「最近」。
+ */
+export function useArtifactCardRetention(active: boolean, visible: boolean): boolean {
+  const [, force] = useReducer((x: number) => x + 1, 0);
+  const cardRef = useRef<RetainedCard | null>(null);
+  if (cardRef.current === null) {
+    // 新卡按「刚刚看过」入场:它是因为进了视口才挂载的,不能一出生就排在淘汰队头。
+    cardRef.current = { visible: false, retained: true, seenAt: ++retainClock, notify: force };
+  }
+  const card = cardRef.current;
+
+  useEffect(() => {
+    if (!active) return;
+    retainedCards.add(card);
+    return () => {
+      retainedCards.delete(card);
+      scheduleEviction();
+    };
+  }, [active, card]);
+
+  useEffect(() => {
+    if (!active) return;
+    card.visible = visible;
+    // 进和出**都**打戳:出的那一下才是「最后看见它是什么时候」,见 `seenAt`。
+    card.seenAt = ++retainClock;
+    if (visible && !card.retained) {
+      card.retained = true;
+      force();
+    }
+    scheduleEviction();
+  }, [active, visible, card]);
+
+  return !active || card.retained;
+}
+
 function useLoadSlot(
   lane: Lane,
   wanted: boolean,
@@ -233,7 +396,8 @@ function useLoadSlot(
       // `requestSlot` may grant synchronously; the render that scheduled this
       // effect predates the grant, so reflect it.
       force();
-    } else if (slot.phase !== 'settled') {
+    } else {
+      // 包括 `settled` —— 理由在 `releaseSlot` 的最后一段。
       releaseSlot(slot);
       force();
     }
@@ -259,4 +423,7 @@ export function resetThumbnailLoadGateForTests(): void {
     lane.queue.length = 0;
     lane.slots.clear();
   }
+  retainedCards.clear();
+  retainClock = 0;
+  evictionScheduled = false;
 }

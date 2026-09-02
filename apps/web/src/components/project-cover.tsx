@@ -5,6 +5,7 @@ import type { ProjectFile } from '../types';
 import {
   THUMBNAIL_OVERSCAN_MARGIN,
   useArtifactCardLoadSlot,
+  useArtifactCardRetention,
   useThumbnailLoadSlot,
 } from '../lib/thumbnail-load-gate';
 import { useInView } from './plugins-home/useInView';
@@ -111,6 +112,51 @@ function probeCoverOnce(src: string): Promise<CoverProbeOutcome> {
  */
 const HIDDEN_UNTIL_LOADED = { visibility: 'hidden' } as const;
 
+/**
+ * 「**此刻**在不在视口里」—— 产物卡回收策略要的那个实时信号。
+ *
+ * 为什么不复用 `useInView`,两条都必须成立:
+ *
+ * ① 它默认 `once: true`,一进视口就 `disconnect()`,`inView` 从此锁死在 true。
+ *    那正是「iframe 永不卸载」的来源,拿它当不了「离开视口」的信号。
+ * ② 它只在自己挂载时读一次 `ref.current`,而**这个组件的 DOM 节点是会换掉的**:
+ *    加载态是一个 `<span>`,加载完之后只剩 `<iframe>`,那个 span 已经不在文档里。
+ *    一个指着脱离文档的节点的观察器会永远报「不可见」—— 等于每张卡一加载完就
+ *    立刻被判出局。
+ *
+ * 所以这里观察的是**宿主节点的父元素**,在产物卡里就是 `.artifact-card-thumb`
+ * 那个 16:10 的缩略图盒子:它在整张卡的生命周期里不会换,几何又正好等于卡面。
+ *
+ * 初值取 `true`(而不是 false):IntersectionObserver 在开始观察时一定会先派发
+ * 一条当前状态的记录,所以最迟一帧之内就会被纠正过来。反过来从 false 起步的话,
+ * 「已经进视口所以挂了 iframe」和「观察器还没回调」之间会有一小段全员判定为
+ * 不可见的窗口,一屏卡会被误卸再立刻挂回来。**宁可多留一帧,不许误卸。**
+ */
+function useHostVisible(
+  enabled: boolean,
+  hostRef: { readonly current: Element | null },
+): boolean {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const node = hostRef.current;
+    const host = node?.parentElement ?? node;
+    if (!host) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver((records) => {
+      for (const record of records) setVisible(record.isIntersecting);
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [enabled, hostRef]);
+
+  return visible;
+}
+
 export function HtmlProjectCoverFrame({
   src,
   initial,
@@ -174,8 +220,29 @@ export function HtmlProjectCoverFrame({
     rootMargin: THUMBNAIL_OVERSCAN_MARGIN,
   });
 
+  /*
+   * 谁参与回收:**聊天里的产物卡**,两个条件都要。
+   *
+   * · `ungated` —— 就是前台泳道那批,也就是 `ARTIFACT_CARD_RETAIN_BUFFER` 那条
+   *   注释里算的那个人群。首页/设计页的项目网格不参与:那条泳道自己有「进项目
+   *   就整体挂起」,再叠一层回收只会互相打架。
+   * · `pendingContent != null` —— 卸下来之后**得有一张正常卡面可放**。产物卡放的
+   *   是像素液体(产品 2026-08-26);而项目网格没有加载态可放,它的 CSS 本来就把
+   *   首字母藏了,卸掉就是一块空灰 —— 那是产品 2026-09-02 明确否掉的形状。
+   *   所以这条不是保险丝,是准入条件。
+   */
+  const recyclable = ungated && pendingContent != null;
+  const hostVisible = useHostVisible(recyclable, inViewRef);
+  const retained = useArtifactCardRetention(recyclable, hostVisible);
+  /*
+   * 该不该挂着 iframe。`inView` 只说「进过视口」(它一进就锁死),`retained` 说
+   * 「LRU 缓冲区还留着它吗」。回收就发生在后者翻成 false 的那一刻:iframe 卸掉、
+   * 卡面回到加载态;滚回来时 `retained` 再翻回 true,重新验一遍、重新排队、重新挂。
+   */
+  const live = inView && retained;
+
   useEffect(() => {
-    if (!src || !inView) {
+    if (!src || !live) {
       setFailed(false);
       setVerified(false);
       setLoaded(false);
@@ -201,14 +268,14 @@ export function HtmlProjectCoverFrame({
     return () => {
       disposed = true;
     };
-  }, [src, diagnostic, inView]);
+  }, [src, diagnostic, live]);
 
   /*
    * 两条泳道都无条件挂 hook(顺序稳定),但同一刻只有一条在要槽位。
    * 前台那条不响应 `suspendThumbnailLoads()`,背景那条响应 —— 这正是当初
    * 「有预算」和「会被挂起」被捆在一起时唯一解不开的那个结。
    */
-  const wantsSlot = Boolean(src) && inView && verified && !failed;
+  const wantsSlot = Boolean(src) && live && verified && !failed;
   const backgroundSlot = useThumbnailLoadSlot(!ungated && wantsSlot);
   const foregroundSlot = useArtifactCardLoadSlot(ungated && wantsSlot);
   const { canLoad, settle } = ungated ? foregroundSlot : backgroundSlot;
