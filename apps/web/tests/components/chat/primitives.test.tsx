@@ -374,8 +374,19 @@ describe('生图行(组件 12)', () => {
     expect(screen.getByText('2.6s')).toBeTruthy();
   });
 
-  it('还在出:球 + 计数 + 一排大格,出了的填上、没出的留位', () => {
-    render(<ImageRow row={img({ done: 2, thumbs: ['a.png', 'b.png'], pending: true, elapsedMs: null })} />);
+  /**
+   * ⚠️ 「还在出」这个前提 2026-09-02 起要**显式声明**(OPEND-2419 的 #2,`6780cf578f`)。
+   *
+   * 这条用例原来只给 `pending: true` 就等着看球。`row.pending` 说的是「还有格子没回来」,
+   * 不是「还在生成」—— 取消 / 跑挂之后那几张确实没回来,老写法于是留下一颗停不下来的球。
+   * 现在画哪一档由**轮次状态**定(`running`),和 `ToolRow` 同一个字段、同一条判据;
+   * 宿主那一头 `ExecutionShell` 一直是传的。所以夹具要把「这一轮还活着」说出来。
+   *
+   * 默认 `false` 是**保命档**,不是省略写法:拿不到上下文时宁可画中性灰。
+   * 下面那条反向对照钉的就是这一档 —— 少了它,`ImageRow` 退回无条件转圈也照样绿。
+   */
+  it('还在出(轮次还活着):球 + 计数 + 一排大格,出了的填上、没出的留位', () => {
+    render(<ImageRow row={img({ done: 2, thumbs: ['a.png', 'b.png'], pending: true, elapsedMs: null })} running />);
     expect(screen.getByText('2/4')).toBeTruthy();
     const running = screen.getByRole('img', { name: '进行中' });
     expect(running.className).toMatch(/run/);
@@ -384,6 +395,19 @@ describe('生图行(组件 12)', () => {
     expect(shots).toHaveLength(4);
     expect(shots.filter((s) => s.className.includes('load'))).toHaveLength(2);
     expect(document.querySelector('[class*="strip"]')).toBeNull();   // 没出完不收行
+  });
+
+  it('反向对照:同一份夹具不说「还活着」就不转圈,退成中性灰', () => {
+    render(<ImageRow row={img({ done: 2, thumbs: ['a.png', 'b.png'], pending: true, elapsedMs: null })} />);
+    // 格子照旧摆着 —— 不是整行没渲染,只是标记换了一档
+    expect(screen.getByText('2/4')).toBeTruthy();
+    expect(document.querySelectorAll('[data-image-cell]')).toHaveLength(4);
+    expect(screen.queryByRole('img', { name: '进行中' })).toBeNull();
+    const mark = screen.getByRole('img', { name: '未开始' });
+    expect(mark.className).not.toMatch(/run/);
+    // 也不冒充成功 / 失败:绿勾是假成功,红叉是假错误
+    expect(mark.className).not.toMatch(/ok/);
+    expect(mark.className).not.toMatch(/fail/);
   });
 
   it('逐张状态保持 task 顺序,完成格显示真实缩略图', () => {
