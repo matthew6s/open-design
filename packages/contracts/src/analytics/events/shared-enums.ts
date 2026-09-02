@@ -325,6 +325,12 @@ export type TrackingRunFailureDetail =
   | 'tool_error'
   | 'plugin_artifact_missing'
   | 'cli_not_installed'
+  | 'bundled_binary_missing'
+  | 'host_policy_block'
+  | 'local_storage_failure'
+  | 'certificate_failure'
+  | 'proxy_configuration'
+  | 'network_configuration'
   | 'git_bash_missing'
   | 'agent_config_invalid'
   | 'spawn_failed'
@@ -333,6 +339,7 @@ export type TrackingRunFailureDetail =
   | 'spawn_eperm'
   | 'stdin_write_eof'
   | 'agent_protocol_error'
+  | 'acp_frame_too_large'
   | 'session_resume_expired'
   | 'fabricated_role_marker'
   | 'permission_request_not_found'
@@ -362,6 +369,70 @@ export type TrackingRunFailureStage =
   | 'artifact_write'
   | 'child_close'
   | 'finalize';
+export type TrackingRunFailureMechanism =
+  | 'policy_rejection'
+  | 'provider_rejection'
+  | 'model_route_unavailable'
+  | 'invalid_model_selection'
+  | 'protocol_violation'
+  | 'frame_too_large'
+  | 'startup_readiness_timeout'
+  | 'first_output_deadline'
+  | 'acp_response_deadline'
+  | 'post_tool_resume_timeout'
+  | 'tool_execution_failure'
+  | 'child_exit'
+  | 'stream_idle_timeout'
+  | 'empty_completion'
+  | 'transport_failure'
+  | 'unknown';
+export type TrackingRunFailureDomain =
+  | 'client_product'
+  | 'client_environment'
+  | 'provider_control_plane'
+  | 'policy_admission'
+  | 'cross_boundary'
+  | 'unknown';
+export type TrackingRunEvidenceLevel =
+  | 'structured_error'
+  | 'structured_code'
+  | 'protocol_error'
+  | 'lifecycle_signal'
+  | 'stderr_fallback'
+  | 'close_reason'
+  | 'legacy_text'
+  | 'unknown';
+export type TrackingRunRepairOwner =
+  | 'open_design'
+  | 'client_environment'
+  | 'provider_owner'
+  | 'policy_owner'
+  | 'shared_boundary'
+  | 'unknown';
+/** v3 describes the terminal attempt; absent evidence remains unknown. */
+export type TrackingRunAdmissionPhase = 'before_execution' | 'during_execution' | 'unknown';
+/** `none` means no affirmative policy evidence, not proof that no policy applied. */
+export type TrackingRunPolicyReason =
+  | 'model_window_limit'
+  | 'membership_concurrency_limit'
+  | 'hard_quota'
+  | 'workspace_credits_exhausted'
+  | 'amr_insufficient_balance'
+  | 'amr_tier_upgrade_required'
+  | 'entitlement_required'
+  | 'none';
+/** v2 values were defaults, not phase evidence. Use admission_phase on v3. */
+export type TrackingRunAdmissionStatus =
+  | 'admitted'
+  | 'rejected_policy'
+  | 'unknown';
+export type TrackingRunTerminalIntegrity =
+  | 'canonical'
+  | 'late'
+  | 'reconciled'
+  | 'overwritten'
+  | 'permanently_missing'
+  | 'post_terminal_activity';
 export type TrackingRunLifecyclePhase =
   | 'queued'
   | 'prompt_build'
@@ -564,3 +635,43 @@ export type TrackingFileSizeBucket =
   | '1_10mb'
   | '10_100mb'
   | '100mb_plus';
+
+/**
+ * Which agent harness actually produced a run.
+ *
+ * Deliberately a value, not an event-name suffix: a third harness is one more
+ * member here and every existing query keeps working. `ordinary` means the run
+ * took the pre-existing strategy route, whatever the user's Labs switch said —
+ * see `harness_fallback_reason` for why.
+ */
+export type TrackingHarness = 'od_next' | 'ordinary';
+
+/**
+ * A Labs experiment. Carried as a property so the toggle event stays generic:
+ * a second experiment adds one member here and reuses the same event.
+ */
+export type TrackingLabsItemId = 'design_harness';
+
+/** Who moved a Labs switch. `system` is not a user action — see `TrackingLabsSystemReason`. */
+export type TrackingLabsToggleSource = 'settings' | 'cli' | 'system';
+
+/**
+ * Why the system moved a Labs switch on the user's behalf. Kept separate from
+ * the opt-out reasons so "the user turned this off" and "we turned it off for
+ * them" can never be summed together by accident.
+ */
+export type TrackingLabsSystemReason = 'env_override' | 'latched' | 'restored';
+
+/**
+ * Why a user turned a Labs experiment off.
+ *
+ * `skipped` is not a reason — it is the absence of one, recorded so the share
+ * of people who declined to answer is visible instead of missing. A timeout and
+ * an explicit "skip" record the same value on purpose.
+ */
+export type TrackingLabsOptOutReason =
+  | 'worse_output'
+  | 'too_slow'
+  | 'not_what_i_wanted'
+  | 'other'
+  | 'skipped';

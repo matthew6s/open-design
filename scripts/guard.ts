@@ -10,6 +10,7 @@ import { checkDesignSystemPackageQuality } from "./check-design-system-package-q
 import { checkDesignSystemComponentFixtureReport } from "./check-components-fixtures.ts";
 import { checkDesignSystemFlagParity } from "./check-design-system-flag-parity.ts";
 import { checkComponentsManifestExtraction } from "./check-components-manifest-extraction.ts";
+import { checkHtmlPluginPreviewContracts } from "./check-html-plugin-preview-contracts.ts";
 import { checkPluginPreviewManifest } from "./check-plugin-preview-manifest.ts";
 import {
   checkDesignSystemA1RequiredTokens,
@@ -26,6 +27,7 @@ import { runGuardChecks, type GuardCheck, type GuardContext } from "./lib/guard/
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const allowedE2eScripts = new Set([
+  "e2e/scripts/artifact-render-parity.ts",
   "e2e/scripts/playwright.ts",
   "e2e/scripts/release-smoke.ts",
   "e2e/scripts/visual-report.ts",
@@ -264,6 +266,18 @@ async function checkResidualJavaScript(): Promise<boolean> {
   }
 
   console.log("Residual JavaScript check passed: project-owned code is TypeScript-only.");
+  return true;
+}
+
+export async function checkRootPackageManagerLockfiles(root: string = repoRoot): Promise<boolean> {
+  const entries = await readdir(root);
+  if (entries.includes("bun.lock")) {
+    console.error("Unexpected root bun.lock found.");
+    console.error("pnpm-lock.yaml is the repository's only dependency lockfile; remove bun.lock.");
+    return false;
+  }
+
+  console.log("Root package-manager lockfile check passed: no bun.lock found.");
   return true;
 }
 
@@ -1147,7 +1161,7 @@ const hardcodedColorAllowlist: StylePolicyAllowlistEntry[] = [
     reason: "global token definitions, shadows, overlays, and retained migration inventory live in the CSS source of truth",
   },
   {
-    pathPattern: /^apps\/web\/src\/components\/(?:AgentIcon|PaletteTweaks|PetSettings|SettingsDialog)\.tsx$/,
+    pathPattern: /^apps\/web\/src\/components\/(?:AgentIcon|PetSettings|SettingsDialog)\.tsx$/,
     valuePattern: /^(?:#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\))$/,
     reason: "brand accents, user accent choices, and legacy token fallbacks are classified as Phase 1 migration inventory",
   },
@@ -1437,8 +1451,49 @@ function checkCrossAppImportsOnce(): Promise<boolean> {
   return crossAppImportsResult;
 }
 
+
+// Only the internal run-creation service may start a physical Run.
+//
+// The run analytics lifecycle is installed there, once, for every Run. Four
+// daemon-internal callers used to reach past it and call the run registry
+// directly; each of those Runs reported no `run_created` and no `run_finished`,
+// and nothing said so (OPEND-2365). The service's `start` now requires the
+// caller to declare its analytics identity, but that only binds callers who go
+// through it — this check is what keeps the bypass from coming back.
+const RUN_START_BYPASS_ALLOWLIST = new Set([
+  "apps/daemon/src/services/internal-run-service.ts",
+]);
+
+async function checkRunStartChokePoint(): Promise<boolean> {
+  const violations: string[] = [];
+  const daemonSource = path.join(repoRoot, "apps", "daemon", "src");
+  if (!(await repositoryDirectoryExists("apps/daemon/src"))) return true;
+
+  for (const repositoryPath of await collectRepositoryFiles(daemonSource)) {
+    if (!repositoryPath.endsWith(".ts")) continue;
+    if (RUN_START_BYPASS_ALLOWLIST.has(repositoryPath)) continue;
+    const source = await readFile(path.join(repoRoot, repositoryPath), "utf8");
+    source.split("\n").forEach((line, index) => {
+      if (!/\.runs\.start\s*\(/.test(line)) return;
+      violations.push(`${repositoryPath}:${index + 1} ${line.trim()}`);
+    });
+  }
+
+  if (violations.length > 0) {
+    console.error("Run start choke-point violations found:");
+    console.error("Start physical Runs through `internalRunCreation.start(run, analytics, starter)`");
+    console.error("so the Run analytics lifecycle is installed. See AGENTS.md -> Starting a physical Run.");
+    for (const violation of violations) console.error(`- ${violation}`);
+    return false;
+  }
+
+  console.log("Run start choke-point check passed: every physical Run starts through the internal run-creation service.");
+  return true;
+}
+
 const checks: GuardCheck[] = [
   { name: "residual JavaScript", run: checkResidualJavaScript },
+  { name: "root package-manager lockfile", run: ({ repoRoot: root }) => checkRootPackageManagerLockfiles(root) },
   { name: "package dependency specs", run: checkPackageDependencySpecs },
   { name: "product neutrality", run: checkProductNeutrality },
   { name: "cross-app imports", run: checkCrossAppImportsOnce },
@@ -1450,9 +1505,11 @@ const checks: GuardCheck[] = [
   { name: "e2e layout", run: checkE2eLayout },
   { name: "web test layout", run: checkWebTestLayout },
   { name: "web import isolation", run: checkWebImportIsolation },
+  { name: "run start choke point", run: checkRunStartChokePoint },
   { name: "tools layout", run: checkToolsLayout },
   { name: "style policy", run: checkStylePolicy },
   { name: "craft references", run: checkCraftReferences },
+  { name: "HTML plugin preview contracts", run: ({ repoRoot: root }) => checkHtmlPluginPreviewContracts(root) },
   { name: "plugin preview manifest", run: checkPluginPreviewManifest },
   { name: "design system manifests", run: checkDesignSystemManifests },
   { name: "design system package quality", run: checkDesignSystemPackageQuality },
