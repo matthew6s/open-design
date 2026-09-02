@@ -281,6 +281,7 @@ export type RunFailureMessageKey =
   | 'chat.runError.cliSessionRefusedMessage'
   | 'chat.runError.strategyTaskStateMismatchMessage'
   | 'chat.runError.agentReplyIncompleteMessage'
+  | 'chat.runError.clarificationRepeatedMessage'
   | 'chat.runError.clientEnvironmentMessage'
   | null;
 
@@ -346,6 +347,7 @@ export type RunFailureTitleKey =
   | 'chat.runError.title.cliSessionRefused'
   | 'chat.runError.title.strategyTaskHalted'
   | 'chat.runError.title.agentReplyIncomplete'
+  | 'chat.runError.title.clarificationRepeated'
   | 'chat.runError.title.clientEnvironment'
   | 'chat.runError.title.generic';
 
@@ -874,6 +876,41 @@ const AGENT_AGNOSTIC_FAILURE_UI: Record<string, RunFailureUi> = {
   od_next_protocol_runtime_state_duplicate: agentReplyIncomplete(),
   od_next_protocol_runtime_state_invalid_json: agentReplyIncomplete(),
   od_next_protocol_runtime_state_invalid_schema: agentReplyIncomplete(),
+  // The user answered the clarification form, and the agent came back with
+  // ANOTHER question instead of proceeding.
+  //
+  // DELIBERATELY NOT one of the four above, even though the daemon reaches this
+  // code through the same block-less turn. To the user those are one story —
+  // "the reply came back without its marker" — and this is a different one: "I
+  // answered, and it is asking me again." Folding it into that row would tell
+  // the user their reply went missing while a fresh question form sits on
+  // screen in front of them.
+  //
+  // It is also NOT intermittent, which is why its copy must not promise that a
+  // re-run fixes it. A task admits exactly ONE clarification round
+  // (`coordinator.ts` beginStrategyClarification: "the task is not awaiting its
+  // one allowed clarification answer"), and at `inputStage: 'clarification'`
+  // the contract admits only `plan_ready` / `blocked` / `canceled`
+  // ("Clarification cannot request another clarification round",
+  // `contracts/src/plugins/strategy-v2.ts`). A properly DECLARED second
+  // question is refused by the identical code, so nothing about this is a
+  // dropped block.
+  //
+  // Retry still earns its place, for a different reason than rung 2's usual
+  // one: Retry does not re-roll this turn, it opens a NEW task. `handleRetry`
+  // sends no `strategyTaskExecutionId`, so `resolveClarificationContinuation`
+  // returns `ordinary` and `createStrategyTaskExecution` starts a fresh chain
+  // at `clarificationCount: 0` / `inputStage: 'request'` — where asking a
+  // question is a legal outcome. The agent will likely ask again; that time it
+  // renders as a normal round of questions instead of a failure card.
+  //
+  // ⚠️ `docs/design/run-errors/error-ux-design.md` HAS NO CELL FOR THIS either
+  // — S01–S32 contain nothing about clarification or follow-up questions. The
+  // copy is W41's draft; product should rewrite the wording, not the routing.
+  od_next_clarification_repeated: retryWithGuidance(
+    'chat.runError.title.clarificationRepeated',
+    'chat.runError.clarificationRepeatedMessage',
+  ),
 };
 
 /**
