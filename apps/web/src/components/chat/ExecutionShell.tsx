@@ -339,6 +339,11 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
  * 滚动的, 思考完就收起变成 toolrow」「我说的思考完之后, 不是这个绿的, 就变成普通的
  * 这个搜索一样的东西, 只不过可以下拉展开…你可以给这个加一个 brain 的 icon」。
  *
+ * ⚠️ 那枚 brain 是**线性**的(`Icon name="brain"` → remix 的 `brain-line`),
+ * 不是实心的 `brain-fill`。产品 2026-09-02 交付的 `brain-line.svg` 逐字节就是
+ * 这一条,所以那一轮「换图标」到这里是**零改动**。判据钉在
+ * `tests/components/chat/thoughts-row-icon.test.tsx`,别顺手换成 fill 版。
+ *
  * ⚠️ 绿勾(`StatusMark status="ok"`)是**故意去掉**的,别顺手加回来:
  * 推理不是「一条做完了的活」,它没有成败可标。
  *
