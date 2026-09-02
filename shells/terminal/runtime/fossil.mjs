@@ -309,7 +309,11 @@ async function execute(request, installation) {
     return launcher;
   });
   if (request.operation.startsWith("shell-update-")) {
-    const updaterOptions = { algebra: standalone.SHELL_UPDATE_ALGEBRA, attachmentId: request.attachmentId ?? "electron-updater", shellType: "electron" };
+    const updaterOptions = {
+      algebra: standalone.SHELL_UPDATE_ALGEBRA,
+      attachmentId: request.attachmentId ?? `${shell.type}-updater`,
+      shellType: shell.type,
+    };
     const updater = sidecarShellUpdater({ channel: request.channel, namespace: request.namespace }, updaterOptions);
     const action = ({
       "shell-update-check": "check",
@@ -320,7 +324,8 @@ async function execute(request, installation) {
       "shell-update-abandon": "abandon",
     })[request.operation];
     if (request.operation === "shell-update-confirm") {
-      return updater.confirmInstalled(shell);
+      const snapshot = await updater.readSnapshot();
+      return updater.confirmInstalled(snapshot.handoff?.shell);
     }
     return action == null ? updater.readSnapshot() : updater.invoke(action);
   }

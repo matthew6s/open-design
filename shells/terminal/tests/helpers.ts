@@ -245,10 +245,13 @@ export function verifyExactLifecycle(root: string, store: string, terminal: Term
   expect(terminal(root, store, "somechan", "shared", "release", { attachmentId: "terminal-a", attachmentCapability: reattached.result.attachmentCapability }).result.references).toBe(0);
   expect(terminal(root, store, "somechan", "updater-scenario", "start", { attachmentId: "terminal-active" }).result).toMatchObject({ state: "running" });
   expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-check").result).toMatchObject({ outcome: "accepted", snapshot: { state: "available" } });
-  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-download").result).toMatchObject({ snapshot: { state: "ready" } });
+  const downloadedShell = terminal(root, store, "somechan", "updater-scenario", "shell-update-download").result;
+  expect(downloadedShell).toMatchObject({ snapshot: { state: "ready", handoff: { shell: { type: "terminal", version: "0.0.0", buildHash: "0".repeat(64) } } } });
+  expect(downloadedShell.snapshot.handoff.shell).not.toMatchObject({ version: "0.1.0" });
   expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-install").result).toMatchObject({ outcome: "blocked", snapshot: { blockedBy: [{ attachmentId: "terminal-active" }] } });
   expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-later").result).toMatchObject({ snapshot: { state: "ready" } });
   expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-force").result).toMatchObject({ outcome: "accepted", snapshot: { state: "handed-off" } });
+  expect(terminal(root, store, "somechan", "updater-scenario", "shell-update-confirm").result).toMatchObject({ outcome: "accepted", snapshot: { state: "installed", handoff: { shell: downloadedShell.snapshot.handoff.shell } } });
   releases.promote(releases.beta2);
   expect(terminal(root, store, "somechan", "shared", "prepare-update", { channelHeadUrl: releases.latestUrls.somechan, activationPolicy: "authorize-silent", feedbackFile }).result).toMatchObject({ status: "prepared", authorized: true });
   expect(readFileSync(join(store, "blobs", "sha256", releases.beta2.artifactSha256))).toEqual(readFileSync(releases.beta2.artifactFile));
