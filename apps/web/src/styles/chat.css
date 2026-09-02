@@ -3621,6 +3621,34 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
 .chat-queued-send-action {
   width: 22px;
 }
+/* 稿子 `.qops button.mod-steer { display: inline-flex; align-items: center;
+   justify-content: center; gap: 4px; width: auto; padding: 0 4px;
+   font-size: inherit; white-space: nowrap }` —— 「引导对话」是三颗里唯一带文字的,
+   盒子得跟着标签放开。
+
+   ⚠️ **这一条必须排在上面那条 `.chat-queued-send-action { width: 22px }` 之后。**
+   两者同优先级(都是单类名),谁赢只看源码顺序;写到前面那一块(约 2440 行)去,
+   源码上看着完全正确,层叠走完却仍是 22px,标签被裁掉一大半。
+
+   `min-width: 22px` 是给纯图标形态留的地板:`width: auto` 之下 14px 图标加两侧
+   4px 内距正好 22px,和另外两颗对齐;哪天标签为空也不会缩成一条缝。
+   `height` 不在这里重声明 —— 它只在前一块出现过一次,重复一遍就等于给它开了
+   第二个出处,下次改行高时两处必然分叉。 */
+.chat-queued-send-action-steer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  min-width: 22px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+/* 标签跟着行走:队列行是 `--font-size-12`,标签不另起字号。 */
+.chat-queued-send-action-label {
+  font-size: inherit;
+  line-height: 1;
+}
 /* 两行,不是一行:一行会把话截在半截 */
 /* 稿子 `.queue .q .tx { line-height: var(--lh-row) }` = 1.5,我们原来是 1.2 */
 .chat-queued-send-row .chat-queued-send-title {

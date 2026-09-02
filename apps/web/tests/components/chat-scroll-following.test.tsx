@@ -722,17 +722,92 @@ describe('「回到最新」什么时候该在(用户 2026-08-27:「总是在不
     expect(jumpBtnShown()).toBe(true);
   });
 
-  it('执行步骤药丸出现时占用唯一浮层位,结束后才恢复回到最新入口', async () => {
+  /*
+   * ── 底部那一个浮层位归谁,由**滚动位置**说了算 ─────────────────────────
+   *
+   * 用户实测:跑任务时往上一滚,底下只剩「Step 3 of 5」,「回到最新」怎么都不出来
+   * —— 再也回不到底部,只能一路手动滚回去。
+   *
+   * 根因是那条互斥写成了 `scrolledFromBottom && !planPillVisible`:Plan 无条件赢。
+   * 而 Plan 在整个有计划的 run 期间都成立,于是唯一的回底入口被它遮死了一整轮。
+   * (这条互斥是 2026-08-05 `356c8c364f` / #6142 带进来的,那一版只想到
+   * 「同一个位置塞不下两个」,没想到被挤掉的那个正是唯一的出路。)
+   *
+   * 产品定的分工按位置:人在上面时他要的是回到最新;人贴着底时他已经在最新上,
+   * 那个位置该让给「跑到第几步了」。
+   *
+   * 三态各自断言**具体可见性**。不写「两者不同时为真」——那句话在两者都为假时
+   * 也成立,而「两者都为假」正是这个 bug 最难看的那一面。
+   */
+  it('滚到上面:浮层位让给「回到最新」,Plan 让开', async () => {
     geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
-    const { rerender } = render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
+    render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
     await flushFrames();
     await userScrollTo(1000);
+
+    const slot = bottomFloatSlot();
+    expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
+    expect(screen.getByTestId('chat-jump-btn').parentElement).toBe(slot);
+    expect(jumpBtnShown()).toBe(true);
+    expect(slot.children).toHaveLength(1);
+    /*
+     * 预留空白**不跟着可见性走**。它是 `.chat-log` 的 padding-bottom,也就是真实的
+     * 可滚内容的一部分:跟着开关会在上滚的那一刻抽掉 52px,scrollHeight 当场缩水、
+     * 「离底多远」跟着变小,可能把状态judge回「贴底」→ Plan 回来 → 预留回来,
+     * 来回抖。所以它钉在「这一轮有没有计划」上,整轮不变。
+     */
+    expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(true);
+  });
+
+  it('靠近底部且这一轮有计划:浮层位归 Plan,「回到最新」根本不挂', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
+    await flushFrames();
 
     const slot = bottomFloatSlot();
     expect(screen.getByTestId('chat-plan-pill')).toBeTruthy();
     expect(screen.queryByTestId('chat-jump-btn')).toBeNull();
     expect(slot.children).toHaveLength(1);
     expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(true);
+  });
+
+  it('靠近底部但这一轮没有计划:两枚都不出现', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    render(chatPaneEl(longConversation('chunk'), { streaming: true }));
+    await flushFrames();
+
+    expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
+    // 「回到最新」常驻但收着 —— 它得留在树上,自己的进 / 退场动画才播得完整。
+    expect(screen.getByTestId('chat-jump-btn')).toBeTruthy();
+    expect(jumpBtnShown()).toBe(false);
+    expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(false);
+  });
+
+  it('上滚 → 回底:浮层位在两枚之间来回换手,始终只有一个占着', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
+    await flushFrames();
+    expect(screen.getByTestId('chat-plan-pill')).toBeTruthy();
+
+    await userScrollTo(1000);
+    expect(jumpBtnShown()).toBe(true);
+    expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
+
+    // 点回到最新 —— 回到底部之后位置该还给 Plan。
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('chat-jump-btn'));
+    });
+    await flushFrames();
+    expect(screen.getByTestId('chat-plan-pill')).toBeTruthy();
+    expect(screen.queryByTestId('chat-jump-btn')).toBeNull();
+    expect(bottomFloatSlot().children).toHaveLength(1);
+  });
+
+  it('这一轮跑完:药丸连同它的预留一起收走,回到最新入口恢复', async () => {
+    geom = { contentHeight: 5000, clientHeight: 400, scrollTop: 0 };
+    const { rerender } = render(chatPaneEl(longConversationWithTodo('chunk'), { streaming: true }));
+    await flushFrames();
+    await userScrollTo(1000);
 
     const finishedMessages = longConversationWithTodo('chunk').map((message) =>
       message.id === 'streaming' ? { ...message, runStatus: 'succeeded' as const } : message,
@@ -743,8 +818,8 @@ describe('「回到最新」什么时候该在(用户 2026-08-27:「总是在不
 
     expect(screen.queryByTestId('chat-plan-pill')).toBeNull();
     expect(chatLog().classList.contains('has-plan-pill-reserve')).toBe(false);
-    expect(screen.getByTestId('chat-jump-btn').parentElement).toBe(slot);
-    expect(slot.children).toHaveLength(1);
+    expect(screen.getByTestId('chat-jump-btn').parentElement).toBe(bottomFloatSlot());
+    expect(bottomFloatSlot().children).toHaveLength(1);
     expect(jumpBtnShown()).toBe(true);
   });
 

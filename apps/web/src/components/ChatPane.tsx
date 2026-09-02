@@ -6,7 +6,7 @@ import {
   type FollowIntent,
   type ScrollSample,
 } from '../runtime/chat/stick-to-bottom';
-import { appendQuote, type ChatQuote } from '../runtime/chat/quote-selection';
+import { appendQuoteOutcome, type ChatQuote } from '../runtime/chat/quote-selection';
 import {
   captureElementScrollAnchor,
   scrollTopForElementScrollAnchor,
@@ -149,6 +149,7 @@ import {
 } from './chat/RunErrorCard';
 import { UpgradeCard } from './chat/UpgradeCard';
 import { SupportDialog } from './chat/SupportDialog';
+import { Toast } from './Toast';
 import { supportChannels } from './chat/support-channels';
 import { ExportLogsAction } from './chat/ExportLogsAction';
 import { repoConnectCopy } from './design-system-github-evidence';
@@ -1555,16 +1556,51 @@ export function ChatPane({
    * 输入框上方多一枚芯片。发送时把这几段话作为**引文前缀**带给 agent。
    */
   const [quotes, setQuotes] = useState<ChatQuote[]>([]);
+  /**
+   * quote 列表的**同步镜像**。
+   *
+   * 去重的判定要在**同一拍**里拿到结果(重复了就得当场弹提示),而 `setQuotes` 的
+   * updater 拿不到这个结果 —— 它是渲染期跑的纯函数,StrictMode 下会跑两遍,
+   * 把提示写进去等于一次点击弹两次。所以判定在事件处理里对着这份镜像做,
+   * updater 那一步只负责把算好的列表放进 state。
+   *
+   * 镜像在每次渲染时对齐一次:`onRestoreQuotes`(取回队列里那条的引用)也走
+   * `setQuotes`,不在这里对齐的话镜像会漏掉那一路。
+   */
+  const quotesRef = useRef<ChatQuote[]>(quotes);
+  quotesRef.current = quotes;
+  /**
+   * 重复取词的轻提示(OPEND-2546)。
+   *
+   * `key` 是**单调计数**而不是时间戳:同一毫秒里连点两次时时间戳会撞上,
+   * React 认得是同一个 Toast 就不重挂,提示的存活窗口还挂在第一次那一条计时器上
+   * —— 用户看到的是「刚弹出来就没了」。计数不依赖时钟,连点多少次都各算各的。
+   */
+  const quoteNoticeSeqRef = useRef(0);
+  const [quoteNotice, setQuoteNotice] = useState<{ key: number; message: string } | null>(null);
   const handleQuote = useCallback((text: string, messageId: string | null) => {
-    setQuotes((prev) => appendQuote(prev, {
-      id: `${Date.now()}-${prev.length}`,
+    const current = quotesRef.current;
+    const outcome = appendQuoteOutcome(current, {
+      id: `${Date.now()}-${current.length}`,
       text,
       messageId: messageId ?? '',
-    }));
+    });
+    quotesRef.current = outcome.quotes;
+    setQuotes(outcome.quotes);
+    if (outcome.status === 'duplicate') {
+      quoteNoticeSeqRef.current += 1;
+      setQuoteNotice({ key: quoteNoticeSeqRef.current, message: t('chat.quote.duplicate') });
+    } else {
+      // 新的一段确实进去了,上一句「已添加过」就不该再挂着 —— 它说的是上一下的事。
+      setQuoteNotice(null);
+    }
     // 收掉选区,浮条跟着消失 —— 不然它会一直浮在那儿
     window.getSelection()?.removeAllRanges();
+  }, [t]);
+  const clearQuotes = useCallback(() => {
+    quotesRef.current = [];
+    setQuotes([]);
   }, []);
-  const clearQuotes = useCallback(() => setQuotes([]), []);
 
   const handleRetryImage = useCallback((row: { total: number; done: number; failed: number }, index: number) => {
     // The media-task row now preserves actual task order. Keep the localized
@@ -1695,8 +1731,30 @@ export function ChatPane({
     [displayMessages],
   );
   const planPillRunning = streaming || hasActiveRunMessage;
-  const planPillVisible = planPillState(planPillTodos, planPillRunning) !== null;
-  const showJumpToLatest = scrolledFromBottom && !planPillVisible;
+  /**
+   * 这一轮**有没有**计划可展示 —— 和「此刻挂不挂得出来」是两件事,别并成一个。
+   *
+   * 底部那块预留空白(`has-plan-pill-reserve`)钉在这一条上,而不是钉在可见性上:
+   * 预留是 `.chat-log` 的 padding-bottom,也就是真实可滚内容的一部分。跟着可见性
+   * 开关,上滚的那一刻 52px 会从内容里抽走,`scrollHeight` 当场缩水、「离底多远」
+   * 跟着变小,有机会被判回「贴底」→ 药丸回来 → 预留回来 —— 一个自己喂自己的抖动环。
+   */
+  const planPillEligible = planPillState(planPillTodos, planPillRunning) !== null;
+  /**
+   * 底部只有一个浮层位,归谁由**滚动位置**说了算。
+   *
+   * 原来这里写的是 `scrolledFromBottom && !planPillVisible` —— Plan 无条件赢。
+   * 而 Plan 在整个有计划的 run 期间都成立,于是「回到最新」在跑任务时**永远出不来**:
+   * 往上滚一屏,唯一的回底入口就被遮死一整轮,只能一路手动滚回去。
+   * (互斥是 #6142 带进来的:那一版只解决了「同一个位置塞不下两个」,
+   * 没有回答「被挤掉的那个正是唯一的出路怎么办」。)
+   *
+   * 按位置分工才对:人在上面时他要的是回到最新 —— 那一刻「跑到第几步了」既不紧急、
+   * 也不是他伸手要够的东西;人贴着底时他已经在最新上,回底按钮无事可做,
+   * 位置该让给进度。两者因此天然不同时出现,不需要谁给谁让一档。
+   */
+  const showJumpToLatest = scrolledFromBottom;
+  const planPillVisible = planPillEligible && !scrolledFromBottom;
   const retryAssistant = retryableAssistantMessage(displayMessages, lastAssistantId, streaming);
   // The failed run's error event lives on the (persisted) assistant message, so
   // the error card + AMR card survive a reload — unlike the ephemeral global
@@ -3420,7 +3478,9 @@ export function ChatPane({
                   chatLogScrollable ? 'is-scrollable' : '',
                   chatLogScrolling ? 'is-scrolling' : '',
                   shouldBalanceFinishedTranscript ? 'is-balanced-transcript' : '',
-                  planPillVisible ? 'has-plan-pill-reserve' : '',
+                  /* 预留跟着**这一轮有没有计划**走,不跟着药丸此刻挂没挂。
+                     理由见上面 `planPillEligible` 的注释:跟着可见性会抖。 */
+                  planPillEligible ? 'has-plan-pill-reserve' : '',
                 ].filter(Boolean).join(' ')}
                 ref={logRef}
                 data-testid="chat-log"
@@ -3907,11 +3967,17 @@ export function ChatPane({
                 />
                 </div>
                 {/* 底部只有这一个浮层位:宿主统一负责水平中线与 bottom,两个胶囊
-                    只负责自己的外观。Plan 出现时直接不挂 Jump,而不是只摘 active
-                    class —— 否则 Jump 的 140ms 退场动画会和刚挂上的 Plan 短暂重叠。
+                    只负责自己的外观。谁占着由**滚动位置**定(见上面 `planPillVisible`),
+                    所以这里永远只挂一个 —— 二选一是真的二选一,没有「同时出现时谁上移
+                    一档」这种情况可讲。
 
-                    没有 Plan 时 Jump 仍常驻,让它自己的进 / 退场 transition 能完整
-                    播放。会话历史打开时也不删它(OPEND-2420),遮挡仍由堆叠层负责。 */}
+                    占位的那个直接不挂另一个,而不是只摘 active class:两个胶囊叠在
+                    同一个 flex 位上时,收着的那个仍占宽度,会把占着的那个推离中线。
+
+                    Plan 让开时 Jump 是「已经点亮着挂上来」的,没有入场动画 —— 这是
+                    有意的:它跟着用户的滚动走,立刻出现比补一段 200ms 淡入更跟手。
+                    没有 Plan 那一路 Jump 仍旧常驻,进 / 退场 transition 完整播放。
+                    会话历史打开时也不删它(OPEND-2420),遮挡仍由堆叠层负责。 */}
                 <div
                   className={`chat-bottom-float-slot${planPillVisible ? ' has-plan-pill' : ''}`}
                   data-testid="chat-bottom-float-slot"
@@ -4039,6 +4105,20 @@ export function ChatPane({
         <SupportDialog
           channels={supportChannels(t)}
           onClose={() => setSupportDialogOpen(false)}
+        />
+      ) : null}
+      {/*
+        * 重复取词的轻提示(OPEND-2546)。挂在 quote 列表的拥有者这一层,
+        * 不能挂在浮条上:`handleQuote` 最后一步就是清选区,浮条当场卸载。
+        *
+        * `key` 必须跟着每一次重复走,否则第二次重复只是换了个同名的 message,
+        * Toast 的计时器不重新起跑,提示会按第一次的点消失。
+        */}
+      {quoteNotice ? (
+        <Toast
+          key={quoteNotice.key}
+          message={quoteNotice.message}
+          onDismiss={() => setQuoteNotice(null)}
         />
       ) : null}
     </div>
@@ -5200,11 +5280,18 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                         CLI 中途还在读 stdin) → 就是「引导对话」。
                       · 没有 → 退回今天的「立即发送」,**连名字一起退回去**,并把
                         `steerBlockedReason`(比如「当前 agent 不支持中途插话」)
-                        挂进 tooltip,让人知道为什么这颗不是引导。 */}
+                        挂进 tooltip,让人知道为什么这颗不是引导。
+
+                    引导态**带文字标签**(稿子 `.qops button.mod-steer` 的 `<svg/><span>`)。
+                    这不是装饰:两副面孔永远不同时出现(下面是二选一的三元式),
+                    所以用户没有「和旁边那颗比一比」的机会 —— 图标一样时他无从知道
+                    按下去是「插一句」还是「掐掉这一轮重来」。让这一行自己把名字说出来,
+                    是唯一在屏幕上分得开两条路的办法。退回态仍旧只有图标:
+                    它就是普通的「发送」,和编辑 / 移除同级。 */}
                 {steerableRow(item, Boolean(onSteer)) ? (
                   <button
                     type="button"
-                    className="chat-queued-send-action chat-queued-send-tooltip od-tooltip"
+                    className="chat-queued-send-action chat-queued-send-action-steer chat-queued-send-tooltip od-tooltip"
                     title={t('chat.queuedSteer')}
                     data-tooltip={t('chat.queuedSteer')}
                     data-tooltip-placement="top"
@@ -5213,6 +5300,7 @@ function writeContinuedTodoSnapshotKey(storageKey: string, snapshotKey: string):
                     onClick={() => onSteer?.(item)}
                   >
                     <Icon name="arrow-up" size={13} />
+                    <span className="chat-queued-send-action-label">{t('chat.queuedSteer')}</span>
                   </button>
                 ) : (
                   <button
