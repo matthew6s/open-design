@@ -21,6 +21,11 @@ import {
   previewHtmlHasLoadTimeLocationNavigation,
 } from '@open-design/contracts/runtime/preview-guards';
 import {
+  DECK_PRESENTATION_BRIDGE_MARKER,
+  DECK_PRESENTATION_BRIDGE_TOKENS,
+  buildDeckPresentationBridge,
+} from '@open-design/contracts/runtime/deck-presentation';
+import {
   endOfTag,
   findRealElementRange,
   findRealTagEnd,
@@ -1650,6 +1655,17 @@ function wantsUrlPreviewRedirectGuard(value: unknown): boolean {
   return previewBridgeTokens(value).some((token) => token === 'redirect');
 }
 
+/**
+ * Full-screen Deck presentation is a runtime switch on the already-running
+ * document, not a second rendering of the same source, so the host negotiates
+ * it through the same bridge query as scroll/selection/snapshot.
+ */
+function wantsUrlPreviewDeckPresentationBridge(value: unknown): boolean {
+  return previewBridgeTokens(value).some((token) => (
+    (DECK_PRESENTATION_BRIDGE_TOKENS as readonly string[]).includes(token)
+  ));
+}
+
 function injectBeforeBodyClose(html: string, marker: string, injection: string): string {
   if (html.includes(marker)) return html;
   const bodyCloseIndex = findRealTagOffset(html, /<\/body(?=[\t\n\f\r >])/i);
@@ -1692,7 +1708,15 @@ function injectAfterHeadOpen(html: string, marker: string, injection: string): s
 
 function injectUrlPreviewBridge(
   html: string,
-  bridge: 'scroll' | 'selection' | 'snapshot' | 'observability' | 'sandbox' | 'focus' | 'redirect',
+  bridge:
+    | 'scroll'
+    | 'selection'
+    | 'snapshot'
+    | 'observability'
+    | 'sandbox'
+    | 'focus'
+    | 'redirect'
+    | 'presentation',
 ): string {
   if (bridge === 'sandbox') {
     return injectAfterHeadOpen(html, 'data-od-sandbox-shim', buildPreviewSandboxShim());
@@ -1722,6 +1746,13 @@ function injectUrlPreviewBridge(
   if (bridge === 'selection') {
     return injectBeforeBodyClose(html, 'data-od-url-selection-bridge', URL_PREVIEW_SELECTION_BRIDGE);
   }
+  if (bridge === 'presentation') {
+    return injectBeforeBodyClose(
+      html,
+      DECK_PRESENTATION_BRIDGE_MARKER,
+      buildDeckPresentationBridge(),
+    );
+  }
   return injectBeforeBodyClose(html, 'data-od-url-snapshot-bridge', URL_PREVIEW_SNAPSHOT_BRIDGE);
 }
 
@@ -1738,7 +1769,8 @@ function applyUrlPreviewBridgesToHtml(
       wantsUrlPreviewObservabilityBridge(requestedBridge) ||
       wantsUrlPreviewSandboxGuard(requestedBridge) ||
       wantsUrlPreviewFocusGuard(requestedBridge) ||
-      wantsUrlPreviewRedirectGuard(requestedBridge)
+      wantsUrlPreviewRedirectGuard(requestedBridge) ||
+      wantsUrlPreviewDeckPresentationBridge(requestedBridge)
     ) ||
     !/^text\/html(?:;|$)/i.test(mime)
   ) {
@@ -1774,6 +1806,9 @@ function applyUrlPreviewBridgesToHtml(
   if (wantsUrlPreviewSnapshotBridge(requestedBridge)) {
     html = injectUrlPreviewBridge(html, 'snapshot');
   }
+  if (wantsUrlPreviewDeckPresentationBridge(requestedBridge)) {
+    html = injectUrlPreviewBridge(html, 'presentation');
+  }
   return html;
 }
 
@@ -1794,6 +1829,9 @@ function buildStreamingUrlPreviewBridgeInjection(
   if (wantsUrlPreviewScrollBridge(requestedBridge)) injection += URL_PREVIEW_SCROLL_BRIDGE;
   if (wantsUrlPreviewSelectionBridge(requestedBridge)) injection += URL_PREVIEW_SELECTION_BRIDGE;
   if (wantsUrlPreviewSnapshotBridge(requestedBridge)) injection += URL_PREVIEW_SNAPSHOT_BRIDGE;
+  if (wantsUrlPreviewDeckPresentationBridge(requestedBridge)) {
+    injection += buildDeckPresentationBridge();
+  }
   return injection;
 }
 
