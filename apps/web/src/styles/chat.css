@@ -3767,12 +3767,25 @@ body.od-quick-switcher-open .chat-composer-fixed-layer .composer-att .msg-att-de
   color: inherit;
   font-family: inherit;
   font-size: var(--font-size-13);
-  /* `inherit`,不是写死的 400。稿子的全局 button 复位**一条字重都不设**,
-     按钮就跟着 chat 根的排版基线走。原来那个 400 是为了把 `primitives.css`
-     全局 `button` 的 500「压回继承值」—— 在旧基线(body 400)下两者同值、
-     看不出来;基线抬到 500(`0334a6599d`,落在接缝层)之后它就变成
-     **面板里每一颗裸按钮都比周围正文轻一档**。 */
-  font-weight: inherit;
+  /* 写死 `400`,不是 `inherit` —— 这是稿子的**真实渲染值**,不是它的声明。
+     稿子的全局 button 复位(`8015870095:docs/design/chat-panel/src/components.css:170`)
+     确实**一条字重都不设**,但「不设」不等于「跟着基线走」:浏览器的 UA 样式表
+     给 `<button>` 用的是 **`font` 简写**(Chrome `font: 400 13.3333px Arial`),
+     简写会把 `font-weight` 一并压成 400,所以按钮的字重**默认不继承**。
+     稿子既没写 `font-weight` 也没写 `font`,裸按钮就停在 UA 的 400。
+     同一份稿子里 `.tool .fn { font: inherit }`(components.css:2235)是反证 ——
+     只有显式用 `font` / `font-weight` 盖掉 UA 那条,按钮才回到继承值(实测 500)。
+
+     量法(2026-09-02,真实 Chrome + 设计交付页 `chat-panel-next-pr7170-8015870.html`,
+     md5 `495992a904b6674dd07db4e0cb8d6f19`,= PR #7170 @ `8015870095`)。
+     那份是旧一版的交付页,但**这条复位规则在当前基线 `729fa43ce7` 里逐字节相同**
+     (两版 `components.css:170` 用 `diff` 对过),所以量到的 400 对当前基线同样成立:
+     293 颗 `<button>` 读 `getComputedStyle().fontWeight` → 400×195 / 500×43 / 600×55;
+     往稿子的 `.bub`(自身 500)里同时插一颗无类名 button 和一个 span,同一次读回
+     **button 400 / span 500** —— 既定住了 400,也证明读法分得出 400 和 500。
+     `tests/components/chat/w77-bare-button-weight.test.ts` 钉住这个值;那把量尺
+     **不建模 UA 样式表**,所以它只断言层叠里谁赢,400 的出处由上面这段实测背书。 */
+  font-weight: 400;
   cursor: pointer;
   /* 排版那几条也要归零 —— 稿子的全局 button 一条都不设,
      各组件自己写(`.grip { display:grid; place-items:center }`、

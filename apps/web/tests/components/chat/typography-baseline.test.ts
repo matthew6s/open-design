@@ -330,13 +330,25 @@ describe('新基线下,面板里各层的最终计算值', () => {
 
   /**
    * 层四 · 面板里的裸按钮。它没有自己的字重,靠 `:where([data-chat-root]) button`
-   * 那条复位往下走 —— 稿子的全局 button 复位**一条字重都不设**
+   * 那条复位说了算 —— 稿子的全局 button 复位**一条字重都不设**
    * (`button { font-family: inherit; border: none; background: none;
-   * cursor: pointer; color: inherit; font-size: var(--font-size-13) }`),
-   * 所以它该和周围正文同重。写死一个数(而不是「等于 prose」)是本组的规矩:
-   * 「等于基线」那种写法在基线被改坏时会跟着一起变。
+   * cursor: pointer; color: inherit; font-size: var(--font-size-13) }`)。
+   *
+   * ⚠️ 这里原来推成「不设 → 继承 body 的 500」,**推错了**(W77 已纠正)。
+   * 「不设」不等于「跟着基线走」:UA 样式表给 `<button>` 用的是 **`font` 简写**
+   * (Chrome `font: 400 13.3333px Arial`),简写会把 `font-weight` 一并压成 400,
+   * 按钮的字重**默认不继承**。稿子既没写 `font-weight` 也没写 `font`,
+   * 裸按钮的**真实渲染值就是 400**。
+   * 实测(2026-09-02,真实 Chrome + 交付页 md5 `495992a904b6674dd07db4e0cb8d6f19`):
+   * 往稿子的 `.bub`(自身 500)里同时插一颗无类名 button 和一个 span,
+   * 同一次读回 **button 400 / span 500**。原委与量法见
+   * `tests/components/chat/w77-bare-button-weight.test.ts`。
+   *
+   * 写死一个数(而不是「等于 prose」)是本组的规矩:
+   * 「等于基线」那种写法在基线被改坏时会跟着一起变 —— 这次尤其要写死,
+   * 因为正确答案恰恰**不等于**基线。
    */
-  it('层四 · 面板里的裸按钮(字重靠继承):13px / 500 / Albert Sans', () => {
+  it('层四 · 面板里的裸按钮(字重吃 UA 的 font 简写):13px / 400 / Albert Sans', () => {
     mount(CHAT_ROOT_CSS);
     const bare = read('bare-button');
     // 稿子 `361b78253e:docs/design/chat-panel/src/components.css`
@@ -344,14 +356,15 @@ describe('新基线下,面板里各层的最终计算值', () => {
     //                  cursor: pointer; color: inherit; font-size: var(--font-size-13) }
     //   :151  body   { font-family: var(--sans); font-weight: 500;
     //                  font-size: var(--font-size-13); line-height: 1.5 }
-    // 全局 button 复位**一条字重都不设** → 继承 body 的 500;字号 13px;
-    // 字族 `inherit` → body 的 `var(--sans)`。三样各钉一条具体值。
+    // 全局 button 复位一条字重都不设 → 停在 UA `font` 简写的 400(**不是** body 的 500);
+    // 字号 13px;字族 `inherit` → body 的 `var(--sans)`。三样各钉一条具体值。
     expect(bare.fontSize).toBe('13px');
     expect(
       bare.fontWeight,
-      '面板里的裸按钮比周围正文轻一档 —— `styles/chat.css` 的 ' +
-        '`:where([data-chat-root]) button` 又写死了一个字重,该写 `inherit`',
-    ).toBe('500');
+      '面板里的裸按钮没对上稿子的真实渲染值 —— `styles/chat.css` 的 ' +
+        '`:where([data-chat-root]) button` 该写死 400(稿子吃 UA 的 `font` 简写),' +
+        '写 `inherit` 会让它跟着面板基线变成 500',
+    ).toBe('400');
     expect(
       getComputedStyle(document.getElementById('bare-button')!).fontFamily,
       '字族也要跟着继承 —— 稿子的 button 复位写的是 font-family: inherit',
