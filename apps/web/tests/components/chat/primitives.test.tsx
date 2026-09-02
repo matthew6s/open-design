@@ -112,6 +112,27 @@ describe('Foldable', () => {
     const kids = [...summary.children].map((c) => c.textContent);
     expect(kids).toEqual(['已完成', '1m 12s', '']);
   });
+
+  it('窄侧栏下标题单独收缩，耗时和箭头仍保留独立槽位', () => {
+    render(
+      <div style={{ width: 180 }}>
+        <Foldable
+          summary={<span>一次性编写完整中文报告内容与 Kami 羊皮纸版式</span>}
+          elapsed="1m 46s"
+        >
+          <p>x</p>
+        </Foldable>
+      </div>,
+    );
+
+    const summary = document.querySelector('summary') as HTMLElement;
+    const title = screen.getByTestId('chat-foldable-summary-content');
+    const elapsed = screen.getByTestId('chat-foldable-elapsed');
+    const toggle = screen.getByTestId('chat-foldable-toggle');
+
+    expect(title.textContent).toContain('一次性编写完整中文报告内容');
+    expect([...summary.children]).toEqual([title, elapsed, toggle]);
+  });
 });
 
 describe('StatusMark', () => {

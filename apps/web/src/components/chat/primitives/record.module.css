@@ -40,7 +40,35 @@
 .fold.leaf > summary { cursor: default; }
 .fold.leaf > summary:hover { background: none; }
 
+/*
+ * 标题、耗时和箭头是三个独立槽位。窄侧栏下只让标题槽收缩:
+ * 耗时不换行，箭头也不会被标题挤掉。内层仍是 flex，因为标题本身可能由
+ * 状态点 / 图标 + 文字组成；它的最后一枚文字或显式 `.name` 承担截断。
+ */
+.summaryContent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.summaryContent > :last-child,
+.summaryContent > .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 命令失败头是「图标 + .name + 失败按钮」；只截标题，不截操作。 */
+.summaryContent:has(> .name) > :last-child:not(.name) {
+  flex: none;
+  overflow: visible;
+}
+
 .chev {
+  flex: none;
   margin-left: auto;
   display: inline-flex;
   transition: transform var(--chat-dur-quick) var(--chat-ease-out);
@@ -52,17 +80,14 @@
    工具行那一枚是 `.tool .ms { flex: none }` —— 靠 `.nm { flex: 1 }` 顶过去,
    自己不带 auto 外距。我们原来一律 auto,于是工具行里量出 500 多像素的左外距。 */
 .meta {
+  flex: none;
   margin-left: auto;
   font-family: var(--chat-font-mono);
   font-size: var(--chat-t-cap);
   color: var(--chat-text-soft);
+  white-space: nowrap;
 }
-/* `flex: none` 只属于**工具行**那一枚:稿子是两条各自作用域的规则 ——
-     `.tool .ms        { flex: none;        font-family; font-size; color }`
-     `.fold > summary .ms { margin-left: auto; font-family; font-size; color }`
-   ——**折叠头那条一个 flex 都不写**(= `0 1 auto`,允许被压)。我们把两条并成
-   一条裸 `.meta`,等于把工具行的 `flex: none` 也发给了折叠头,秒数从此不肯让位。 */
-.tool .meta { flex: none; }
+/* 工具行与折叠头的耗时都是不换行的完整信息；窄宽度由标题槽让位。 */
 /* 计数类(「2 处」「2/4」)用正文字体 + 等宽数字,不用整套等宽 */
 .meta.num {
   font-family: inherit;

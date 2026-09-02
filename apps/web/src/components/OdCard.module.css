@@ -109,23 +109,27 @@
 /* ----- memory-applied: one-line chip with type-dotted refs --------------- */
 
 /*
- * 记忆卡 = 交付稿里的通用折叠行 `.fold`,规则逐条照抄(chat-panel-next.html):
- *   .fold           { border: 0; border-radius: var(--radius); background: var(--bg-panel); }
+ * 记忆卡 = 最新 PR 交付稿里的通用折叠行 `.fold`,并应用它为记忆态新增的
+ * 16px 外壳 / summary 轮廓。其它 spacing、字号和颜色仍逐条映射:
+ *   .fold           { border: 0; background: var(--bg-panel); }
  *   .fold > summary { display:flex; align-items:center; gap:7px; padding:8px 11px;
  *                     font-size: var(--t-mini); color: var(--text-strong);
- *                     border-radius: var(--radius); list-style:none; cursor:pointer; }
+ *                     list-style:none; cursor:pointer; }
+ *   .fold:has(> summary > .memo-ic),
+ *   .fold > summary:has(> .memo-ic) { border-radius: 16px; }
  *   .fold .body     { padding: 0 11px 11px; font-size: var(--t-mini);
  *                     line-height: var(--lh-body); color: var(--text-muted); }
  *
  * 之前这里是自建的一套:没底色、没圆角、summary 字号跟着外面继承(13px 而不是 12px)、
- * 标题多了 font-weight:500、箭头用 --text-soft。逐条量出来七处不一致。
+ * 标题显式写死 font-weight:500、箭头用 --text-soft。最新独立稿的 500 来自全页字体基线,
+ * 产品字体 face 校验之前不在这个组件内补写,避免局部伪对齐。
  * `.card` 那 6px 上下外边距也要按稿子归零 —— 稿实体上是 0。
  */
 .appliedCard {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-2xl);
   background: var(--bg-panel);
 }
 .appliedCard > summary {
@@ -139,7 +143,7 @@
      我们这边没有这个别名,照抄会**静默失效**、字号退回继承的 13px。所以映射到我们的 token。 */
   font-size: var(--font-size-12);
   color: var(--text-strong);
-  border-radius: var(--radius);
+  border-radius: var(--radius-2xl);
 }
 .appliedCard > summary::-webkit-details-marker { display: none; }
 .appliedCard > summary::marker { content: ''; }

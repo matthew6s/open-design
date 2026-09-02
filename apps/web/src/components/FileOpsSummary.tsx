@@ -29,6 +29,7 @@ import {
 import { artifactExportNeedsFormatChoice } from '../runtime/chat/artifact-export';
 import { Icon, type IconName } from './Icon';
 import { PixelLiquid } from './PixelLiquid';
+import { RemixIcon } from './RemixIcon';
 import { HtmlProjectCoverFrame } from './project-cover';
 import { AudioArtifact } from './chat/AudioArtifact';
 import { ARTIFACT_ANCHOR_ATTR, artifactAnchorId } from './chat/AnchoredMenuShell';
@@ -582,10 +583,10 @@ function ArtifactCard({
               data-testid={`artifact-card-publish-${item.name}`}
               {...{ [ARTIFACT_ANCHOR_ATTR]: artifactAnchorId('publish', item.name, anchorScope) }}
             >
-              {/* 稿子里「发布」是**纯文字**,那枚圈中箭头只给「导出」——
-                  `components.css` 把理由写死了:「两个方向相反的动作并排,给其中
-                  一个加上方向,那一排就不必逐字读了」。两枚都上图标等于把这条
-                  取消掉。 */}
+              {/* OPEND-2559 supersedes PR7170's text-only share treatment:
+                  reuse the same semantic glyph as the right-side Share action,
+                  scaled by the card action's 12px icon-box rule. */}
+              <RemixIcon name="share-forward-line" size={12} />
               {t('chat.artifact.publish')}
             </button>
           ) : null}
@@ -631,10 +632,9 @@ function ArtifactCard({
  * 它不在 `remix-icon-paths.ts` 那 152 个字形里。尺寸在 CSS 里(12px、
  * inline-start -1px),让圈和字看起来一样高(D39)。
  *
- * 稿子里**只有这一枚**图标 —— 「发布」是纯文字。原来这里还有一枚
- * `ArtifactPublishIcon`,用的其实是组件 19「导出日志」那条路径(上传箭头),
- * 摆在「发布」前面既不是稿子上的东西,也把「一排里只给一个动作方向」那条
- * 取巧取消掉了。
+ * Export keeps PR7170's custom circled-down glyph. Share uses the shared
+ * `share-forward-line` glyph above; the two actions intentionally retain
+ * distinct semantics even though OPEND-2559 now requires both to have icons.
  */
 function ArtifactExportIcon() {
   return (

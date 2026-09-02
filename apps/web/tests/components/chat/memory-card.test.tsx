@@ -15,9 +15,16 @@
  *     稿子里没有;大前提是「一切按新设计稿对齐」,所以按稿子去掉
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { I18nProvider } from '../../../src/i18n';
 import { OdCardView } from '../../../src/components/OdCard';
+
+const odCardStylesheet = readFileSync(
+  resolve(process.cwd(), 'src/components/OdCard.module.css'),
+  'utf8',
+);
 
 afterEach(() => { cleanup(); });
 
@@ -50,5 +57,23 @@ describe('记忆卡', () => {
     expect(svg?.getAttribute('fill')).toBe('currentColor');
     // 稿子那条书签路径的起手式;换成别的图标这里立刻红
     expect(container.querySelector('summary svg path')?.getAttribute('d')).toContain('M6.5 3h11');
+  });
+
+  it('收起和展开保持最新稿的 16px 外壳与标题轮廓', () => {
+    const { container } = show();
+    const details = container.querySelector('details');
+    const summary = container.querySelector('summary');
+    expect(details).not.toBeNull();
+    expect(summary).not.toBeNull();
+
+    expect(odCardStylesheet).toMatch(
+      /\.appliedCard\s*\{[^}]*border-radius:\s*var\(--radius-2xl\)/s,
+    );
+    expect(odCardStylesheet).toMatch(
+      /\.appliedCard\s*>\s*summary\s*\{[^}]*border-radius:\s*var\(--radius-2xl\)/s,
+    );
+
+    fireEvent.click(summary!);
+    expect(details?.open).toBe(true);
   });
 });

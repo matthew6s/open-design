@@ -13,18 +13,22 @@
  * md5 `28ea4c65…`),它的 `.cmp-ops` 散文和 `components.css` 注释就是规格:
  *  · 动作明摆在**右上角**,两枚:发布 / 导出。不收进菜单,不看第几轮。
  *  · **发布只有 HTML 产物有**;md / csv / 图片 / 视频那类右上角只剩一枚「导出」。
- *  · 「发布」是**纯文字**,只有「导出」带那枚圈中向下箭头 —— 稿子原话:
- *    「两个方向相反的动作并排,给其中一个加上方向,那一排就不必逐字读了」。
+ *  · OPEND-2559 supersedes the old icon asymmetry: both actions carry their
+ *    matching toolbar semantics (share-forward / export-download).
  *  · 没有「预览」,没有「⋯」。
  *
  * 稿子里**没有任何**「只有最后一轮才给动作」的说法。
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessage } from '../../src/components/AssistantMessage';
 import { FileOpsSummary } from '../../src/components/FileOpsSummary';
+import { RemixIcon } from '../../src/components/RemixIcon';
+import { REMIX_ICON_PATHS } from '../../src/components/remix-icon-paths';
 import { CollabProvider } from '../../src/collab/collab-context';
 import type { ChatMessage, ProjectFile } from '../../src/types';
 import type { FileOpEntry } from '../../src/runtime/file-ops';
@@ -41,6 +45,16 @@ beforeAll(() => {
       setItem: (key: string, value: string) => store.set(key, value),
     },
   });
+
+  const style = document.createElement('style');
+  style.textContent = [
+    'tokens.css',
+    'primitives.css',
+    'shell.css',
+    'workspace/drawer.css',
+    'viewer/tools.css',
+  ].map((file) => readFileSync(resolve(__dirname, '../../src/styles', file), 'utf8')).join('\n');
+  document.head.append(style);
 });
 
 afterEach(() => {
@@ -337,10 +351,10 @@ describe('音频产物', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * 5 · 「发布」是纯文字,方向感只给「导出」
+ * 5 · Plane OPEND-2559: 分享 / 导出都带各自的语义图标
  * ------------------------------------------------------------------ */
 describe('动作胶囊的字形', () => {
-  it('「发布」不带图标,「导出」带那枚圈中箭头', () => {
+  it('「分享」使用与右上角一致的 share-forward 图标,「导出」保留下载图标', () => {
     render(
       <CollabProvider value={projectCollabValue()}>
         <FileOpsSummary
@@ -354,12 +368,79 @@ describe('动作胶囊的字形', () => {
 
     const publish = screen.getByTestId('artifact-card-publish-landing.html');
     const exportAct = screen.getByTestId('artifact-card-export-landing.html');
-    // 反向对照:导出**必须**有图标,否则「两枚都没图标」也能过
-    expect(exportAct.querySelector('svg'), '「导出」丢了那枚圈中箭头').toBeTruthy();
-    expect(
-      publish.querySelector('svg'),
-      '「发布」多了一枚图标 —— 稿子里它是纯文字,方向感只给「导出」一个',
-    ).toBeNull();
+    const shareIcon = publish.querySelector('svg');
+    expect(shareIcon, '「分享」没有补上与右上角一致的语义图标').toBeTruthy();
+    expect(shareIcon).toHaveAttribute('aria-hidden', 'true');
+    expect(shareIcon).toHaveAttribute('width', '12');
+    expect(shareIcon).toHaveAttribute('height', '12');
+    expect(shareIcon?.querySelector('path')).toHaveAttribute(
+      'd',
+      REMIX_ICON_PATHS['share-forward-line'],
+    );
+    expect(publish).toHaveAttribute('aria-haspopup', 'menu');
+    expect(publish).toHaveTextContent('Share');
+
+    // 反向对照:导出仍必须有它自己的图标,不能为了“统一”改成同一枚字形。
+    expect(exportAct.querySelector('svg'), '「导出」丢了原有下载图标').toBeTruthy();
+  });
+
+  it('与右上角文件操作按钮使用同一套紧凑尺寸', () => {
+    render(
+      <div className="app">
+        <div className="ws-tabs-actions">
+          <button
+            type="button"
+            className="chrome-action chrome-action-secondary chrome-action-with-label chrome-action-text-only chrome-action-unified chrome-action-dark"
+            data-testid="reference-file-export"
+          >
+            <RemixIcon name="download-line" size={15} />
+            <span>Export</span>
+          </button>
+        </div>
+        <CollabProvider value={projectCollabValue()}>
+          <FileOpsSummary
+            entries={[fileOpEntry('landing.html')]}
+            projectId={PROJECT_ID}
+            onPublish={vi.fn()}
+            onExport={vi.fn()}
+          />
+        </CollabProvider>
+      </div>,
+    );
+
+    const reference = getComputedStyle(screen.getByTestId('reference-file-export'));
+    const artifact = getComputedStyle(screen.getByTestId('artifact-card-export-landing.html'));
+    // OPEND-2560 only supersedes the old pill's outer height: it must match
+    // the compact file-toolbar action. Internal spacing/type remains the
+    // PR7170 artifact specification rather than inheriting toolbar styling.
+    expect(artifact.height).toBe(reference.height);
+    expect({
+      paddingBlock: [artifact.paddingTop, artifact.paddingBottom],
+      paddingInline: [artifact.paddingLeft, artifact.paddingRight],
+      fontSize: artifact.fontSize,
+      fontWeight: artifact.fontWeight,
+      lineHeight: artifact.lineHeight,
+      gap: artifact.gap,
+    }).toEqual({
+      paddingBlock: ['4px', '4px'],
+      paddingInline: ['8px', '8px'],
+      fontSize: '12px',
+      fontWeight: '600',
+      lineHeight: 'normal',
+      gap: '6px',
+    });
+
+    const artifactIcon = getComputedStyle(screen.getByTestId('artifact-card-export-landing.html').querySelector('svg')!);
+    expect([artifactIcon.width, artifactIcon.height]).toEqual(['12px', '12px']);
+
+    const actions = getComputedStyle(
+      screen.getByTestId('artifact-card-export-landing.html').parentElement!,
+    );
+    expect([
+      actions.top,
+      actions.getPropertyValue('inset-inline-end'),
+      actions.gap,
+    ]).toEqual(['8px', '8px', '4px']);
   });
 });
 

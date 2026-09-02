@@ -105,6 +105,7 @@
   --radius-medium: 4px;
   --radius-large: 8px;
   --radius-xlarge: 12px;
+  --radius-2xlarge: 16px;
   --radius-circular: 50%;
   --stroke-thin: 1px;
   --stroke-thick: 2px;
@@ -115,6 +116,7 @@
   --radius: var(--radius-large);
   --radius-md: var(--radius-large);
   --radius-lg: var(--radius-xlarge);
+  --radius-2xl: var(--radius-2xlarge);
   --radius-pill: 999px;
 
   --duration-ultra-fast: 50ms;

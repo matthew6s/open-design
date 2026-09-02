@@ -210,8 +210,8 @@
    up when they sit side by side. */
 .artifact-card-acts {
   position: absolute;
-  inset-inline-end: 12px;
-  top: 12px;
+  inset-inline-end: 8px;
+  top: 8px;
   z-index: 2;
   display: flex;
   justify-content: flex-end;
@@ -225,36 +225,36 @@
   flex: none;
   display: inline-flex;
 }
-/* Solid #353535, product-specified, replacing an earlier 44% black: a
-   translucent pill picks up whatever it sits on, so it reads grey on a light
-   screenshot and nearly edgeless on a dark one, and a row of cards ends up
-   with buttons of visibly different weight. Do not put the translucency back. */
+/* PR7170 keeps the artwork visible through a dark glass pill. OPEND-2560 only
+   supersedes its outer height; the fill, inset, type, icon and interaction
+   stay on the design baseline. */
 .artifact-card .artifact-card-act {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: auto;
-  padding: 2px 9px;
+  height: 28px;
+  min-height: 28px;
+  padding: 4px 8px;
   border: 0;
   border-radius: var(--radius-pill);
-  background: #353535;
+  background: rgb(18 18 18 / 60%);
   color: #fff;
+  -webkit-backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-regular-blur)) saturate(140%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 16%, transparent), 0 2px 8px rgb(0 0 0 / 12%);
   font-size: 12px;
   font-weight: 600;
-  /* `normal`, not a ratio: the sheet's pill is 21px tall and the chat column
-     around it sets a roomier body line-height that would otherwise inflate it. */
   line-height: normal;
   white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
   transition: background-color var(--duration-faster) var(--ease-out);
 }
-/* Solid fill cannot deepen its alpha on hover, so hover gets a real second
-   step: #202020, the darkest tone in the sheet. */
+/* Hover deepens the same glass fill without changing geometry. */
 .artifact-card .artifact-card-act:hover {
-  background: #202020;
+  background: rgb(18 18 18 / 72%);
   border-color: transparent;
 }
 .artifact-card .artifact-card-act:active { transform: none; }
@@ -262,14 +262,16 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* 12px matches the caption size exactly — a larger glyph reads as leaning on
-   the label. The -1px eats the optical padding the svg carries so the ring and
-   the text cap look the same height. */
+/* PR7170's custom ring glyph remains 12px; -1px eats its optical padding. */
 .artifact-card .artifact-card-act svg {
   flex: none;
   width: 12px;
   height: 12px;
   margin-inline-start: -1px;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .artifact-card .artifact-card-act { background: #353535; }
+  .artifact-card .artifact-card-act:hover { background: #202020; }
 }
 /* D37 — NOT in the design sheet. Product asked for it on 2026-08-21: while a
    file is still being written the turn otherwise sits silent and then pops an
