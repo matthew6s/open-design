@@ -673,15 +673,18 @@ button { font-family: inherit; border: none; background: none; cursor: pointer; 
   width: 28px; height: 28px; border-radius: var(--radius);
   color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.user-status-card__copy { min-width: 0; display: grid; gap: 2px; }
+.user-status-card__icon > svg { display: block; width: 16px; height: 16px; }
+.user-status-card__copy { min-width: 0; flex: 1 1 auto; overflow: hidden; display: grid; gap: 2px; }
 .user-status-card__copy strong {
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--t-body); line-height: 1.2; font-weight: 600;
 }
-.user-status-card__copy span { font-size: var(--t-mini); line-height: 1.35; color: var(--text-muted); }
-/* 标题保持一行；组件页使用产品卡片的 320px 上限，给标题留出完整宽度。 */
+.user-status-card__copy span {
+  overflow-wrap: anywhere; font-size: var(--t-mini); line-height: 1.35; color: var(--text-muted);
+}
+/* 标题保持一行；280px 给完整标题留出空间，同时维持紧凑的消息宽度。 */
 .st-b .design-system-generation-status {
-  width: min(320px, 100%);
+  width: min(280px, 100%);
   background: color-mix(in srgb, var(--text) 6%, var(--bg));
 }
 
@@ -4020,7 +4023,7 @@ button.att-d:hover { border-color: var(--border-strong); }
 .vbar .sp { flex: 1; }
 .card > .h .visual-countdown { color: var(--text-soft); font-weight: 400; }
 .visual-refresh {
-  flex: none; min-height: 24px; padding-inline: 5px; border-radius: var(--radius-sm);
+  flex: none; min-height: 24px; padding-inline: 8px; border-radius: var(--radius-pill);
   color: var(--text-muted); font-size: var(--t-cap); font-weight: 400;
   transition: background-color var(--duration-faster) var(--ease-out),
               color var(--duration-faster) var(--ease-out);
@@ -4347,7 +4350,7 @@ body { margin: 0; }
               <div class="msg-me">
                 <div class="user-status-card design-system-generation-status" id="msg-design-system-generation-status">
                   <span class="user-status-card__icon" aria-hidden="true">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C17.5222 2 22 5.97778 22 10.8889C22 13.9556 19.5111 16.4444 16.4444 16.4444H14.4778C13.5556 16.4444 12.8111 17.1889 12.8111 18.1111C12.8111 18.5333 12.9778 18.9222 13.2333 19.2111C13.5 19.5111 13.6667 19.9 13.6667 20.3333C13.6667 21.2556 12.9 22 12 22C6.47778 22 2 17.5222 2 12C2 6.47778 6.47778 2 12 2ZM10.8111 18.1111C10.8111 16.0843 12.451 14.4444 14.4778 14.4444H16.4444C18.4065 14.4444 20 12.851 20 10.8889C20 7.1392 16.4677 4 12 4C7.58235 4 4 7.58235 4 12C4 16.19 7.2226 19.6285 11.324 19.9718C10.9948 19.4168 10.8111 18.7761 10.8111 18.1111ZM7.5 12C6.67157 12 6 11.3284 6 10.5C6 9.67157 6.67157 9 7.5 9C8.32843 9 9 9.67157 9 10.5C9 11.3284 8.32843 12 7.5 12ZM16.5 12C15.6716 12 15 11.3284 15 10.5C15 9.67157 15.6716 9 16.5 9C17.3284 9 18 9.67157 18 10.5C18 11.3284 17.3284 12 16.5 12ZM12 9C11.1716 9 10.5 8.32843 10.5 7.5C10.5 6.67157 11.1716 6 12 6C12.8284 6 13.5 6.67157 13.5 7.5C13.5 8.32843 12.8284 9 12 9Z"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" focusable="false"><path d="M12 2C17.5222 2 22 5.97778 22 10.8889C22 13.9556 19.5111 16.4444 16.4444 16.4444H14.4778C13.5556 16.4444 12.8111 17.1889 12.8111 18.1111C12.8111 18.5333 12.9778 18.9222 13.2333 19.2111C13.5 19.5111 13.6667 19.9 13.6667 20.3333C13.6667 21.2556 12.9 22 12 22C6.47778 22 2 17.5222 2 12C2 6.47778 6.47778 2 12 2ZM10.8111 18.1111C10.8111 16.0843 12.451 14.4444 14.4778 14.4444H16.4444C18.4065 14.4444 20 12.851 20 10.8889C20 7.1392 16.4677 4 12 4C7.58235 4 4 7.58235 4 12C4 16.19 7.2226 19.6285 11.324 19.9718C10.9948 19.4168 10.8111 18.7761 10.8111 18.1111ZM7.5 12C6.67157 12 6 11.3284 6 10.5C6 9.67157 6.67157 9 7.5 9C8.32843 9 9 9.67157 9 10.5C9 11.3284 8.32843 12 7.5 12ZM16.5 12C15.6716 12 15 11.3284 15 10.5C15 9.67157 15.6716 9 16.5 9C17.3284 9 18 9.67157 18 10.5C18 11.3284 17.3284 12 16.5 12ZM12 9C11.1716 9 10.5 8.32843 10.5 7.5C10.5 6.67157 11.1716 6 12 6C12.8284 6 13.5 6.67157 13.5 7.5C13.5 8.32843 12.8284 9 12 9Z"/></svg>
                   </span>
                   <span class="user-status-card__copy">
                     <strong>Creating design system workspace</strong>

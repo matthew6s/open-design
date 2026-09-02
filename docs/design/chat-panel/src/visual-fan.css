@@ -22,7 +22,7 @@
 .vbar .sp { flex: 1; }
 .card > .h .visual-countdown { color: var(--text-soft); font-weight: 400; }
 .visual-refresh {
-  flex: none; min-height: 24px; padding-inline: 5px; border-radius: var(--radius-sm);
+  flex: none; min-height: 24px; padding-inline: 8px; border-radius: var(--radius-pill);
   color: var(--text-muted); font-size: var(--t-cap); font-weight: 400;
   transition: background-color var(--duration-faster) var(--ease-out),
               color var(--duration-faster) var(--ease-out);
