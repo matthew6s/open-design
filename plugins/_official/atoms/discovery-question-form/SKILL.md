@@ -65,6 +65,11 @@ Each entry in the top-level `questions` array uses:
   `email`, `tel`, `file`, `switch`, or `direction-cards`.
 - `options`: required for choice controls except `direction-cards`; strings are
   allowed, or objects with localized `label` and stable `value`.
+- Keep a single question to at most 6-7 options. Users cannot weigh more than that at a glance; if you have more, merge the near-duplicates or drop the ones least likely to change what gets built.
+- Choose between `radio` and `select` by how many options a single-choice question has, not by how important they are: `radio` for a short list the user reads straight through, `select` once the list runs long (languages, timezones, countries, voices). A `checkbox` question always stays a plain list.
+- On a `select` you may give each option an optional `group` (the first group renders expanded; the rest collapse behind a host-labelled "More options" toggle) and an optional `trailingLabel` (a short code shown at the end of the row, such as `ZH-CN`). Both are optional - omit them and the question renders as a plain list.
+- Write option labels in the words the user would use, not industry jargon: "Magazine-style layout" rather than "Editorial", "Plain and functional" rather than "Brutalist". Where an option's `value` is a stable identifier the host matches on, reword only the `label` and never the `value`.
+- Keep each option `label` to roughly 40 characters (about six words) so it fits one row without wrapping. Put any longer explanation in that option's `description` field instead of padding the label.
 - `direction-cards`: a Host-owned visual-style catalog trigger. Emit only the
   question's `id`, localized `label`, `type`, and `required` when appropriate;
   omit `options`, `cards`, `variant`, and `defaultValue`.

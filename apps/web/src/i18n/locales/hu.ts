@@ -3574,6 +3574,7 @@ export const hu: Dict = {
   "qf.visualViewGrid": "Megjelenítés rácsban",
   "qf.confirmed": "Megerősítve",
   "qf.picked": "{count} kiválasztva",
+  "qf.moreOptions": "További lehetőségek",
   "qf.colorPresets": "Előre beállított színek",
   "qf.colorCustom": "Egyéni szín",
   "qf.colorPickerLabel": "Színválasztó megnyitása",

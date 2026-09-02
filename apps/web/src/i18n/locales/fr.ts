@@ -3574,6 +3574,7 @@ export const fr: Dict = {
   "qf.visualViewGrid": "Afficher en grille",
   "qf.confirmed": "Confirmé",
   "qf.picked": "{count} sélectionné(s)",
+  "qf.moreOptions": "Plus d'options",
   "qf.colorPresets": "Couleurs prédéfinies",
   "qf.colorCustom": "Couleur personnalisée",
   "qf.colorPickerLabel": "Ouvrir le sélecteur de couleur",

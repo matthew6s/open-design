@@ -3574,6 +3574,7 @@ export const ko: Dict = {
   "qf.visualViewGrid": "그리드로 보기",
   "qf.confirmed": "확인됨",
   "qf.picked": "{count}개 선택",
+  "qf.moreOptions": "옵션 더 보기",
   "qf.colorPresets": "기본 색상",
   "qf.colorCustom": "사용자 지정 색상",
   "qf.colorPickerLabel": "색상 선택기 열기",

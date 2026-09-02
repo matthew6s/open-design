@@ -4458,6 +4458,7 @@ export interface Dict {
   'qf.visualViewGrid': string;
   'qf.confirmed': string;
   'qf.picked': string;
+  'qf.moreOptions': string;
   'qf.colorPresets': string;
   'qf.colorCustom': string;
   'qf.colorPickerLabel': string;

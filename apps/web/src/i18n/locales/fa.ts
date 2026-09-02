@@ -3574,6 +3574,7 @@ export const fa: Dict = {
   "qf.visualViewGrid": "نمایش شبکه‌ای",
   "qf.confirmed": "تأیید شد",
   "qf.picked": "{count} انتخاب شد",
+  "qf.moreOptions": "گزینه‌های بیشتر",
   "qf.colorPresets": "رنگ‌های آماده",
   "qf.colorCustom": "رنگ دلخواه",
   "qf.colorPickerLabel": "باز کردن انتخابگر رنگ",

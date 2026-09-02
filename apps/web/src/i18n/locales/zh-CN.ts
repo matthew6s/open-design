@@ -3760,6 +3760,7 @@ export const zhCN: Dict = {
   "qf.visualViewGrid": "铺成网格",
   "qf.confirmed": "已确认",
   "qf.picked": "已选 {count}",
+  "qf.moreOptions": "更多选项",
   "qf.colorPresets": "预设颜色",
   "qf.colorCustom": "自定义颜色",
   "qf.colorPickerLabel": "打开颜色选择器",

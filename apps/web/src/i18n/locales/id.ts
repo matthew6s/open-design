@@ -3574,6 +3574,7 @@ export const id: Dict = {
   "qf.visualViewGrid": "Tampilkan sebagai kisi",
   "qf.confirmed": "Dikonfirmasi",
   "qf.picked": "{count} dipilih",
+  "qf.moreOptions": "Opsi lainnya",
   "qf.colorPresets": "Warna preset",
   "qf.colorCustom": "Warna kustom",
   "qf.colorPickerLabel": "Buka pemilih warna",

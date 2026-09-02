@@ -1298,6 +1298,144 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 查找型单选(交付稿 `.opts.mod-language`,PR #7170 新增)──────────────
+   稿子那一档演的是语言表,能力却是通用的三件事:**选项分组、行尾副标、高度上限**。
+   所以类名按能力起(`qf-select-*`),不叫 language —— 时区、国家、字体同一条路。
+   内容一律来自 agent 的 `options`,host 一张表都不内置。
+
+   稿子 `.opts.mod-language { display:block; padding: 0 11px 10px }` —— 仍旧落在
+   问句、每个选项、底栏共用的那条 11px 竖线上。 */
+.qf-select-field {
+  display: block;
+  padding: 0 11px 10px;
+}
+/* 稿子 `.language-menu, .language-more` —— 两块都是独立的带边圆角面 */
+.qf-select-menu,
+.qf-select-more {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow-sm);
+}
+.qf-select-more {
+  margin-top: 8px;
+}
+.qf-select-group-label {
+  display: block;
+  padding: 7px 10px 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+/* 稿子 `.language-option, .language-more-toggle` —— 32px 是一行的基准高度,
+   下面那条 6.5 行的上限(208px)就是按它算的。 */
+.qf-select-option,
+.qf-select-more-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  /* 和 `.qf-chip` 同一件事:`primitives.css` 的裸 `button { white-space: nowrap }`
+     会让长选项名冲出菜单。这一族的选项名(语言、国家、字体)不短。 */
+  white-space: normal;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+}
+.qf-select-option:hover:not(:disabled),
+.qf-select-more-toggle:hover {
+  background: var(--bg-fill-secondary);
+}
+.qf-select-option:focus-visible,
+.qf-select-more-toggle:focus-visible {
+  outline: 2px solid var(--selected);
+  outline-offset: -2px;
+}
+.qf-select-option:disabled {
+  cursor: not-allowed;
+}
+.qf-select-option[aria-selected='true'] {
+  background: var(--brand-soft);
+  color: var(--select-ink);
+  font-weight: 500;
+}
+/* 选项名占满剩下的宽度并允许换行;副标和勾各自不缩。 */
+.qf-select-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* 稿子 `.language-code` —— 行尾那枚短标记,等宽数字免得几行之间跳动 */
+.qf-select-trailing {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+/* 稿子:勾平时是**占位不显形**(opacity:0),这样选中与否行宽不变、不抖。
+   没有副标时由勾自己吃掉那段 auto 外距;有副标时外距归副标(下一条)。 */
+.qf-select-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-inline-start: auto;
+  opacity: 0;
+  color: var(--brand-text);
+}
+.qf-select-trailing + .qf-select-check {
+  margin-inline-start: 0;
+}
+.qf-select-option[aria-selected='true'] .qf-select-check {
+  opacity: 1;
+}
+.qf-select-more-toggle {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.qf-select-more-gap {
+  flex: 1;
+}
+.qf-select-more-toggle svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  transition: transform 140ms var(--ease-out);
+}
+.qf-select-more-toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+/* 稿子写死的那条高度上限:**32px × 6.5 = 208px**。露半行是给「下面还有」的提示,
+   收在 6 行整会读成「就这些了」。`overscroll-behavior: contain` 挡住滚到底之后
+   把整条会话一起带走。 */
+.qf-select-more-list {
+  max-height: 208px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.qf-select-more-list[hidden] {
+  display: none;
+}
+/* 「自己填」仍旧是选项列表那套(逃生口在两种形态下是同一颗),只是挪到菜单下面。
+   它自带 `.qf-options` 的内距,这里把左右那份撤掉 —— 外面 `.qf-select-field`
+   已经出了 11px,再叠一层会比菜单窄一格。 */
+.qf-select-own {
+  padding-inline: 0;
+  padding-bottom: 0;
+}
+
 /* ── 颜色选择(交付稿 `.opts.mod-color`,PR #7170)────────────────────────
    「预设色、系统取色器和 Hex 输入三条路实时同步,预览跟着更新。」
    预览底色由 `--qf-choice-color` 驱动 —— 组件按当前答案把它写在包装层上,

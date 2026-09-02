@@ -3574,6 +3574,7 @@ export const ja: Dict = {
   "qf.visualViewGrid": "グリッド表示",
   "qf.confirmed": "確認済み",
   "qf.picked": "{count} 件選択",
+  "qf.moreOptions": "その他の選択肢",
   "qf.colorPresets": "プリセットカラー",
   "qf.colorCustom": "カスタムカラー",
   "qf.colorPickerLabel": "カラーピッカーを開く",

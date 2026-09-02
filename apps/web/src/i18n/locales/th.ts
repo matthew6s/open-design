@@ -3574,6 +3574,7 @@ export const th: Dict = {
   "qf.visualViewGrid": "แสดงเป็นตาราง",
   "qf.confirmed": "ยืนยันแล้ว",
   "qf.picked": "เลือกแล้ว {count}",
+  "qf.moreOptions": "ตัวเลือกเพิ่มเติม",
   "qf.colorPresets": "สีที่ตั้งไว้",
   "qf.colorCustom": "สีกำหนดเอง",
   "qf.colorPickerLabel": "เปิดตัวเลือกสี",

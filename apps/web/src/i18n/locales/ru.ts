@@ -3574,6 +3574,7 @@ export const ru: Dict = {
   "qf.visualViewGrid": "Показать сеткой",
   "qf.confirmed": "Подтверждено",
   "qf.picked": "Выбрано: {count}",
+  "qf.moreOptions": "Другие варианты",
   "qf.colorPresets": "Готовые цвета",
   "qf.colorCustom": "Свой цвет",
   "qf.colorPickerLabel": "Открыть палитру",

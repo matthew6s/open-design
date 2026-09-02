@@ -3574,6 +3574,7 @@ export const ptBR: Dict = {
   "qf.visualViewGrid": "Ver em grade",
   "qf.confirmed": "Confirmado",
   "qf.picked": "{count} escolhidos",
+  "qf.moreOptions": "Mais opções",
   "qf.colorPresets": "Cores predefinidas",
   "qf.colorCustom": "Cor personalizada",
   "qf.colorPickerLabel": "Abrir o seletor de cores",

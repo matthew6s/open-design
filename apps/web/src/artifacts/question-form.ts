@@ -102,6 +102,21 @@ export interface FormOption {
   label: string;
   value: string;
   description?: string;
+  /**
+   * 这一项归属的分组名。**只对「查找型单选」有意义**,而且一律可选 ——
+   * 缺了就是今天那条平铺的选项列表,逐元素一致。
+   *
+   * 渲染约定只有一条,不需要第二个字段来描述层级:**第一个出现的分组直接展开
+   * 并带上组名,其后的每一组各自收在一个开关后面,开关上的字就是那一组的组名。**
+   * 交付稿的「常用语言 / 更多语言」正好是这条规则下的两组;host 因此不必编一句
+   * 「更多选项」压在模型自己的措辞上。
+   */
+  group?: string;
+  /**
+   * 行尾那枚副标(交付稿里是 `ZH-CN` 这种语言代码)。一律可选。
+   * 它是**给人扫读用的短标记**,不是答案:提交出去的仍然是 `value`。
+   */
+  trailingLabel?: string;
   /** Host-only context returned to the agent for a catalog-backed visual choice. */
   foundationDirectionId?: string;
   /** Host-only refinement text returned with the selected visual choice. */
@@ -992,10 +1007,20 @@ function parseOption(raw: unknown): FormOption | null {
     typeof obj.description === 'string' && obj.description.trim().length > 0
       ? obj.description.trim()
       : undefined;
+  const group =
+    typeof obj.group === 'string' && obj.group.trim().length > 0
+      ? obj.group.trim()
+      : undefined;
+  const trailingLabel =
+    typeof obj.trailingLabel === 'string' && obj.trailingLabel.trim().length > 0
+      ? obj.trailingLabel.trim()
+      : undefined;
   return {
     label,
     value,
     ...(description ? { description } : {}),
+    ...(group ? { group } : {}),
+    ...(trailingLabel ? { trailingLabel } : {}),
   };
 }
 

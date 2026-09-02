@@ -3574,6 +3574,7 @@ export const tr: Dict = {
   "qf.visualViewGrid": "Izgara olarak göster",
   "qf.confirmed": "Onaylandı",
   "qf.picked": "{count} seçildi",
+  "qf.moreOptions": "Diğer seçenekler",
   "qf.colorPresets": "Hazır renkler",
   "qf.colorCustom": "Özel renk",
   "qf.colorPickerLabel": "Renk seçiciyi aç",

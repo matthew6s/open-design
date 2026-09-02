@@ -3574,6 +3574,7 @@ export const it: Dict = {
   "qf.visualViewGrid": "Mostra a griglia",
   "qf.confirmed": "Confermato",
   "qf.picked": "{count} scelti",
+  "qf.moreOptions": "Altre opzioni",
   "qf.colorPresets": "Colori predefiniti",
   "qf.colorCustom": "Colore personalizzato",
   "qf.colorPickerLabel": "Apri il selettore colore",

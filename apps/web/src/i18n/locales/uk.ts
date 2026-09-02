@@ -3574,6 +3574,7 @@ export const uk: Dict = {
   "qf.visualViewGrid": "Показати сіткою",
   "qf.confirmed": "Підтверджено",
   "qf.picked": "Вибрано: {count}",
+  "qf.moreOptions": "Більше варіантів",
   "qf.colorPresets": "Готові кольори",
   "qf.colorCustom": "Власний колір",
   "qf.colorPickerLabel": "Відкрити палітру",

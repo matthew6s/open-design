@@ -741,7 +741,26 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
                 {q.required ? <span className="qf-required">{t('qf.required')}</span> : null}
               </div>
               {q.help ? <div className="qf-help">{q.help}</div> : null}
-              {(q.type === 'radio' || q.type === 'select') && q.options && !visualStyleCards ? (
+              {q.type === 'select' && q.options && !visualStyleCards
+                && questionUsesSelectMenu(q) ? (
+                <SelectChoice
+                  question={q}
+                  options={q.options}
+                  value={typeof value === 'string' ? value : ''}
+                  disabled={locked}
+                  t={t}
+                  onPick={(next) => pickFixed(q, next)}
+                  ownChoice={
+                    shouldRenderCustomChoice(q)
+                      ? renderOwnChoice(q, customSingleValue(q, value), (next) =>
+                          update(q.id, next),
+                        )
+                      : null
+                  }
+                />
+              ) : null}
+              {(q.type === 'radio' || q.type === 'select') && q.options && !visualStyleCards
+                && !questionUsesSelectMenu(q) ? (
                 <div className="qf-options" role="radiogroup" aria-label={q.label}>
                   {q.options.map((opt) => (
                     <OptionButton
@@ -1075,6 +1094,186 @@ function ChipCheck() {
  * 可达性不靠原生控件靠 ARIA 补齐:外面那层 `.qf-options` 是 `radiogroup` / `group`,
  * 每一项自己声明 `role` 和 `aria-checked`,而且每一项都能 Tab 到、能用空格/回车选。
  */
+/**
+ * 提示词让模型把一道题的选项控制在 6–7 个以内(「太多用户选不过来」)。
+ * 超过这个量就不是「读一遍再挑」而是「翻找」,该由菜单接手。
+ */
+const SELECT_MENU_OPTION_THRESHOLD = 7;
+
+/**
+ * 这道题该不该走「查找型单选」的菜单形态。
+ *
+ * ── 产品判据(2026-09-02 第二版)────────────────────────────────
+ * 按**选项数量**分:单选且选项少 → 竖排列表;单选且选项多 → 菜单。
+ * 多选永远是竖排列表 —— 所以这里第一条就把非 `select` 挡掉。
+ * (第一版按「需不需要比较选项」分,已作废。)
+ *
+ * ── 两条触发路,缺一不可 ──────────────────────────────────────
+ * (a) **带了新字段**:任一选项有 `group` 或 `trailingLabel`,说明模型是按新规则
+ *     写的,哪怕只有三条也按菜单排 —— 分组和副标在竖排列表里没有位置放。
+ * (b) **选项多于阈值**:模型没用新字段、但一口气给了十几条。线上 ElevenLabs
+ *     选音色最多列 100 个音色,走的正是这一条。
+ *
+ * ── 为什么不是「所有 select 一律走菜单」──────────────────────
+ * 历史会话里的 `select` 是在**旧规则**下写的 —— 那时它只表示「单选」,里面
+ * 常常只有两三条。兼容要求原话:「旧会话里 options 没有分组信息、没有副标 ——
+ * 新形态必须优雅**退化成今天的样子**」。两条都不成立就退回竖排列表,逐元素一致。
+ */
+function questionUsesSelectMenu(q: QuestionForm['questions'][number]): boolean {
+  if (q.type !== 'select') return false;
+  const options = q.options ?? [];
+  if (options.length > SELECT_MENU_OPTION_THRESHOLD) return true;
+  return options.some(
+    (option) => option.group !== undefined || option.trailingLabel !== undefined,
+  );
+}
+
+/** 一个分组:组名 + 落在这一组里的选项。没有组名的那些归到 `undefined` 这组。 */
+interface SelectOptionGroup {
+  label: string | undefined;
+  options: FormOption[];
+}
+
+/**
+ * 按**首次出现顺序**把选项分组。顺序由模型给的数组决定,我们不排序 ——
+ * 「常用的排前面」是模型的编排意图,重排等于把它的判断扔掉。
+ */
+function groupSelectOptions(options: readonly FormOption[]): SelectOptionGroup[] {
+  const groups: SelectOptionGroup[] = [];
+  for (const option of options) {
+    const label = option.group;
+    const existing = groups.find((group) => group.label === label);
+    if (existing) existing.options.push(option);
+    else groups.push({ label, options: [option] });
+  }
+  return groups;
+}
+
+/**
+ * 查找型单选(交付稿 `.opts.mod-language`,PR #7170 新增的那一档)。
+ *
+ * 稿子那一档是**硬编码的中文语言表**,这里只取它的形状,不取它的内容:
+ * 选项、组名、副标全部来自 agent 的 `options`,host 一张表都不内置。
+ * 所以类名也按能力命名(`qf-select-*`),不叫 language —— 时区、国家、字体
+ * 走的是同一条路。
+ *
+ * 展开规则:第一组直接露出;其后每一组各收在一个开关后面,开关的字就是组名。
+ * 一个例外 —— **已选中的那一项所在的组默认展开**,否则打开一张已答的表单会
+ * 看不见自己选了什么(回放旧会话时尤其明显)。
+ */
+function SelectChoice({
+  question,
+  options,
+  value,
+  disabled,
+  t,
+  onPick,
+  ownChoice,
+}: {
+  question: QuestionForm['questions'][number];
+  options: readonly FormOption[];
+  value: string;
+  disabled: boolean;
+  t: ReturnType<typeof useT>;
+  onPick: (value: string) => void;
+  ownChoice: ReactNode;
+}) {
+  const groups = useMemo(() => groupSelectOptions(options), [options]);
+  const [head, ...rest] = groups;
+  // 选中项所在的组一开始就是展开的 —— 这是「看得见自己选了什么」的下限,
+  // 不是偏好,所以用初始值而不是 effect(effect 会先闪一帧折叠态)。
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () =>
+      new Set(
+        rest
+          .filter((group) => group.options.some((option) => option.value === value))
+          .map((group) => group.label ?? ''),
+      ),
+  );
+
+  const renderOption = (option: FormOption) => (
+    <button
+      key={option.value}
+      type="button"
+      role="option"
+      className="qf-select-option"
+      data-value={option.value}
+      aria-selected={option.value === value}
+      disabled={disabled}
+      title={option.description}
+      onClick={() => onPick(option.value)}
+    >
+      <span className="qf-select-option-label">{option.label}</span>
+      {option.trailingLabel ? (
+        <span className="qf-select-trailing">{option.trailingLabel}</span>
+      ) : null}
+      <svg className="qf-select-check" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <path d="M9.55 17.65 4.2 12.3l1.4-1.4 3.95 3.95L18.4 6l1.4 1.4Z" />
+      </svg>
+    </button>
+  );
+
+  return (
+    <div className="qf-select-field">
+      <div className="qf-select-menu" role="listbox" aria-label={question.label}>
+        {head?.label ? (
+          <span className="qf-select-group-label">{head.label}</span>
+        ) : null}
+        {(head?.options ?? []).map(renderOption)}
+      </div>
+      {rest.map((group) => {
+        const key = group.label ?? '';
+        const open = openGroups.has(key);
+        const listId = `qf-select-more-${question.id}-${key || 'rest'}`;
+        return (
+          <div key={key} className="qf-select-more">
+            <button
+              type="button"
+              className="qf-select-more-toggle"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() =>
+                setOpenGroups((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                })
+              }
+            >
+              {/*
+                开关的字是 **host 文案**「更多选项」,不是模型给的组名。
+                稿子那一档演的是语言表,写的是「更多语言」—— 但这个折叠器是
+                **任意选项列表**的(时区、国家、字体走同一条路),把语言那一档的
+                措辞焊进通用组件就错了。产品原话:「更多语言 改成 更多选项」。
+                组名本身仍旧显示在展开后的列表里,模型的编排意图没有丢。
+              */}
+              <span>{t('qf.moreOptions')}</span>
+              <span className="qf-select-more-gap" />
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="m7 10 5 5 5-5Z" />
+              </svg>
+            </button>
+            <div
+              className="qf-select-more-list"
+              id={listId}
+              role="group"
+              aria-label={group.label}
+              hidden={!open}
+            >
+              {group.label ? (
+                <span className="qf-select-group-label">{group.label}</span>
+              ) : null}
+              {group.options.map(renderOption)}
+            </div>
+          </div>
+        );
+      })}
+      {ownChoice ? <div className="qf-options qf-select-own">{ownChoice}</div> : null}
+    </div>
+  );
+}
+
 function OptionButton({
   option,
   role,

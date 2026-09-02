@@ -3574,6 +3574,7 @@ export const ar: Dict = {
   "qf.visualViewGrid": "العرض كشبكة",
   "qf.confirmed": "تم التأكيد",
   "qf.picked": "تم اختيار {count}",
+  "qf.moreOptions": "خيارات أخرى",
   "qf.colorPresets": "ألوان جاهزة",
   "qf.colorCustom": "لون مخصص",
   "qf.colorPickerLabel": "فتح منتقي الألوان",

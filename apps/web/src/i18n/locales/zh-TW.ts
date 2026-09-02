@@ -3770,6 +3770,7 @@ export const zhTW: Dict = {
   "qf.visualViewGrid": "鋪成格狀",
   "qf.confirmed": "已確認",
   "qf.picked": "已選 {count}",
+  "qf.moreOptions": "更多選項",
   "qf.colorPresets": "預設顏色",
   "qf.colorCustom": "自訂顏色",
   "qf.colorPickerLabel": "開啟顏色選擇器",
