@@ -441,6 +441,7 @@ These mappings needed human judgment in #194 — OpenCC won't catch them and the
 
 | English / context        | zh-CN     | zh-TW     |
 | ------------------------ | --------- | --------- |
+| agent (the AI agent)     | 智能体    | 智能體    |
 | fallback / safety net    | 兜底      | 備援      |
 | bundle / package up      | 捆绑      | 納入      |
 | live, dynamic            | 活的      | 動態的    |
@@ -450,6 +451,47 @@ These mappings needed human judgment in #194 — OpenCC won't catch them and the
 | course-correction        | 介入纠偏  | 介入修正  |
 | crash, screw up (slang)  | 翻车      | 出包      |
 | go viral (slang)         | 出圈      | 爆紅      |
+
+**Do not use 代理 for the agent.** 代理 is already the Chinese word for a network
+proxy (`settings.cliEnvTitle`, `settings.baseUrlDefaultHint`), and 代理商 is a
+marketing agency (`settings.onboardingRoleAgency`) — the Settings dialog was
+using the same word for all three. 智慧體, 智慧代理, and 代理人 were also in use
+and are retired.
+
+### One word per locale for "agent"
+
+`agent` drifted further than any other term in this repo: run-error cards were
+added in batches over several months, and each batch picked its own wording
+without checking the rest of the dictionary. Before this was cleaned up, zh-TW
+alone named one product concept five different ways, and `chat.runError.*` had
+become a dialect of its own in more than one language.
+
+The rule is now **one word per locale**, pinned by
+`apps/web/tests/i18n/agent-term-consistency.test.ts`:
+
+| Locale | Use    | Retired                          |
+| ------ | ------ | -------------------------------- |
+| zh-CN  | 智能体 | 代理                             |
+| zh-TW  | 智能體 | 智慧體, 智慧代理, 代理, 代理人   |
+| ar     | وكيل   | عميل (that word means "client")  |
+| fa     | عامل   | ایجنت (transliteration)          |
+| tr     | ajan   | aracı (that word means "broker") |
+
+Two deliberate exceptions, both encoded in that test:
+
+- **Bare English `Agent` is allowed.** Every locale keeps the English proper
+  noun on developer-facing surfaces (MCP setup, integrations, `useEverywhere`)
+  and translates it on end-user surfaces. That split is intentional; don't
+  "fix" it.
+- **Homographs stay.** A word that merely looks like the agent term but means
+  something else — a network proxy, a marketing agency, a generic tool, an MCP
+  client — is allowlisted by dictionary key in the test, with the English
+  source quoted alongside. Turkish is the trap worth naming: `araç` means
+  "tool" and inflects to `aracı`, and `aracılığıyla` means "by way of", so a
+  blind find-and-replace of `aracı` corrupts eight unrelated strings.
+
+When you add a locale, add its row. When you add a run-error card, reuse the
+row rather than inventing a sixth spelling.
 
 ### Portuguese: pt-BR vs pt-PT
 
