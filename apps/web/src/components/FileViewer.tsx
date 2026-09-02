@@ -297,6 +297,7 @@ import {
   useIframeKeepAlivePool,
 } from './IframeKeepAlivePool';
 import { PreviewRuntimeTransport } from './PreviewRuntimeTransport';
+import { beginPreviewAttach, previewPhaseDescriptor } from '../runtime/preview-phase-reporter';
 
 import type {
   ChatCommentAttachment,
@@ -9973,6 +9974,65 @@ function HtmlViewer({
         previewRuntimeNavigation.navigation.documentVersion,
       ].join('\u0000')
     : null;
+  // Phase-timing anchor. Every other preview phase is measured against this, and
+  // `recordPhase` fails closed without it — a half-wired host reads as zero
+  // volume on the dashboard rather than as a suspiciously fast preview, which
+  // is why this has to open on EVERY attach including warm ones. Reusing a cold
+  // anchor for a warm re-attach would inherit the cold open's elapsed time and
+  // collapse the "restored within 100 ms" ratio, which reads as a product
+  // regression rather than an instrumentation bug.
+  const previewAttachHistoryRef = useRef(new Map<string, string>());
+  const previewAttachSeenRef = useRef(new Set<string>());
+  useEffect(() => {
+    const navigation = previewRuntimeNavigation.navigation;
+    if (!navigation || !previewRuntimeNavigationGeneration) return;
+    const documentKey = `${projectId}\u0000${file.name}`;
+    const previousVersion = previewAttachHistoryRef.current.get(documentKey) ?? null;
+    // Warm means this exact document was already attached during this session,
+    // which is what the restore metric is about. The pool exposes no membership
+    // query, so this is tracked here rather than guessed from it.
+    const warm = previewAttachSeenRef.current.has(previewRuntimeNavigationGeneration);
+
+    // Ordered by specificity: the first condition that explains this attach wins.
+    // `unknown` is deliberately absent — it counts as an unsanctioned navigation
+    // by design, so reaching for it to avoid deciding would show up as a red
+    // target-zero metric instead of being quietly absorbed.
+    const trigger = previousVersion === null
+      ? 'initial_open'
+      : previousVersion !== navigation.documentVersion
+        ? 'content_version_change'
+        : previewRuntimeNavigationRetryToken > 0
+          ? 'recovery'
+          : warm
+            ? 'file_tab_change'
+            : 'scope_reminted';
+
+    beginPreviewAttach(
+      previewPhaseDescriptor(navigation, {
+        surface: effectiveDeck ? 'deck_viewer' : 'file_viewer',
+        openKind: warm ? 'warm' : 'cold',
+      }),
+      {
+        trigger,
+        // A settled document only ever reaches a new browsing context through a
+        // version change, a recovery attempt or a re-minted scope. Returning to
+        // a retained document must not navigate; if it ever does, metric 3
+        // catches it here rather than in a bug report.
+        did_navigate: trigger !== 'file_tab_change',
+        had_previous_version: previousVersion !== null,
+      },
+    );
+    previewAttachHistoryRef.current.set(documentKey, navigation.documentVersion);
+    previewAttachSeenRef.current.add(previewRuntimeNavigationGeneration);
+  }, [
+    previewRuntimeNavigationGeneration,
+    previewRuntimeNavigation.navigation,
+    previewRuntimeNavigationRetryToken,
+    effectiveDeck,
+    projectId,
+    file.name,
+  ]);
+
   useEffect(() => {
     setPreviewRuntimeTimedOutGeneration((failedGeneration) => (
       failedGeneration === previewRuntimeNavigationGeneration ? failedGeneration : null
