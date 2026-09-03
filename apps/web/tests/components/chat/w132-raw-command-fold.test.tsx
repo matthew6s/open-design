@@ -15,9 +15,15 @@
  * | Claude 家族(claude/amp/codebuddy) | ✅ 有(`ToolRow` 的 `!row.rawTitle` 那支) | ❌ 不给 |
  * | AMR / ACP 家族(9 家)             | ❌ 单行,输出无处可放                     | ✅ 给(`tool_in_flight`) |
  *
- * 判据是 `isRawCommandTitle(name, input) = isCommandTool(name) && !input.description`:
- * opencode 的 bash 入参只有 `{ command }`,走单行那支;Claude Code 的 Bash 一定带
- * `description`,走折叠块那支。于是**唯一一条真的有在途输出的链路,没有地方显示它**。
+ * 判据是 `isRawCommandTitle(name, input) = isCommandTool(name) && !input.description`。
+ * **谁落在哪一支是量出来的**(179 条 langfuse 录音 + `w123-acp-inflight-frames.json`
+ * 那次 vela 实录):claude 47/48 带 description、直连 opencode 71/71 带 —— 都走折叠块那支;
+ * **codex 0/569 带**、**经 vela 走 ACP 的 bash 不带**(实录 `rawInput` 逐字是
+ * `{"command": …, "timeout": 180000}`)—— 都走单行那支。
+ *
+ * ⚠️ 我一度把这一支写成「opencode 的 bash 入参只有 `{ command }`」,**是反的**:
+ * 直连 opencode 全带。同一个 opencode,直连与经 vela 走的是两条不同的支。
+ * 而这一支最大的住户是 **codex**,不是 AMR —— 569 次调用的输出在此之前一次都没上过屏。
  *
  * ── 稿子怎么说的(基线 `1720acc247`,`docs/design/chat-panel/src/body-components.html`)──
  *

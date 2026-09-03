@@ -361,17 +361,33 @@ export function ToolRow({
    *
    * ── 为什么原来是单行,而这恰好是最坏的错配 ─────────────────────────────
    *
-   * 分流判据是 `isRawCommandTitle = isCommandTool(name) && !input.description`:
-   * Claude Code 的 Bash 一定带 `description`(实测:CLI 2.1.259 的录音里那次 Bash
-   * 入参是 `{command:"echo w103-hello", description:"运行 echo 命令"}`),走上面的
-   * 折叠块;opencode 一类的 bash 入参只有 `{ command }`,走这里。
+   * 分流判据是 `isRawCommandTitle = isCommandTool(name) && !input.description`。
+   * **谁落在哪一支是量出来的**(179 条 langfuse 录音 + W123 那次 vela 实录),不是推的:
+   *
+   * | 链路 | bash 带 description | 落在哪一支 |
+   * |---|---|---|
+   * | claude(stream-json) | 47 / 48 带 | 上面那支(有标题) |
+   * | opencode **直连 CLI** | 71 / 71 带 | 上面那支 |
+   * | **codex** | **0 / 569 带** | **这一支** |
+   * | **AMR / ACP(vela → opencode)** | **不带** | **这一支** |
+   *
+   * ⚠️ 两条容易搞反的:
+   *  · 我一度把这一支写成「opencode 一类的 bash 入参只有 `{ command }`」。**直连的
+   *    opencode 正好相反**,71 次全带 description。不带的是**走 ACP 那一跳**的时候 ——
+   *    `apps/daemon/tests/fixtures/w123-acp-inflight-frames.json` 里 vela 实录的 bash
+   *    `rawInput` 逐字是 `{"command": …, "timeout": 180000}`,没有 description。
+   *    也就是说同一个 opencode,直连与经 vela 走的是**两条不同的支**。
+   *  · 这一支**最大的住户是 codex**(569 次调用 / 36 条录音,100% 不带),不是 AMR。
+   *    这个文件开头那句「S8;codex 全程没有 description」本来就写着,别再漏掉它。
    *
    * 于是修之前是「有输出的看不见,看得见的没输出」:
    *   · Claude 家族  有折叠块可以放输出,但 **daemon 拿不到在途输出** ——
    *     stream-json 里 `tool_use` 与 `tool_result` 之间没有任何携带部分输出的帧;
-   *   · AMR / ACP 九家  `tool_in_flight` **一直在发**在途输出(封顶 2000 字符,
+   *   · AMR / ACP  `tool_in_flight` **一直在发**在途输出(封顶 2000 字符,
    *     `ACP_IN_FLIGHT_TOOL_OUTPUT_LIMIT`),却只有一行字可以放它 —— 唯一一条
    *     真的有实时输出的链路,全程没有地方显示。
+   *   · codex 两头都没有:既没有在途输出,也没有放它的盒子。统一之后它至少拿到了盒子,
+   *     结算的输出终于有地方读(在此之前 569 次调用的输出**一次都没上过屏**)。
    *
    * ── 稿子里能拿到的两条线索 ─────────────────────────────────────────────
    *
