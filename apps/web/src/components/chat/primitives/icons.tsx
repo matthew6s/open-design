@@ -282,9 +282,13 @@ export const PaletteIcon = (): ReactElement => (
  * ## 尺寸仍然由调用点给,和换之前逐值相同
  *
  * 每一枚都收一个 `size`,原样写成 `width` / `height` —— 换的**只有字形**。
- * 发送键 18、加号 16、设计系统 16、队列移除 13、附件 × 10、文件 15、播放 12
- * 都是产品当前的值,这一轮一个都不动(稿子那边发送键是 16、盒子 28,
- * 连着描边和 `--shadow-xs` 一起属于另一件事,见 W126 报告)。
+ * 加号 16、设计系统 16、队列移除 13、附件 × 10、文件 15、播放 12
+ * 都是产品当前的值,这一轮一个都不动。
+ *
+ * 发送键是例外:W126 当时把它连着盒子(28 vs 产品的 36)、描边(产品多了 1px,
+ * 稿子没有)和 `--shadow-xs`(产品有,稿子没有)一起标成「另一件事」,推迟给
+ * 后续处理。W134 把这件事结了 —— 发送键跟着稿子改回 16(`styles/chat.css` 的
+ * `.composer-send` 同一轮改回 28×28、去掉描边和阴影,理由见那条规则上方的注释)。
  *
  * 判据:`tests/components/chat/w126-chat-stroke-icons.test.tsx`,逐枚断言真 DOM 上的
  * `d` / `viewBox` / `fill` / `stroke` / `stroke-width`。
@@ -305,7 +309,7 @@ interface ChatButtonIconProps {
  * 两者几何等价,但这一族的判据是字节,所以照稿子写。何况那段分支根本走不到 ——
  * `arrow-up` 命中 `REMIX_ICON` 映射表,永远走实心那条路。
  */
-export const ChatSendArrowIcon = ({ size = 18, className }: ChatButtonIconProps = {}): ReactElement => (
+export const ChatSendArrowIcon = ({ size = 16, className }: ChatButtonIconProps = {}): ReactElement => (
   <svg {...STROKE_ICON} width={size} height={size} className={className}>
     <path d="M12 19V5" />
     <path d="M5 12l7-7 7 7" />

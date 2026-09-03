@@ -3870,7 +3870,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 title={t('chat.send')}
                 data-tooltip={t('chat.send')}
               >
-                <ChatSendArrowIcon size={18} />
+                <ChatSendArrowIcon size={16} />
               </button>
             ) : null}
           </div>

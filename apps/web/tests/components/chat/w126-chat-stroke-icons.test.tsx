@@ -210,7 +210,10 @@ describe('聊天面板内的调用点换过去了 —— 面板外一个都不�
   const audio = src('components/chat/AudioArtifact.tsx');
 
   it('发送键用 ChatSendArrowIcon', () => {
-    expect(chatComposer).toContain('<ChatSendArrowIcon size={18} />');
+    // size 从 18 改成 16 是 W134 的事(盒子/描边/阴影一起对齐稿子 28px 那组几何,
+    // 见 `chat/primitives/icons.tsx` 和 `styles/chat.css` 的 `.composer-send`),
+    // 这里只钉字形没变 —— 还是 ChatSendArrowIcon,不是共享 Icon 的实心箭头。
+    expect(chatComposer).toContain('<ChatSendArrowIcon size={16} />');
     // 面板里除了发送键没有第二个 arrow-up 该换:
     // ChatPane 的「回到最新」浮钮和队列第三颗都是稿子里没有 / 另一枚字形的东西。
     expect(chatComposer).not.toMatch(/<Icon name="arrow-up" size=\{18\}/);

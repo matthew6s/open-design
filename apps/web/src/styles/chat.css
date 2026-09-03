@@ -1429,8 +1429,8 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
      container clips it). */
   .composer-row .session-mode-toggle__popover { left: auto; right: 0; }
   .composer-row .composer-send {
-    width: 36px;
-    min-width: 36px;
+    width: 28px;
+    min-width: 28px;
     padding: 0;
     gap: 0;
   }
@@ -2270,6 +2270,19 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   border-radius: 50%;
   background: var(--accent);
 }
+/* W134: box brought back to the draft's 28×28 (`729fa43ce7:
+   docs/design/chat-panel/src/components.css:3105-3125` — `.composer .bar
+   button` / `.composer .bar .send` share one box with every other footer
+   icon button, `.send` only adds fill color + pill radius). The 36px box,
+   1px border and `--shadow-xs` were the product's pre-existing generic
+   `button` + `.primary` primitive geometry (`styles/primitives.css`),
+   never reconciled against the draft — flagged and deferred as "another
+   matter" by W126 (`chat/primitives/icons.tsx:287`) instead of decided.
+   It was also the one control the composer row's "one control system" pass
+   named as needing unification (`chat.css` above, "Send (.composer-send)")
+   but never actually folded into the 28px selector list — this closes that
+   gap rather than opening a new exception. No border, no shadow: the
+   draft's global `button` reset is `border: none; background: none`. */
 .composer-send {
   display: inline-flex;
   align-items: center;
@@ -2278,37 +2291,31 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   flex-shrink: 0;
   white-space: nowrap;
   min-width: 0;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
   background: var(--text-strong);
-  border: var(--stroke-thin) solid var(--text-strong);
+  border: none;
   color: var(--bg);
   font-weight: 600;
   padding: 0;
   font-size: var(--font-size-14);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-xs);
   transition:
     background-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    border-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    box-shadow 140ms cubic-bezier(0.23, 1, 0.32, 1),
     transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
     opacity 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .composer-send:hover:not(:disabled) {
   background: var(--text);
-  border-color: var(--text);
-  box-shadow: var(--shadow-sm);
 }
-.composer-send:active:not(:disabled) { transform: translateY(1px); box-shadow: var(--shadow-xs); }
+.composer-send:active:not(:disabled) { transform: translateY(1px); }
 .composer-send:focus-visible {
   outline: var(--stroke-thin) solid var(--blue);
   outline-offset: 2px;
-  box-shadow: var(--shadow-xs);
 }
-.composer-send:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
-/* Executing state: black pill at the same 36px height as Send, showing the
+.composer-send:disabled { opacity: 0.5; cursor: default; }
+/* Executing state: black pill at the same 28px height as Send, showing the
    dot-matrix bloom animation followed by a "思考中" label. The button still
    stops the run on click (tooltip: 停止). */
 .composer-send.stop {
@@ -2317,7 +2324,6 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
   padding: 0 14px 0 10px;
   gap: var(--spacing-6);
   background: var(--text-strong);
-  border-color: var(--text-strong);
   color: var(--bg-panel);
   font-size: 13px;
   font-weight: 600;
@@ -2350,7 +2356,6 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
 .composer-send.stop.admission-pending:disabled {
   opacity: 1;
   background: var(--text-strong);
-  border-color: var(--text-strong);
   color: var(--bg-panel);
 }
 .composer-send.stop.admission-pending:hover .composer-run-label,
@@ -2359,12 +2364,10 @@ body:has(.manual-edit-workspace) .chat-composer-fixed-layer {
    instead of jumping to the lighter --text gray. */
 .composer-send.stop:hover {
   background: color-mix(in srgb, var(--text-strong) 86%, #fff);
-  border-color: transparent;
   color: var(--bg-panel);
 }
 .composer-send.stop.admission-pending:hover {
   background: var(--text-strong);
-  border-color: var(--text-strong);
 }
 .composer-run-glyph {
   display: block;
