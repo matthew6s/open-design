@@ -164,23 +164,34 @@ export function isExpandable(segment: TodoSegment): boolean {
 }
 
 /**
- * 划线 = 「**这一条不是本轮新开的活**」。三种情况彼此独立:
- *   ① 来自更早的轮次、且**那一轮真动过手**(`recalled`,见 `recalledContents`)
- *   ② 被重新规划作废(`abandoned`)
- *   ③ 本轮开出来但一次都没干过(已关闭且名下无内容,D35)
+ * 划线 = 「**这一条不再有效了**」。
  *
- * ⚠️ 这里曾经写着「划线 = 这一条在本轮没有内容」—— **说反了**,它只描述了第 ③ 条。
- * 规格 `chat-panel-next.md:274-283` 那张表把三种召回态的划线列**全部**写成 ✓,
- * 包括「召回 · 本轮继续做的」和「召回 · 本轮继续做并做完的」。
+ * 产品 2026-09-03 裁决(原话):「划线应该只有那种放弃了的,或者下次召回后
+ * 上一轮已完成的」。触发它的是真机现场(agent = opencode):一份**正在跑**的
+ * 11 步计划整份画着删除线,连当前那颗绿球所在的行也划掉了 ——
+ * 又说「正在做」又说「这是废的」,自相矛盾;而本轮真干出来的进度被线全盖住。
+ * 语料与复现在 `tests/runtime/chat/w98-strike-only-what-is-dead.test.ts`。
  *
- * 也就是说 **「划线 + 可展开」是合法形态**:线说的是「这是旧账」,
- * 展开看到的是本轮新增的那部分。划线与可展开**解耦** ——
- * 能不能展开只看本轮有没有内容(D25),见 `isExpandable`。
+ * 于是判据从「不是本轮新开的活」收紧成「**本轮真动过的绝不划线**」:
+ *   ① 被重新规划作废(`abandoned`)→ 划。这一条最硬,先判。
+ *   ② 正在跑的(`in_progress`)→ **永远不划**。
+ *   ③ 本轮名下有内容(`items` 非空)→ 不划。做过就是有效的,不管做完没做完。
+ *   ④ 剩下的「本轮一件没干」的:召回来的旧账、或本轮开出来一次没跑就关掉的
+ *      (D35),照旧划 —— 它们确实不再是活的。
+ *
+ * ⚠️ **这推翻了规格 `chat-panel-next.md:274-283` 那张表的两格**:
+ * 「召回 · 本轮继续做的」和「召回 · 本轮继续做并做完的」原来写的是划线 ✓,
+ * 现在是 ✗。也就是说「划线 + 可展开」不再是合法形态。规格待同步。
+ * 别的四格(召回 · 上一轮就完成的 / 一次关掉从没进行过的 / 本轮全新的 /
+ * 还没跑的 / 中断时正在跑的)结论一个都没变。
+ *
+ * 能不能展开仍然只看本轮有没有内容(D25),见 `isExpandable` —— 那一头没动。
  */
 export function isStruck(segment: TodoSegment): boolean {
-  if (segment.abandoned || segment.recalled) return true;
-  const closed = segment.status !== 'in_progress' && segment.status !== 'pending';
-  return closed && segment.items.length === 0;
+  if (segment.abandoned) return true;
+  if (segment.status === 'in_progress') return false;
+  if (segment.items.length > 0) return false;
+  return segment.recalled || segment.status !== 'pending';
 }
 
 /* ── 执行记录(壳)───────────────────────────────────────────── */

@@ -62,10 +62,20 @@ function activateExecutionRecord(root: ParentNode): void {
 }
 
 describe('本轮清单里认出「上一轮那条」', () => {
-  it('agent 重发了那条 → 标成召回并划线', () => {
+  /*
+   * ⚠️ 2026-09-03 收紧过一次判据(见 `runtime/chat/contract.ts` 的 `isStruck`):
+   * 划线现在还要求「**本轮一件没干**」——「正在跑的」和「本轮真做完的」一律不划。
+   * 所以这里把被召回的那条摆成本轮 `pending`(名下无内容),另放一条 `in_progress`
+   * 占住 D36 的隐式点亮。**要证的东西没变**(「agent 重发 = 认出旧账并划线」),
+   * 变的只是取样点。
+   */
+  it('agent 重发了那条、本轮还没动它 → 标成召回并划线', () => {
     const message = msg([
-      todoWrite([{ content: '补 FAQ', status: 'in_progress' }]),
-      { kind: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'faq.html' }, startedAt: 0 },
+      todoWrite([
+        { content: '重做首屏', status: 'in_progress' },
+        { content: '补 FAQ', status: 'pending' },
+      ]),
+      { kind: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'index.html' }, startedAt: 0 },
       { kind: 'tool_result', toolUseId: 't1', content: 'ok', isError: false, completedAt: 200 },
     ] as unknown as PersistedAgentEvent[]);
     const { container } = render(
@@ -75,6 +85,8 @@ describe('本轮清单里认出「上一轮那条」', () => {
     activateExecutionRecord(container);
     const struck = [...container.querySelectorAll('summary span[class*="struck"]')];
     expect(struck.map((el) => el.textContent)).toContain('补 FAQ');
+    // 配对:本轮正在跑的那条**不划线** —— 少了它,「整份都划线」也能让上面变绿
+    expect(struck.map((el) => el.textContent)).not.toContain('重做首屏');
   });
 
   /*
@@ -187,8 +199,19 @@ describe('ChatPane 真的把 previousTodos 递下去了', () => {
       msg([todoWrite([{ content: '补 FAQ', status: 'in_progress' }])], { id: 'a1' }),
       { id: 'u2', role: 'user', content: '接着干', createdAt: 3 } as ChatMessage,
       msg([
-        todoWrite([{ content: '补 FAQ', status: 'in_progress' }], 'tw-2'),
-        { kind: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'faq.html' }, startedAt: 0 },
+        /*
+         * ⚠️ 取样点 2026-09-03 挪过(判据见 `runtime/chat/contract.ts` 的 `isStruck`):
+         * 正在跑的那条现在一律不划线,所以被召回的「补 FAQ」摆成本轮还没动的
+         * `pending`;「重做首屏」占住 D36 的隐式点亮;「加个页脚」是**本轮新开**的
+         * 同形态对照 —— 同样 `pending`、同样名下无内容,它不划线,
+         * 「补 FAQ」划线,两者之差只有一个:carry 里有没有它。
+         */
+        todoWrite([
+          { content: '重做首屏', status: 'in_progress' },
+          { content: '补 FAQ', status: 'pending' },
+          { content: '加个页脚', status: 'pending' },
+        ], 'tw-2'),
+        { kind: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'index.html' }, startedAt: 0 },
         { kind: 'tool_result', toolUseId: 't1', content: 'ok', isError: false, completedAt: 200 },
       ] as unknown as PersistedAgentEvent[], { id: 'a2' }),
     ];
@@ -196,14 +219,16 @@ describe('ChatPane 真的把 previousTodos 递下去了', () => {
     /*
      * **必须限定在第二轮那条消息里**。整个容器里找划线是找得到的 ——
      * 拿第一轮那条当证据等于没证:它划不划线跟「跨轮递没递下去」无关。
-     * 这一条要证的是第二轮那条(名下有工具行、本轮真的在做)也划了线,
-     * 而那只可能来自跨轮召回 —— 也就是 ChatPane 真的把 previousTodos 递到了 a2。
+     * 这一条要证的是第二轮那条划了线,而「加个页脚」同一形态却没划 ——
+     * 那只可能来自跨轮召回,也就是 ChatPane 真的把 previousTodos 递到了 a2。
      */
     const secondTurn = container.querySelector('#assistant-message-a2');
     expect(secondTurn).not.toBeNull();
     activateExecutionRecord(secondTurn!);
-    const struck = [...secondTurn!.querySelectorAll('summary span[class*="struck"]')];
-    expect(struck.map((el) => el.textContent)).toContain('补 FAQ');
+    const struck = [...secondTurn!.querySelectorAll('summary span[class*="struck"]')].map((el) => el.textContent);
+    expect(struck).toContain('补 FAQ');
+    expect(struck).not.toContain('加个页脚');
+    expect(struck).not.toContain('重做首屏');
   });
 });
 

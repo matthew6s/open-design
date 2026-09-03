@@ -1636,6 +1636,26 @@ function spanElapsed(from: number | null | undefined, to: number | null | undefi
  *
  * 行的身份是 `event.id`,两个阶段是**同一行换状态**,不是先一行 running 再补一行 done。
  */
+/**
+ * 一次失败**为什么**失败 —— 就是这次调用回给我们的那段文字,原样。
+ *
+ * 这里原来写死 `failReason: null`,没有注释。代价是两处设计好的出口变成死代码:
+ * `ToolRow` 的「失败写法二:原因跟在名字后面」条件里带着 `row.failReason`,
+ * 于是永远进不去;而失败行走的 `row.failed && row.file` 那一支**不画 terminal**,
+ * 尽管同一份内容此刻正躺在 `row.terminal` 里。真实记录 `27eaad58`(codex)整行
+ * 只剩「读取 slow-thinking-one-pager.html 失败」,报错原文一个字都没到屏幕上。
+ *
+ * **不截断**:一次 stderr 可能几百字符,截到多长是产品的事(待拍板),
+ * 这一层只负责把事实原样递出去 —— 猜一个长度比不截更难改回来。
+ * 只做两件必要的整理:去掉首尾空白;整段是空白就回落成 `null`,
+ * 让「失败写法一」(只给一个「失败」)照旧接住,而不是画一个空原因。
+ */
+function failureReason(failed: boolean, content: string | undefined): string | null {
+  if (!failed) return null;
+  const text = typeof content === 'string' ? content.trim() : '';
+  return text || null;
+}
+
 function buildToolRow(
   event: Extract<PersistedAgentEvent, { kind: 'tool_use' }>,
   result: Extract<PersistedAgentEvent, { kind: 'tool_result' }> | undefined,
@@ -1672,7 +1692,7 @@ function buildToolRow(
     delta: diffStat(event.name, event.input),
     elapsedMs,
     failed,
-    failReason: null,
+    failReason: failureReason(failed, result?.content),
     command: command ? command : null,
     terminal: command && result?.content ? result.content : null,
   };

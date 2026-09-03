@@ -847,7 +847,16 @@ describe('done 分界在有清单时同样成立(D43)', () => {
  * 这一格钉不住的后果是真实的:我自己就在 2026-08-27 把它读成 bug,
  * 差点去「修」一段本来正确的代码。
  */
-describe('召回:划线与可展开是两件事', () => {
+/*
+ * ⚠️ 这一组 2026-09-03 翻过面。原来断言的是「召回回来、本轮又真干了活 → **划线**
+ * 且可展开」,依据是规格 `chat-panel-next.md:274-283` 那张表把三种召回态的划线列
+ * 全写成 ✓。产品在真机上推翻了那两格(原话:「划线应该只有那种放弃了的,
+ * 或者下次召回后上一轮已完成的」)—— 现场是一份**正在跑**的计划整份被划掉。
+ * 判据与语料见 `contract.ts` 的 `isStruck` 与 `w98-strike-only-what-is-dead.test.ts`。
+ *
+ * 召回本身**没有被删**:`recalled` 照旧算得出来,它只是不再单独决定划线。
+ */
+describe('召回:本轮真动过的那条不划线', () => {
   const recalledAndWorked = () => buildTurnBlocks({
     events: [
       { kind: 'tool_use', id: 'p1', name: 'TodoWrite', input: { todos: [{ content: '复刻列表页', status: 'in_progress' }] } },
@@ -858,11 +867,11 @@ describe('召回:划线与可展开是两件事', () => {
     previousTodos: [{ content: '复刻列表页', status: 'in_progress' }],
   } as never);
 
-  it('召回回来、本轮又真干了活:**划线**(旧账)且**可展开**(本轮新增)', () => {
+  it('召回回来、本轮又真干了活:**不划线**,但可展开(本轮新增)', () => {
     const shell = recalledAndWorked().find((b) => b.kind === 'shell') as never as { segments: TodoSegment[] };
     const seg = shell.segments[0]!;
     expect(seg.recalled).toBe(true);
-    expect(isStruck(seg)).toBe(true);
+    expect(isStruck(seg)).toBe(false);
     expect(isExpandable(seg)).toBe(true);
   });
 });

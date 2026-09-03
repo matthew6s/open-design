@@ -87,25 +87,39 @@ describe('召回:上一轮只是「说过」,不算旧账', () => {
 
   /*
    * 配对断言 —— 少了这一条,「把划线整个删掉」也能让上面那条变绿。
-   * 真正干过活的召回**必须还划线**(规格 chat-panel-next.md:278-281 三行全是 ✓)。
+   * 真正干过活的召回**必须还划线**。
+   *
+   * ⚠️ 2026-09-03 收紧过一次判据(见 `contract.ts` 的 `isStruck`):划线现在还要求
+   * 「**本轮一件没干**」。所以这里把被召回的那条摆成本轮 `pending`(名下无内容)——
+   * 要证的东西没变(「上一轮真干过才算旧账」),变的只是取样点从「正在跑的那条」
+   * 挪到「召回回来还没动的那条」,因为正在跑的现在一律不划线。
+   * 清单里另放一条 `in_progress` 是为了不触发 D36 的隐式点亮。
    */
-  it('上一轮真干过(completed / in_progress / stopped)→ 本轮再列出来**仍然划线**', () => {
+  it('上一轮真干过(completed / in_progress / stopped)→ 本轮列出来还没动它,**仍然划线**', () => {
     for (const previousStatus of ['completed', 'in_progress', 'stopped'] as const) {
       const blocks = buildTurnBlocks({
-        events: [raw('p1:todo-task', [[NEVER_STARTED[0], 'in_progress']])],
+        events: [raw('p1:todo-task', [
+          [NEVER_STARTED[1], 'in_progress'],
+          [NEVER_STARTED[0], 'pending'],
+        ])],
         runStatus: 'running',
         previousTodos: [{ content: NEVER_STARTED[0], status: previousStatus }],
       });
       const s = shell(blocks);
-      expect(seg(s, 0).recalled, `上一轮 ${previousStatus} 应判为召回`).toBe(true);
-      expect(isStruck(seg(s, 0)), `上一轮 ${previousStatus} 应划线`).toBe(true);
+      expect(seg(s, 1).recalled, `上一轮 ${previousStatus} 应判为召回`).toBe(true);
+      expect(isStruck(seg(s, 1)), `上一轮 ${previousStatus} 应划线`).toBe(true);
     }
   });
 
   it('同一份清单里,只有真干过的那条划线 —— 划线不是全有或全无', () => {
     const [worked, announced] = [NEVER_STARTED[0], NEVER_STARTED[1]];
     const blocks = buildTurnBlocks({
-      events: [raw('p1:todo-task', [[worked, 'in_progress'], [announced, 'pending']])],
+      events: [raw('p1:todo-task', [
+        // 本轮正在跑的那条:占住 D36 的隐式点亮,免得下面两条被抬成「进行中」
+        [NEVER_STARTED[2], 'in_progress'],
+        [worked, 'pending'],
+        [announced, 'pending'],
+      ])],
       runStatus: 'running',
       previousTodos: [
         { content: worked, status: 'completed' },
@@ -113,7 +127,7 @@ describe('召回:上一轮只是「说过」,不算旧账', () => {
       ],
     });
     const s = shell(blocks);
-    expect(isStruck(seg(s, 0))).toBe(true);
-    expect(isStruck(seg(s, 1))).toBe(false);
+    expect(isStruck(seg(s, 1))).toBe(true);
+    expect(isStruck(seg(s, 2))).toBe(false);
   });
 });
