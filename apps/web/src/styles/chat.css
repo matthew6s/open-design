@@ -253,8 +253,42 @@
 }
 /* The Step pill is an overlay, but the final transcript line still needs a
    real scroll destination above it. Reserve only while the pill exists so
-   virtualized and regular transcripts share the same bottom safety area. */
-.chat-log.has-plan-pill-reserve {
+   virtualized and regular transcripts share the same bottom safety area.
+
+   52px = 12(药丸底边离 viewport,`.chat-bottom-float-slot { bottom: 12px }`)
+        + 32(药丸自身高:内距 5+5 + 描边 1+1 + 球 20)
+        +  8(呼吸位)
+   前 44 是硬账:让位不足这个数,滚到最底时最后一行就落进药丸的矩形里。
+
+   ── 类名为什么写两遍 ────────────────────────────────────────────────
+   `routines.css` 里有一条同为 (0,2,0) 的皮肤规则:
+
+       .app .chat-log, .chat-skin .chat-log { padding: 18px 18px 20px }
+
+   而 `index.css` 里 routines.css 排在 chat.css **后面** —— 同优先级后来居上,
+   那句 `padding` 简写会把这里的 `padding-bottom` 整个打掉。这条预留因此从写下
+   那天起在真实产品里就没生效过:真机量到 `paddingBottom` 一直是 20px,
+   滚到底时药丸压住最后一行 13.88px(用户 2026-09-03 实机报的就是这个)。
+   偏偏同一条规则里的 `scroll-padding-bottom` 活了下来(`padding` 简写不重置
+   `scroll-padding`),半死不活的样子让它看着像已经修好了。
+
+   把类名写两遍拿到 (0,3,0),**靠优先级赢,不靠源码顺序** —— 也不用在这里点名
+   `.app` / `.chat-skin`,将来多一层皮肤这条依然成立。`routines.css` 里那条
+   `padding` 简写不必动,省得牵连它同一条规则里的 gap/背景。
+
+   ── 这块让位不会撑大「新消息滚到最顶」的空白 ──────────────────────────
+   底部空间 = 这里的 padding-bottom(静态地板)+ `.chat-log-tail-spacer` 的高度
+   (anchor-to-top 的动态顶补)。顶补是从 `scrollHeight` 减出来的,而 `scrollHeight`
+   **含**容器内距 —— 地板 +32 ⇒ 顶补 −32,两块之和是常数。所以抬地板不会加重
+   「刚发完消息底下一大片空白」那一条。真机对照(带计划的一轮,滚到最底):
+   同一页把预留类摘掉再挂上,最后一行相对药丸正好挪 32px。
+
+   ── 守卫 ──────────────────────────────────────────────────────────
+   · `tests/components/chat/w95-plan-pill-bottom-reserve.test.tsx`
+     自己算层叠 —— jsdom 的 getComputedStyle 不实现优先级,拿它当判据会假绿。
+   · `tests/components/chat/w95-reserve-vs-anchor-spacer.test.ts`
+     地板 + 顶补之和恒定,证明抬地板不会撑大顶补。 */
+.chat-log.has-plan-pill-reserve.has-plan-pill-reserve {
   padding-bottom: 52px;
   scroll-padding-bottom: 52px;
 }
