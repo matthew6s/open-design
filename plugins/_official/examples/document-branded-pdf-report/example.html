@@ -29,13 +29,13 @@
     }
     .page {
       width:min(100%,794px);
-      min-height:1123px;
+      height:1123px;
       margin:0 auto;
       overflow:hidden;
       background:var(--paper);
       box-shadow:var(--shadow);
     }
-    .page-inner { min-height:1123px; padding:26px 54px 40px; display:flex; flex-direction:column; }
+    .page-inner { height:1123px; padding:26px 54px 40px; display:flex; flex-direction:column; }
     .mono { font:500 9px/1.3 "DM Mono",ui-monospace,monospace; letter-spacing:.09em; text-transform:uppercase; }
     .brand { display:flex; align-items:center; gap:8px; color:#34373b; font:600 13px/1 Inter,sans-serif; letter-spacing:-.02em; }
     .brand-mark { display:block; width:25px; height:25px; flex:0 0 25px; color:currentColor; }
@@ -110,8 +110,8 @@
 
     @media print {
       body { padding:0; background:#fff; }
-      .page { width:210mm; min-height:297mm; box-shadow:none; }
-      .page-inner { min-height:297mm; }
+      .page { width:210mm; height:297mm; box-shadow:none; }
+      .page-inner { height:297mm; }
     }
     @media (max-width:650px) {
       body { padding:0; }

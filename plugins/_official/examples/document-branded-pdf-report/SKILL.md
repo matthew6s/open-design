@@ -20,12 +20,18 @@ Use this skill when the user wants a document in the visual and information patt
 ## Reference-first workflow
 
 1. Read `template.json` completely before creating the deliverable.
-2. Use `referenceHtml` from `template.json` as the literal starting file. Do not rebuild the layout from memory, a screenshot, or a new design system.
+2. Read `template.json` for the task contract, then copy `example.html` as the literal starting file. `example.html` is the canonical, renderable reference; do not rebuild the layout from memory, a screenshot, or a new design system.
 3. Map the user's source material into these editable regions: brand thesis, hero copy and visual, community signals, next action.
 4. Replace content and data only where needed. Preserve the reference DOM hierarchy, CSS tokens, spacing, page geometry, decorative shapes, and print rules unless the user explicitly requests a visual change.
 5. Use only real supplied facts. If required information is missing, mark it clearly as `To confirm` instead of inventing content.
 6. Produce one self-contained HTML file. Keep local assets embedded as data URIs or inline SVG/CSS; do not add a runtime dependency on the network.
 7. Render the result and verify it at page scale before delivery.
+
+### One-page print gate
+
+This template has a hard A4 page budget. Keep `.page` and `.page-inner` at the fixed A4 height; never change either to `min-height`, `height:auto`, or a multi-page flow to accommodate longer copy. If supplied content does not fit, tighten the copy, shorten labels, or simplify a lower-priority block while retaining the required information structure. Do not shrink the body text below the reference's readable scale and do not let a footer, next action, or image be clipped.
+
+Before delivery, print the final self-contained HTML to A4 PDF and confirm the PDF has exactly one page. A browser preview that looks plausible is insufficient: an extra spill page is a failed result.
 
 ## Required information structure
 

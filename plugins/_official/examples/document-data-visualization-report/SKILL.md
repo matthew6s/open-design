@@ -20,12 +20,16 @@ Use this skill when the user wants a document in the visual and information patt
 ## Reference-first workflow
 
 1. Read `template.json` completely before creating the deliverable.
-2. Use `referenceHtml` from `template.json` as the literal starting file. Do not rebuild the layout from memory, a screenshot, or a new design system.
+2. Read `template.json` for the task contract, then copy `example.html` as the literal starting file. `example.html` is the canonical, renderable reference; do not rebuild the layout from memory, a screenshot, or a new design system.
 3. Map the user's source material into these editable regions: analysis background and scope, executive signal, metrics and charts, insights, recommendation, validation and evidence.
 4. Replace content and data only where needed. Preserve the reference DOM hierarchy, CSS tokens, spacing, page geometry, decorative shapes, and print rules unless the user explicitly requests a visual change.
 5. Use only real supplied facts. If required information is missing, mark it clearly as `To confirm` instead of inventing content.
 6. Produce one self-contained HTML file. Keep local assets embedded as data URIs or inline SVG/CSS; do not add a runtime dependency on the network.
 7. Render the result and verify it at page scale before delivery.
+
+### Two-page print gate
+
+This is deliberately a two-page A4 report: page one carries the signal and analysis; page two carries the decision and validation plan. Do not compress it into one page merely because a 100% desktop canvas shows only part of the vertically scrollable document. Check each page separately in the browser preview, then print the final self-contained HTML to A4 PDF and confirm it has exactly two pages, with no third-page spill or clipped content.
 
 ## Required information structure
 
