@@ -133,6 +133,15 @@ export function ToolRow({
    */
   const lifecycleOpen = (row.pending && running) || row.failed;
 
+  /**
+   * 这次失败**有没有原文可给**。
+   *
+   * `build-turn-blocks` 那一端已经把「整段是空白」回落成 `null` 了,这里再挡一次
+   * 是因为**判据落在这一层**:下面用它决定这一行是折叠块还是单行,而
+   * 「画一个展不开的折叠块」比「画一个空原因」更难发现。两层都不贵。
+   */
+  const failText = row.failReason?.trim() ? row.failReason : null;
+
   /*
    * 这一行的文件名能不能打开,以及打开的是**哪个项目相对路径**(不是 agent 给的
    * 那个绝对路径 —— 打开回调按项目相对文件名匹配)。算不出来就不做链接:
@@ -228,22 +237,66 @@ export function ToolRow({
     );
   }
 
-  /* 失败写法二:原因跟在名字后面(有具体原因时才用,没有就走写法一) */
-  if (row.failed && row.file && row.failReason) {
+  /*
+   * 失败的文件行:**有报错原文就做成折叠块**,原文进正文(T49)。
+   *
+   * ⚠️ **稿子画的是另一样,这是产品口述裁决**。稿子 `body-components.html:917`
+   * 的文件类失败逐字是单行 + 一颗按钮 + 耗时:
+   *     <div class="tool is-fail">…<button class="why">失败</button><span class="ms">1.2s</span></div>
+   * 只有 `:1018-1019` 的**命令**类失败是 `<details class="fold is-fail" open>`。
+   * 产品 2026-09-03 指着后者说:「**能下拉展开吗?像这样**」—— 把命令类那一档的
+   * 待遇给到文件类。别把这一段当照稿实现来读。
+   *
+   * ── 为什么这个偏离站得住 ─────────────────────────────────────────────
+   *
+   * `failReason` **有意不截断**(`build-turn-blocks` 的注释:「一次 stderr 可能
+   * 几百字符,截到多长是产品的事」)。而原来那段原文被拼进**单行**
+   * (`{动词} {文件名} · {原因}`),几百字符靠 CSS 省略号截掉 —— 递出来了,却读不到。
+   *
+   * ── 顺带合掉了稿子那两种写法(规格 S1)───────────────────────────────
+   *
+   * 原来是两支:带 `failReason` 的那支把原因拼在名字后面**且没有**「失败」标记;
+   * 不带的那支给「失败」标记。S1 一直开着(「两种写法是否有意区分」)。现在摘要
+   * **恒是**稿子 `:917` 那一行(动词 + 文件名 + 「失败」+ 耗时),原文进正文,
+   * 两支的差别只剩**有没有原文可给** —— 有就能展开,没有就是单行(见下)。
+   * 摘要不再拼原文:展开之后同一段话出现两遍。
+   *
+   * 「收起时看不到原因」不是代价 —— 失败行默认就是展开的(共用上面那个
+   * `lifecycleOpen`,稿子 `:1018` 的 `open`),原文一上屏就在,只是落在第二行。
+   *
+   * 正文复用 `Terminal`(`.term`:`max-height: 104px` + `overflow-y: auto` +
+   * 贴底跟随),不另写一套:一段几百字符的 stderr 和一段命令输出在这一层是同一件
+   * 东西 —— agent 原样回给我们的文本。
+   */
+  if (row.failed && row.file && failText) {
     return (
-      <div className={rowClass}>
-        {icon}
-        <span className={styles.name}>
-          {verb ?? t('chat.record.verb.write')}{' '}
-          {fileName()}
-          {' · '}{row.failReason}
-        </span>
-        {metaSlot}
-      </div>
+      <Foldable
+        summary={(
+          <>
+            {icon}
+            <span className={styles.name}>
+              {verb ?? t('chat.record.verb.write')}{' '}
+              {fileName()}
+            </span>
+            {failButton}
+          </>
+        )}
+        elapsed={elapsed ?? undefined}
+        lifecycleOpen={lifecycleOpen}
+        deferBody={deferBody}
+        className={styles.fail}
+      >
+        <div className={styles.code}>
+          <Terminal text={failText} />
+        </div>
+      </Foldable>
     );
   }
 
-  /* 失败写法一:只给「失败」 */
+  /*
+   * 没有原文可给:回到稿子 `:917` 那一行。
+   * **不做成折叠块** —— 一个展不开的折叠块比单行更糟(多一枚骗人的箭头)。
+   */
   if (row.failed && row.file) {
     return (
       <div className={rowClass}>
