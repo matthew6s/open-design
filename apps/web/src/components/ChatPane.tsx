@@ -601,10 +601,12 @@ interface Props {
   onReorderQueuedSends?: (orderedIds: string[]) => void;
   onSendQueuedNow?: (id: string) => void;
   /**
-   * B11 「引导对话」: deliver a queued item into the turn that is still
-   * running. Supplied only when the host has both a live run and an agent
-   * whose CLI keeps reading stdin mid-turn; absent means the queue row
-   * falls back to `onSendQueuedNow` under its own name.
+   * B11 「引导对话」: interrupt the turn that is still running and send this
+   * queued item straight away (OPEND-2602). Supplied whenever the host has a
+   * live run on this conversation — interrupting works on every agent, so this
+   * is NOT gated on the agent's `promptInputFormat`. Absent means there is
+   * nothing to interrupt, and the queue row falls back to `onSendQueuedNow`
+   * under its own name.
    */
   onSteerQueuedSend?: (id: string) => void;
   /** Why steering is unavailable right now, shown on the fallback button. */
@@ -5439,13 +5441,21 @@ function queuedTipPlacement(
   onReorder?: (orderedIds: string[]) => void;
   onSendNow?: (id: string) => void;
   /**
-   * B11 「引导对话」. Present ONLY when steering can actually happen right now:
-   * a live run on this conversation whose agent keeps reading stdin mid-turn.
-   * The parent owns that judgement — the strip must never infer it, or the
-   * button ends up promising something the runtime cannot do.
+   * B11 「引导对话」. Present ONLY when there is a live run on this conversation
+   * to interrupt. The parent owns that judgement — the strip must never infer
+   * it, or the button ends up promising an interruption that never happens.
    */
   onSteer?: (item: QueuedSendItem) => void;
-  /** Human-readable reason steering is unavailable, shown on the fallback button. */
+  /**
+   * Why steering is unavailable right now (e.g. 「当前 agent 不支持中途插话」).
+   *
+   * NOT rendered. It used to be the fallback button's `title` / `data-tooltip`,
+   * which is that button's only visible name — so the one string on screen was
+   * answering "why is this not 引导对话" while the button's actual job (stop the
+   * running turn, send this row as its own turn) went unnamed. The name slot is
+   * back to naming the button; where this explanation belongs is a UI-placement
+   * decision that has not been made, so it stays threaded rather than deleted.
+   */
   steerBlockedReason?: string | null;
 }) {
   const t = useT();
@@ -5598,33 +5608,40 @@ function queuedTipPlacement(
                     <Icon name="trash" size={13} />
                   </button>
                 ) : null}
-                {/* 第三颗 —— 稿子标的是「引导对话」:把这条塞进**正在跑**的那一轮
-                    (B11)。它和「立即发送」是两件事:引导不打断,当前这一轮的活儿
-                    全留着;立即发送要先停掉再发。
+                {/* 第三颗 —— 稿子标的是「引导对话」(B11)。产品裁决(OPEND-2602,
+                    2026-09-03)之后它干的事是:**中断正在跑的那一轮,然后立刻把这条
+                    发出去**。原来那条「不打断、把消息写进 agent 子进程还开着的 stdin」
+                    的路已经作废 —— 27 个 runtime 里只有两个的 CLI 中途还读 stdin,
+                    而实测连真 claude 也不处理轮次中途写进去的 user 帧。
 
-                    所以这颗按谁真的能干活来决定,不靠名字撑场面:
-                      · `onSteer` 有值 = 此刻真能引导(有在跑的一轮,且这个 agent 的
-                        CLI 中途还在读 stdin) → 就是「引导对话」。
-                      · 没有 → 退回今天的「立即发送」,**连名字一起退回去**,并把
-                        `steerBlockedReason`(比如「当前 agent 不支持中途插话」)
-                        挂进 tooltip,让人知道为什么这颗不是引导。
+                    所以这颗只由「此刻有没有一轮可中断」决定:
+                      · `onSteer` 有值 = 当前会话有一轮在跑 → 「引导对话」。
+                      · 没有 → 退回普通的「立即发送」,**连名字一起退回去**。
+                    这里不再看 agent 能不能中途插话:中断对所有 agent 都成立。
+                    也不再看这一行带不带附件:中断 + 重发走的是完整的发送路径,
+                    附件和批注原样跟着走。
 
                     引导态**带文字标签**(稿子 `.qops button.mod-steer` 的 `<svg/><span>`)。
                     这不是装饰:两副面孔永远不同时出现(下面是二选一的三元式),
                     所以用户没有「和旁边那颗比一比」的机会 —— 图标一样时他无从知道
-                    按下去是「插一句」还是「掐掉这一轮重来」。让这一行自己把名字说出来,
+                    按下去是「排在后面」还是「掐掉这一轮重来」。让这一行自己把名字说出来,
                     是唯一在屏幕上分得开两条路的办法。退回态仍旧只有图标:
-                    它就是普通的「发送」,和编辑 / 移除同级。 */}
-                {steerableRow(item, Boolean(onSteer)) ? (
+                    它就是普通的「发送」,和编辑 / 移除同级。
+
+                    引导态的 hover 三处说的是它按下去干的事里**最要紧**的那一半 ——
+                    会中断当前运行。它按名字开头(`chat.queuedSteerInterrupts` 各语言
+                    都以可见标签起手),所以无障碍名仍旧含着屏幕上那行字。
+                    退回态没有可见文字,tooltip 就是它唯一的名字,那一格只写「发送」。 */}
+                {onSteer ? (
                   <button
                     type="button"
                     className="chat-queued-send-action chat-queued-send-action-steer chat-queued-send-tooltip od-tooltip"
-                    title={t('chat.queuedSteer')}
-                    data-tooltip={t('chat.queuedSteer')}
+                    title={t('chat.queuedSteerInterrupts')}
+                    data-tooltip={t('chat.queuedSteerInterrupts')}
                     data-tooltip-placement={queuedTipPlacement(index, 'top')}
-                    aria-label={t('chat.queuedSteer')}
+                    aria-label={t('chat.queuedSteerInterrupts')}
                     data-testid="chat-queued-send-steer"
-                    onClick={() => onSteer?.(item)}
+                    onClick={() => onSteer(item)}
                   >
                     <Icon name="arrow-up" size={13} />
                     <span className="chat-queued-send-action-label">{t('chat.queuedSteer')}</span>
@@ -5633,8 +5650,8 @@ function queuedTipPlacement(
                   <button
                     type="button"
                     className="chat-queued-send-action chat-queued-send-tooltip od-tooltip"
-                    title={rowSteerBlockedReason(item, Boolean(onSteer), steerBlockedReason, t)}
-                    data-tooltip={rowSteerBlockedReason(item, Boolean(onSteer), steerBlockedReason, t)}
+                    title={t('chat.send')}
+                    data-tooltip={t('chat.send')}
                     data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.send')}
                     data-testid="chat-queued-send-now"
@@ -5651,32 +5668,6 @@ function queuedTipPlacement(
       </div>
     </div>
   );
-}
-
-/**
- * B11 「引导对话」 per row.
- *
- * A steering message travels as one text frame on the agent's stdin — there is
- * no channel for attachments or annotation context in it. A row that carries
- * either would arrive at the model stripped of exactly the part that made it
- * meaningful, so that row keeps the honest fallback (「立即发送」) instead of a
- * button promising something the transport cannot deliver.
- */
-function steerableRow(item: QueuedSendItem, stripCanSteer: boolean): boolean {
-  if (!stripCanSteer) return false;
-  return (item.attachments?.length ?? 0) === 0
-    && (item.commentAttachments?.length ?? 0) === 0;
-}
-
-/** Tooltip for the fallback button: say WHY this row is not 引导对话. */
-function rowSteerBlockedReason(
-  item: QueuedSendItem,
-  stripCanSteer: boolean,
-  stripReason: string | null | undefined,
-  t: TranslateFn,
-): string {
-  if (stripCanSteer) return t('chat.queuedSteerTextOnly');
-  return stripReason ?? t('chat.send');
 }
 
   const QUEUED_SEND_DRAG_MIME = 'application/x-open-design-queued-send';

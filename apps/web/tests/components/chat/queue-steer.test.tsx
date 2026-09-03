@@ -1,17 +1,26 @@
 // @vitest-environment jsdom
 /**
- * B11 「引导对话」 —— 队列行第三颗按钮。
+ * B11 「引导对话」 —— 队列行第三颗按钮的**两副面孔**。
  *
- * 稿子上这颗是「引导对话」:把这条塞进**正在跑**的那一轮。它和我们原来那颗
- * 「立即发送」是两件事 —— 立即发送要先 `handleStop()` 掉在跑的一轮再发,
- * 引导一个字都不打断。
+ * 产品裁决(OPEND-2602,2026-09-03)之后,这颗按下去干的事是**中断正在跑的
+ * 那一轮,然后立刻发出这条**。所以两副面孔的差别不再是「打断 / 不打断」,
+ * 而是「此刻有没有一轮可中断」:
+ *   · 有 → 它叫「引导对话」,带可见文字标签,hover 说会中断当前运行;
+ *   · 没有 → 它**连名字一起**退回普通的「发送」,只有图标。
  *
- * 这条用例守的就是「名字不冒名顶替」:
- *   · 真能引导的时候,这颗叫「引导对话」,点它走引导那条路;
- *   · 引导不了的时候(比如当前 agent 的 CLI 中途就不读 stdin 了),
- *     它**连名字一起**退回「立即发送」,并把原因挂进 tooltip;
- *   · 带附件的那一行单独退回 —— 引导只走一帧纯文本,附件根本送不过去,
- *     不能让人点了以后模型收到一条被剥光的话。
+ * 这一页守的是「名字不冒名顶替」。带附件那一行现在**也**是引导态
+ * (中断 + 重发把附件原样带走),连同 hover 文案一起,由
+ * `w117-queue-steer-interrupt.test.tsx` 单独钉;这里不重复。
+ *
+ * ## 为什么「名字」和「点了会发生什么」拆成两条用例
+ *
+ * 这两件事以前挤在同一个 `it()` 里:一边断言 tooltip 写着「当前 agent 不支持
+ * 中途插话」,一边断言点下去走的是 `onSendNow`。两条断言各自都对,合在一起
+ * 恰恰把缺陷钉成了「当前行为」—— 屏幕上唯一看得见的那段文字在回答
+ * 「这颗**为什么不是**引导对话」,可它占的是「这颗按钮**叫什么**」的位置,
+ * 而按钮真正干的事(停掉这一轮、重新发一条)一个字都没写。
+ *
+ * 所以拆开:一条只问名字,一条只问行为(点了确实发出去)。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -41,63 +50,43 @@ function renderStrip(overrides: Partial<StripProps> = {}) {
 afterEach(cleanup);
 
 describe('队列行第三颗:引导对话', () => {
-  it('能引导时这颗是「引导对话」,点击把这条交给正在跑的那一轮', () => {
+  it('有一轮可中断时这颗是「引导对话」,点它走中断那条路', () => {
     const onSteer = vi.fn();
     const onSendNow = vi.fn();
     renderStrip({ onSteer, onSendNow });
 
     const steer = screen.getByTestId('chat-queued-send-steer');
-    // 名字必须是引导,不是发送 —— 这颗不打断在跑的一轮。
-    expect(steer.getAttribute('aria-label')).toBe('Steer this turn');
+    // 屏幕上可见的那行字仍旧是「引导对话」——「会中断当前运行」只在 hover 里,
+    // 由 w117 那一页逐字钉。
+    expect(steer.textContent?.trim()).toBe('Steer this turn');
     expect(screen.queryByTestId('chat-queued-send-now')).toBeNull();
 
     fireEvent.click(steer);
     expect(onSteer).toHaveBeenCalledTimes(1);
     expect(onSteer.mock.calls[0]?.[0]).toMatchObject({ id: 'q1' });
-    // 引导绝不能顺手走「打断再发」那条路。
+    // 引导态点下去只能走这一条,不许顺手也点一遍退回态那个回调。
     expect(onSendNow).not.toHaveBeenCalled();
   });
 
-  it('引导不了时退回「立即发送」,并把原因写在 tooltip 上', () => {
-    const onSendNow = vi.fn();
-    renderStrip({
-      onSendNow,
-      steerBlockedReason: 'This agent can’t take a message mid-turn',
-    });
+  // ——— 名字 ———
+
+  it('没有可中断的一轮时,这颗的名字退回「发送」—— 三处名字说的是同一件事', () => {
+    renderStrip();
 
     expect(screen.queryByTestId('chat-queued-send-steer')).toBeNull();
     const sendNow = screen.getByTestId('chat-queued-send-now');
-    // 名字退回去了:不能用「引导对话」的名字干「打断重发」的事。
     expect(sendNow.getAttribute('aria-label')).toBe('Send');
-    expect(sendNow.getAttribute('data-tooltip')).toBe(
-      'This agent can’t take a message mid-turn',
-    );
-
-    fireEvent.click(sendNow);
-    expect(onSendNow).toHaveBeenCalledWith('q1');
+    expect(sendNow.getAttribute('data-tooltip')).toBe('Send');
+    expect(sendNow.getAttribute('title')).toBe('Send');
   });
 
-  it('带附件的那一行单独退回 —— 引导只送得动纯文本', () => {
-    const onSteer = vi.fn();
-    renderStrip({
-      onSteer,
-      items: [
-        { id: 'text-only', prompt: '再紧凑一点' },
-        {
-          id: 'with-attachment',
-          prompt: '按这张图改',
-          attachments: [{ path: 'a.png', name: 'a.png', kind: 'image' }],
-        },
-      ],
-    });
+  // ——— 点下去会发生什么 ———
 
-    // 纯文本那一行照常是引导。
-    expect(screen.getAllByTestId('chat-queued-send-steer')).toHaveLength(1);
-    // 带附件那一行退回发送,并说明为什么。
-    const fallback = screen.getAllByTestId('chat-queued-send-now');
-    expect(fallback).toHaveLength(1);
-    expect(fallback[0]?.getAttribute('data-tooltip')).toBe(
-      'Only text fits into a running turn — send this one with its attachments separately',
-    );
+  it('退回态点下去,这条真的发出去', () => {
+    const onSendNow = vi.fn();
+    renderStrip({ onSendNow });
+
+    fireEvent.click(screen.getByTestId('chat-queued-send-now'));
+    expect(onSendNow).toHaveBeenCalledWith('q1');
   });
 });

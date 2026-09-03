@@ -68,11 +68,16 @@ describe('队列行的「引导对话」可供性', () => {
     renderStrip({ onSteer: () => {} });
     const steer = screen.getByTestId('chat-queued-send-steer');
     // 稿子 `<svg/><span>引导对话</span>` —— 图标之外还有一段**可见**文字。
-    // 钉的是「屏幕上写着它的名字」,所以只认非空 + 和无障碍名一致(语言由 locale 决定,
+    // 钉的是「屏幕上写着它的名字」,所以只认非空(语言由 locale 决定,
     // 写死某一种语言的字面量只会在换语言时假红)。
     const label = steer.textContent?.trim() ?? '';
     expect(label.length).toBeGreaterThan(0);
-    expect(label).toBe(steer.getAttribute('aria-label'));
+    // OPEND-2602 之后无障碍名换成了 hover 那句「会中断当前运行」,不再和可见
+    // 文字逐字相等。但它必须**以可见文字起手** —— 屏幕上写着「引导对话」、
+    // 读屏念出来的却完全是另一句话,是 WCAG 2.5.3(Label in Name)那一条。
+    const accessibleName = steer.getAttribute('aria-label') ?? '';
+    expect(accessibleName.startsWith(label)).toBe(true);
+    expect(accessibleName.length).toBeGreaterThan(label.length);
 
     cleanup();
     renderStrip();

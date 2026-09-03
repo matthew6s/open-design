@@ -3494,8 +3494,14 @@ export interface Dict {
   'chat.queuedCancel': string;
   'chat.queuedReorder': string;
   'chat.queuedEdit': string;
-  /** B11: push this queued item into the turn that is still running. */
+  /** B11: visible label on the queue row's third button. */
   'chat.queuedSteer': string;
+  /**
+   * B11 hover copy: pressing that button interrupts the run in progress and
+   * sends this queued row straight away (OPEND-2602). Names the button first so
+   * the accessible name still contains the visible label.
+   */
+  'chat.queuedSteerInterrupts': string;
   /** Why steering is unavailable: the current agent's CLI stops reading input mid-turn. */
   'chat.queuedSteerUnsupported': string;
   /** Steering was refused because the turn already stopped reading input. */
