@@ -86,6 +86,7 @@ import {
 } from '../artifacts/strip';
 import { trackRunProgress, trackRunStart, trackRunTerminal } from '../observability/stuck-run';
 import { markUpstreamActivity } from '../runtime/chat/upstream-activity';
+import { IN_FLIGHT_TOOL_INPUT_MARKER } from '../runtime/tool-events';
 
 const MAX_TRANSCRIPT_MESSAGE_CHARS = 12_000;
 const LARGE_TOOL_RESULT_CHARS = 8_000;
@@ -2457,6 +2458,30 @@ function translateAgentEvent(data: DaemonAgentPayload): AgentEvent | null {
       title: data.title,
       refreshedSourceCount: data.refreshedSourceCount,
       error: data.error,
+    };
+  }
+  /*
+   * The write target of a call whose arguments are still streaming. This is the
+   * ONLY thing the client learns from a mid-flight tool call: `tool_input_delta`
+   * stays a heartbeat that is counted and dropped (see the table below), and the
+   * daemon reads the path out of its own buffer so the arguments never cross the
+   * wire. Rendering happens in `AssistantMessage`, which drops this event once
+   * the real `tool_use` for the same id arrives.
+   */
+  if (
+    t === 'tool_input_target' &&
+    typeof data.id === 'string' &&
+    typeof data.name === 'string' &&
+    typeof data.path === 'string' &&
+    data.path.length > 0
+  ) {
+    return {
+      kind: 'tool_use',
+      id: data.id,
+      name: data.name,
+      // The early form of this very call — same id, same path, no arguments.
+      // `dropSupersededInFlightToolUses` retires it when the real one lands.
+      input: { file_path: data.path, [IN_FLIGHT_TOOL_INPUT_MARKER]: true },
     };
   }
   if (t === 'tool_use' && typeof data.id === 'string' && typeof data.name === 'string') {

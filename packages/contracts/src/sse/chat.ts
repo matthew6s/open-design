@@ -198,6 +198,31 @@ export type DaemonAgentPayload =
    * eventual `tool_use.id`) and `name` are carried for correlation only.
    */
   | { type: 'tool_input_delta'; id: string; name: string; delta: string }
+  /**
+   * Which file a still-streaming tool call is about to write, announced the
+   * moment that path is provably complete — normally within the first few dozen
+   * bytes of the arguments, while `content` still has tens of kilobytes to go.
+   *
+   * This is the CONCLUSION drawn from `tool_input_delta`, not a relay of it. The
+   * daemon scans the argument buffer it already keeps
+   * (`apps/daemon/src/runtimes/tool-input-path-scanner.ts`) and emits these
+   * three fields; the arguments themselves never leave the daemon, so a 20KB
+   * `content` never reaches a client. That separation is deliberate — see the
+   * note on `tool_input_delta` above for why its payload must stay unrendered.
+   *
+   * Guarantees a client may rely on:
+   *  - **At most once per `id`.** The scanner is retired when it answers.
+   *  - **Complete or absent.** A path is emitted only after its closing quote,
+   *    so a truncated stream yields nothing rather than half a name. Non-file
+   *    tools (`Bash`, `Grep`, …) are never scanned at all.
+   *  - **Stable.** `path` equals the `file_path` of the `tool_use` that follows
+   *    for the same `id`, so a row built from this never renames itself.
+   *
+   * NOT persisted — see `runSseEventToPersistedAgentEvent`. After the run the
+   * finished `tool_use` carries the same path, and a reloaded conversation must
+   * show one row per call, not two.
+   */
+  | { type: 'tool_input_target'; id: string; name: string; path: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; completedAt?: number }
   | { type: 'usage'; usage?: { input_tokens?: number; output_tokens?: number }; costUsd?: number; durationMs?: number; stopReason?: string | null }
   | { type: 'fabricated_role_marker'; marker: string; messageId?: string }

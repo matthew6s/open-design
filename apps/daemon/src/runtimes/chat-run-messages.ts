@@ -550,6 +550,13 @@ export function daemonAgentPayloadToPersistedAgentEvent(data: unknown): Persiste
     };
   }
   if (type === 'tool_input_delta') return null;
+  /*
+   * Live-only, like the delta it is derived from. Once the run is over the same
+   * path is in the finished `tool_use.input`, so persisting this would leave a
+   * reloaded conversation with two rows for one call — and the whole point of
+   * the event is a head start that no longer exists after the fact.
+   */
+  if (type === 'tool_input_target') return null;
   if (type === 'tool_result' && typeof data.toolUseId === 'string') {
     return {
       kind: 'tool_result',

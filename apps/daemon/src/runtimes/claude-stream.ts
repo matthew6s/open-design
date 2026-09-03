@@ -26,6 +26,10 @@ import {
   type ClaudeChildToolRuntimeFact,
   type ClaudeOpenChildTerminationReason,
 } from './claude-child-evidence.js';
+import {
+  createToolInputPathScanner,
+  type ToolInputPathScanner,
+} from './tool-input-path-scanner.js';
 
 type StreamEvent = Record<string, unknown>;
 type EventSink = (event: StreamEvent) => void;
@@ -35,6 +39,12 @@ type BlockState = {
   id?: unknown;
   input: string;
   inputValue?: unknown;
+  /**
+   * Reads the write target out of `input` as it streams, for file-writing
+   * tools only (`null` for every other tool). Retired the moment it yields, so
+   * the path is announced exactly once per call.
+   */
+  pathScanner?: ToolInputPathScanner | null;
 };
 type RuntimeTask = {
   id: string;
@@ -906,6 +916,7 @@ export function createClaudeStreamHandler(
         id: block.id,
         input: '',
         inputValue: 'input' in block ? block.input : undefined,
+        pathScanner: block.type === 'tool_use' ? createToolInputPathScanner(block.name) : null,
       });
       if (block.type === 'thinking') {
         onEvent({ type: 'thinking_start' });
@@ -953,6 +964,30 @@ export function createClaudeStreamHandler(
               name: state.name,
               delta: delta.partial_json,
             });
+            /*
+             * Announce WHICH file this write is about, the moment the path is
+             * provably complete — normally within the first few dozen bytes,
+             * while `content` still has tens of kilobytes to go. Without this
+             * the call is invisible until the last byte lands, because
+             * `tool_use` only fires at `content_block_stop`.
+             *
+             * The scanner reads the buffer we already keep; the arguments
+             * themselves never leave the daemon. `tool_input_delta`'s payload
+             * stays a heartbeat nobody renders (see the note on it in
+             * `packages/contracts/src/sse/chat.ts`) — this is a separate,
+             * few-dozen-byte conclusion. It fires at most once per call: the
+             * scanner is retired as soon as it answers.
+             */
+            const found = state.pathScanner?.push(delta.partial_json) ?? null;
+            if (found !== null) {
+              state.pathScanner = null;
+              onEvent({
+                type: 'tool_input_target',
+                id: state.id,
+                name: state.name,
+                path: found,
+              });
+            }
           }
         }
         return;

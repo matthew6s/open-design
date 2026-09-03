@@ -11,7 +11,7 @@
  */
 import type { AgentEvent } from '../types';
 import { resolveChatFileLink } from './in-project-link';
-import { dedupeToolUsesById } from './tool-events';
+import { dedupeToolUsesById, isInFlightToolUse } from './tool-events';
 
 export type FileOpKind = 'read' | 'write' | 'edit' | 'delete';
 export type FileOpStatus = 'running' | 'done' | 'error';
@@ -130,7 +130,16 @@ export function deriveFileOps(
   scope?: FileOpProjectScope,
 ): FileOpEntry[] {
   if (!events || events.length === 0) return [];
-  const dedupedEvents = dedupeToolUsesById(events);
+  /*
+   * 「入参还在传」的那一档不算一次文件操作。
+   *
+   * 它只说明模型**打算**写哪个文件,写还没发生 —— 拿它去开文件卡片 / 工作区 tab
+   * 是谎报一次落盘。真的 `tool_use` 一到,同一个 id 就会以完整入参再进来一次,
+   * 那时候才算数。判据见 `runtime/tool-events.ts` 的 `isInFlightToolUse`。
+   */
+  const settledEvents = events.filter((ev) => !isInFlightToolUse(ev));
+  if (settledEvents.length === 0) return [];
+  const dedupedEvents = dedupeToolUsesById(settledEvents);
   const resultByToolId = new Map<
     string,
     Extract<AgentEvent, { kind: 'tool_result' }>

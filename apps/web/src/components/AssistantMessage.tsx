@@ -93,7 +93,7 @@ import type { DesignToolboxActionId } from "../runtime/design-toolbox";
 import { copyToClipboard } from "../lib/copy-to-clipboard";
 import { useT } from "../i18n";
 import { deriveFileOps, type FileOpEntry } from "../runtime/file-ops";
-import { dedupeToolUsesById } from "../runtime/tool-events";
+import { dedupeToolUsesById, dropSupersededInFlightToolUses } from "../runtime/tool-events";
 import {
   continuableUnfinishedTodos,
   isTodoWriteToolName,
@@ -665,7 +665,10 @@ function AssistantMessageImpl({
       : message.content.trim()
         ? ([{ kind: "text", text: message.content }] satisfies AgentEvent[])
         : [];
-  const displayEvents = useMemo(() => dedupeToolUsesById(events), [events]);
+  const displayEvents = useMemo(
+    () => dedupeToolUsesById(dropSupersededInFlightToolUses(events)),
+    [events],
+  );
   const completedWithAuthenticatedDone = useMemo(
     () =>
       message.runStatus === "succeeded" &&
