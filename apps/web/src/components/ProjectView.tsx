@@ -168,7 +168,6 @@ import {
   isAmrBalanceGateScope,
   type AmrBalanceGateScope,
 } from '../runtime/amr-balance-gate';
-import { isPaidAmrPlan, resolveAmrPlan } from '../runtime/amr-low-balance-plan';
 import {
   amrBalanceBlockedDialog,
   amrBalanceUpgradeIntent,
@@ -7694,17 +7693,16 @@ export function ProjectView({
              * 所以这里**不再拦住这一次发送**,只在流水里留下那张卡,人自己决定
              * 要不要现在去充值(D4 不阻塞)。
              *
-             * `isPaidAmrPlan` 这道判据原样保留:它属于**判定**(免费档的钱包读数
-             * 不是他们的约束,提醒他们是噪音),这次改的只是判定结果怎么呈现。
+             * 这里曾经还夹着一道 `isPaidAmrPlan(await resolveAmrPlan(...))`。
+             * 产品 2026-09-03 裁决把它拆了(OPEND-2600):低余额提醒对**所有档位**
+             * 可见 —— 免费档的钱包读数同样是他们唯一的约束,不提醒才是坑人。
+             * 顺带解掉红线那一条:那道过滤要多打一次套餐读数,把出卡挂在一次网络
+             * 往返后面。判定已经把「要不要提醒」算完了,呈现层只管画,不再等任何
+             * 东西 —— 这一段现在是同步的,原本跨 await 的会话切换复查也不需要了
+             * (进这个分支之前已经复查过一次)。
              */
-            const plan = await resolveAmrPlan(gate.snapshot);
-            if (messagesConversationIdRef.current !== activeConversationId) {
-              return acceptedDurableQueue(queueGateSend());
-            }
-            if (isPaidAmrPlan(plan)) {
-              setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
-              setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
-            }
+            setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
+            setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
           }
           // 判定放行:撤掉那张卡 —— 余额已经不是问题了,提示不该留在屏幕上。
           if (gate.kind === 'allow') {

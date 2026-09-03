@@ -126,7 +126,6 @@ import {
   retryUnavailableAmrBalanceGate,
   type AmrBalanceGateScope,
 } from '../runtime/amr-balance-gate';
-import { isPaidAmrPlan, resolveAmrPlan } from '../runtime/amr-low-balance-plan';
 import { HomeView, seedHomeComposerPrompt } from './HomeView';
 import { entryStrategyRoutingFields } from './entry-strategy-routing';
 import { EntryBlankState } from './EntryBlankState';
@@ -1414,14 +1413,19 @@ export function EntryShell({
           // Hold THIS submit while the reminder waits for a decision; 'proceed'
           // resumes the same create-and-run below, so HomeView's normal accept
           // path (draft clearing, context consumption) still applies.
-          const plan = await resolveAmrPlan(gate.snapshot);
-          if (isPaidAmrPlan(plan)) {
-            const decision = await new Promise<AmrLowBalanceDecision>((resolve) => {
-              setAmrLowBalanceWarn({ snapshot: gate.snapshot, resolve });
-            });
-            setAmrLowBalanceWarn(null);
-            if (decision !== 'proceed') return 'blocked' as const;
-          }
+          //
+          // The reminder used to be gated on `isPaidAmrPlan(await
+          // resolveAmrPlan(...))`. Product ruling 2026-09-03 (OPEND-2600) opens
+          // it to every tier — a free account's wallet is the ONLY thing funding
+          // its runs, so it is the tier that most needs the warning — and the
+          // plan read that filter needed was a network roundtrip standing
+          // between the user and their run. The gate already decided that a
+          // reminder is warranted; Home just shows it.
+          const decision = await new Promise<AmrLowBalanceDecision>((resolve) => {
+            setAmrLowBalanceWarn({ snapshot: gate.snapshot, resolve });
+          });
+          setAmrLowBalanceWarn(null);
+          if (decision !== 'proceed') return 'blocked' as const;
         }
         if (
           currentWorkspaceAccountGeneration() !== gateAccountGeneration

@@ -188,6 +188,32 @@ async function planMayFundRunOutsideWallet(
 }
 
 /**
+ * Whether the HARD tier — and ONLY the hard tier — must stand down for this
+ * run, because something other than the wallet may fund it.
+ *
+ * Scope note (OPEND-2600). This question used to be asked ahead of BOTH tiers
+ * and answered with a whole-gate `allow`, which deleted the soft reminder for
+ * every subscriber between $0 and the warning line: the reported Pro account at
+ * $1.79 got no card at all. Standing down is only ever about NOT BLOCKING; a
+ * plan says nothing about whether a nearly-empty wallet is worth mentioning.
+ * Product ruling 2026-09-03: warn at every tier, block at none that a plan may
+ * still fund. So this now guards the hard branch alone and the soft branch is
+ * reached either way.
+ *
+ * Latency note (red line, same ruling). The plan read is a network roundtrip,
+ * and the soft tier must not add one to the send path. Call this ONLY once the
+ * balance is already at or below the hard-block line — the one case that was
+ * always going to block, and is therefore already allowed to wait.
+ */
+async function hardBlockMustStandDown(
+  snapshot: AmrWalletSnapshot,
+  modelId: string | null | undefined,
+): Promise<boolean> {
+  if (!modelId?.trim()) return false;
+  return planMayFundRunOutsideWallet(snapshot);
+}
+
+/**
  * Decide whether an OpenDesign Cloud run may start. Fast path first: the
  * daemon-cached snapshot answers without an upstream roundtrip, so healthy
  * balances start with no added latency. Only a hard-block answer is confirmed
@@ -285,25 +311,24 @@ async function checkWorkspaceBalanceGate(
   }
   const balance = amrWalletBalanceUsd(workspaceSnapshot);
   if (balance == null) return { kind: 'unavailable' };
-  if (
-    balance <= AMR_LOW_BALANCE_WARN_USD
-    && scope.workspaceType === 'personal'
-    && modelId?.trim()
-    && (await planMayFundRunOutsideWallet(workspaceSnapshot!))
-  ) {
+  if (balance <= AMR_HARD_BLOCK_BALANCE_USD) {
     // Coding Plan model membership is no longer exposed to the client, so Vela
     // enforces the authoritative billing and Model Limit decision at admission
     // time. The client still proves the caller HAS a plan first — without one
-    // there is nothing but the wallet, and failing open would delete the hard
-    // block below for every empty personal wallet.
-    return { kind: 'allow' };
-  }
-  if (balance <= AMR_HARD_BLOCK_BALANCE_USD) {
-    return {
-      kind: 'hard',
-      reason: 'insufficient',
-      snapshot: workspaceSnapshot!,
-    };
+    // there is nothing but the wallet, and failing open would delete this hard
+    // block for every empty personal wallet. Team wallets never stand down: a
+    // member's personal plan does not fund their team's runs.
+    const standsDown =
+      scope.workspaceType === 'personal'
+      && (await hardBlockMustStandDown(workspaceSnapshot!, modelId));
+    if (!standsDown) {
+      return {
+        kind: 'hard',
+        reason: 'insufficient',
+        snapshot: workspaceSnapshot!,
+      };
+    }
+    // Fall through: not blocked, but an empty wallet is still worth saying.
   }
   if (balance <= AMR_LOW_BALANCE_WARN_USD && !isAmrLowBalanceWarnOptedOut()) {
     return { kind: 'soft', snapshot: workspaceSnapshot! };
@@ -329,10 +354,11 @@ export async function checkAmrBalanceGate(
       if (cachedBalance > AMR_LOW_BALANCE_WARN_USD || isAmrLowBalanceWarnOptedOut()) {
         return { kind: 'allow' };
       }
+      // Above the hard line, so nothing here can block — and a plan never
+      // silences the reminder (OPEND-2600). Skipping the plan read also keeps
+      // the soft tier off the network, which is the latency red line.
       // cached is non-null here: a definitive balance implies a snapshot.
-      return modelId?.trim() && (await planMayFundRunOutsideWallet(cached!))
-        ? { kind: 'allow' }
-        : { kind: 'soft', snapshot: cached! };
+      return { kind: 'soft', snapshot: cached! };
     }
     // Hard-block candidate (signed out or empty): confirm against the live
     // wallet before blocking — the cache may predate a sign-in or recharge.
@@ -352,13 +378,9 @@ export async function checkAmrBalanceGate(
     const freshBalance = amrWalletBalanceUsd(fresh);
     if (freshBalance == null) return { kind: 'allow' };
     if (
-      freshBalance <= AMR_LOW_BALANCE_WARN_USD
-      && modelId?.trim()
-      && (await planMayFundRunOutsideWallet(fresh))
+      freshBalance <= AMR_HARD_BLOCK_BALANCE_USD
+      && !(await hardBlockMustStandDown(fresh, modelId))
     ) {
-      return { kind: 'allow' };
-    }
-    if (freshBalance <= AMR_HARD_BLOCK_BALANCE_USD) {
       return { kind: 'hard', reason: 'insufficient', snapshot: fresh };
     }
     if (freshBalance <= AMR_LOW_BALANCE_WARN_USD && !isAmrLowBalanceWarnOptedOut()) {

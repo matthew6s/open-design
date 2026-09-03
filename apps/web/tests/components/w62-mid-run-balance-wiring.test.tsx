@@ -167,8 +167,11 @@ vi.mock('../../src/providers/project-events', () => ({
   useProjectFileEvents: vi.fn(),
 }));
 
-// 软告警今天只对付费档出现(`isPaidAmrPlan`)。那是**判定**的一部分,这次没动它,
-// 所以这里把套餐读数钉在付费档上,让「告警档」这条路真的走到呈现层。
+// 呈现层曾经用 `isPaidAmrPlan(await resolveAmrPlan(...))` 把免费档的告警滤掉。
+// 产品 2026-09-03 裁决(OPEND-2600)把那道过滤删了 —— 告警对所有档位可见,
+// 呈现层也不再读套餐。这份 mock 因此已经不影响结论,留着只是把套餐读数钉死,
+// 免得哪天有人重新把它接回发送路径而没人发现。档位覆盖见
+// `tests/components/w116-amr-low-balance-card-tiers.test.tsx`。
 vi.mock('../../src/runtime/amr-low-balance-plan', async () => {
   const actual = await vi.importActual<
     typeof import('../../src/runtime/amr-low-balance-plan')
