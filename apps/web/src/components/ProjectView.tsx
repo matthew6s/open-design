@@ -4287,7 +4287,16 @@ export function ProjectView({
     // otherwise this first tab-sync pass strips `/conversations/:cid` and the
     // subsequent list load can no longer select the requested conversation.
     const effectiveConversationId = activeConversationId ?? routeConversationId;
-    const nextKey = `${effectiveConversationId ?? ''}:${target ?? ''}`;
+    // Same reasoning as the conversation id above, for the file. While the tab
+    // state is still hydrating there is no active tab yet, so `target` is null
+    // — and writing `fileName: null` here strips the file a deep link named.
+    // That is not just a cosmetic URL edit: the auto-open guard below is
+    // `if (routeFileName) return`, and it reads the live route, so stripping
+    // the file also disarms the only thing stopping auto-selection from
+    // opening a different file (the newest by mtime) and latching it.
+    // The routed file keeps authority until the tab state is authoritative.
+    const effectiveFileName = target ?? (tabsLoadedRef.current ? null : routeFileName);
+    const nextKey = `${effectiveConversationId ?? ''}:${effectiveFileName ?? ''}`;
     if (nextKey === lastSyncedRouteKeyRef.current) return;
     lastSyncedRouteKeyRef.current = nextKey;
     lastSyncedConversationIdRef.current = effectiveConversationId;
@@ -4304,7 +4313,7 @@ export function ProjectView({
         kind: 'project',
         projectId: project.id,
         conversationId: effectiveConversationId,
-        fileName: target,
+        fileName: effectiveFileName,
       },
       { replace: true },
     );
@@ -4314,6 +4323,7 @@ export function ProjectView({
     project.id,
     activeConversationId,
     routeConversationId,
+    routeFileName,
   ]);
 
   const handleEnsureProject = useCallback(async (): Promise<string | null> => {
