@@ -2157,7 +2157,6 @@ export const pl: Dict = {
   'chat.renameConversationLabel': 'Zmień nazwę „{title}”',
   'chat.deleteConversationConfirm': 'Usunąć „{title}”? Spowoduje to usunięcie wszystkich wiadomości.',
   'chat.untitledConversation': 'Rozmowa bez tytułu',
-  'chat.forkedConversationTitle': 'Fork {title}',
   'chat.forkConversationFailed': 'Nie udało się rozpocząć nowej rozmowy.',
   'chat.startTitle': 'Zacznij rozmowę',
   'chat.startHint': 'Opisz, co chcesz wygenerować, albo zacznij od jednego z tych przykładów:',

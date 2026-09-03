@@ -551,6 +551,40 @@ describe('ProjectView conversation fork analytics', () => {
     );
   });
 
+  it('lets the daemon name the new conversation instead of sending a localized title', async () => {
+    /*
+     * 2026-09-03 产品裁决:新会话不再叫「{原标题} 分叉」,改成「{原标题} (n)」的自增编号。
+     *
+     * 编号要唯一就得先看一眼这个项目里已有哪些标题,而那份名单只有 daemon 手上是权威的
+     * —— 客户端手里的 `conversations` 是可能过期的快照,两个客户端各算各的必然撞号。
+     * 所以标题整个交给 daemon 起(`apps/daemon/src/conversation-fork-title.ts`),
+     * 客户端**一个字都不传**;传了就会被当成「我知道我要叫什么」而盖掉编号。
+     *
+     * 这一条钉的就是「客户端不传」。它红过一次:改之前这里传的是
+     * `t('chat.forkedConversationTitle', ...)`。
+     */
+    prepareForkHarness();
+    createConversation.mockResolvedValue({ id: 'conv-fork', title: 'Conversation 1 (1)' });
+
+    renderProjectView(vi.fn());
+
+    await waitFor(() => expect(chatPaneProps.messages).toEqual(sourceMessages));
+    await act(async () => {
+      await chatPaneProps.onForkFromMessage?.(sourceMessages[1]!);
+    });
+
+    // 先钉住「确实调了一次」—— 否则下面那条 toBeUndefined 在「压根没调」时也真空通过。
+    expect(createConversation).toHaveBeenCalledTimes(1);
+    const [projectId, forkTitle, opts] = createConversation.mock.calls[0] as [
+      string,
+      string | undefined,
+      { seedFromConversationId?: string } | undefined,
+    ];
+    expect(projectId).toBe('project-1');
+    expect(opts?.seedFromConversationId).toBe('conv-1');
+    expect(forkTitle, '标题归 daemon 起 —— 客户端不该自己拼一份文案送过去').toBeUndefined();
+  });
+
   it('leaves the fork divider to the new conversation instead of stamping the source', async () => {
     /*
      * 2026-08-26 用户裁决:「要在新的 fork 里出现,而不是旧会话里出现啊」。

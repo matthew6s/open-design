@@ -2257,7 +2257,6 @@ export const zhTW: Dict = {
   "chat.renameConversationLabel": "重新命名「{title}」",
   "chat.deleteConversationConfirm": "確定刪除「{title}」？該操作會刪除其訊息。",
   "chat.untitledConversation": "未命名對話",
-  "chat.forkedConversationTitle": "{title} 分叉",
   "chat.forkConversationFailed": "無法開始新會話。",
   "chat.startTitle": "開始一個對話",
   "chat.startHint": "描述你想生成的內容，或從下面的範例開始：",

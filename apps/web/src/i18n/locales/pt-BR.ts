@@ -2157,7 +2157,6 @@ export const ptBR: Dict = {
   'chat.renameConversationLabel': 'Renomear "{title}"',
   'chat.deleteConversationConfirm': 'Excluir "{title}"? Isso remove as mensagens.',
   'chat.untitledConversation': 'Conversa sem título',
-  'chat.forkedConversationTitle': 'Fork de {title}',
   'chat.forkConversationFailed': 'Não foi possível iniciar uma nova conversa.',
   'chat.startTitle': 'Comece uma conversa',
   'chat.startHint': 'Descreva o que você quer gerar ou comece por um destes exemplos:',

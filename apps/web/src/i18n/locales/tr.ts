@@ -2157,7 +2157,6 @@ export const tr: Dict = {
   'chat.renameConversationLabel': '"{title}" adını değiştir',
   'chat.deleteConversationConfirm': '"{title}"’ı sil? Bu mesajları silecektir.',
   'chat.untitledConversation': 'Başlıksız konuşma',
-  'chat.forkedConversationTitle': '{title} çatallaması',
   'chat.forkConversationFailed': 'Yeni konuşma başlatılamadı.',
   'chat.startTitle': 'Bir konuşma başlat',
   'chat.startHint': 'Oluşturmak istediğiniz şeyi açıklayın veya bu örneklerden biriyle başlayın:',

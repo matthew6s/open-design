@@ -2157,7 +2157,6 @@ export const esES: Dict = {
   'chat.renameConversationLabel': 'Renombrar «{title}»',
   'chat.deleteConversationConfirm': '¿Eliminar «{title}»? Se borrarán sus mensajes.',
   'chat.untitledConversation': 'Conversación sin título',
-  'chat.forkedConversationTitle': 'Bifurcación de {title}',
   'chat.forkConversationFailed': 'No se pudo iniciar una nueva conversación.',
   'chat.startTitle': 'Empieza una conversación',
   'chat.startHint': 'Describe lo que quieres generar o empieza con uno de estos ejemplos:',

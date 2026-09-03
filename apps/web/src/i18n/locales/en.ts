@@ -2157,7 +2157,6 @@ export const en: Dict = {
   'chat.renameConversationLabel': 'Rename "{title}"',
   'chat.deleteConversationConfirm': 'Delete "{title}"? This removes its messages.',
   'chat.untitledConversation': 'Untitled conversation',
-  'chat.forkedConversationTitle': '{title} fork',
   'chat.forkConversationFailed': 'Could not start a new conversation.',
   'chat.startTitle': 'Start a conversation',
   'chat.startHint': 'Describe what you want to generate, or start from one of these examples:',

@@ -3002,7 +3002,6 @@ export interface Dict {
   'chat.renameConversationLabel': string;
   'chat.deleteConversationConfirm': string;
   'chat.untitledConversation': string;
-  'chat.forkedConversationTitle': string;
   /**
    * 回合动作行那颗按钮失败时的提示。key 名还带 `fork` 是历史,**文案不带** ——
    * 它和 `assistant.forkConversation` / `assistant.forkingConversation` 是同一颗

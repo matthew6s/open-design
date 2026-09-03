@@ -2249,7 +2249,6 @@ export const zhCN: Dict = {
   "chat.renameConversationLabel": "重命名「{title}」",
   "chat.deleteConversationConfirm": "确定删除「{title}」？该操作会删除其消息。",
   "chat.untitledConversation": "未命名对话",
-  "chat.forkedConversationTitle": "{title} 分叉",
   "chat.forkConversationFailed": "无法开始新会话。",
   "chat.startTitle": "开始一个对话",
   "chat.startHint": "描述你想生成的内容，或从下面的示例开始：",

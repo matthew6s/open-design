@@ -2157,7 +2157,6 @@ export const id: Dict = {
   'chat.renameConversationLabel': 'Ganti nama "{title}"',
   'chat.deleteConversationConfirm': 'Hapus "{title}"? Semua pesannya ikut dihapus.',
   'chat.untitledConversation': 'Percakapan tanpa judul',
-  'chat.forkedConversationTitle': 'Fork {title}',
   'chat.forkConversationFailed': 'Tidak dapat memulai percakapan baru.',
   'chat.startTitle': 'Mulai percakapan',
   'chat.startHint': 'Jelaskan apa yang ingin kamu hasilkan, atau mulai dari salah satu contoh ini:',

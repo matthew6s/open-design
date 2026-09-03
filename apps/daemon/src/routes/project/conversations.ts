@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import { type ChatSessionMode } from '@open-design/contracts';
 import { readAnalyticsContext } from '../../analytics.js';
+import { nextForkedConversationTitle } from '../../conversation-fork-title.js';
 import { backfillBrandExtractionTranscriptForProject } from '../../brands/index.js';
 import type { RouteDeps } from '../../server-context.js';
 import type { BoundWorkspaceResourceMutationGate } from '../../collab/workspace-resource-mutation.js';
@@ -200,10 +201,34 @@ export function registerProjectConversationRoutes(app: Express, ctx: RegisterPro
         : sourceConversation && sourceConversation.projectId === req.params.id
           ? normalizeChatSessionMode(sourceConversation.sessionMode)
           : 'design';
+    const explicitTitle = typeof title === 'string' ? title.trim() || null : null;
+    /*
+     * 从一条回复新开的会话由 **daemon** 起名(「{源标题} (n)」,见
+     * `../../conversation-fork-title.js`)。编号要唯一就得先看一眼这个项目里已有
+     * 哪些标题,而那份名单只有这里是权威的 —— 客户端手上的是可能过期的快照,
+     * 两个客户端各算各的必然撞号。
+     *
+     * 「读名单 → 算号 → 落库」这三步中间**一个 await 都没有**,better-sqlite3 又是
+     * 同步的,所以同进程内它就是原子的:同一秒连点两下拿到的是 (1) 和 (2)。
+     * 在这中间插入任何异步调用都会把这个性质弄没。
+     *
+     * 客户端显式传了标题就照传的来 —— 重命名、导入这些「我知道我要叫什么」的
+     * 调用点不该被编号盖掉。
+     */
+    const resolvedTitle =
+      explicitTitle
+      ?? (sourceConversation
+        ? nextForkedConversationTitle(
+            sourceConversation.title,
+            listConversations(db, req.params.id).map(
+              (existing: { title?: string | null }) => existing.title,
+            ),
+          )
+        : null);
     const conv = insertConversation(db, {
       id: randomId(),
       projectId: req.params.id,
-      title: typeof title === 'string' ? title.trim() || null : null,
+      title: resolvedTitle,
       sessionMode,
       createdAt: now,
       updatedAt: now,

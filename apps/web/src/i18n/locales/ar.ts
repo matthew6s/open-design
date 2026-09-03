@@ -2157,7 +2157,6 @@ export const ar: Dict = {
   'chat.renameConversationLabel': 'إعادة تسمية "{title}"',
   'chat.deleteConversationConfirm': 'هل تريد حذف "{title}"؟ سيؤدي هذا لإزالة رسائلها.',
   'chat.untitledConversation': 'محادثة بدون عنوان',
-  'chat.forkedConversationTitle': 'تفرع {title}',
   'chat.forkConversationFailed': 'تعذر بدء محادثة جديدة.',
   'chat.startTitle': 'ابدأ محادثة',
   'chat.startHint': 'صِف ما تريد إنشاءه، أو ابدأ من أحد هذه الأمثلة:',

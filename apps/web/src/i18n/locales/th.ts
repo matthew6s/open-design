@@ -2157,7 +2157,6 @@ export const th: Dict = {
   'chat.renameConversationLabel': 'เปลี่ยนชื่อ "{title}"',
   'chat.deleteConversationConfirm': 'ลบ "{title}" หรือไม่?',
   'chat.untitledConversation': 'บทสนทนาที่ไม่มีชื่อ',
-  'chat.forkedConversationTitle': 'ฟอร์กของ {title}',
   'chat.forkConversationFailed': 'ไม่สามารถเริ่มสนทนาใหม่ได้',
   'chat.startTitle': 'เริ่มแชทได้เลย',
   'chat.startHint': 'อธิบายสิ่งที่ต้องการสร้าง หรือเริ่มจากตัวอย่างเหล่านี้:',

@@ -2157,7 +2157,6 @@ export const hu: Dict = {
   'chat.renameConversationLabel': '„{title}” átnevezése',
   'chat.deleteConversationConfirm': 'Törlöd a(z) „{title}" beszélgetést? Ez eltávolítja az üzeneteit.',
   'chat.untitledConversation': 'Cím nélküli beszélgetés',
-  'chat.forkedConversationTitle': '{title} elágazás',
   'chat.forkConversationFailed': 'Nem sikerült új beszélgetést indítani.',
   'chat.startTitle': 'Indíts beszélgetést',
   'chat.startHint': 'Írd le, mit szeretnél létrehozni, vagy indulj ki az egyik példából:',

@@ -10654,14 +10654,22 @@ export function ProjectView({
       setConversationLoadError(null);
       let emptyResponse = false;
       try {
-        const sourceTitle = activeConversation?.title?.trim();
-        const forkTitle = sourceTitle
-          ? t('chat.forkedConversationTitle', { title: sourceTitle })
-          : undefined;
         const forkFallbackPredecessorMessageId = forkIndex < 0
           ? undefined
           : (messages[forkIndex - 1]?.id ?? null);
-        const fresh = await createConversation(project.id, forkTitle, {
+        /*
+         * 标题**不传** —— 归 daemon 起(`apps/daemon/src/conversation-fork-title.ts`)。
+         *
+         * 2026-09-03 产品裁决把「{原标题} 分叉」换成了自增编号「{原标题} (n)」。编号要
+         * 唯一就得先看一眼这个项目里已有哪些标题,那份名单只有 daemon 手上是权威的:
+         * 这里的 `conversations` 是可能过期的快照,两个客户端各拿各的快照算同一个号
+         * 必然撞。daemon 那边「读名单 → 算号 → 落库」中间没有 await,同进程内原子。
+         *
+         * 顺带白拿了 CLI 那条路(`od chat new --fork-after`),它本来就不传标题。
+         * `fresh.title` 是 daemon 返回的真实标题,下面直接进 `conversations`,
+         * 所以这里也不需要乐观标题。
+         */
+        const fresh = await createConversation(project.id, undefined, {
           seedFromConversationId: activeConversationId,
           forkAfterMessageId: assistantMessage.id,
           sessionMode: activeSessionMode,

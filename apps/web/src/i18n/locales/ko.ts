@@ -2157,7 +2157,6 @@ export const ko: Dict = {
   'chat.renameConversationLabel': '"{title}" 이름 변경',
   'chat.deleteConversationConfirm': '"{title}" 대화를 삭제하시겠습니까? 관련 메시지가 모두 삭제됩니다.',
   'chat.untitledConversation': '제목 없는 대화',
-  'chat.forkedConversationTitle': '{title} 포크',
   'chat.forkConversationFailed': '새 대화를 시작할 수 없습니다.',
   'chat.startTitle': '대화 시작하기',
   'chat.startHint': '생성하고 싶은 내용을 설명하거나 아래 예시에서 시작하세요:',
