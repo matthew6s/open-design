@@ -1026,8 +1026,9 @@ const OUTRO: Cell[] = [
     node: () => fbRow(null),
     notes: [
       '**静态页里出不了那个气泡**:产品的 tooltip 是 `.od-tooltip` + `TooltipLayer.tsx` 的 **portal**,由 pointer / keyboard modality 驱动;它不是一条 `::after`,没有「原样重放一遍」的规则可抄(第 51 格那招在这儿不成立)。机制比稿子的 `[data-tip]::after` 更完整,不是缺口',
-      '**这一格真正要比的是四条文案**,已经落在按钮的 `aria-label` / `data-tooltip` 上,页面上把鼠标停上去(真实页面里)或读 DOM 都能看到:现在是「有帮助 / 没有帮助 / 复制回复 Markdown / 从这里分叉」,稿子要的是「有帮助 / 没帮助 / 复制 / 新开会话」—— 四条全要改(19 语 + `types.ts`)',
-      '⚠️ **顺手要收的一处**:产品同时还挂着原生 `title=`,会和自绘 tip 叠在一起;稿子只有 `aria-label` + `data-tip`',
+      '**四条文案已按稿子改**:「有帮助 / 没帮助 / 复制 / 新开会话」,落在按钮的 `aria-label` 与 `data-tooltip` 上(19 语全改;`types.ts` 不动 —— 改的是既有 key 的值,没有新 key)。**这条注记原来写着「四条全要改」,那是旧话**;守卫见 `w118-feedback-row-icons-and-tips.test.tsx`',
+      '⚠️ **气泡材质待拍板**:`.od-tooltip-layer` 是**全应用共享 primitive**,圆角 4px vs 稿 8px、内距 `5px 8px` vs `5px 9px`、行高 1.2 vs 1.4、磨砂 vs 实底、`--shadow-sm` vs 稿 `--shadow-md`、离按钮 7px vs 稿 6px —— 按稿改会外溢到 chat 以外所有 tooltip,见 `chat-panel-component-gap-2026-09-02.md` 待决表第 14 条',
+      '⚠️ **顺手要收的一处**:产品同时还挂着原生 `title=`,会和自绘 tip 叠在一起;稿子只有 `aria-label` + `data-tip`。`TooltipLayer` 目前在 pointerover 时把 `title` 摘下来暂存,所以真机上不会真的叠出两个气泡 —— 是否仍要去掉 `title` 待拍板',
     ],
   },
   {

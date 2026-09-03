@@ -321,7 +321,7 @@ describe('AssistantMessage feedback gate', () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole('button', { name: 'Copy response markdown' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 
       await waitFor(() => {
         expect(writeText).toHaveBeenCalledWith(message.content);
@@ -365,7 +365,7 @@ describe('AssistantMessage feedback gate', () => {
         projectId="proj-1"
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Copy response markdown' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
   });
 
   it('recvqacy887jsF — hides the copy button while streaming has not produced any text yet', () => {
@@ -385,7 +385,7 @@ describe('AssistantMessage feedback gate', () => {
         projectId="proj-1"
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Copy response markdown' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
   });
 
   it('calls the fork handler from completed assistant turns', () => {
@@ -401,7 +401,7 @@ describe('AssistantMessage feedback gate', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
 
     expect(onForkFromMessage).toHaveBeenCalledTimes(1);
   });
@@ -459,7 +459,7 @@ describe('AssistantMessage feedback gate', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: 'Fork from here' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'New conversation' })).toBeNull();
   });
 
   it('shows the feedback widget after a successful turn that produced files', () => {

@@ -154,7 +154,9 @@ const REMIX_ICON: Partial<Record<IconName, string>> = {
   'file-text': 'file-text-line',
   folder: 'folder-line',
   'folder-filled': 'folder-fill',
-  fork: 'git-branch-line',
+  // 支线朝**下**的那一版 —— 交付稿 729fa43ce7 的「新开会话」按钮与分界脚注用的
+  // 就是它(理由与来历见 `remix-icon-paths.ts` 里 `git-branch-line-down` 的注释)。
+  fork: 'git-branch-line-down',
   github: 'github-line',
   'github-filled': 'github-fill',
   globe: 'global-line',

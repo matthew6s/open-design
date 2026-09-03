@@ -166,7 +166,7 @@ describe('chat assistant feedback', () => {
       viewerOnly: true,
     });
 
-    expect(screen.queryByRole('button', { name: 'Fork from here' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'New conversation' })).toBeNull();
   });
 
   it('collects positive and negative feedback on completed artifact results', () => {
