@@ -175,9 +175,24 @@ describe('秒表接线 · 一个 timer,数字自己走', () => {
     id: 'm1', role: 'assistant', content: '', createdAt: T0, runStatus: 'running', events,
   } as ChatMessage;
 
-  /** 壳 body 里那一行(不是壳头)—— 壳头的总耗时由 `live-timer.test.tsx` 守着 */
-  const rowText = (root: HTMLElement): string =>
-    root.querySelector('div[class*="tool"]')?.textContent ?? '';
+  /**
+   * 壳 body 里那一行(不是壳头)—— 壳头的总耗时由 `live-timer.test.tsx` 守着。
+   *
+   * ⚠️ 这一行的**形状**变过:`curl -O big.png` 的入参只有 `command`、没有
+   * `description`,是 `rawTitle` 那一支;产品 2026-09-03 裁决把两种命令行统一成
+   * 同一个折叠块之后,它从 `div.tool` 变成了 `details.fold`(见
+   * `w132-raw-command-fold.test.tsx`)。**这一条测的是秒数会不会走,不是行长什么样**,
+   * 所以选择器跟着形状走 —— 用的正是这个文件上面那条命令折叠行已经在用的写法
+   * (`:not([class*="flat"])` 排掉壳自己那层 flat fold)。
+   *
+   * 取不到就抛,不回落成空串:空串遇上 `toContain` 只会报「'' 不含 3.0s」,
+   * 读起来像秒表坏了,其实是选择器没命中。
+   */
+  const rowText = (root: HTMLElement): string => {
+    const row = root.querySelector('div[class*="tool"], details[class*="fold"]:not([class*="flat"])');
+    if (!row) throw new Error('壳 body 里没有那一行 —— 选择器没命中,不是秒表的问题');
+    return row.textContent ?? '';
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();

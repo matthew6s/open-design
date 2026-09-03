@@ -121,11 +121,21 @@ function inFlight(input: Record<string, unknown>, output?: string): AgentEvent {
   } as AgentEvent;
 }
 
-/** 屏幕上的工具行 —— 有几行就是几个。 */
+/**
+ * 屏幕上的工具行 —— 有几行就是几个。
+ *
+ * ⚠️ 一行可能是两种形状之一,这个文件断言的「**仍然一行**」与形状无关:
+ *  · `div.tool`     —— 还没有命令的第一帧、能认出语义动词的、失败的;
+ *  · `details.fold` —— 命令行(产品 2026-09-03 把有标题 / 没标题两支统一成折叠块,
+ *    见 `w132-raw-command-fold.test.tsx`)。这里的 `inFlight({ command })` 入参
+ *    只有 `command`、没有 `description`,正是被统一的那一支。
+ *
+ * `:not([class*="_flat_"])` 排掉壳自己那层 flat fold —— 它不是工具行。
+ */
 function toolRows(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll('[class*="_tool_"]')).filter(
-    (n): n is HTMLElement => n instanceof HTMLElement,
-  );
+  return Array.from(
+    container.querySelectorAll('[class*="_tool_"], details[class*="_fold_"]:not([class*="_flat_"])'),
+  ).filter((n): n is HTMLElement => n instanceof HTMLElement);
 }
 
 /**

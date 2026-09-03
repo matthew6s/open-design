@@ -344,10 +344,19 @@ describe('命令折叠块(组件 11)', () => {
     expect(cls('普通那行')).toBe('');
   });
 
-  it('没有人话标题的命令不折叠(走「执行 <命令>」单行,S8)', () => {
+  /*
+   * ⚠️ **S8「没有人话标题的命令不折叠」已被产品推翻**(2026-09-03,口述):
+   *   「(AMR 那种没标题的命令行)AMR 要的吧?统一一下?并且要支持流式?」
+   * 两种命令行统一成同一个形态。这一条原来断言的是 `details` 为 null,现在改成
+   * 断言统一后的形态:仍然是稿子 `:909` 的「执行 + 等宽命令」,但它是折叠块的
+   * summary,展开能看见输出。判据与理由全在 `w132-raw-command-fold.test.tsx`。
+   */
+  it('没有人话标题的命令也折叠 —— 摘要仍是「执行 <命令>」(产品 2026-09-03 统一形态)', () => {
     render(<ToolRow row={cmd({ title: 'npm run build', rawTitle: true })} />);
-    expect(document.querySelector('details')).toBeNull();
+    const fold = document.querySelector('details');
+    expect(fold, '统一之后这一支也是折叠块').not.toBeNull();
     expect(screen.getByText('执行')).toBeTruthy();
+    expect(fold?.querySelector('summary')?.querySelector('code')?.textContent).toBe('npm run build');
   });
 });
 

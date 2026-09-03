@@ -150,6 +150,62 @@ describe('终端输出的成本', () => {
     expect(all, '每行只剩折叠块骨架').toBeLessThanOrEqual(30 * 12);
   });
 
+  /*
+   * ── AMR / ACP 那一支(`rawTitle: true`)—— 产品 2026-09-03 统一形态之后 ──────
+   *
+   * 统一之前这一支是**单行**,几百行输出一个节点都挂不上(那正是要修的 bug:
+   * 唯一真有在途输出的链路没地方显示)。统一之后它和有标题那支走同一个折叠块、
+   * 同一个 `memo(TerminalOutput)`,所以这三笔账**必须逐个数字对得上** ——
+   * 对不上就说明「统一」只统一了外观,没统一成本模型。
+   */
+  const rawRow = (over: Partial<ToolRowData> = {}): ToolRowData =>
+    row({ title: 'npm install', rawTitle: true, ...over });
+
+  it('【量一下】AMR 形态 500 行输出展开时的节点数 —— 与有标题那支同一个量级', () => {
+    const { container } = render(<ToolRow row={rawRow()} />);
+    const all = container.querySelectorAll('*').length;
+    const termLines = container.querySelectorAll('div[class*="term"] > div').length;
+
+    expect(termLines).toBe(501);
+    expect(all - termLines, '折叠块骨架仍是常数级').toBeLessThan(20);
+
+    // eslint-disable-next-line no-console -- 量出来的数要落在跑测的输出里
+    console.log(`[量·AMR] 500 行输出:整行 ${all} 个节点,其中终端行 ${termLines} 个`);
+  });
+
+  it('【量一下】AMR 形态:秒表每秒跳一次,同样不许连带 Terminal 重渲', () => {
+    const { rerender } = render(<ToolRow row={rawRow({ elapsedMs: 1000 })} />);
+    expect(probe.renders.length).toBe(1);
+    for (const ms of [2000, 3000, 4000, 5000, 6000]) {
+      rerender(<ToolRow row={rawRow({ elapsedMs: ms })} />);
+    }
+    expect(probe.renders.length, '秒表跳了 5 次,输出没变 —— 一次都不该重算').toBe(1);
+  });
+
+  it('【量一下】AMR 形态首屏:30 条收起的老命令行,终端节点仍然是 0', () => {
+    const done = (i: number): ToolRowData =>
+      rawRow({ id: `c${i}`, pending: false, terminal: outputOf(500), elapsedMs: 8420 });
+    const { container } = render(
+      <>{Array.from({ length: 30 }, (_, i) => <ToolRow key={i} row={done(i)} deferBody />)}</>,
+    );
+
+    expect(container.querySelectorAll('details').length, '30 行都是折叠块了').toBe(30);
+    expect(container.querySelectorAll('div[class*="term"]').length, '一个终端块都不该挂').toBe(0);
+    expect(probe.renders.length, 'Terminal 一次都没渲染').toBe(0);
+
+    const all = container.querySelectorAll('*').length;
+    // eslint-disable-next-line no-console -- 首屏这一格的数要落在跑测的输出里
+    console.log(`[量·AMR] 首屏 30 条收起的命令行:整屏 ${all} 个节点`);
+    /*
+     * 有标题那支是 12 节点/行,这一支是 **14** —— 差的两个是把命令排成等宽的
+     * `<span class="file fileStatic"><code>`(有标题那支的 summary 是纯文本标题,
+     * 不需要这一对)。实测:360 → 420,30 行共 +60 个节点,**与输出量无关**,
+     * 是每行恒定的两个。这里按 14 钉住而不是把上界抬到「够用就行」:
+     * 数字再涨说明骨架又胖了,应该当回归看见。
+     */
+    expect(all).toBeLessThanOrEqual(30 * 14);
+  });
+
   it('并发:同时几条命令在跑,就同时几个终端展开 —— 量一下最坏那一屏', () => {
     /*
      * Claude 一个回合可以并行发好几个工具调用,每条命令各自一个 `pending` 行,

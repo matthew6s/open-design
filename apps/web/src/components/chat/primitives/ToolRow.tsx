@@ -269,16 +269,72 @@ export function ToolRow({
     );
   }
 
-  /* 跑命令,没有人话标题:「执行 <命令>」单行 */
+  /*
+   * 跑命令 · 没有人话标题:**同一个折叠块**(产品 2026-09-03)。
+   *
+   * ⚠️ **稿子没画过这一态,这是按产品裁决补的** —— 依据与边界都写在这里,别当成
+   * 照稿实现。原话:「(AMR 那种没标题的命令行)AMR 要的吧?**统一一下**?并且
+   * **要支持流式**?」
+   *
+   * ── 为什么原来是单行,而这恰好是最坏的错配 ─────────────────────────────
+   *
+   * 分流判据是 `isRawCommandTitle = isCommandTool(name) && !input.description`:
+   * Claude Code 的 Bash 一定带 `description`(实测:CLI 2.1.259 的录音里那次 Bash
+   * 入参是 `{command:"echo w103-hello", description:"运行 echo 命令"}`),走上面的
+   * 折叠块;opencode 一类的 bash 入参只有 `{ command }`,走这里。
+   *
+   * 于是修之前是「有输出的看不见,看得见的没输出」:
+   *   · Claude 家族  有折叠块可以放输出,但 **daemon 拿不到在途输出** ——
+   *     stream-json 里 `tool_use` 与 `tool_result` 之间没有任何携带部分输出的帧;
+   *   · AMR / ACP 九家  `tool_in_flight` **一直在发**在途输出(封顶 2000 字符,
+   *     `ACP_IN_FLIGHT_TOOL_OUTPUT_LIMIT`),却只有一行字可以放它 —— 唯一一条
+   *     真的有实时输出的链路,全程没有地方显示。
+   *
+   * ── 稿子里能拿到的两条线索 ─────────────────────────────────────────────
+   *
+   * 全稿 `执行 <命令>` 单行**只有 1 处**(`body-components.html:909`),而那一处是
+   * **已完成态**:行首是静态终端图标不是转圈球,右侧是结算过的 `8.4s`。稿子**会**
+   * 画进行中的单行(`:1037` 生图那条是转圈球 + `2/4`),所以不是「稿子不画进行中
+   * 单行」,而是**专门没画过 exec 的进行中形态**。
+   *
+   * 第二条线索在同一行里:`:909` 那颗按钮的 `aria-label` 逐字是
+   * **「查看 npm run build 的输出」** —— 稿子自己就把这一行的用途写成「看输出」,
+   * 只是没画出「看」之后长什么样。这次补的就是那一半。
+   *
+   * ── 补法:与上面那支逐字同构,不另发挥 ─────────────────────────────────
+   *
+   * summary 保留稿子 `:909` 的原样(动词 + 等宽命令 + 秒数槽),正文直接复用同一个
+   * `div.code`;开合规则用**同一个** `lifecycleOpen`,所以「执行中展开 → 完成收起」
+   * 和「用户手动开合优先」两条一次都不用重写。
+   *
+   * 两个刻意的克制:
+   *  · **命令不做 `elide`** —— `FileButton` 的省略是给文件名设计的(保后缀、中间省),
+   *    拿去截命令会把 `wc -l a.md transcript.html` 截成 `wc -l a.md tr….html`,
+   *    读起来像另一条命令。收起时的截断归 CSS 的 `text-overflow`。
+   *  · **`lifecycleOpen` 只写 `row.pending`** —— 这一支的条件带 `!row.failed`,
+   *    失败的命令行落到下面的兜底单行,行为与修之前逐字一致;在这里写
+   *    `|| row.failed` 是永假的死码。
+   */
   if (row.command && row.rawTitle && !row.failed) {
     return (
-      <div className={rowClass}>
-        {icon}
-        <span className={styles.name}>
-          {t('chat.record.verb.exec')} <FileButton path={row.command} label={row.title} />
-        </span>
-        {metaSlot}
-      </div>
+      <Foldable
+        summary={(
+          <>
+            {icon}
+            <span className={styles.name}>
+              {t('chat.record.verb.exec')} <FileButton path={row.command} label={row.title} />
+            </span>
+          </>
+        )}
+        elapsed={elapsed ?? (row.pending ? '' : undefined)}
+        lifecycleOpen={row.pending}
+        deferBody={deferBody}
+      >
+        <div className={styles.code}>
+          <div className={`${styles.term} ${styles.cmd}`}><div>{row.command}</div></div>
+          {row.terminal ? <Terminal text={row.terminal} /> : null}
+        </div>
+      </Foldable>
     );
   }
 
