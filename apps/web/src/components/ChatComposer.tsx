@@ -63,6 +63,7 @@ import type {
 } from '@open-design/contracts';
 import { buildVisualAnnotationAttachment, commentTargetDisplayName } from '../comments';
 import { Icon, type IconName } from "./Icon";
+import { ChatCloseIcon, ChatFileIcon, ChatSendArrowIcon } from "./chat/primitives/icons";
 import { ComposerPlusMenu, PLUS_SUBMENU_RESOURCE_KIND, type PlusMenuSubmenu } from './ComposerPlusMenu';
 import { LibraryPicker } from './LibraryPicker';
 import { FigmaImportModal } from './FigmaImportModal';
@@ -3627,6 +3628,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
             <ComposerPlusMenu
               workspaceContext={workspaceContext}
               triggerTestId="chat-plus-trigger"
+              // 聊天面板走稿子那枚描边加号;home hero 不传这个,保持共享 Icon
+              // 的实心 remix 字形(产品裁决 2026-09-03:不动全站)。
+              strokeGlyph
               placementPreference="up"
               openRequest={plusMenuOpenRequest}
               onOpen={() => {
@@ -3866,7 +3870,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 title={t('chat.send')}
                 data-tooltip={t('chat.send')}
               >
-                <Icon name="arrow-up" size={18} />
+                <ChatSendArrowIcon size={18} />
               </button>
             ) : null}
           </div>
@@ -4507,7 +4511,7 @@ export function StagedAttachmentTray({
                 onClick={() => removeCard(card)}
                 aria-label={removeLabel}
               >
-                <Icon name="close" size={10} />
+                <ChatCloseIcon size={10} />
               </button>
             );
             const stateClass = card.state === 'uploading'
@@ -4648,7 +4652,7 @@ function StagedTrayDocCard({
   const size = formatAttachmentSize(card.size);
   return (
     <span className={`msg-att-doc${stateClass}`} title={card.name}>
-      <Icon name="file" size={15} className="msg-att-fi" />
+      <ChatFileIcon size={15} className="msg-att-fi" />
       <span className="msg-att-tx">
         <span className="msg-att-nm" ref={nameRef}>
           <span className="msg-att-base">{displayBase}</span>

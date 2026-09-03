@@ -263,6 +263,156 @@ export const PaletteIcon = (): ReactElement => (
   </svg>
 );
 
+/* ============================================================================
+ * 聊天面板里那几枚**按钮**图标(W126,产品裁决 2026-09-03)
+ * ============================================================================
+ *
+ * 上面那一族画的是「执行记录行首那一格」;下面这一族画的是**按钮**——
+ * 发送键、加号键、设计系统键、队列的移除、附件卡的文件与 ×、音频的播放。
+ * 它们原来一律走共享的 `<Icon name="…">`,而那个组件凡是命中 `REMIX_ICON`
+ * 映射表的名字**一律走实心 remix 路径**,所以和稿子画的描边图几乎必然对不上。
+ *
+ * ## 为什么补在这里,而不是去改 `components/Icon.tsx`
+ *
+ * 产品裁决 2026-09-03 明确:「**只让聊天面板走描边版**」,不动全站。改 `Icon.tsx`
+ * 的默认 `strokeWidth` 或摘掉 `REMIX_ICON` 里的名字,影响的是**全站**几百个调用点
+ * —— 那正是被否掉的那个方案。所以这一族补在 chat 自己的 primitives 里,
+ * 由聊天面板的调用点单独指过来,面板外一个字不动。
+ *
+ * ## 尺寸仍然由调用点给,和换之前逐值相同
+ *
+ * 每一枚都收一个 `size`,原样写成 `width` / `height` —— 换的**只有字形**。
+ * 发送键 18、加号 16、设计系统 16、队列移除 13、附件 × 10、文件 15、播放 12
+ * 都是产品当前的值,这一轮一个都不动(稿子那边发送键是 16、盒子 28,
+ * 连着描边和 `--shadow-xs` 一起属于另一件事,见 W126 报告)。
+ *
+ * 判据:`tests/components/chat/w126-chat-stroke-icons.test.tsx`,逐枚断言真 DOM 上的
+ * `d` / `viewBox` / `fill` / `stroke` / `stroke-width`。
+ */
+interface ChatButtonIconProps {
+  /** 写成 svg 的 width/height。CSS 若另有规则(如 `.msg-att-fi`)照样赢。 */
+  size?: number;
+  className?: string;
+}
+
+/**
+ * 发送 —— 朝上的描边箭头。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-scene.html:46`
+ * (= `src/body-components.html:375`,两页逐字节相同)。
+ *
+ * ⚠️ `components/Icon.tsx` 里那段描边 `arrow-up` 和这一枚**不是**逐字节相同:
+ * 它写的是 `m5 12 7-7 7 7`(小写相对指令 + 省略逗号),稿子写的是 `M5 12l7-7 7 7`。
+ * 两者几何等价,但这一族的判据是字节,所以照稿子写。何况那段分支根本走不到 ——
+ * `arrow-up` 命中 `REMIX_ICON` 映射表,永远走实心那条路。
+ */
+export const ChatSendArrowIcon = ({ size = 18, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M12 19V5" />
+    <path d="M5 12l7-7 7 7" />
+  </svg>
+);
+
+/**
+ * 加号 —— 输入框那颗「添加附件」键。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-scene.html:42`。
+ *
+ * 稿子是一条描边十字(1.75 圆头);remix 的 `add-line` 是实心方角十字
+ * (`M11 11V5H13V11H19V13H13V19H11V13H5V11H11Z`),两者形状不是一回事。
+ */
+export const ChatPlusIcon = ({ size = 16, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+/**
+ * 调色盘 —— 输入框那颗「设计系统」键。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-scene.html:43`。
+ *
+ * ⚠️ 这**不是**上面那枚 `PaletteIcon`。稿子里有**两枚**调色盘:
+ *
+ *   · `src/body-components.html:47` —— 状态卡左边那一格,`fill="currentColor"`
+ *     的实心 remix 字形 → 上面的 `PaletteIcon`
+ *   · `src/body-scene.html:43`     —— 输入框的设计系统键,描边外壳 + 三颗点
+ *     → 这一枚
+ *
+ * 三颗点的位置 7.3 / 10.6 / 15 是**非对称**的,和 remix 那枚对称三点
+ * (7.5 / 12 / 16.5)不同;半径也是 1.15 不是 1.5。它们各自把外壳的 stroke 关掉、
+ * 单独填实 —— 稿子逐字如此,不要「统一」成一族。
+ */
+export const ComposerPaletteIcon = ({ size = 16, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M12 3.2a8.8 8.8 0 100 17.6c.9 0 1.6-.73 1.6-1.6 0-.42-.16-.79-.42-1.07a1.6 1.6 0 011.18-2.68h1.84a4.6 4.6 0 004.6-4.6c0-4.26-3.94-7.65-8.8-7.65z" />
+    <circle cx="7.3" cy="11.4" r="1.15" fill="currentColor" stroke="none" />
+    <circle cx="10.6" cy="7.9" r="1.15" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="8.4" r="1.15" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+/**
+ * 垃圾桶 —— 消息队列那一行的「移除」。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-components.html:1342`。
+ *
+ * ⚠️ 这**不是**上面那枚 `DeleteIcon`。那一枚是工具行的 delete 动词格
+ * (`M4 7h16` / `M9 7V4h6v3` / …),而稿子的 `.ti` 压根没画 delete 这一行 ——
+ * 那一枚是产品自己补的。队列这一枚的四条 `d` 和它完全不同(桶口 `M3.5 6h17`
+ * 更宽、桶身带 1.7 圆角、盖钮是 1.2 圆角),两枚并存,谁也不替换谁。
+ */
+export const QueueTrashIcon = ({ size = 13, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M3.5 6h17" />
+    <path d="M8.5 6V4.2A1.2 1.2 0 019.7 3h4.6a1.2 1.2 0 011.2 1.2V6" />
+    <path d="M18.5 6l-.8 13.4a1.7 1.7 0 01-1.7 1.6H8a1.7 1.7 0 01-1.7-1.6L5.5 6" />
+    <path d="M10 10.5v6M14 10.5v6" />
+  </svg>
+);
+
+/**
+ * 文件 —— 附件文档卡左边那一格(已发送的和输入框托盘里的是同一枚)。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-components.html:141`
+ * (`<svg class="fi" …>`)。
+ *
+ * 尺寸这里给默认 15,但真正说了算的是 CSS:`chat.css` 的
+ * `.msg.user .msg-att-fi, .composer-att .msg-att-fi { width:15px; height:15px }`
+ * ——和稿 `components.css:866` 的 `.att-d .fi` 同值。
+ */
+export const ChatFileIcon = ({ size = 15, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+    <path d="M14 2v6h6" />
+  </svg>
+);
+
+/**
+ * × —— 输入框附件托盘上那颗「移除」角标。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-components.html:255`(`.del`)。
+ *
+ * 只给托盘那一颗用。面板里其它几处 ×(暂存 chip、会话搜索的清除、对话框关闭)
+ * 稿子里没有对应物,继续走共享的 `<Icon name="close">`。
+ */
+export const ChatCloseIcon = ({ size = 10, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...STROKE_ICON} width={size} height={size} className={className}>
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+);
+
+/**
+ * 播放 —— 音频产物那颗播放键。
+ * 稿 `729fa43ce7:docs/design/chat-panel/src/body-components.html:1153`
+ * (`<svg class="ic-play" viewBox="0 0 24 24" fill="currentColor">`)。
+ *
+ * ⚠️ **这一枚稿子画的是实心,所以它走 `FILL_ICON`,不进描边族。**
+ * 「这一批叫描边图标」不是把每一枚都改成描边的理由 —— 换的是字形:
+ * remix 的 `play-line` 是一枚带轮廓的双层播放图形
+ * (`M16.3944 12.0001L10 7.7371V16.263L16.3944 12.0001ZM19.376 12.4161L8.77735 19.4818…`),
+ * 稿子是一枚干净的实心三角 `M8 5v14l11-7z`。
+ */
+export const ChatPlayIcon = ({ size = 12, className }: ChatButtonIconProps = {}): ReactElement => (
+  <svg {...FILL_ICON} width={size} height={size} className={className}>
+    <path d="M8 5v14l11-7z" />
+  </svg>
+);
+
 /**
  * 「这件事过了」那枚勾。**不用 svg**:设计稿把它做成了一整张图
  * (`--chat-tick-img`,盘绿勾挖空),这样深浅两套主题不用各挑一个勾色。

@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Icon } from '../Icon';
+import { ChatPlayIcon } from './primitives/icons';
 import { useT } from '../../i18n';
 import { fallbackWave, formatClock, playedBars } from '../../runtime/chat/audio-wave';
 import styles from './AudioArtifact.module.css';
@@ -124,7 +125,7 @@ export function AudioArtifact({
             <Icon name="pause" size={12} />
           ) : (
             <span className={styles.playGlyph}>
-              <Icon name="play" size={12} />
+              <ChatPlayIcon size={12} />
             </span>
           )}
         </button>

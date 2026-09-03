@@ -21,6 +21,7 @@ import { ComposerPluginPreview } from './ComposerPluginPreview';
 import { localizePluginTitle } from './plugins-home/localization';
 import { resolveFlyoutSide } from './composer-flyout-placement';
 import { Icon, type IconName } from './Icon';
+import { ChatPlusIcon } from './chat/primitives/icons';
 
 const PLUS_MENU_MARGIN = 12;
 const PLUS_MENU_GAP = 8;
@@ -250,6 +251,17 @@ export interface ComposerPlusMenuProps {
 
   /** Test id for the trigger button. */
   triggerTestId?: string;
+  /**
+   * 这颗触发键用聊天面板那一族的**描边**加号(稿
+   * `729fa43ce7:docs/design/chat-panel/src/body-scene.html:42`),而不是共享
+   * `Icon` 的实心 remix `add-line`。
+   *
+   * 为什么要一个开关而不是直接换掉:产品裁决 2026-09-03 是「**只让聊天面板走
+   * 描边版**」,明确不动全站。而这个组件是 home hero(`HomeHero.tsx`)和聊天
+   * 面板(`ChatComposer.tsx`)**共用**的同一个调用点 —— 直接换会连 home 一起
+   * 改掉,正是被否掉的那个范围。所以由调用方点名,只有 `ChatComposer` 传 true。
+   */
+  strokeGlyph?: boolean;
 
   /**
    * Notified when the menu opens. The project composer uses this to latch its
@@ -338,6 +350,7 @@ export function ComposerPlusMenu({
   renderToolbox,
   toolboxLabel,
   triggerTestId,
+  strokeGlyph = false,
   onOpen,
   onSubmenuOpen,
   onSearchUsed,
@@ -591,8 +604,11 @@ export function ComposerPlusMenu({
       >
         {/* `od-icon` is what `.plus-menu__trigger.is-active .od-icon` keys the
             45° pivot off — the glyph reads as a close × while the menu is
-            open. */}
-        <Icon name="plus" size={16} className="od-icon" />
+            open. Both glyphs carry it, so the pivot is unaffected by which
+            family this surface picked. */}
+        {strokeGlyph
+          ? <ChatPlusIcon size={16} className="od-icon" />
+          : <Icon name="plus" size={16} className="od-icon" />}
       </button>
       {open && typeof document !== 'undefined' ? createPortal(
         <div

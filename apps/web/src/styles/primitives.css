@@ -142,20 +142,33 @@ button:disabled {
   left: 0;
   /* hint tier — see the ladder in tokens.css */
   z-index: var(--z-hint);
+  /* 换行策略是这条规则里**唯一没跟稿子**的一处。稿子写的是
+     `white-space: nowrap` 且不设 max-width —— 那是为「纯图标按钮的名字」
+     量身的,两三个字,一行放得下。这条 primitive 是全应用共享的,上面还挂着
+     长描述(`fileViewer.publishSingleFileDescription` 法语 202 字符)和一批
+     长度无上限的用户数据(`data-tooltip={workingDir}` 是文件系统路径、
+     `{active.title}` 是标签页标题)。单行会横穿屏幕,所以限宽换行留着。
+     判据在 `tests/styles/w126-tooltip-design-parity.test.ts` 的
+     「换行策略」那一组,别照着稿子顺手补 nowrap。 */
   max-width: min(260px, calc(100vw - 16px));
-  padding: 5px 8px;
-  border: 1px solid var(--material-separator);
-  border-radius: var(--radius-sm);
-  /* Thick material: tooltips are small precise text, which per the material
-     spec takes the highest-contrast (most opaque) tier. */
-  background: var(--material-thick);
-  -webkit-backdrop-filter: var(--material-thick-backdrop);
-  backdrop-filter: var(--material-thick-backdrop);
-  box-shadow: var(--shadow-sm);
-  color: var(--vibrancy-label);
+  /* 以下逐条取自稿 `729fa43ce7:docs/design/chat-panel/src/components.css:2699-2707`
+     的 `[data-tip]::after`(产品裁决 2026-09-03:全站都改成稿子这套)。
+     搬的是值不是机制 —— 稿子是 `::after` 伪元素,我们是 body portal,
+     定位/贴边那一套归 `TooltipLayer.tsx`。 */
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* 实底,不是磨砂。稿子的理由写在 :2691-2698:气泡是被动的标签,只在鼠标停住时
+     出现,不该比它解释的那个按钮还重 —— 浅底 + 细边 + 软阴影已经够把它从正文里
+     分出来。深色磨砂留给「你要伸手去点」的浮层(选中浮条、注释全文)。
+     实底还顺带解决了一件事:气泡会盖在预览 iframe 的任意用户内容上方,
+     半透明 + blur 在花底子上会掉对比度,不透明的 --bg-elevated 不会。 */
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--text-strong);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.4;
   contain: layout paint style;
   pointer-events: none;
   overflow-wrap: anywhere;

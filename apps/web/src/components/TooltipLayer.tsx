@@ -16,7 +16,13 @@ interface TooltipState {
 }
 
 const TOOLTIP_MARGIN = 8;
-const TOOLTIP_GAP = 7;
+/**
+ * 气泡和触发元素之间的距离。**6,不是 7** —— 稿
+ * `729fa43ce7:docs/design/chat-panel/src/components.css:2701` 的
+ * `bottom: calc(100% + 6px)`,朝下那一支(:2721 `top: calc(100% + 6px)`)同值。
+ * 四个方向共用这一个数:稿子只画了上下两向,左右是 portal 才有的,跟着同一个数走。
+ */
+const TOOLTIP_GAP = 6;
 
 function isTooltipTarget(el: Element | null): el is HTMLElement {
   return el instanceof HTMLElement

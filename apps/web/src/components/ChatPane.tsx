@@ -154,6 +154,7 @@ import type { PlaceholderScenario } from './home-hero/placeholderScenarios';
 import { listDesignArtifactCandidates } from './design-files/designArtifacts';
 import type { PluginFolderAgentAction } from './design-files/pluginFolderActions';
 import { Icon, type IconName } from './Icon';
+import { ChatFileIcon, QueueTrashIcon } from './chat/primitives/icons';
 import { UserActionCard, type UserActionCardTone } from './UserActionCard';
 import {
   RunErrorCard,
@@ -5722,7 +5723,7 @@ function queuedTipPlacement(
                     data-tooltip-placement={queuedTipPlacement(index, 'top')}
                     aria-label={t('chat.comments.remove')}
                   >
-                    <Icon name="trash" size={13} />
+                    <QueueTrashIcon size={13} />
                   </button>
                 ) : null}
                 {/* 第三颗 —— 稿子标的是「引导对话」(B11)。产品裁决(OPEND-2602,
@@ -6604,7 +6605,7 @@ const UserMessage = memo(UserMessageImpl);
       aria-label={label}
       title={label}
     >
-      <Icon name="file" size={15} className="msg-att-fi" />
+      <ChatFileIcon size={15} className="msg-att-fi" />
       <span className="msg-att-tx">
         <span className="msg-att-nm" ref={nameRef}>
           <span className="msg-att-base">{displayBase}</span>
