@@ -86,7 +86,7 @@ import {
 } from '../artifacts/strip';
 import { trackRunProgress, trackRunStart, trackRunTerminal } from '../observability/stuck-run';
 import { markUpstreamActivity } from '../runtime/chat/upstream-activity';
-import { IN_FLIGHT_TOOL_INPUT_MARKER } from '../runtime/tool-events';
+import { IN_FLIGHT_TOOL_INPUT_MARKER, IN_FLIGHT_TOOL_OUTPUT_KEY } from '../runtime/tool-events';
 
 const MAX_TRANSCRIPT_MESSAGE_CHARS = 12_000;
 const LARGE_TOOL_RESULT_CHARS = 8_000;
@@ -2482,6 +2482,80 @@ function translateAgentEvent(data: DaemonAgentPayload): AgentEvent | null {
       // The early form of this very call — same id, same path, no arguments.
       // `dropSupersededInFlightToolUses` retires it when the real one lands.
       input: { file_path: data.path, [IN_FLIGHT_TOOL_INPUT_MARKER]: true },
+    };
+  }
+  /*
+   * 同一条早期形态,**加上已经写了多少行**(W120)。行数走 `od_diff_stat` ——
+   * `diffStat` 认这个字段(codex 也是从这里进来的),于是行上那一格 `+N −0` 和
+   * 落定后走的是同一段渲染,一个新文案 key 都不用加。
+   *
+   * `removed` 写 0 不是拿 0 冒充:整份写下去的工具落定后 `diffStat` 给的就是
+   * `{ added, removed: 0 }`,这里逐字同一个形状。算不出 `−M` 的 `Edit` 那一档
+   * daemon 根本不发这条事件(见 `tool-input-path-scanner.ts`)。
+   *
+   * `startedAt` 是这次调用的**不动的起点**,秒数由 `build-turn-blocks` 在客户端
+   * 每秒算一次 —— daemon 不为了让秒数动而每秒推事件。
+   */
+  if (
+    t === 'tool_input_progress' &&
+    typeof data.id === 'string' &&
+    typeof data.name === 'string' &&
+    typeof data.path === 'string' &&
+    data.path.length > 0 &&
+    typeof data.lines === 'number' &&
+    Number.isInteger(data.lines) &&
+    data.lines >= 0
+  ) {
+    return {
+      kind: 'tool_use',
+      id: data.id,
+      name: data.name,
+      input: {
+        file_path: data.path,
+        od_diff_stat: { added: data.lines, removed: 0 },
+        [IN_FLIGHT_TOOL_INPUT_MARKER]: true,
+      },
+      ...(typeof data.startedAt === 'number' ? { startedAt: data.startedAt } : {}),
+    };
+  }
+  /*
+   * ACP 那条线的早期形态 —— 一次**已经开始、还没结束**的调用。
+   *
+   * 上面两条是 claude 专属的:它的入参是流式的,所以能提前说的只有「写哪个文件」
+   * 和「写了多少行」。ACP 的 agent 发的是整帧状态(`pending` → `in_progress` →
+   * 终态),OD 以前只转写最后一帧 —— 202 次真实 AMR 调用里,**每一次的整个生命
+   * 周期都不可见**,855 秒的工具时间对着一个空壳,最长那次 222 秒。
+   *
+   * 于是这里 `input` 是**整个入参对象**,不是一个路径:占掉 58% 隐藏时长的是
+   * bash,那一行上有意义的是命令,不是文件。也因此这条事件会**重复**到 ——
+   * 工具名和路径都是 ACP 从 `kind`/`title`/`locations` 推出来的,后一帧可能推得
+   * 更准。`dropSupersededInFlightToolUses` 按 id 留**最后一条**,所以先猜后改
+   * 是原地覆盖,不会多画一行。
+   */
+  if (
+    t === 'tool_in_flight' &&
+    typeof data.id === 'string' &&
+    typeof data.name === 'string' &&
+    typeof data.startedAt === 'number'
+  ) {
+    const input = data.input && typeof data.input === 'object' && !Array.isArray(data.input)
+      ? (data.input as Record<string, unknown>)
+      : {};
+    return {
+      kind: 'tool_use',
+      id: data.id,
+      name: data.name,
+      input: {
+        ...input,
+        // 还在跑的那一段输出。挂在 `input` 上而不是造一条 `tool_result`,是因为
+        // 有结果就等于「这一行结束了」—— 行会立刻不再是 pending,秒表停住,
+        // 而它明明还在跑。
+        ...(typeof data.output === 'string' && data.output
+          ? { [IN_FLIGHT_TOOL_OUTPUT_KEY]: data.output }
+          : {}),
+        [IN_FLIGHT_TOOL_INPUT_MARKER]: true,
+      },
+      startedAt: data.startedAt,
     };
   }
   if (t === 'tool_use' && typeof data.id === 'string' && typeof data.name === 'string') {

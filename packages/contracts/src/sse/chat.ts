@@ -223,6 +223,89 @@ export type DaemonAgentPayload =
    * show one row per call, not two.
    */
   | { type: 'tool_input_target'; id: string; name: string; path: string }
+  /**
+   * How much of that file has been written **so far**, while the arguments are
+   * still streaming.
+   *
+   * `tool_input_target` fires once, so the row it produces stands still for the
+   * rest of a write — a file name and a stopwatch, with nothing to say the
+   * write is still growing. A real 27.6KB page took 140 seconds in that state.
+   * This is the same conclusion drawn repeatedly: the daemon counts newlines in
+   * the buffer it already keeps and sends the count, never the text.
+   *
+   * Guarantees a client may rely on:
+   *  - **Same counting rule as the finished row.** `lines` is
+   *    `content.split('\n').length` — exactly what
+   *    `apps/web/src/runtime/chat/format.ts` `diffStat` computes from the
+   *    settled `tool_use`. The last one sent before `tool_use` arrives EQUALS
+   *    that `+N`, so the number never jumps at the hand-off.
+   *  - **Whole-file writes only.** `Write` / `write_file`. `Edit` and friends
+   *    settle as `+N −M`, and `−M` cannot be known until `old_string` is
+   *    complete — so no half of it is sent rather than passing 0 off as truth.
+   *  - **Throttled, and self-describing.** At most one per argument fragment,
+   *    and in practice one per ~512 characters of content, so it is a small
+   *    fraction of `tool_input_delta`'s rate. It repeats `path`, so a client
+   *    that only ever sees this event still has a complete early form of the
+   *    call.
+   *  - **`startedAt` never moves** for a given `id`: it is when the daemon first
+   *    saw this call's arguments. The seconds on the row tick on the CLIENT
+   *    (see `build-turn-blocks.ts`'s `liveEndMs`); the daemon must not push an
+   *    event per second to make a number move.
+   *
+   * NOT persisted, for the same reason as `tool_input_target`.
+   */
+  | {
+      type: 'tool_input_progress';
+      id: string;
+      name: string;
+      path: string;
+      lines: number;
+      startedAt: number;
+    }
+  /**
+   * A tool call that has STARTED but not finished, published so its row is on
+   * screen while the work happens instead of only after it.
+   *
+   * This is the ACP bridge's counterpart to the two events above. Claude
+   * streams a call's arguments, so the useful early facts are the write target
+   * and how much of it exists. An ACP agent instead sends whole status frames
+   * (`pending` → `in_progress` → terminal) and OD published nothing until the
+   * last one: measured over 202 real AMR tool calls, **100% of every call's
+   * lifetime was invisible** — bash p90 37.3s, one `task` hidden for 222.0s,
+   * 855s of tool time with no row on screen.
+   *
+   * Why it is its own event rather than a wider `tool_input_target`:
+   *  - **It repeats.** One call emits several as what the daemon knows
+   *    improves. Identical payloads are never re-sent and emissions are
+   *    throttled (`agent-protocol/acp/session.ts`), but a client must render
+   *    the LATEST one per `id`, never the first.
+   *  - **It upgrades.** ACP infers the tool name from `kind`/`title` and the
+   *    path from `locations`/`rawInput`/title, so a later frame can replace a
+   *    weaker guess — including replacing "no arguments at all", which is what
+   *    every real first frame carries.
+   *  - **`input` is a whole argument object**, not a single path, because the
+   *    interesting early fact for the dominant case (bash, 58% of the hidden
+   *    time) is the command, not a file.
+   *
+   * `id` equals the `tool_use.id` that eventually settles the same call, and
+   * `startedAt` is when the daemon first saw the call — both so the client
+   * retires the early form into the settled one instead of drawing a second row
+   * and restarting its clock (`dropSupersededInFlightToolUses`).
+   *
+   * No `tool_result` ever accompanies this, and it must not make a turn count
+   * as having produced concrete output. NOT persisted — see
+   * `runSseEventToPersistedAgentEvent`; after the run the settled `tool_use`
+   * carries the same facts, and a reloaded conversation must show one row.
+   */
+  | {
+      type: 'tool_in_flight';
+      id: string;
+      name: string;
+      input: unknown;
+      startedAt: number;
+      /** Bounded preview of the output produced so far, when the agent streams it. */
+      output?: string;
+    }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; completedAt?: number }
   | { type: 'usage'; usage?: { input_tokens?: number; output_tokens?: number }; costUsd?: number; durationMs?: number; stopReason?: string | null }
   | { type: 'fabricated_role_marker'; marker: string; messageId?: string }

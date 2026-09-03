@@ -40,11 +40,23 @@ type BlockState = {
   input: string;
   inputValue?: unknown;
   /**
-   * Reads the write target out of `input` as it streams, for file-writing
-   * tools only (`null` for every other tool). Retired the moment it yields, so
-   * the path is announced exactly once per call.
+   * Reads the write target — and, for whole-file writes, the running line
+   * count — out of `input` as it streams. `null` for every tool that names no
+   * file. It stays alive for the whole block: the path is announced exactly
+   * once (the scanner itself guarantees that), but the line count has to keep
+   * coming until the arguments close.
    */
   pathScanner?: ToolInputPathScanner | null;
+  /**
+   * 这个内容块开始的时刻 —— 在途那一行的**不动的计时起点**。
+   *
+   * 秒数在客户端 tick(`build-turn-blocks` 的 `liveEndMs` 每秒一次),daemon 只
+   * 负责给一个不变的起点。每条计数事件各盖一个「现在」的话,行上的秒数会被一路
+   * 按回 0。
+   */
+  startedAt?: number;
+  /** 已经发出去的路径。计数事件要带着它,才能自成一条完整的早期形态。 */
+  targetPath?: string;
 };
 type RuntimeTask = {
   id: string;
@@ -65,6 +77,8 @@ export interface ClaudeStreamHandlerOptions {
   nativeBuildPackageBindings?: Readonly<Record<string, string>>;
   /** Consume forwarded Child frames only as native evidence, never as parent UI output. */
   suppressForwardedSubagentEvents?: boolean;
+  /** 墙上时间。只用来给在途那一行盖一个不动的计时起点;测试注入。 */
+  now?: () => number;
 }
 
 export function createClaudeStreamHandler(
@@ -72,6 +86,7 @@ export function createClaudeStreamHandler(
   options: ClaudeStreamHandlerOptions = {},
 ) {
   let buffer = '';
+  const now = options.now ?? (() => Date.now());
   const childEvidence = options.onChildRuntimeFact || options.onChildToolRuntimeFact
     ? createClaudeChildEvidenceCollector({
         ...(options.onChildRuntimeFact ? { onFact: options.onChildRuntimeFact } : {}),
@@ -917,6 +932,7 @@ export function createClaudeStreamHandler(
         input: '',
         inputValue: 'input' in block ? block.input : undefined,
         pathScanner: block.type === 'tool_use' ? createToolInputPathScanner(block.name) : null,
+        ...(block.type === 'tool_use' ? { startedAt: now() } : {}),
       });
       if (block.type === 'thinking') {
         onEvent({ type: 'thinking_start' });
@@ -975,17 +991,38 @@ export function createClaudeStreamHandler(
              * themselves never leave the daemon. `tool_input_delta`'s payload
              * stays a heartbeat nobody renders (see the note on it in
              * `packages/contracts/src/sse/chat.ts`) — this is a separate,
-             * few-dozen-byte conclusion. It fires at most once per call: the
-             * scanner is retired as soon as it answers.
+             * few-dozen-byte conclusion. The path fires at most once per call;
+             * the scanner enforces that itself.
+             *
+             * 同一趟扫描顺手把正文行数数出来(W120),于是那一行**一边写一边长**,
+             * 不再是一个静止的文件名 + 一个秒表。行数走节流后的
+             * `tool_input_progress`,同样只有数字 —— 正文一个字节都不出 daemon。
              */
-            const found = state.pathScanner?.push(delta.partial_json) ?? null;
-            if (found !== null) {
-              state.pathScanner = null;
+            const update = state.pathScanner?.push(delta.partial_json) ?? null;
+            if (update?.path !== undefined) {
+              state.targetPath = update.path;
               onEvent({
                 type: 'tool_input_target',
                 id: state.id,
                 name: state.name,
-                path: found,
+                path: update.path,
+              });
+            }
+            /*
+             * ⚠️ `state.targetPath !== undefined` **不是运行时守卫,是形状约束**:
+             * 扫描器保证路径没出之前不报行数(`dueLineCount` 的 `pathFound`),而
+             * 路径出的那一次 push 就在上面把 `targetPath` 记下了 —— 所以这个条件
+             * 恒真,撤掉它任何测试都不会红。留着只为一件事:让这条事件在类型上也
+             * 不可能带一个 `undefined` 的 `path`。别把它当成第二道判据。
+             */
+            if (update?.lines !== undefined && state.targetPath !== undefined) {
+              onEvent({
+                type: 'tool_input_progress',
+                id: state.id,
+                name: state.name,
+                path: state.targetPath,
+                lines: update.lines,
+                startedAt: state.startedAt ?? now(),
               });
             }
           }

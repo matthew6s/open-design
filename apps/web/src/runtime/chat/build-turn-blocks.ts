@@ -52,6 +52,7 @@ import {
   toolKind,
   toolTitle,
 } from './tool-kind';
+import { IN_FLIGHT_TOOL_OUTPUT_KEY } from '../tool-events';
 
 /**
  * done 标记 —— **每轮一次性密钥**。
@@ -1694,6 +1695,19 @@ function buildToolRow(
     failed,
     failReason: failureReason(failed, result?.content),
     command: command ? command : null,
-    terminal: command && result?.content ? result.content : null,
+    /*
+     * 结算的输出优先;还没结算时用早期形态带的那一段(ACP 的 `tool_in_flight`)。
+     * 一条 57 秒的命令,stdout 是一点点长出来的 —— 只认结算值意味着这 57 秒里
+     * 终端框是空的,而 agent 明明已经打印了东西。这里读的是入参上的记号,不是
+     * `result`,所以行仍然是 pending:秒表继续走,不会假装跑完了。
+     */
+    terminal: command ? (result?.content ?? inFlightOutputOf(event.input)) : null,
   };
+}
+
+/** 早期形态上「到目前为止的输出」,没有就是 `null`(见 `IN_FLIGHT_TOOL_OUTPUT_KEY`)。 */
+function inFlightOutputOf(input: unknown): string | null {
+  if (typeof input !== 'object' || input === null) return null;
+  const value = (input as Record<string, unknown>)[IN_FLIGHT_TOOL_OUTPUT_KEY];
+  return typeof value === 'string' && value ? value : null;
 }

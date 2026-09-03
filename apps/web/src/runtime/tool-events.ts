@@ -47,6 +47,16 @@ export function dedupeToolUsesById(events: AgentEvent[] | undefined): AgentEvent
  */
 export const IN_FLIGHT_TOOL_INPUT_MARKER = 'od_input_streaming';
 
+/**
+ * 早期形态上「到目前为止跑出来的输出」,ACP 那条线用(`tool_in_flight`)。
+ *
+ * 为什么不发一条 `tool_result`:`buildToolRow` 拿 `result == null` 判 `pending`,
+ * 给一次还在跑的调用配个结果,行会立刻不再是 pending —— 秒表停住、状态显示成
+ * 已完成,而命令还在跑。放在 `input` 上就只是「这一行现在知道的事情」多了一件,
+ * 和文件名、命令是同一档,行本身仍然是未完成态。
+ */
+export const IN_FLIGHT_TOOL_OUTPUT_KEY = 'od_output_streaming';
+
 /** 这条 `tool_use` 是不是「入参还没传完」的早期形态。 */
 export function isInFlightToolUse(event: AgentEvent): boolean {
   if (event.kind !== 'tool_use') return false;
@@ -59,29 +69,71 @@ export function isInFlightToolUse(event: AgentEvent): boolean {
 }
 
 /**
- * 真的 `tool_use` 一到,就把同一个 id 的早期形态丢掉。
+ * 一次调用只留**一条**事件:真的 `tool_use` 到了就摘掉早期形态,还没到就只留
+ * 最新的那一条早期形态。
  *
- * 必须跑在 `dedupeToolUsesById` **之前**:那个函数按 id 留**第一条**,早期形态
- * 排在前面,不先摘掉的话真货会被它顶掉 —— 于是 `+N −M` 永久消失,
- * 所有读 `input.content` 的下游也永远只看得到那份没有正文的入参。
+ * ⚠️ 两件事都必须跑在 `dedupeToolUsesById` **之前**,因为那个函数按 id 留
+ * **第一条**:
  *
- * 摘干净之后「先显示一个、后变成另一个」不可能发生:daemon 保证早期那个 `path`
- * 就是最终的 `file_path`,而且一次调用只剩一条事件,也就只画一行。
+ *  · 真货来了不先摘早期形态,留下来的就是那份没有 `content` 的入参 —— `+N −M`
+ *    永久消失,所有读 `input.content` 的下游也永远只看得到半截。
+ *  · 入参还在传的这一段里,daemon 会一条接一条地报新的行数(W120)。不把旧的那
+ *    几条摘掉,留下来的永远是第一条 —— **行上的数字会停在第一个值不动**,
+ *    文件名还在,光看名字发现不了。
+ *
+ * 摘干净之后「先显示一个、后变成另一个」不可能发生:daemon 保证每一条早期形态的
+ * `path` 都是最终的 `file_path`,而且一次调用只剩一条事件,也就只画一行。
+ *
+ * ── 计时起点跟着往前搬 ────────────────────────────────────────────────
+ *
+ * 早期形态带的 `startedAt` 是 daemon **第一次看见这次调用的入参**的时刻;真的
+ * `tool_use` 拿到的却是入参**传完**那一刻(`emitAgentEvent` 在出口盖的)。写一个
+ * 27.6KB 的页面,两者差着一百多秒。不搬的话,行上的秒数会在落定那一帧从
+ * 「2m 18s」被按回 0 —— 用户看到的是计时器倒退。所以真货沿用早期形态的起点:
+ * **一行的计时从这一行出现的时候开始算**,跨越交接不重来。
  */
 export function dropSupersededInFlightToolUses(events: AgentEvent[] | undefined): AgentEvent[] {
   if (!events || events.length === 0) return [];
 
   let sawInFlight = false;
   const settledIds = new Set<string>();
-  for (const event of events) {
-    if (event.kind !== 'tool_use') continue;
-    if (isInFlightToolUse(event)) sawInFlight = true;
-    else settledIds.add(event.id);
-  }
+  const lastInFlightAt = new Map<string, number>();
+  const inFlightStartedAt = new Map<string, number>();
+  events.forEach((event, index) => {
+    if (event.kind !== 'tool_use') return;
+    if (!isInFlightToolUse(event)) {
+      settledIds.add(event.id);
+      return;
+    }
+    sawInFlight = true;
+    lastInFlightAt.set(event.id, index);
+    const startedAt = (event as { startedAt?: number }).startedAt;
+    if (typeof startedAt === 'number' && !inFlightStartedAt.has(event.id)) {
+      inFlightStartedAt.set(event.id, startedAt);
+    }
+  });
   if (!sawInFlight) return events;
 
-  const kept = events.filter(
-    (event) => !(isInFlightToolUse(event) && settledIds.has((event as { id: string }).id)),
-  );
-  return kept.length === events.length ? events : kept;
+  const kept: AgentEvent[] = [];
+  events.forEach((event, index) => {
+    if (event.kind !== 'tool_use') {
+      kept.push(event);
+      return;
+    }
+    if (isInFlightToolUse(event)) {
+      // 真货已经到了,或者这条不是最新的那一条早期形态 —— 都不留
+      if (settledIds.has(event.id)) return;
+      if (lastInFlightAt.get(event.id) !== index) return;
+      kept.push(event);
+      return;
+    }
+    const earlier = inFlightStartedAt.get(event.id);
+    const own = (event as { startedAt?: number }).startedAt;
+    if (earlier != null && (typeof own !== 'number' || earlier < own)) {
+      kept.push({ ...event, startedAt: earlier });
+      return;
+    }
+    kept.push(event);
+  });
+  return kept;
 }

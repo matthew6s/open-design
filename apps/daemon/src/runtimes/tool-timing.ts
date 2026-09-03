@@ -9,10 +9,23 @@
  *
  * 为什么两端都可能缺(§2.2b / W10):
  *  · claude 的 `tool_use` 在 assistant 消息到达时就发出 → 出口盖的时间就是真实开始时间
- *  · codex 的 `tool_use` 在 `item.completed` 才发出,和 `tool_result` 同时到达 →
- *    两端相减接近 0。那不是「跑得快」,是「不知道」。前端按 `< 100ms` 一律当未知处理,
- *    不显示、也不估算(界面上出过「0.0s」,是这条规则的由来)。
+ *  · codex 的 `tool_use` 在 `item.started` 就发出 —— `command_execution`、
+ *    `file_change`、`mcp_tool_call` 三种都是,两条 wire(`exec --json` 与默认的
+ *    `app-server`)都如此。**只有 `web_search` 例外**,它在 `item.completed` 才发。
+ *    实测 141 条本机 run:codex 的 162 条工具行 `tool_use → tool_result` p50 1ms、
+ *    max 119.9s —— 有真实跨度,不是同批到达。
+ *
+ *    ⚠️ 这一条原本写的是「codex 在 `item.completed` 才发出,和 `tool_result` 同时
+ *    到达」。那是错的,而且落地当天(`38aa03bff4`)`command_execution` 就已经在
+ *    `item.started` 发了。当时量到的「p50 只有几毫秒」是真的,错在归因:codex 有
+ *    一半 Bash 本来就是瞬时命令。改这段之前请先自己量一遍,不要照抄任何一版说法。
+ *
+ *    `< 100ms` 当未知那条前端规则**照旧保留** —— 它挡的是「真的没有起点信息」那一档
+ *    (界面上出过「0.0s」,是这条规则的由来),只是理由不再是 codex。
  *  · ACP 家族自己带 `startedAt`(首帧时间),已经有的就不覆盖。
+ *    ⚠️ 注意 ACP 的 `startedAt` 是**首帧**时刻,而 `tool_use` 事件要等**终态**才发,
+ *    所以这两个时刻之间隔着整整一次工具执行 —— 实测 116 条 AMR 工具行累计 855 秒。
+ *    拿这个差去当"工具耗时"是对的;拿它当"事件延迟"会得出错误结论。
  *
  * 只补不改:任何一端已经有值,原样保留。
  */
