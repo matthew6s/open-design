@@ -56,13 +56,31 @@ export function isArtifactPath(path: string): boolean {
 
 export interface DiffStat { added: number; removed: number }
 
+/** 非负整数才算数:NaN / 负数 / 字符串都当没给 */
+function countedLines(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 /**
- * 改动量:没有任何 agent 原生给 diff 统计,原料在入参里,自己数行。
+ * 改动量:多数 agent 把原料放在入参里(Write 的 `content`、Edit 的新旧串),自己数行。
  * 数不出来就返回 null —— 那一行改显示耗时,而不是显示 `+0 -0`。
+ *
+ * 例外是 codex:它的 app-server 线缆在文件变更旁边直接带补丁,补丁大的有两万多字符,
+ * 塞进事件流会让每条消息的落盘体积暴涨。所以 daemon 在
+ * `runtimes/json-event-stream.ts` 里当场数完就把补丁丢掉,只把两个数字放进
+ * `od_diff_stat`。这里认这个字段,算法和下面两支是同一套(见那边的注释),
+ * 不是第二套统计口径。带了就优先用:数过的 agent 比这里拿半截入参再数一遍准。
  */
 export function diffStat(toolName: string, input: unknown): DiffStat | null {
   const name = String(toolName ?? '').toLowerCase();
   const rec = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const carried = rec.od_diff_stat;
+  if (carried && typeof carried === 'object') {
+    const added = countedLines((carried as Record<string, unknown>).added);
+    const removed = countedLines((carried as Record<string, unknown>).removed);
+    if (added != null && removed != null) return { added, removed };
+    return null;
+  }
   if ((name === 'write' || name === 'write_file') && typeof rec.content === 'string') {
     return { added: rec.content.split('\n').length, removed: 0 };
   }

@@ -763,7 +763,26 @@ function emitCodexReasoningItem(
  *   {"type":"item.started","item":{"id":"item_3","type":"file_change",
  *     "changes":[{"path":"…/page.html","kind":"add"}],"status":"in_progress"}}
  *
- * No content, no diff, no line counts — a path and a kind, nothing else.
+ * That frame really does carry a path and a kind and nothing else — but it is
+ * only ONE of the two codex wires, and no longer the shipping one.
+ * `codex exec --json` still sends exactly the above on codex-cli 0.151.0
+ * (probed 2026-09-03, the same build as the app-server probe below), and
+ * `OD_CODEX_TRANSPORT=exec-json` still selects it as the rollback path.
+ * The shipping default since `2b9a03a4a4` is `codex app-server`, whose
+ * `fileChange` item carries a THIRD field next to those two:
+ *
+ *   {"path":"…/note.md","kind":{"type":"update","move_path":null},
+ *    "diff":"@@ -2,3 +2,4 @@\n beta\n-gamma\n+GAMMA-1\n+GAMMA-2\n delta\n"}
+ *
+ * `FileUpdateChange` in codex's own generated protocol (`codex app-server
+ * generate-ts`, 0.151.0) declares `diff` as a REQUIRED string, and the repo's
+ * own recorded fixture `tests/fixtures/codex-app-server/turn-app-server.jsonl`
+ * has carried one since the transport landed. It was thrown away one layer up,
+ * in `codex-app-server/normalize.ts`, which rebuilt the change as `{path,
+ * kind}` to feed this handler — so from here the wire looked unchanged and this
+ * comment kept reading as true. Codex file rows therefore showed elapsed time
+ * where the same row under Claude showed `+N −M`.
+ *
  * Until this branch existed both lifecycle events fell through to `raw`, so a
  * codex turn that created or edited a file showed NO row in the execution
  * record while the same turn under Claude showed one.
@@ -777,8 +796,10 @@ function emitCodexReasoningItem(
  * The emitted pair is the canonical Write/Edit shape (`file_path` in the
  * input) that `apps/web/src/runtime/chat/tool-kind.ts` already resolves to
  * 「新建」/「改写」 plus a file button, so nothing downstream needs a new event
- * kind. `diffStat` finds no content to count and returns null — that is
- * correct: codex reports no line counts, and the row shows elapsed time
+ * kind. When a patch is present its two line counts ride along under
+ * `od_diff_stat` and the patch itself is dropped here — see
+ * `codexChangeDiffStat`. When it is absent (`exec --json`) the input keeps its
+ * old single-key shape, `diffStat` returns null, and the row shows elapsed time
  * rather than a fabricated `+N −M`.
  *
  * `kind` values other than `add`/`update` (codex also patches by deleting)
@@ -797,6 +818,55 @@ interface CodexFileChange {
   /** Canonical tool name the web already knows how to render. */
   name: string;
   path: string;
+  /** Line counts read off the change's patch, or null when it carried none. */
+  stat: CodexDiffStat | null;
+}
+
+interface CodexDiffStat {
+  added: number;
+  removed: number;
+}
+
+/**
+ * Count one codex change the way `diffStat` counts the equivalent Claude call,
+ * so the two agents cannot disagree about the same edit.
+ *
+ * `diffStat` (apps/web/src/runtime/chat/format.ts) has exactly two rules and
+ * both map onto a codex kind without inventing a third:
+ *
+ *   Write  added = content.split('\n').length,  removed = 0
+ *   Edit   added = new_string lines,            removed = old_string lines
+ *
+ * An `add` change's `diff` IS the file's whole text — codex sends the content
+ * with no `+` prefixes at all — so `add` uses the Write expression verbatim,
+ * trailing-newline quirk included: a five-line file reports 6 under BOTH agents.
+ * Matching Claude is the requirement; being independently "right" about the
+ * trailing newline would put two different numbers on the same file.
+ *
+ * An `update` change's `diff` is a unified diff, so the "lines that appear in
+ * new" and "lines that appear in old" of the Edit rule are its `+` and `-`
+ * lines. Counting them directly rather than rebuilding the two texts and
+ * splitting keeps `+0` distinguishable from "one empty line" — `''.split('\n')`
+ * is 1, which would have made every deletion-only patch read `+1`.
+ *
+ * Returns null when there is nothing to count: `exec --json` sends no `diff`,
+ * and a non-string `diff` from some future shape must degrade to the old
+ * elapsed-time row rather than to `+0 −0`.
+ */
+function codexChangeDiffStat(kind: string, diff: unknown): CodexDiffStat | null {
+  if (typeof diff !== 'string' || diff.length === 0) return null;
+  if (kind === 'add') return { added: diff.split('\n').length, removed: 0 };
+  if (kind !== 'update') return null;
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split('\n')) {
+    // `+++`/`---` are file headers, not content. Codex's own patches omit them,
+    // but a diff pasted through some other producer would double-count without
+    // this guard.
+    if (line.startsWith('+') && !line.startsWith('+++')) added += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) removed += 1;
+  }
+  return added === 0 && removed === 0 ? null : { added, removed };
 }
 
 /**
@@ -806,6 +876,10 @@ interface CodexFileChange {
  * for a partially unknown item is deliberate: emitting the recognized half
  * would silently drop the rest, whereas a null keeps the whole line visible as
  * `raw`.
+ *
+ * The patch text is read here and NOT kept: one recorded patch was 20k+
+ * characters, and every field of a `tool_use` input is persisted verbatim by
+ * `chat-run-messages.ts`. Two integers survive the call; the patch does not.
  */
 function codexFileChanges(item: JsonObject): CodexFileChange[] | null {
   if (item.type !== 'file_change') return null;
@@ -818,10 +892,15 @@ function codexFileChanges(item: JsonObject): CodexFileChange[] | null {
     const change = changes[index];
     if (!isRecord(change)) return null;
     const filePath = typeof change.path === 'string' ? change.path : '';
-    const name =
-      typeof change.kind === 'string' ? CODEX_FILE_CHANGE_TOOL_BY_KIND[change.kind] : undefined;
+    const kind = typeof change.kind === 'string' ? change.kind : '';
+    const name = kind ? CODEX_FILE_CHANGE_TOOL_BY_KIND[kind] : undefined;
     if (!filePath || !name) return null;
-    out.push({ id: `${itemId}#${index}`, name, path: filePath });
+    out.push({
+      id: `${itemId}#${index}`,
+      name,
+      path: filePath,
+      stat: codexChangeDiffStat(kind, change.diff),
+    });
   }
   return out;
 }
@@ -847,7 +926,12 @@ function emitCodexFileChangeToolUses(
       type: 'tool_use',
       id: change.id,
       name: change.name,
-      input: { file_path: change.path },
+      // Absent, not null, when there is nothing to report: an input that keeps
+      // its single-key shape is byte-identical to what `exec --json` produced
+      // before this existed, so the rollback transport cannot drift.
+      input: change.stat
+        ? { file_path: change.path, od_diff_stat: change.stat }
+        : { file_path: change.path },
     });
   }
 }
@@ -1132,8 +1216,12 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
       state.codexPreviousEventWasAgentMessage = false;
       state.codexLastAgentMessageEndedWithNewline = false;
       emitCodexFileChangeToolUses(completedFileChanges, onEvent, state);
-      // Codex reports no per-file output for a patch, so the result carries no
-      // content; `status: 'failed'` is the only failure signal on the item.
+      // The result carries no content on purpose. `exec --json` genuinely
+      // reports no per-file output; `app-server` does send the patch, but a
+      // patch is not command output — it belongs on the row as `+N −M` (read
+      // by `codexChangeDiffStat` above), not in the terminal panel a
+      // `tool_result` body opens. `status: 'failed'` is the only failure
+      // signal on the item, on both wires.
       const isError = item.status === 'failed';
       for (const change of completedFileChanges) {
         onEvent({ type: 'tool_result', toolUseId: change.id, content: '', isError });
@@ -1162,9 +1250,17 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
           input: { query: completedSearchQuery },
         });
       }
-      // Codex reports no hit count or result body for a search, so the result
-      // carries no content; the row shows 「搜索 <query>」 without a fabricated
-      // 「N 处」. There is no failure field on the captured shape either.
+      // The result carries no content, so the row shows 「搜索 <query>」 without
+      // a fabricated 「N 处」. There is no failure field on the captured shape.
+      //
+      // Not because codex has nothing to say any more: `WebSearchItem` in the
+      // 0.151.0 generated protocol declares `results: Array<JsonValue> | null`
+      // ("structured search results returned out-of-band"), so the field the
+      // original note said did not exist now does. What has NOT been measured
+      // is whether codex populates it in this integration, and
+      // `codex-app-server/normalize.ts` drops it on the way in regardless — so
+      // a hit count here would be invented, not read. Measure the wire before
+      // changing this; do not infer a count from the type alone.
       onEvent({ type: 'tool_result', toolUseId: item.id, content: '', isError: false });
       return true;
     }

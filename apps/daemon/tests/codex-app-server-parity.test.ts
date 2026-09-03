@@ -91,10 +91,28 @@ function canonicalize(events: Ev[]): Ev[] {
   return out;
 }
 
+/**
+ * Line counts are the second app-server superset, alongside token usage: only
+ * that wire sends a file change's patch, so only that transport can report
+ * `+N −M`. Stripping the counts here compares what BOTH transports can know;
+ * the counts themselves are asserted separately, in both directions, so a
+ * regression that stopped emitting them cannot hide inside this strip.
+ */
+const stripDiffStat = (input: unknown): unknown => {
+  if (!input || typeof input !== 'object') return input;
+  const { od_diff_stat: _dropped, ...rest } = input as Record<string, unknown>;
+  return rest;
+};
+
 const toolSignature = (events: Ev[]) =>
   canonicalize(events)
     .filter((e) => e.type === 'tool_use')
-    .map((e) => [e.name, e.input]);
+    .map((e) => [e.name, stripDiffStat(e.input)]);
+
+const diffStats = (events: Ev[]) =>
+  events
+    .filter((e) => e.type === 'tool_use')
+    .map((e) => (e.input as Record<string, unknown> | null)?.od_diff_stat);
 
 const renderedText = (events: Ev[]) =>
   events
@@ -365,9 +383,21 @@ describe('codex transport parity — paired transcript of one turn', () => {
 
   it('produces the same rendered event stream on both transports', () => {
     // Usage is compared separately: app-server is a strict superset (it reports
-    // cache-write tokens that the exec-json parser has never read).
-    const strip = (events: Ev[]) => canonicalize(events).filter((e) => e.type !== 'usage');
+    // cache-write tokens that the exec-json parser has never read, and file
+    // change line counts that the exec-json wire never sends at all).
+    const strip = (events: Ev[]) =>
+      canonicalize(events)
+        .filter((e) => e.type !== 'usage')
+        .map((e) => (e.type === 'tool_use' ? { ...e, input: stripDiffStat(e.input) } : e));
     expect(strip(appEvents)).toEqual(strip(execEvents));
+  });
+
+  it('reports file change line counts on app-server only, and no counts on exec-json', () => {
+    // The superset, asserted in both directions: the recorded `add` change is
+    // `diff: "BANANA\n"`, which is 2 under the same `split('\n').length` rule
+    // Claude's `Write` uses. exec-json sends no patch, so it reports nothing.
+    expect(diffStats(appEvents)).toEqual([undefined, { added: 2, removed: 0 }]);
+    expect(diffStats(execEvents)).toEqual([undefined, undefined]);
   });
 
   it('agrees on the assistant text', () => {
@@ -436,6 +466,10 @@ describe('codex transport parity — real captures', () => {
     ];
     expect(toolSignature(execEvents)).toEqual(expected);
     expect(toolSignature(appEvents)).toEqual(expected);
+    // The real capture's `add` change carried `diff: "BANANA\n"` from the day
+    // the transport landed; it was read for the first time by this branch.
+    expect(diffStats(appEvents)).toEqual([undefined, { added: 2, removed: 0 }]);
+    expect(diffStats(execEvents)).toEqual([undefined, undefined]);
   });
 
   it('pairs every tool_use with exactly one tool_result on both transports', () => {

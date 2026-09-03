@@ -12,6 +12,13 @@
  * the first time either side is touched; going through the original makes
  * transport parity a property of the code rather than a claim in a PR body.
  *
+ * "Same frame shape" is not "same information". Where this wire carries MORE
+ * than `exec --json` ever did, the extra field rides along on the synthesized
+ * frame and the codex branch decides what to do with it — a file change's
+ * `diff` is the one such field today (`FileUpdateChange.diff`, required here,
+ * absent there). Dropping it to keep the frame narrow is what made codex file
+ * rows show elapsed time where Claude's showed `+N −M`.
+ *
  * Exactly four things cannot round-trip through an `exec --json` frame,
  * because that stream has no shape for them, and are therefore owned here:
  *
@@ -102,7 +109,21 @@ function toExecItem(item: JsonObject): JsonObject | null {
         type: 'file_change',
         changes: item.changes.map((change) =>
           isRecord(change)
-            ? { path: str(change.path), kind: execPatchKind(change.kind) }
+            ? {
+                path: str(change.path),
+                kind: execPatchKind(change.kind),
+                // `diff` is app-server-only and REQUIRED there (`FileUpdateChange`
+                // in codex's generated protocol, 0.151.0); `exec --json` has no
+                // such field. Forwarding it is what lets the codex branch report
+                // `+N −M` instead of an elapsed time, and forwarding it only when
+                // present keeps the synthesized frame identical to the exec wire
+                // on the rollback transport. The frame is transient — the branch
+                // counts the lines and drops the patch, so nothing this large
+                // reaches the event stream or the message store.
+                ...(typeof change.diff === 'string' && change.diff.length > 0
+                  ? { diff: change.diff }
+                  : {}),
+              }
             : {},
         ),
         status: str(item.status),
