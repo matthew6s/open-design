@@ -49,16 +49,34 @@ import { fileURLToPath } from 'node:url';
 
 import { ChatComposer } from '../../../src/components/ChatComposer';
 
-const CHAT_CSS_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../src/styles/chat.css',
-);
-const CHAT_CSS = readFileSync(CHAT_CSS_PATH, 'utf-8');
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../src');
+const CHAT_CSS = readFileSync(resolve(SRC, 'styles/chat.css'), 'utf-8');
+
+/**
+ * ⚠️ **必须把 `routines.css` 一起装进去,顺序照 `index.css`。**
+ *
+ * 第一版这个文件只塞了 `chat.css`,于是把 36px 改成 28px 之后测试就绿了 ——
+ * **而真浏览器上一动没动**。原因是同一颗按钮被两个文件规定着,而赢的是没改的那个:
+ *
+ *   styles/chat.css            `.composer-send`                  (0,1,0)  28px
+ *   styles/viewer/routines.css `.app .composer-send`             (0,2,0)  36px  ← 赢
+ *
+ * `index.css` 里 `chat.css` 排第 13、`routines.css` 排第 31,后者又更具体,两条都
+ * 站在它那边。只装一个文件去量,等于**在量之前就把缺陷排除在外**——那不是通过,
+ * 是没看见。真机实测:`.composer-send` 的 `getBoundingClientRect()` 是 36×36。
+ *
+ * 所以这里按 `index.css` 的顺序装两份;jsdom 会照真实层叠算出胜者。
+ */
+const ROUTINES_CSS = readFileSync(resolve(SRC, 'styles/viewer/routines.css'), 'utf-8');
 
 beforeAll(() => {
-  const style = document.createElement('style');
-  style.textContent = CHAT_CSS;
-  document.head.appendChild(style);
+  for (const css of [CHAT_CSS, ROUTINES_CSS]) {
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+  // 产线上这颗按钮永远活在 `.app` 里(`routines.css` 那几条就是靠它命中的)。
+  document.body.classList.add('app');
 });
 
 /**

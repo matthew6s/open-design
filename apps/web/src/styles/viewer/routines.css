@@ -2515,6 +2515,14 @@
 .chat-skin .composer-import,
 .app .composer-research,
 .chat-skin .composer-research,
+/* ⚠️ 发送键的尺寸**两个文件都在管**，而这里是赢的那个：
+   `styles/chat.css` 的 `.composer-send` 是 (0,1,0)，这里的 `.app .composer-send`
+   是 (0,2,0)，`index.css` 里又排在它后面 —— 两条都站在这边。
+   2026-09-03 有一轮只改了 chat.css 那半边，测试绿了而真浏览器一动没动（实测
+   `getBoundingClientRect()` 仍是 36×36）。改这颗按钮的几何时**两处一起改**，
+   判据见 `tests/components/chat/w134-composer-send-geometry.test.tsx` ——
+   那个文件现在按 `index.css` 的顺序把两份样式都装进去，才照得出这件事。
+   稿子：`729fa43ce7:docs/design/chat-panel/src/components.css:3121` 是 28×28。 */
 .app .composer-send,
 .chat-skin .composer-send {
   /* radius-sm to match the unified 28px composer-row control system; this is
@@ -2541,10 +2549,10 @@
 }
 .app .composer-send,
 .chat-skin .composer-send {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0;
   border-radius: var(--radius-pill);
   background: var(--text-strong);
@@ -2555,10 +2563,10 @@
   box-shadow: var(--shadow-xs);
 }
 .chat-composer-fixed-layer .composer-send {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0;
   border-radius: var(--radius-pill);
   background: var(--text-strong);
@@ -2571,13 +2579,13 @@
 .app .composer-send.stop,
 .chat-skin .composer-send.stop,
 .chat-composer-fixed-layer .composer-send.stop {
-  /* Executing state: same 36px capsule as Send — dot-matrix bloom + 思考中
+  /* Executing state: same 28px capsule as Send — dot-matrix bloom + 思考中
      label, width hugging the content. Geometry must match .app .composer-send
      above; only the width goes auto for the label. */
   width: auto;
   min-width: 0;
-  height: 36px;
-  min-height: 36px;
+  height: 28px;
+  min-height: 28px;
   padding: 0 14px 0 10px;
   border-radius: var(--radius-pill);
   font-size: 13px;
