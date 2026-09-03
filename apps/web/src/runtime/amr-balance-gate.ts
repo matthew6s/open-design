@@ -18,6 +18,7 @@ import type {
   WorkspaceBillingResponse,
 } from '@open-design/contracts';
 import { fetchAmrWalletSnapshot } from '../providers/daemon';
+import { isFreeAmrPlan, resolveAmrPlan } from './amr-low-balance-plan';
 
 /**
  * Hard-block line (USD): at or below this the wallet cannot fund any part of
@@ -163,6 +164,30 @@ export function setAmrLowBalanceWarnOptedOut(): void {
 }
 
 /**
+ * Whether something OTHER than the wallet might fund this Personal run, so the
+ * wallet-balance preflight must stand down and let Vela decide at admission.
+ *
+ * This is the surviving half of a two-part question. The gate originally asked
+ * "is the caller on a Coding Plan, AND is this model unlimited on that plan";
+ * the model half was retired with the client-side entitlement catalog, so Vela
+ * is now the only authority on whether a GIVEN model is metered. The plan half
+ * is still readable, and it is the half that decides whether standing down can
+ * ever be right: a subscriber's $0 wallet is a NORMAL state (their day-to-day
+ * models are plan-funded and never touch it), while an account with no plan at
+ * all has nothing but the wallet — so its empty wallet is a real hard block,
+ * not a wallet the run might route around.
+ *
+ * Only a DEFINITIVE free answer lets the gate run. An unresolved plan fails
+ * open exactly like the retired catalog lookup did on an unavailable list, so a
+ * subscriber whose tier cannot be read is never blocked by a failed read.
+ */
+async function planMayFundRunOutsideWallet(
+  snapshot: AmrWalletSnapshot,
+): Promise<boolean> {
+  return !isFreeAmrPlan(await resolveAmrPlan(snapshot));
+}
+
+/**
  * Decide whether an OpenDesign Cloud run may start. Fast path first: the
  * daemon-cached snapshot answers without an upstream roundtrip, so healthy
  * balances start with no added latency. Only a hard-block answer is confirmed
@@ -264,10 +289,13 @@ async function checkWorkspaceBalanceGate(
     balance <= AMR_LOW_BALANCE_WARN_USD
     && scope.workspaceType === 'personal'
     && modelId?.trim()
+    && (await planMayFundRunOutsideWallet(workspaceSnapshot!))
   ) {
-    // Coding Plan membership is no longer exposed to the client. Personal
-    // requests therefore fail open here and let Vela enforce the authoritative
-    // billing and Model Limit decision at admission time.
+    // Coding Plan model membership is no longer exposed to the client, so Vela
+    // enforces the authoritative billing and Model Limit decision at admission
+    // time. The client still proves the caller HAS a plan first — without one
+    // there is nothing but the wallet, and failing open would delete the hard
+    // block below for every empty personal wallet.
     return { kind: 'allow' };
   }
   if (balance <= AMR_HARD_BLOCK_BALANCE_USD) {
@@ -302,7 +330,7 @@ export async function checkAmrBalanceGate(
         return { kind: 'allow' };
       }
       // cached is non-null here: a definitive balance implies a snapshot.
-      return modelId?.trim()
+      return modelId?.trim() && (await planMayFundRunOutsideWallet(cached!))
         ? { kind: 'allow' }
         : { kind: 'soft', snapshot: cached! };
     }
@@ -323,7 +351,11 @@ export async function checkAmrBalanceGate(
     if (fresh.stale || fresh.error != null) return { kind: 'allow' };
     const freshBalance = amrWalletBalanceUsd(fresh);
     if (freshBalance == null) return { kind: 'allow' };
-    if (freshBalance <= AMR_LOW_BALANCE_WARN_USD && modelId?.trim()) {
+    if (
+      freshBalance <= AMR_LOW_BALANCE_WARN_USD
+      && modelId?.trim()
+      && (await planMayFundRunOutsideWallet(fresh))
+    ) {
       return { kind: 'allow' };
     }
     if (freshBalance <= AMR_HARD_BLOCK_BALANCE_USD) {

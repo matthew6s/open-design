@@ -730,6 +730,192 @@ describe('checkAmrBalanceGate', () => {
   });
 });
 
+/**
+ * The Personal fail-open path must not swallow the hard block.
+ *
+ * #7187 stood the preflight down for a run the wallet was never going to fund,
+ * asking two questions: is the caller on a Coding Plan, and is this model
+ * unlimited on it. #7544 retired the model half along with the entitlement
+ * catalog it read, leaving `modelId?.trim()` — which is true on nearly every
+ * send, because an unset model falls back to the agent's default id. That
+ * turned "this run does not touch the wallet" into "the user has a model
+ * selected", and because $0 <= $2 the early return started eating the $0 hard
+ * block too.
+ *
+ * These cases pin the half that is still knowable: an account with NO plan has
+ * nothing but the wallet, so its empty wallet is a real block. A subscriber's
+ * $0 stays allowed — that is #7187's whole point and must not regress.
+ */
+describe('checkAmrBalanceGate personal fail-open guard', () => {
+  const freeUser = { id: 'u1', email: 'user@example.com', plan: 'free' };
+
+  function workspaceBillingStub(
+    workspaceId: string,
+    workspaceMemberId: string,
+    balanceUsd: string,
+  ) {
+    return vi.fn(async () => new Response(
+      JSON.stringify(authoritativeWorkspaceBillingResponse(
+        workspaceId,
+        workspaceMemberId,
+        balanceUsd,
+      )),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+  }
+
+  it('hard-blocks a zero-dollar free account even with a model selected', async () => {
+    const freeAccount = snapshot({ balanceUsd: '0', user: freeUser });
+    mockedFetch
+      .mockResolvedValueOnce({ ...freeAccount, source: 'daemon_cache' })
+      .mockResolvedValueOnce(freeAccount);
+
+    await expect(
+      checkAmrBalanceGate(undefined, 'glm-5.2'),
+    ).resolves.toEqual({
+      kind: 'hard',
+      reason: 'insufficient',
+      snapshot: freeAccount,
+    });
+  });
+
+  it('soft-warns a low-balance free account even with a model selected', async () => {
+    const low = snapshot({ balanceUsd: '1.20', user: freeUser });
+    mockedFetch.mockResolvedValueOnce(low);
+
+    await expect(
+      checkAmrBalanceGate(undefined, 'glm-5.2'),
+    ).resolves.toEqual({ kind: 'soft', snapshot: low });
+  });
+
+  it('hard-blocks a zero-dollar free-tier Personal workspace', async () => {
+    mockedFetch.mockResolvedValue(snapshot({ balanceUsd: '0', user: freeUser }));
+    vi.stubGlobal('fetch', workspaceBillingStub('ws-free', 'wm-free', '0'));
+
+    await expect(
+      checkAmrBalanceGate({
+        workspaceType: 'personal',
+        workspaceId: 'ws-free',
+        workspaceMemberId: 'wm-free',
+      }, 'glm-5.2'),
+    ).resolves.toEqual({
+      kind: 'hard',
+      reason: 'insufficient',
+      snapshot: expect.objectContaining({ balanceUsd: '0' }),
+    });
+  });
+
+  it('soft-warns a low-balance free-tier Personal workspace', async () => {
+    mockedFetch.mockResolvedValue(snapshot({ balanceUsd: '1.20', user: freeUser }));
+    vi.stubGlobal('fetch', workspaceBillingStub('ws-free-low', 'wm-free-low', '1.20'));
+
+    await expect(
+      checkAmrBalanceGate({
+        workspaceType: 'personal',
+        workspaceId: 'ws-free-low',
+        workspaceMemberId: 'wm-free-low',
+      }, 'glm-5.2'),
+    ).resolves.toEqual({
+      kind: 'soft',
+      snapshot: expect.objectContaining({ balanceUsd: '1.20' }),
+    });
+  });
+
+  it('reads the free tier from the live login status when the wallet omits it', async () => {
+    const walletWithoutPlan = snapshot({ balanceUsd: '0' });
+    mockedFetch
+      .mockResolvedValueOnce({ ...walletWithoutPlan, source: 'daemon_cache' })
+      .mockResolvedValueOnce(walletWithoutPlan);
+    mockedFetchStatus.mockResolvedValue({
+      loggedIn: true,
+      profile: 'prod',
+      user: null,
+      account: { plan: 'free', balanceUsd: '0' },
+      configPath: '/tmp/vela.json',
+    });
+
+    await expect(
+      checkAmrBalanceGate(undefined, 'glm-5.2'),
+    ).resolves.toEqual({
+      kind: 'hard',
+      reason: 'insufficient',
+      snapshot: walletWithoutPlan,
+    });
+  });
+
+  // --- Reverse controls: the T15 shape this fix must never produce ---
+
+  it.each(['go', 'plus', 'pro', 'max'])(
+    'still allows a zero-dollar %s subscriber (a subscribed $0 is normal)',
+    async (plan) => {
+      const planAccount = snapshot({
+        balanceUsd: '0',
+        user: { id: 'u1', email: 'user@example.com', plan },
+      });
+      mockedFetch
+        .mockResolvedValueOnce({ ...planAccount, source: 'daemon_cache' })
+        .mockResolvedValueOnce(planAccount);
+
+      await expect(
+        checkAmrBalanceGate(undefined, 'glm-5.2'),
+      ).resolves.toEqual({ kind: 'allow' });
+    },
+  );
+
+  it('still allows a zero-dollar subscribed Personal workspace', async () => {
+    mockedFetch.mockResolvedValue(snapshot({
+      balanceUsd: '0',
+      user: { id: 'u1', email: 'user@example.com', plan: 'max' },
+    }));
+    vi.stubGlobal('fetch', workspaceBillingStub('ws-max', 'wm-max', '0'));
+
+    await expect(
+      checkAmrBalanceGate({
+        workspaceType: 'personal',
+        workspaceId: 'ws-max',
+        workspaceMemberId: 'wm-max',
+      }, 'glm-5.2'),
+    ).resolves.toEqual({ kind: 'allow' });
+  });
+
+  it('fails open at zero balance when the plan cannot be resolved at all', async () => {
+    const unknownPlan = snapshot({ balanceUsd: '0' });
+    mockedFetch
+      .mockResolvedValueOnce({ ...unknownPlan, source: 'daemon_cache' })
+      .mockResolvedValueOnce(unknownPlan);
+
+    await expect(
+      checkAmrBalanceGate(undefined, 'glm-5.2'),
+    ).resolves.toEqual({ kind: 'allow' });
+  });
+
+  it('leaves a healthy free-tier balance completely alone', async () => {
+    mockedFetch.mockResolvedValueOnce(snapshot({ balanceUsd: '50.00', user: freeUser }));
+
+    await expect(
+      checkAmrBalanceGate(undefined, 'glm-5.2'),
+    ).resolves.toEqual({ kind: 'allow' });
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a free-tier team workspace on the unchanged team path', async () => {
+    mockedFetch.mockResolvedValue(snapshot({ balanceUsd: '0', user: freeUser }));
+    vi.stubGlobal('fetch', workspaceBillingStub('ws-team-free', 'wm-team-free', '0'));
+
+    await expect(
+      checkAmrBalanceGate({
+        workspaceType: 'team',
+        workspaceId: 'ws-team-free',
+        workspaceMemberId: 'wm-team-free',
+      }, 'glm-5.2'),
+    ).resolves.toEqual({
+      kind: 'hard',
+      reason: 'insufficient',
+      snapshot: expect.objectContaining({ balanceUsd: '0' }),
+    });
+  });
+});
+
 describe('retryUnavailableAmrBalanceGate', () => {
   beforeEach(() => {
     vi.useFakeTimers();
