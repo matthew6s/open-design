@@ -6,7 +6,7 @@
  * 只累加 `kind === 'text'` 的事件 —— TodoWrite 是 `tool_use`,永远进不了。
  *
  * 这一组钉住三件事:
- *  ① 从库里找得到「上一轮还剩哪几条没做完」(找不到 / 全做完 → 空);
+ *  ① 从库里找得到上一轮那份清单(找不到 → 空;全做完 → 渲染成 null,什么都不注入);
  *  ② 渲染出来的那段字是**陈述事实 + 把决定权交出去**,不是命令;
  *  ③ 它进了本轮 user 正文,**续跑(skipTranscript)与非续跑两条分支都进**。
  *    这是唯一同时覆盖两条分支的钥匙孔:续跑的 6 家 runtime 整个 transcript 被丢掉,
@@ -27,9 +27,9 @@ import {
 } from '../src/db.js';
 import { composeChatUserRequestForAgent } from '../src/server.js';
 import {
-  UNFINISHED_TODO_RECALL_HEADING,
+  TODO_RECALL_HEADING,
   renderUnfinishedTodoRecall,
-  unfinishedTodosFromTodoWriteInput,
+  recalledTodosFromTodoWriteInput,
 } from '@open-design/contracts';
 
 const TODO_WRITE = (todos: Array<{ content: string; status: string }>, id = 'tw-1') => ({
@@ -69,7 +69,7 @@ describe('上一轮未完成 todo:从库里读出来', () => {
     upsertMessage(db, 'conv-1', { id, role: 'assistant', content: '', runStatus, events });
   }
 
-  it('拿到上一轮最后一份清单,并只留没做完的那几条', () => {
+  it('拿到上一轮最后一份清单 —— 整份,已完成那几条也在里面(W99)', () => {
     const db = seed();
     seedAssistant(db, 'a1', [
       TODO_WRITE([
@@ -79,7 +79,8 @@ describe('上一轮未完成 todo:从库里读出来', () => {
       ]),
     ]);
     const input = latestTodoWriteInputForConversation(db, 'conv-1', 'a-current');
-    expect(unfinishedTodosFromTodoWriteInput(input)).toEqual([
+    expect(recalledTodosFromTodoWriteInput(input)).toEqual([
+      { content: '搭定价区', status: 'completed' },
       { content: '补 FAQ', status: 'pending' },
       { content: '过一遍响应式', status: 'in_progress' },
     ]);
@@ -92,12 +93,14 @@ describe('上一轮未完成 todo:从库里读出来', () => {
       TODO_WRITE([{ content: '重新规划后的活', status: 'pending' }], 'tw-2'),
     ]);
     const input = latestTodoWriteInputForConversation(db, 'conv-1', 'a-current');
-    expect(unfinishedTodosFromTodoWriteInput(input)).toEqual([
+    expect(recalledTodosFromTodoWriteInput(input)).toEqual([
       { content: '重新规划后的活', status: 'pending' },
     ]);
   });
 
-  it('上一轮全做完 → 一条都不召回', () => {
+  // 闸门从「读」挪到了「渲染」(W99):读回来的仍是整份清单,
+  // 而「一条没干完的都没有 → 什么都不注入」由 `renderUnfinishedTodoRecall` 判。
+  it('上一轮全做完 → 一个字都不注入', () => {
     const db = seed();
     seedAssistant(db, 'a1', [
       TODO_WRITE([
@@ -106,7 +109,7 @@ describe('上一轮未完成 todo:从库里读出来', () => {
       ]),
     ]);
     const input = latestTodoWriteInputForConversation(db, 'conv-1', 'a-current');
-    expect(unfinishedTodosFromTodoWriteInput(input)).toEqual([]);
+    expect(renderUnfinishedTodoRecall(recalledTodosFromTodoWriteInput(input))).toBeNull();
   });
 
   it('中间夹着一轮没发清单的回答,仍然往前找得到', () => {
@@ -114,7 +117,7 @@ describe('上一轮未完成 todo:从库里读出来', () => {
     seedAssistant(db, 'a1', [TODO_WRITE([{ content: '补 FAQ', status: 'pending' }])]);
     seedAssistant(db, 'a2', [{ kind: 'text', text: '顺手回答了个别的问题' }]);
     const input = latestTodoWriteInputForConversation(db, 'conv-1', 'a-current');
-    expect(unfinishedTodosFromTodoWriteInput(input)).toEqual([
+    expect(recalledTodosFromTodoWriteInput(input)).toEqual([
       { content: '补 FAQ', status: 'pending' },
     ]);
   });
@@ -124,7 +127,7 @@ describe('上一轮未完成 todo:从库里读出来', () => {
     seedAssistant(db, 'a1', [TODO_WRITE([{ content: '旧的活', status: 'pending' }])]);
     seedAssistant(db, 'a-current', [TODO_WRITE([{ content: '本轮刚发的', status: 'pending' }])], null);
     const input = latestTodoWriteInputForConversation(db, 'conv-1', 'a-current');
-    expect(unfinishedTodosFromTodoWriteInput(input)).toEqual([
+    expect(recalledTodosFromTodoWriteInput(input)).toEqual([
       { content: '旧的活', status: 'pending' },
     ]);
   });
@@ -133,7 +136,7 @@ describe('上一轮未完成 todo:从库里读出来', () => {
     const db = seed();
     seedAssistant(db, 'a1', [{ kind: 'text', text: '纯文字回答' }]);
     expect(latestTodoWriteInputForConversation(db, 'conv-1', 'a-current')).toBeNull();
-    expect(unfinishedTodosFromTodoWriteInput(null)).toEqual([]);
+    expect(recalledTodosFromTodoWriteInput(null)).toEqual([]);
   });
 });
 
@@ -147,7 +150,7 @@ describe('召回段的措辞:陈述事实,决定权交给 agent', () => {
     const block = renderUnfinishedTodoRecall(TODOS);
     expect(block).toContain('补 FAQ');
     expect(block).toContain('过一遍响应式');
-    expect(block).toContain(UNFINISHED_TODO_RECALL_HEADING);
+    expect(block).toContain(TODO_RECALL_HEADING);
   });
 
   it('明说这不是指令,三条路(接着做 / 重新规划 / 放着不管)都摆出来', () => {
@@ -173,7 +176,7 @@ describe('召回段进本轮 user 正文', () => {
 
   it('非续跑分支:召回段 + 完整 transcript 都在', () => {
     const prompt = composeChatUserRequestForAgent('## user\n换个配色', '换个配色', {
-      unfinishedTodosFromPreviousTurn: TODOS,
+      previousTurnTaskList: TODOS,
     });
     expect(prompt).toContain('补 FAQ');
     expect(prompt).toContain('## user\n换个配色');
@@ -182,7 +185,7 @@ describe('召回段进本轮 user 正文', () => {
   it('续跑分支(skipTranscript):召回段照样进,本轮那句话也在', () => {
     const prompt = composeChatUserRequestForAgent('## user\n换个配色', '换个配色', {
       skipTranscript: true,
-      unfinishedTodosFromPreviousTurn: TODOS,
+      previousTurnTaskList: TODOS,
     });
     expect(prompt).toContain('补 FAQ');
     expect(prompt).toContain('换个配色');
@@ -194,7 +197,7 @@ describe('召回段进本轮 user 正文', () => {
     const answers = '[form answers - discovery]\n- 风格: 极简';
     const prompt = composeChatUserRequestForAgent('## user\n' + answers, answers, {
       skipTranscript: true,
-      unfinishedTodosFromPreviousTurn: TODOS,
+      previousTurnTaskList: TODOS,
     });
     expect(prompt).toContain('补 FAQ');
     expect(prompt).toContain('discovery');
@@ -204,7 +207,7 @@ describe('召回段进本轮 user 正文', () => {
     const base = composeChatUserRequestForAgent('## user\n换个配色', '换个配色');
     expect(
       composeChatUserRequestForAgent('## user\n换个配色', '换个配色', {
-        unfinishedTodosFromPreviousTurn: [],
+        previousTurnTaskList: [],
       }),
     ).toBe(base);
 
@@ -214,7 +217,7 @@ describe('召回段进本轮 user 正文', () => {
     expect(
       composeChatUserRequestForAgent('## user\n换个配色', '换个配色', {
         skipTranscript: true,
-        unfinishedTodosFromPreviousTurn: [],
+        previousTurnTaskList: [],
       }),
     ).toBe(skipBase);
   });

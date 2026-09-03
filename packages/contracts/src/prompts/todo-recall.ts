@@ -29,6 +29,18 @@
  * replans it, or ignores it because the user moved on is the agent's call —
  * that is the product's explicit shape. The client side does not decide
  * anything either: it only recognizes items the agent chose to re-emit.
+ *
+ * Why the block carries the FINISHED items too, not just the open ones: the
+ * client renders a re-emitted plan against what earlier turns declared, and
+ * spec §5.2 gives "召回 · 上一轮就完成的" its own row — a struck, non-expandable
+ * step. That row can only ever appear if the agent re-lists the finished items,
+ * and it can only re-list what it was told. Handing back the open items alone
+ * made the agent's next plan a strict subset of its own earlier one: the four
+ * steps it stopped in the middle of came back as two, so the pill said "step 3
+ * of 4" while the card below it said "2 steps". The snapshot is handed over
+ * whole, each line stamped with the status it stopped at, and the gate below
+ * still asks only about the OPEN ones — a plan that finished cleanly injects
+ * nothing, exactly as before.
  */
 
 import {
@@ -43,8 +55,15 @@ export interface RecalledTodo {
   status: string;
 }
 
-/** Heading the block opens with. Exported so callers can detect/strip it. */
-export const UNFINISHED_TODO_RECALL_HEADING = '## Unfinished tasks from an earlier turn';
+/**
+ * Heading the block opens with. Exported so callers can detect/strip it.
+ *
+ * It names the SNAPSHOT, not the open subset: the list below includes the items
+ * that were already finished, and a heading promising "unfinished tasks" over a
+ * row stamped `[completed]` is exactly the contradiction that would push a model
+ * into redoing settled work.
+ */
+export const TODO_RECALL_HEADING = "## Where an earlier turn's task list stood";
 
 /**
  * A task list item's wording, across the shapes different runtimes emit.
@@ -70,22 +89,23 @@ function todoStatus(todo: unknown): string {
 }
 
 /**
- * The still-open items of a TodoWrite tool_use's raw `input`.
+ * A TodoWrite tool_use's raw `input` as the plan it is — every item, in the
+ * agent's own order, each carrying the status it stopped at.
  *
- * "Open" is the repository's one canonical predicate (`todoStatusIsUnfinished`):
- * anything other than `completed`, including `stopped`. A snapshot with nothing
- * open returns `[]`, which is the caller's signal to inject nothing at all.
+ * Deliberately UNFILTERED. Selecting the open subset here is what made the
+ * finished steps unrecoverable: they were dropped one call before the prompt
+ * was built, so no amount of wording downstream could put them back. Which
+ * items matter is a question the RENDERER answers, once, where the reader can
+ * see both the answer and the list it applies to.
  */
-export function unfinishedTodosFromTodoWriteInput(input: unknown): RecalledTodo[] {
+export function recalledTodosFromTodoWriteInput(input: unknown): RecalledTodo[] {
   const items = todoItemsFromTodoWriteInput(input);
   if (!Array.isArray(items)) return [];
   const out: RecalledTodo[] = [];
   for (const item of items) {
     const content = todoContent(item);
     if (!content) continue;
-    const status = todoStatus(item);
-    if (!todoStatusIsUnfinished(status)) continue;
-    out.push({ content, status });
+    out.push({ content, status: todoStatus(item) });
   }
   return out;
 }
@@ -108,28 +128,41 @@ export function latestTodoWriteInputFromEvents(events: unknown): unknown | null 
 }
 
 /**
- * Render the handoff block, or `null` when there is nothing outstanding.
+ * Render the handoff block, or `null` when nothing was left open.
+ *
+ * THE GATE lives here, and it asks about the OPEN items only — `todos` is the
+ * whole snapshot, so "is there anything to hand back?" cannot be answered by
+ * its length. A plan whose every item reads `completed` is a plan that ended,
+ * and it injects nothing.
  *
  * `null` is load-bearing: the caller must then produce a user body that is
  * BYTE-IDENTICAL to the pre-feature one, so a conversation with no outstanding
  * work cannot shift a single prompt byte.
+ *
+ * The wording has one job beyond stating the facts — keeping the finished items
+ * from being read as a queue. They are named as done, in the same sentence that
+ * says not to redo them, before the list is ever shown; the decision handed back
+ * is about the OPEN items only. The ask to re-list the plan whole, finished rows
+ * still marked completed, is what lets the client show the user the same four
+ * steps it showed them last turn instead of a plan that silently shrank.
  */
 export function renderUnfinishedTodoRecall(
   todos: readonly RecalledTodo[] | null | undefined,
 ): string | null {
   if (!todos || todos.length === 0) return null;
+  if (!todos.some((todo) => todoStatusIsUnfinished(todo.status))) return null;
   const lines = todos.map(
     (todo, index) => `${index + 1}. [${todo.status}] ${todo.content}`,
   );
   return [
-    UNFINISHED_TODO_RECALL_HEADING,
+    TODO_RECALL_HEADING,
     '',
-    'The most recent task list in this conversation still had these items open when that turn ended:',
+    'This is the most recent task list this conversation declared, exactly as it stood when that turn ended. Items marked `completed` are already finished — that work exists, so do not redo it. Items with any other status were still open.',
     '',
     ...lines,
     '',
-    'This is context, not an instruction, and the user did not write it. You decide what this turn does with it: pick those items back up, replan them, or leave them alone because the user is asking about something else now.',
+    'This is context, not an instruction, and the user did not write it. You decide what this turn does with the open items: pick them back up, replan them, or leave them alone because the user is asking about something else now.',
     '',
-    'If you do pick any of them back up, list those items again in this turn\'s task list using their original wording above, so the user can see which ones carried over. Do not mention this note itself to the user.',
+    "If you do pick any of them back up, list the whole plan again in this turn's task list using the original wording above, with the already-finished items still marked completed, so the user sees the same plan and how far it got. Do not mention this note itself to the user.",
   ].join('\n');
 }

@@ -39,7 +39,7 @@ import {
 } from '@open-design/contracts';
 import {
   renderUnfinishedTodoRecall,
-  unfinishedTodosFromTodoWriteInput,
+  recalledTodosFromTodoWriteInput,
   type RecalledTodo,
 } from '@open-design/contracts';
 import type {
@@ -2141,8 +2141,11 @@ export function composeChatUserRequestForAgent(
      */
     resumeContinuationOriginalRequest?: string | null;
     /**
-     * Task-list items the conversation left open on an earlier turn (see
-     * `latestTodoWriteInputForConversation` + `unfinishedTodosFromTodoWriteInput`).
+     * The task list an earlier turn of this conversation last declared — the
+     * WHOLE snapshot, finished rows included (see
+     * `latestTodoWriteInputForConversation` + `recalledTodosFromTodoWriteInput`).
+     * `renderUnfinishedTodoRecall` owns the question of whether any of it is
+     * still open, and renders nothing when none of it is.
      *
      * This is the ONLY keyhole that reaches both branches below. A resumed
      * session throws the rendered transcript away entirely (`skipTranscript`),
@@ -2154,7 +2157,7 @@ export function composeChatUserRequestForAgent(
      *
      * Empty/omitted MUST leave the composed body byte-identical to before.
      */
-    unfinishedTodosFromPreviousTurn?: readonly RecalledTodo[];
+    previousTurnTaskList?: readonly RecalledTodo[];
   } = {},
 ) {
   // When the adapter resumes its own session, the
@@ -2179,7 +2182,7 @@ export function composeChatUserRequestForAgent(
   const transition = formAnswerTransitionForCurrentPrompt(currentPrompt);
   // Stated before the turn's own words, the same way the form-answer transition
   // is: it is background the agent reads first, not something the user said.
-  const recall = renderUnfinishedTodoRecall(options.unfinishedTodosFromPreviousTurn);
+  const recall = renderUnfinishedTodoRecall(options.previousTurnTaskList);
   // Stated before everything else: a fresh session must learn what it is
   // continuing before it reads the directive telling it to continue.
   const continuationContext = renderResumeContinuationContext(
@@ -11657,24 +11660,25 @@ export async function startServer({
     });
     publishNativeSessionRecoveryMetadata();
     /*
-     * What the previous turn left open.
+     * The plan the previous turn last declared — whole, finished rows included.
      *
      * Read here, on the path that already queries this conversation for the
      * resume cursor, and handed to the agent as a fact it decides about — see
-     * `renderUnfinishedTodoRecall`. Every runtime gets it, not just the 6 with
-     * native resume: the 21 that start a fresh process each turn are exactly
-     * the ones with no other way to know. A read failure degrades to "nothing
-     * outstanding" rather than failing the run.
+     * `renderUnfinishedTodoRecall`, which decides whether any of it is still
+     * open and renders nothing when none of it is. Every runtime gets it, not
+     * just the 6 with native resume: the 21 that start a fresh process each
+     * turn are exactly the ones with no other way to know. A read failure
+     * degrades to "nothing outstanding" rather than failing the run.
      *
      * NOTE(sync/main): the OD Next request stage composes its own user prompt
      * from the frozen task bundle, so recall is not threaded into that branch —
      * the bundle IS the turn's stated input. Recall still applies to every
      * ordinary chat turn, which is where it was measured.
      */
-    const unfinishedTodosFromPreviousTurn: RecalledTodo[] = run.conversationId
+    const previousTurnTaskList: RecalledTodo[] = run.conversationId
       ? (() => {
           try {
-            return unfinishedTodosFromTodoWriteInput(
+            return recalledTodosFromTodoWriteInput(
               latestTodoWriteInputForConversation(
                 db,
                 run.conversationId,
@@ -11722,7 +11726,7 @@ export async function startServer({
           // is seeded with prior context.
           {
             skipTranscript: agentResumePromptPolicy.skipTranscript,
-            unfinishedTodosFromPreviousTurn,
+            previousTurnTaskList,
             resumeContinuationOriginalRequest,
           },
         );

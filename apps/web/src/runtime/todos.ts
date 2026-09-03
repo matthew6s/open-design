@@ -96,6 +96,41 @@ export function continuableUnfinishedTodos(
   return unfinishedTodosFromEvents(message.events);
 }
 
+/**
+ * The task list the CURRENT turn declared — the plan pill's one source.
+ *
+ * It stops at the newest assistant message and answers from that message alone:
+ * a turn that re-listed nothing returns `[]`, and the pill is gone. That is the
+ * same rule the transcript card has always followed (D24, every turn shows only
+ * its own content), and it is deliberate rather than incidental — recall hands
+ * an earlier plan back to the AGENT as a fact it decides about, and the client
+ * "only recognizes items the agent chose to re-emit". A pill that kept showing
+ * the previous plan would be the client making that decision instead: the user
+ * asked an unrelated question, the agent listed nothing, and the composer still
+ * read "Step 3 of 4".
+ *
+ * Contrast `latestTodoWriteInputFromMessages` below, which scans the WHOLE
+ * conversation for the newest snapshot. That is the right answer for a pinned
+ * card that outlives a turn, and the wrong one for anything that speaks about
+ * the turn in progress. The pill used it until W99 only because it predates the
+ * cross-turn recall model by two months.
+ *
+ * Reads the turn through `latestTodosFromEvents`, the same primitive
+ * `previousTodosByAssistantMessageId` uses for the card's side of the pair, so
+ * "which snapshot is this turn's" cannot be answered two ways.
+ */
+export function todosDeclaredByLatestTurn(
+  messages: ReadonlyArray<{ role: string; events?: AgentEvent[] | undefined }> | undefined,
+): TodoItem[] {
+  if (!messages || messages.length === 0) return [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message || message.role !== 'assistant') continue;
+    return latestTodosFromEvents(message.events);
+  }
+  return [];
+}
+
 // Walk the conversation in reverse to find the most recent TodoWrite
 // tool_use, return its raw input so callers can hand it to a `TodoCard`
 // without re-implementing the discovery logic. Returns `null` when no

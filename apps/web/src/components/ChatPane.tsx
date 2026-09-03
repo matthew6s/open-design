@@ -93,9 +93,8 @@ import type {
 import { isDesignSystemWorkspacePrompt } from '../design-system-auto-prompt';
 import {
   isTodoWriteToolName,
-  latestTodoWriteInputFromMessages,
-  parseTodoWriteInput,
   previousTodosByAssistantMessageId,
+  todosDeclaredByLatestTurn,
 } from '../runtime/todos';
 import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, ChatMessageFeedbackChange, Conversation, DesignSystemSummary, PreviewComment, Project, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
 import { agentDisplayName } from '../utils/agentLabels';
@@ -1737,15 +1736,21 @@ export function ChatPane({
   /*
    * 输入框上方那枚「第 N / M 步」药丸的两个输入。
    *
-   * 药丸**不属于某一条消息**,所以它要的是「整个会话里最新的那一份清单」——
-   * 沿用会话级的那条既有链路(`latestTodoWriteInputFromMessages` → `parseTodoWriteInput`),
-   * 不另起一套发现逻辑;这样它和执行记录里那份分段读的是同一个 TodoWrite 快照。
+   * 药丸说的是「**这一轮**跑到第几步」,所以它要的是 agent 这一轮自己重发的那份清单
+   * (`todosDeclaredByLatestTurn`)—— 和流水里那张卡同一个判据、同一个 primitive。
+   * agent 这一轮没重发,它就没有话要说:决定接着做 / 重新规划 / 撂下,是 agent 的事,
+   * 不是客户端替它认领上一轮的清单。
+   *
+   * 曾经这里用的是**会话级**的 `latestTodoWriteInputFromMessages`(整个会话里倒着找
+   * 最新一份)。那是钉顶卡时代的取数,比跨轮召回早两个月;召回落地时改的是卡那条路,
+   * 药丸留在了原地。表现出来就是:用户插一句无关的问题,那一轮 agent 一个字的清单都
+   * 没发,输入框上却还挂着上一轮的「第 3 / 4 步」。
    *
    * 「还在跑吗」照抄 `shouldBalanceFinishedTranscript` 的那对判据:`streaming` 是本地
    * 流式旗标,`hasActiveRunMessage` 兜住刷新后 run 仍在跑的那一路(此时没有本地流)。
    */
   const planPillTodos = useMemo(
-    () => parseTodoWriteInput(latestTodoWriteInputFromMessages(displayMessages)),
+    () => todosDeclaredByLatestTurn(displayMessages),
     [displayMessages],
   );
   const planPillRunning = streaming || hasActiveRunMessage;
@@ -5255,9 +5260,11 @@ function includeVirtualRowByKey<T extends { key: string }>(
 }
 
 // NOTE(sync/main): origin/main's `PinnedTodoSlot` is deliberately NOT carried over.
-// This branch retired the pinned-todo slot; the conversation-level plan pill
-// (`planPillTodos` above, rendered by `chat/PlanPill`) took its place, and it
-// reads the same TodoWrite snapshot through `latestTodoWriteInputFromMessages`.
+// This branch retired the pinned-todo slot; the plan pill (`planPillTodos` above,
+// rendered by `chat/PlanPill`) took its place. The pill is NOT the pinned slot in
+// a new shape: the slot spoke for the conversation and pinned the newest snapshot
+// anywhere in it, while the pill speaks for the turn in progress and reads only
+// what that turn declared (`todosDeclaredByLatestTurn`).
 // main's fix inside that component (`continuableUnfinishedTodos`, so a settled
 // strategy verdict outranks a stale snapshot) still lands via AssistantMessage.tsx.
   function readContinuedTodoSnapshotKey(storageKey: string): string | null {
