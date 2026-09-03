@@ -50,6 +50,13 @@
  * · `ToolRow` 内部用 `useT()`,不接受 `t` 参数,所以断言中文要显式挂 zh-CN provider。
  * · 最后一组用**真事件流**(`buildTurnBlocks` + `IN_FLIGHT_TOOL_OUTPUT_KEY`)从
  *   daemon 记号一路验到 DOM,不靠手搓 `row.terminal` 自证。
+ *
+ * ⚠️ **`running` 现在必须显式传**(2026-09-03)。这个文件测的是「**轮次还在跑**」
+ * 那一档,而在此之前它只给了 `pending: true` 就断言摊开 —— `row.pending` 的定义是
+ * `result == null`(「从来没回来过」),用户按停止之后它永远为真。也就是说这些用例
+ * 原来喂进去的数据**同时**符合「正在跑」和「被停掉之后的残行」两种情形,断言的却只是
+ * 前者。自动摊开改成认 `row.pending && running` 之后,「正在跑」这层意思必须自己说出来。
+ * 那个洞与不变量本身钉在 `stopped-run-row-collapse.test.tsx`。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
@@ -134,14 +141,14 @@ const clickSummary = (el: HTMLDetailsElement): void => {
 
 describe('AMR 形态(rawTitle)在跑的时候:是折叠块、展开着、输出真的在 DOM 里', () => {
   it('执行中 → 折叠块带 open', () => {
-    render(<ToolRow row={rawRunning()} />);
+    render(<ToolRow running row={rawRunning()} />);
     expect(fold().open, '执行中该展开(与有标题那支同一条规矩)').toBe(true);
   });
 
   it('在途输出的每一行都真的在 DOM 里 —— 这条才是 bug 的判据', () => {
     // 生产默认 deferBody=true:收起的折叠块连 body 都不挂载。
     // 修之前这一支根本是 <div>,一个输出节点都没有。
-    const { container } = render(<ToolRow row={rawRunning()} deferBody />);
+    const { container } = render(<ToolRow running row={rawRunning()} deferBody />);
     for (const line of LIVE_OUT.split('\n')) {
       expect(screen.getByText(line), `在途输出缺了这一行:${line}`).toBeTruthy();
     }
@@ -149,7 +156,7 @@ describe('AMR 形态(rawTitle)在跑的时候:是折叠块、展开着、输出�
   });
 
   it('还没有任何输出时也照样展开 —— 至少看得见「它在跑什么命令」', () => {
-    const { container } = render(<ToolRow row={rawRunning({ terminal: null })} />);
+    const { container } = render(<ToolRow running row={rawRunning({ terminal: null })} />);
     expect(fold().open).toBe(true);
     expect(container.textContent).toContain('npm install');
   });
@@ -169,7 +176,7 @@ describe('AMR 形态(rawTitle)在跑的时候:是折叠块、展开着、输出�
    */
   it('展开后正文里有命令原文那一块(长命令只有在这里才读得全)', () => {
     const LONG = 'find . -name "*.tsx" -not -path "*/node_modules/*" -exec grep -l "useThinkingFollow" {} +';
-    const { container } = render(<ToolRow row={rawRunning({ command: LONG, title: LONG })} />);
+    const { container } = render(<ToolRow running row={rawRunning({ command: LONG, title: LONG })} />);
 
     const body = container.querySelector('div[class*="_code_"]');
     expect(body, '展开后要有 div.code 正文').not.toBeNull();
@@ -180,7 +187,7 @@ describe('AMR 形态(rawTitle)在跑的时候:是折叠块、展开着、输出�
   });
 
   it('summary 仍然是稿子 :909 那一行:「执行」+ 等宽命令 + 秒数', () => {
-    render(<ToolRow row={rawRunning()} />);
+    render(<ToolRow running row={rawRunning()} />);
     const summary = fold().querySelector('summary');
     expect(summary?.textContent, '稿子 :909 的动词').toContain('执行');
     expect(summary?.querySelector('code')?.textContent, '命令走等宽').toBe('npm install');
@@ -190,7 +197,7 @@ describe('AMR 形态(rawTitle)在跑的时候:是折叠块、展开着、输出�
 
 describe('跑完自动收起 —— 与有标题那支完全一致', () => {
   it('同一行从 pending 翻成成功,折叠块自己收起来', () => {
-    const { rerender } = render(<ToolRow row={rawRunning()} />);
+    const { rerender } = render(<ToolRow running row={rawRunning()} />);
     expect(fold().open).toBe(true);
     echoToggle(fold()); // 摊开那一帧的回声,不算用户点过
 
@@ -214,7 +221,7 @@ describe('跑完自动收起 —— 与有标题那支完全一致', () => {
 
 describe('反向对照:用户自己动过的,生命周期不许拨回去', () => {
   it('用户在跑的时候手动收起了,跑完不许替他打开', () => {
-    const { rerender } = render(<ToolRow row={rawRunning()} />);
+    const { rerender } = render(<ToolRow running row={rawRunning()} />);
     echoToggle(fold());
 
     clickSummary(fold());
@@ -258,7 +265,7 @@ describe('反向对照:失败那一档行为不变', () => {
 
 describe('反向对照:有人话标题那一支一个字都没改坏', () => {
   it('执行中展开、输出在、summary 是人话不是命令', () => {
-    const { container } = render(<ToolRow row={titled({ pending: true, terminal: LIVE_OUT, elapsedMs: 4100 })} />);
+    const { container } = render(<ToolRow running row={titled({ pending: true, terminal: LIVE_OUT, elapsedMs: 4100 })} />);
     expect(fold().open).toBe(true);
     expect(fold().querySelector('summary')?.textContent).toContain('装依赖,准备跑构建');
     expect(container.textContent).toContain('Packages: +37');

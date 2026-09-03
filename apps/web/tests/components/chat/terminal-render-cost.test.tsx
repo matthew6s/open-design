@@ -27,6 +27,13 @@
  * DOM 变更,MutationObserver 一声不吭。所以这里 `vi.mock` 掉 `TerminalOutput` 那个
  * 模块,在**记忆化边界之内**放一个计数器 —— `ToolRow` 是 `memo(TerminalOutput)`,
  * memo 挡住的那些次数就真的不会进到计数器里。
+ *
+ * ⚠️ **`running` 现在必须显式传**(2026-09-03)。这个文件测的是「**轮次还在跑**」
+ * 那一档,而在此之前它只给了 `pending: true` 就断言摊开 —— `row.pending` 的定义是
+ * `result == null`(「从来没回来过」),用户按停止之后它永远为真。也就是说这些用例
+ * 原来喂进去的数据**同时**符合「正在跑」和「被停掉之后的残行」两种情形,断言的却只是
+ * 前者。自动摊开改成认 `row.pending && running` 之后,「正在跑」这层意思必须自己说出来。
+ * 那个洞与不变量本身钉在 `stopped-run-row-collapse.test.tsx`。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render as rtlRender } from '@testing-library/react';
@@ -78,7 +85,7 @@ function row(over: Partial<ToolRowData> = {}): ToolRowData {
 
 describe('终端输出的成本', () => {
   it('【量一下】500 行输出展开时的节点数', () => {
-    const { container } = render(<ToolRow row={row()} />);
+    const { container } = render(<ToolRow running row={row()} />);
     const all = container.querySelectorAll('*').length;
     const termLines = container.querySelectorAll('div[class*="term"] > div').length;
 
@@ -92,13 +99,13 @@ describe('终端输出的成本', () => {
   });
 
   it('【量一下】一批新输出到达,Terminal 恰好重渲 1 次', () => {
-    const { rerender } = render(<ToolRow row={row({ terminal: outputOf(100) })} />);
+    const { rerender } = render(<ToolRow running row={row({ terminal: outputOf(100) })} />);
     expect(probe.renders.length, '首帧一次').toBe(1);
 
-    rerender(<ToolRow row={row({ terminal: outputOf(200) })} />);
+    rerender(<ToolRow running row={row({ terminal: outputOf(200) })} />);
     expect(probe.renders.length, '一批新输出 = 一次重渲').toBe(2);
 
-    rerender(<ToolRow row={row({ terminal: outputOf(300) })} />);
+    rerender(<ToolRow running row={row({ terminal: outputOf(300) })} />);
     expect(probe.renders.length).toBe(3);
   });
 
@@ -108,11 +115,11 @@ describe('终端输出的成本', () => {
      * row 对象,`elapsedMs` 变了,但 `terminal` 那个字符串一个字没变。
      * 所以下面刻意换新对象、只动 `elapsedMs` —— 和生产一模一样。
      */
-    const { rerender } = render(<ToolRow row={row({ elapsedMs: 1000 })} />);
+    const { rerender } = render(<ToolRow running row={row({ elapsedMs: 1000 })} />);
     expect(probe.renders.length).toBe(1);
 
     for (const ms of [2000, 3000, 4000, 5000, 6000]) {
-      rerender(<ToolRow row={row({ elapsedMs: ms })} />);
+      rerender(<ToolRow running row={row({ elapsedMs: ms })} />);
     }
 
     expect(
@@ -122,9 +129,9 @@ describe('终端输出的成本', () => {
   });
 
   it('反向对照:秒数确实在跳(否则上一条是拿一个没动的界面在自证)', () => {
-    const { container, rerender } = render(<ToolRow row={row({ elapsedMs: 1000 })} />);
+    const { container, rerender } = render(<ToolRow running row={row({ elapsedMs: 1000 })} />);
     expect(container.textContent).toContain('1.0s');
-    rerender(<ToolRow row={row({ elapsedMs: 6000 })} />);
+    rerender(<ToolRow running row={row({ elapsedMs: 6000 })} />);
     expect(container.textContent).toContain('6.0s');
   });
 
@@ -162,7 +169,7 @@ describe('终端输出的成本', () => {
     row({ title: 'npm install', rawTitle: true, ...over });
 
   it('【量一下】AMR 形态 500 行输出展开时的节点数 —— 与有标题那支同一个量级', () => {
-    const { container } = render(<ToolRow row={rawRow()} />);
+    const { container } = render(<ToolRow running row={rawRow()} />);
     const all = container.querySelectorAll('*').length;
     const termLines = container.querySelectorAll('div[class*="term"] > div').length;
 
@@ -174,10 +181,10 @@ describe('终端输出的成本', () => {
   });
 
   it('【量一下】AMR 形态:秒表每秒跳一次,同样不许连带 Terminal 重渲', () => {
-    const { rerender } = render(<ToolRow row={rawRow({ elapsedMs: 1000 })} />);
+    const { rerender } = render(<ToolRow running row={rawRow({ elapsedMs: 1000 })} />);
     expect(probe.renders.length).toBe(1);
     for (const ms of [2000, 3000, 4000, 5000, 6000]) {
-      rerender(<ToolRow row={rawRow({ elapsedMs: ms })} />);
+      rerender(<ToolRow running row={rawRow({ elapsedMs: ms })} />);
     }
     expect(probe.renders.length, '秒表跳了 5 次,输出没变 —— 一次都不该重算').toBe(1);
   });
@@ -214,7 +221,7 @@ describe('终端输出的成本', () => {
      */
     const { container } = render(
       <>{Array.from({ length: 5 }, (_, i) => (
-        <ToolRow key={i} row={row({ id: `c${i}`, terminal: outputOf(500) })} />
+        <ToolRow key={i} running row={row({ id: `c${i}`, terminal: outputOf(500) })} />
       ))}</>,
     );
     const all = container.querySelectorAll('*').length;

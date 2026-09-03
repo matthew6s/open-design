@@ -32,6 +32,13 @@
  * 断言的是**输出的文字本身在不在 DOM 里**,不是「有没有一个 details」、
  * 也不是「有没有某个 class」—— vitest 的 CSS Module 代理对任何 key 都返回类名,
  * 断言 class 证明不了任何事。
+ *
+ * ⚠️ **`running` 现在必须显式传**(2026-09-03)。这个文件测的是「**轮次还在跑**」
+ * 那一档,而在此之前它只给了 `pending: true` 就断言摊开 —— `row.pending` 的定义是
+ * `result == null`(「从来没回来过」),用户按停止之后它永远为真。也就是说这些用例
+ * 原来喂进去的数据**同时**符合「正在跑」和「被停掉之后的残行」两种情形,断言的却只是
+ * 前者。自动摊开改成认 `row.pending && running` 之后,「正在跑」这层意思必须自己说出来。
+ * 那个洞与不变量本身钉在 `stopped-run-row-collapse.test.tsx`。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
@@ -108,7 +115,7 @@ const clickSummary = (el: HTMLDetailsElement): void => {
 
 describe('执行中的命令行:默认展开,输出当场看得见(稿子 body-components.html:1010-1011)', () => {
   it('命令还在跑的时候,终端输出的每一行都真的在 DOM 里', () => {
-    const { container } = render(<ToolRow row={running()} />);
+    const { container } = render(<ToolRow running row={running()} />);
 
     // ① 折叠块是开着的
     expect(fold().open, '稿子这一格的 <details> 带 open').toBe(true);
@@ -125,12 +132,12 @@ describe('执行中的命令行:默认展开,输出当场看得见(稿子 body-c
 
   it('deferBody 默认开着也拦不住 —— 展开的折叠块首帧就挂 body', () => {
     // 生产默认就是 deferBody=true(ExecutionShell 的 deferCollapsedBodies 默认 true)
-    const { container } = render(<ToolRow row={running()} deferBody />);
+    const { container } = render(<ToolRow running row={running()} deferBody />);
     expect(container.textContent).toContain('rendering chunks...');
   });
 
   it('还没有任何输出时也照样展开 —— 至少能看见「它在跑什么命令」', () => {
-    const { container } = render(<ToolRow row={running({ terminal: null })} />);
+    const { container } = render(<ToolRow running row={running({ terminal: null })} />);
     expect(fold().open).toBe(true);
     expect(container.innerHTML).toContain('npm run build');
   });
@@ -138,7 +145,7 @@ describe('执行中的命令行:默认展开,输出当场看得见(稿子 body-c
 
 describe('跑完自动收起(稿子:执行中展开 → 完成收起)', () => {
   it('同一行从 pending 翻成成功,折叠块自己收起来', () => {
-    const { rerender } = render(<ToolRow row={running()} />);
+    const { rerender } = render(<ToolRow running row={running()} />);
     expect(fold().open).toBe(true);
     // 摊开那一帧浏览器会为「open 被写上」派发一次 toggle —— 不算用户点过
     echoToggle(fold());
@@ -161,7 +168,7 @@ describe('跑完自动收起(稿子:执行中展开 → 完成收起)', () => {
    * 每个思考块都吃这只闩),不在这次范围内 —— 记在报告里待拍板。
    */
   it('跑完收起之后节点仍在 DOM 里(bodyActivated 是只进不出的闩)—— 省掉的是渲染不是节点', () => {
-    const { rerender, container } = render(<ToolRow row={running()} deferBody />);
+    const { rerender, container } = render(<ToolRow running row={running()} deferBody />);
     echoToggle(fold());
     rerender(<ToolRow row={settled()} deferBody />);
     expect(fold().open).toBe(false);
@@ -177,7 +184,7 @@ describe('跑完自动收起(稿子:执行中展开 → 完成收起)', () => {
   });
 
   it('跑完翻成失败的,**不收** —— 失败是稿子里唯一默认展开的完成态', () => {
-    const { rerender, container } = render(<ToolRow row={running()} />);
+    const { rerender, container } = render(<ToolRow running row={running()} />);
     echoToggle(fold());
 
     rerender(<ToolRow row={settled({ failed: true, terminal: '✗ Could not resolve "./ProductCard"' })} />);
@@ -188,7 +195,7 @@ describe('跑完自动收起(稿子:执行中展开 → 完成收起)', () => {
 
 describe('用户自己动过的,生命周期不许拨回去', () => {
   it('用户在跑的时候手动收起了,跑完不许替他打开', () => {
-    const { rerender } = render(<ToolRow row={running()} />);
+    const { rerender } = render(<ToolRow running row={running()} />);
     echoToggle(fold());
 
     clickSummary(fold());

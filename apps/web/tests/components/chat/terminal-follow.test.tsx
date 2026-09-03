@@ -30,6 +30,13 @@
  * 不喂几何的话所有判断都是 `0 - 0 = 0`,`expect(a).toBe(b)` 两边都是 0,**真空通过**。
  * 所以下面沿用 `thinking-follow.test.tsx` 的夹具:显式覆盖三个属性,并且
  * **按浏览器语义把 `scrollTop` 的写入夹到 [0, scrollHeight - clientHeight]**。
+ *
+ * ⚠️ **`running` 现在必须显式传**(2026-09-03)。这个文件测的是「**轮次还在跑**」
+ * 那一档,而在此之前它只给了 `pending: true` 就断言摊开 —— `row.pending` 的定义是
+ * `result == null`(「从来没回来过」),用户按停止之后它永远为真。也就是说这些用例
+ * 原来喂进去的数据**同时**符合「正在跑」和「被停掉之后的残行」两种情形,断言的却只是
+ * 前者。自动摊开改成认 `row.pending && running` 之后,「正在跑」这层意思必须自己说出来。
+ * 那个洞与不变量本身钉在 `stopped-run-row-collapse.test.tsx`。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render as rtlRender } from '@testing-library/react';
@@ -124,14 +131,14 @@ function termBox(root: HTMLElement): HTMLElement {
 describe('终端输出的贴底跟随', () => {
   it('用户没动过:新输出到达后一直贴着底', () => {
     const geom: Geom = { content: 400, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(20))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(20))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
     expect(box.scrollTop, '首帧就该贴底').toBe(maxTopOf(geom));
 
     // 又追加了一批输出
-    rerender(<ToolRow row={running(lines(40))} />);
+    rerender(<ToolRow running row={running(lines(40))} />);
     geom.content = 800;
     settleLayout();
     expect(box.scrollTop, '还在跟随,继续贴底').toBe(maxTopOf(geom));
@@ -139,7 +146,7 @@ describe('终端输出的贴底跟随', () => {
 
   it('用户往上滚了:后续输出**不许**再把他拽回底部', () => {
     const geom: Geom = { content: 800, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(40))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(40))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
@@ -150,13 +157,13 @@ describe('终端输出的贴底跟随', () => {
     expect(box.scrollTop).toBe(200);
 
     // 250ms 后下一批输出到达 —— 修之前这里会被硬拽回底部
-    rerender(<ToolRow row={running(lines(80))} />);
+    rerender(<ToolRow running row={running(lines(80))} />);
     geom.content = 1600;
     settleLayout();
     expect(box.scrollTop, '用户在翻阅,不许抢滚动条').toBe(200);
 
     // 再来一批,照样不动
-    rerender(<ToolRow row={running(lines(120))} />);
+    rerender(<ToolRow running row={running(lines(120))} />);
     geom.content = 2400;
     settleLayout();
     expect(box.scrollTop).toBe(200);
@@ -164,13 +171,13 @@ describe('终端输出的贴底跟随', () => {
 
   it('用户主动滚回底部:恢复跟随', () => {
     const geom: Geom = { content: 800, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(40))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(40))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
 
     userScrollTo(box, 100);
-    rerender(<ToolRow row={running(lines(80))} />);
+    rerender(<ToolRow running row={running(lines(80))} />);
     geom.content = 1600;
     settleLayout();
     expect(box.scrollTop, '逃逸态').toBe(100);
@@ -179,7 +186,7 @@ describe('终端输出的贴底跟随', () => {
     userScrollTo(box, maxTopOf(geom));
     expect(box.scrollTop).toBe(maxTopOf(geom));
 
-    rerender(<ToolRow row={running(lines(120))} />);
+    rerender(<ToolRow running row={running(lines(120))} />);
     geom.content = 2400;
     settleLayout();
     expect(box.scrollTop, '滚回底部之后该重新跟上').toBe(maxTopOf(geom));
@@ -187,7 +194,7 @@ describe('终端输出的贴底跟随', () => {
 
   it('反向对照:内容变高**不算**用户滚动 —— 别把长高误判成挣脱', () => {
     const geom: Geom = { content: 400, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(20))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(20))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
@@ -199,7 +206,7 @@ describe('终端输出的贴底跟随', () => {
      */
     for (const next of [800, 1600, 3200]) {
       geom.content = next;
-      rerender(<ToolRow row={running(lines(next / 20))} />);
+      rerender(<ToolRow running row={running(lines(next / 20))} />);
       fireEvent.scroll(box);   // 内容变化引起的那一次
       settleLayout();
       expect(box.scrollTop, `长到 ${next} 之后仍该贴底`).toBe(maxTopOf(geom));
@@ -208,7 +215,7 @@ describe('终端输出的贴底跟随', () => {
 
   it('反向对照:贴着底的一两像素抖动不算挣脱(高 DPI 屏上是常态)', () => {
     const geom: Geom = { content: 800, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(40))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(40))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
@@ -216,7 +223,7 @@ describe('终端输出的贴底跟随', () => {
     // 底部往回抖 2px(< 8px 容差)
     userScrollTo(box, maxTopOf(geom) - 2);
 
-    rerender(<ToolRow row={running(lines(80))} />);
+    rerender(<ToolRow running row={running(lines(80))} />);
     geom.content = 1600;
     settleLayout();
     expect(box.scrollTop, '抖动不该被当成用户在翻阅').toBe(maxTopOf(geom));
@@ -225,7 +232,7 @@ describe('终端输出的贴底跟随', () => {
   it('终端框里的滚动不外泄 —— 外层聊天面板的跟随状态两层各管各的', () => {
     const geom: Geom = { content: 800, client: 104 };
     const outerScroll = vi.fn();
-    const { container } = render(<ToolRow row={running(lines(40))} />);
+    const { container } = render(<ToolRow running row={running(lines(40))} />);
     container.addEventListener('scroll', outerScroll);
 
     const box = termBox(container);
@@ -249,7 +256,7 @@ describe('终端输出的贴底跟随', () => {
    */
   it('内容变了但盒子没变尺寸,照样贴底(限高之后 ResizeObserver 已经哑了)', async () => {
     const geom: Geom = { content: 400, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(20))} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(20))} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
@@ -258,7 +265,7 @@ describe('终端输出的贴底跟随', () => {
     // 盒子已经到限高了,后面**一次 ResizeObserver 都不喂**
     resizeCallbacks = [];
     geom.content = 2000;
-    rerender(<ToolRow row={running(lines(100))} />);
+    rerender(<ToolRow running row={running(lines(100))} />);
     await act(async () => { await Promise.resolve(); });
 
     expect(box.scrollTop, '新输出到了就该贴底 —— 这一档只有 MutationObserver 能通知').toBe(maxTopOf(geom));
@@ -266,13 +273,13 @@ describe('终端输出的贴底跟随', () => {
 
   it('收起再展开 = 重新挂上跟随(和思考那一格同一条裁决)', () => {
     const geom: Geom = { content: 800, client: 104 };
-    const { container, rerender } = render(<ToolRow row={running(lines(40))} deferBody={false} />);
+    const { container, rerender } = render(<ToolRow running row={running(lines(40))} deferBody={false} />);
     const box = termBox(container);
     fakeGeometry(box, geom);
     settleLayout();
 
     userScrollTo(box, 120);
-    rerender(<ToolRow row={running(lines(80))} deferBody={false} />);
+    rerender(<ToolRow running row={running(lines(80))} deferBody={false} />);
     geom.content = 1600;
     settleLayout();
     expect(box.scrollTop, '逃逸态').toBe(120);
