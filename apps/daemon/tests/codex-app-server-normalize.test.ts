@@ -329,12 +329,55 @@ describe('codex app-server -> OpenDesign event normalization', () => {
           },
         },
       ]);
+      // `od_diff_stat` is counted off the `diff` this frame carries. It is the
+      // whole reason the diff stopped being discarded here: without it a codex
+      // file row showed elapsed time where the identical row under Claude
+      // showed `+N −M`. Both changes are a single added line, so both read 1/0.
       expect(events).toEqual([
-        { type: 'tool_use', id: 'f1#0', name: 'Write', input: { file_path: '/w/a.html' } },
-        { type: 'tool_use', id: 'f1#1', name: 'Edit', input: { file_path: '/w/b.css' } },
+        {
+          type: 'tool_use',
+          id: 'f1#0',
+          name: 'Write',
+          input: { file_path: '/w/a.html', od_diff_stat: { added: 1, removed: 0 } },
+        },
+        {
+          type: 'tool_use',
+          id: 'f1#1',
+          name: 'Edit',
+          input: { file_path: '/w/b.css', od_diff_stat: { added: 1, removed: 0 } },
+        },
         { type: 'tool_result', toolUseId: 'f1#0', content: '', isError: false },
         { type: 'tool_result', toolUseId: 'f1#1', content: '', isError: false },
       ]);
+    });
+
+    it('carries no diff stat when the frame carries no diff to count', () => {
+      // The guard on the line above: a stat is only ever reported when a real
+      // `diff` arrived. `emitCodexFileChangeToolUses` keeps `input` at its
+      // single-key shape otherwise, so the older `exec --json` wire — which
+      // never sent a diff — produces byte-identical events to what it did
+      // before the stat existed, and no row invents a `+0 −0`.
+      const { events } = drive([
+        {
+          method: 'item/completed',
+          params: {
+            ...THREAD,
+            item: {
+              type: 'fileChange',
+              id: 'f2',
+              status: 'completed',
+              changes: [{ path: '/w/c.md', kind: { type: 'add' } }],
+            },
+          },
+        },
+      ]);
+      const use = events.find((event) => event.type === 'tool_use');
+      expect(use).toEqual({
+        type: 'tool_use',
+        id: 'f2#0',
+        name: 'Write',
+        input: { file_path: '/w/c.md' },
+      });
     });
 
     it('leaves a delete-kind change unrendered, exactly like exec --json', () => {

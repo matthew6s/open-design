@@ -2846,12 +2846,18 @@ function conversationChatArtifactRefs(
   db: SqliteDb,
   conversationId: string,
 ): Map<string, ChatArtifactRef[]> {
-  const projectId = projectIdForConversation(db, conversationId);
-  if (!projectId) return new Map();
   try {
+    const projectId = projectIdForConversation(db, conversationId);
+    if (!projectId) return new Map();
     return projectConversationChatArtifactRefs(db, projectId, conversationId);
   } catch {
     // A snapshot store problem must never make a conversation unreadable.
+    //
+    // The owning-project lookup is INSIDE this guard, not in front of it. It
+    // reads a different table than the refs themselves, so it can fail on its
+    // own — and when it did, the throw travelled all the way out of
+    // `listMessages` and the transcript came back empty. Artifact refs decorate
+    // a conversation; nothing about them is worth losing its messages over.
     return new Map();
   }
 }
