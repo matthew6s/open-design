@@ -120,10 +120,16 @@ export function Reconnect({
       </span>
       {onShowDetail
         ? (
+          /* 稿子 `729fa43ce7` 的 `src/body-components.html:324`:
+             `<button class="ch mod-tip-e" aria-label="查看详情" data-tip="查看详情">`
+             —— 纯图标按钮在稿子里一律带可见提示,原因见 `src/components.css:2677-2686`。
+             `mod-tip-e`(气泡右缘对齐)不照搬:产品的气泡是 body portal,不会被
+             overflow 容器裁掉,方位交给 `TooltipLayer` 的视口 clamp。 */
           <button
             type="button"
-            className={styles.detail}
+            className={`${styles.detail} od-tooltip`}
             aria-label={t('chat.edge.reconnectDetail')}
+            data-tooltip={t('chat.edge.reconnectDetail')}
             onClick={onShowDetail}
           >
             <ChevronIcon />

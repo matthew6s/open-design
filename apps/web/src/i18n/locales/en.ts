@@ -2149,6 +2149,7 @@ export const en: Dict = {
   'chat.conversationsTitle': 'Conversations',
   'chat.conversationsAria': 'Conversation history',
   'chat.newConversation': 'New conversation',
+  'chat.newSession': 'New conversation',
   'chat.newConversationsTitle': 'New conversation',
   'chat.conversationsHeading': 'Conversations',
   'chat.new': 'New',
@@ -5343,6 +5344,7 @@ export const en: Dict = {
   'chat.record.imageCount': "{count} images",
   'chat.record.retry': "Retry",
   'chat.record.viewImage': "View image {index}",
+  'chat.record.viewLarge': "View full size",
   'chat.record.imagePending': "Generating illustration…",
   /* 设计稿 729fa43ce7:docs/design/chat-panel/src/body-components.html:50-51,逐字 */
   'chat.designSystemStatus.title': 'Creating design system workspace',

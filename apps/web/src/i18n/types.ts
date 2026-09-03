@@ -2977,6 +2977,15 @@ export interface Dict {
   'chat.conversationsTitle': string;
   'chat.conversationsAria': string;
   'chat.newConversation': string;
+  /**
+   * 面板头第二颗图标键的名字。稿子 `729fa43ce7` 的
+   * `docs/design/chat-panel/src/body-scene.html:8`:`aria-label="新会话" data-tip="新会话"`。
+   *
+   * ⚠️ 中文这一格和既有的 `chat.newConversation`(「新建对话」)、`chat.new`(「新建」)
+   * 说的是同一件事,只是稿子用的词不同。**待产品统一**,在那之前按稿子的字面走,
+   * 不擅自改动另外两条。非中文语种沿用各自既有的「新建对话」措辞,不引入新词。
+   */
+  'chat.newSession': string;
   'chat.newConversationsTitle': string;
   'chat.conversationsHeading': string;
   'chat.new': string;
@@ -5537,6 +5546,14 @@ export interface Dict {
   'chat.record.imageCount': string;
   'chat.record.retry': string;
   'chat.record.viewImage': string;
+  /**
+   * 缩略图条上那枚 26×34 的可见提示。稿子 `729fa43ce7` 的
+   * `docs/design/chat-panel/src/body-components.html:1041`:`data-tip="查看大图"` ——
+   * 和带序号的 `chat.record.viewImage`(读屏用的 `aria-label`)是两句话:
+   * 稿子 `src/components.css:2533-2534` 写死了理由「26×34 已经小到看不出内容了,
+   * tip 是它唯一能自报家门的方式」。
+   */
+  'chat.record.viewLarge': string;
   'chat.record.imagePending': string;
   /*
    * 「设计系统工作区 · 自动创建」状态卡的两句文案。逐字取自稿子

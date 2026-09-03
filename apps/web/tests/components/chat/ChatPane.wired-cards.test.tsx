@@ -127,7 +127,17 @@ describe('ChatPane — 报错卡的常驻动作', () => {
 
     expect(support.getAttribute('data-run-error-action')).toBe('secondary');
     expect(exportLogs.getAttribute('data-run-error-action')).toBe('secondary');
-    expect(support.className).toBe(exportLogs.className);
+    /* 比的是**壳**:同一个 `RunErrorCardAction` ⇒ 同一套 radius/padding/字重。
+       `od-tooltip` 不是壳的一部分,它只是 `TooltipLayer` 的挂钩 —— 稿子
+       `729fa43ce7 · src/body-scene.html:302` 只给〔联系支持〕挂 `data-tip`,
+       〔导出日志〕(`src/body-components.html:1453`)一个都没有,所以这一枚
+       标记本来就该只出现在其中一颗身上。把它摘掉再比,判据不变。 */
+    expect(shellClasses(support)).toEqual(shellClasses(exportLogs));
+  }
+
+  /** 壳的类名 = 去掉行为标记之后剩下的那些 */
+  function shellClasses(el: Element): string[] {
+    return String(el.className).trim().split(/\s+/).filter((c) => c && c !== 'od-tooltip');
   }
 
   it('每一张报错卡都带〔联系支持〕和〔导出日志〕两颗次级', () => {

@@ -40,6 +40,7 @@ import {
   type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MutableRefObject,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -1119,6 +1120,58 @@ function byMediaTaskCreationOrder(a: ProjectMediaTask, b: ProjectMediaTask): num
     return a.sequence - b.sequence;
   }
   return 0;
+}
+
+/**
+ * 面板头那两枚字形。**路径逐字节取自稿子** `729fa43ce7` 的
+ * `docs/design/chat-panel/src/body-scene.html:7-8`,不手抄、不换库。
+ *
+ * ## 为什么不走共享的 `<Icon name=…>`
+ *
+ * 稿子这两枚都是**描边**(`fill="none" stroke="currentColor"`,吃
+ * `src/components.css:159` 的全局 `stroke-width: 1.75px` + round/round)。
+ * 而 `components/Icon.tsx` 里凡是命中 `REMIX_ICON` 映射表的名字一律走**实心**
+ * remix 路径 —— `history` / `plus` 两个名字都在表里,拿不到描边形。
+ * 把名字从那张表里摘掉是**全站**行为(`arrow-up` 一个名字就有 6 处调用,
+ * 其中两处在聊天面板之外),属于要单独拍板的改动;这里只把影响锁在面板头内,
+ * 按仓库既有的做法(`ChatPane` 里的 `.msg-att-eye`、`RunErrorCard` 的
+ * `AlertIcon`)直接内联稿子的路径。
+ *
+ * 1.75 是**用户单位**,跟着 viewBox 缩放 —— 与 `chat/primitives/icons.tsx` 的
+ * `STROKE_ICON` 同一条约定,那里有完整推导。尺寸维持面板头现有的 16(稿子
+ * `src/scene-shell.css:32` 是 15,但盒子也是 26 而不是产品的 28;
+ * 那一组尺寸差不在本轮范围内)。
+ */
+const HEAD_GLYPH = {
+  width: 16,
+  height: 16,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.75,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const;
+
+/** 描边时钟 + 回退箭头(`src/body-scene.html:7`)—— 不是实心对话气泡 */
+function ChatHistoryGlyph(): ReactElement {
+  return (
+    <svg {...HEAD_GLYPH}>
+      <path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8" />
+      <path d="M3 4v4h4" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+/** 描边十字(`src/body-scene.html:8`)—— 一条 path 走两笔,和稿子同形 */
+function NewSessionGlyph(): ReactElement {
+  return (
+    <svg {...HEAD_GLYPH}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
 }
 
 export function ChatPane({
@@ -2932,8 +2985,11 @@ export function ChatPane({
     setConversationSearch('');
   }, [showConvList]);
 
-  const activeConversation =
-    conversations.find((c) => c.id === activeConversationId) ?? null;
+  /* `activeConversation` 这个绑定随着面板头「历史」摘掉原生 `title` 一起没了消费者
+     —— 它当时唯一的用处是把当前会话标题拼进那句 `对话历史 · {title}`。稿子
+     `729fa43ce7 · src/body-scene.html:7` 的 tip 是常量,所以那半句先不渲染;
+     真要找地方安置(产品待拍),`conversations.find(c => c.id === activeConversationId)`
+     一行就能拿回来,不必留一个没人读的变量在这里。 */
   const filteredConversations = useMemo(
     () => filterConversations(conversations, deferredConversationSearch, t),
     [conversations, deferredConversationSearch, t],
@@ -3562,15 +3618,28 @@ export function ChatPane({
             className={`chat-history-wrap chat-session-switcher${showConvList ? ' open' : ''}`}
             ref={historyWrapRef}
           >
+            {/*
+              * 面板头第一颗图标键。稿子 `729fa43ce7`:
+              * `docs/design/chat-panel/src/body-scene.html:7`
+              *   `<button class="mod-tip-b" aria-label="历史会话" data-tip="历史会话">`
+              *
+              * **不再用原生 `title`** —— 稿子 `src/components.css:2684-2686` 点名反对:
+              * 「原生 tip 要等半秒到两秒(各家浏览器不一,不可控),等到时手已经点下去了,
+              * 起不到『先告诉你再点』的作用;而且原生样式跟不上这套配色。」
+              * 换成产品统一的 `od-tooltip` + `data-tooltip`(`TooltipLayer`)。
+              *
+              * `mod-tip-b` = 气泡翻到按钮**下方**(`src/components.css:2720-2721`:
+              * 面板头贴着面板顶边,朝上的气泡会顶出去),对应 `data-tooltip-placement="bottom"`。
+              *
+              * ⚠️ 原来的 `title` 还把当前会话标题拼在后面(`… · {activeConversation.title}`)。
+              * 稿子的 tip 是**常量**,所以这里跟稿子走;那半句要不要找地方安置,待产品拍。
+              */}
             <button
               type="button"
-              className="chat-session-trigger icon-only"
+              className="chat-session-trigger icon-only od-tooltip"
               data-testid="conversation-history-trigger"
-              title={
-                activeConversation?.title
-                  ? `${t('chat.conversationsTitle')} · ${activeConversation.title}`
-                  : t('chat.conversationsTitle')
-              }
+              data-tooltip={t('chat.conversationsTitle')}
+              data-tooltip-placement="bottom"
               aria-label={t('chat.conversationsAria')}
               aria-haspopup="menu"
               aria-expanded={showConvList}
@@ -3588,7 +3657,7 @@ export function ChatPane({
                 });
               }}
             >
-              <Icon name="comment" size={16} />
+              <ChatHistoryGlyph />
             </button>
             {showConvList ? (
               <div className="chat-history-menu" role="menu" data-testid="conversation-history-menu">
@@ -3674,6 +3743,42 @@ export function ChatPane({
               </div>
             ) : null}
           </div>
+          {/*
+            * 面板头第二颗图标键「新会话」。稿子 `729fa43ce7`:
+            * `docs/design/chat-panel/src/body-scene.html:8`
+            *   `<button class="mod-tip-b" aria-label="新会话" data-tip="新会话">
+            *      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            *        <path d="M12 5v14M5 12h14"/></svg></button>`
+            * —— 紧挨着「历史会话」,同样 `mod-tip-b` ⇒ 气泡朝下。
+            *
+            * 行为**不新开一条**:走的就是既有的 `onNewConversation`,连
+            * `newConversationDisabled` 一起沿用 —— 和历史下拉里那颗「新建」同一个口子。
+            * 下拉里那颗保留不动:`e2e/ui/app.test.ts:615-617` 按
+            * `conversation-history-new` 定位它。两个入口同时在,是否要收成一个待产品拍。
+            */}
+          {onNewConversation ? (
+            <button
+              type="button"
+              className="chat-session-trigger chat-new-conversation od-tooltip"
+              data-testid="chat-new-conversation"
+              data-tooltip={t('chat.newSession')}
+              data-tooltip-placement="bottom"
+              aria-label={t('chat.newSession')}
+              disabled={newConversationDisabled}
+              onClick={() => {
+                if (newConversationDisabled) return;
+                trackChatPanelClick(analytics.track, {
+                  page_name: 'chat_panel',
+                  area: 'chat_panel',
+                  element: 'new_chat',
+                });
+                onNewConversation();
+                setShowConvList(false);
+              }}
+            >
+              <NewSessionGlyph />
+            </button>
+          ) : null}
         </div>
         {tab === 'chat' ? (
           <>
@@ -3889,10 +3994,22 @@ export function ChatPane({
                           * 位置不动:那一排在 274px 窄面板里的排布是量过的,
                           * 重排会把 e2e 的溢出判据一起动掉。
                           */}
+                        {/*
+                          * 可见提示按稿子 `729fa43ce7` 的 `src/body-scene.html:302`
+                          * (`data-tip="联系支持"`)补上。
+                          *
+                          * ⚠️ 稿子这一颗**自相矛盾**:场景页是纯图标 + tip,组件全集页
+                          * (`src/body-components.html:1452`)是图标 + 可见文字「联系」、
+                          * 一个 tip 都没有。这里只补 tip、**不动形态**(产品今天是
+                          * 图标 + 「联系支持」文字)——「要不要退回纯图标」是产品要拍的,
+                          * 不能顺手做掉。
+                          */}
                         <RunErrorCardAction
                           type="button"
+                          className="od-tooltip"
                           variant={contactSupportIsPrimary ? 'primary' : 'secondary'}
                           data-testid="chat-error-contact-support"
+                          data-tooltip={t('chat.runError.contactSupportCta')}
                           {...(contactSupportIsPrimary ? { 'data-primary': 'true' } : {})}
                           onClick={() => setSupportDialogOpen(true)}
                         >

@@ -64,11 +64,18 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
             const path = row.thumbs[i];
             const label = t('chat.record.viewImage', { index: i + 1 });
             return (
+              /* 稿子 `729fa43ce7` 的 `src/components.css:2533-2534` 把理由写死了:
+                 「.th 是 button 不是 span:有 hover、有键盘焦点、**有 tip**。
+                 26×34 已经小到看不出内容了,tip 是它唯一能自报家门的方式」。
+                 —— `aria-label` 只有读屏听得到,用眼睛的人反而没有,所以这里
+                 两条都给:带序号的那句给读屏,常量「查看大图」给气泡
+                 (`src/body-components.html:1041` `data-tip="查看大图"`)。 */
               <button
                 key={i}
                 type="button"
-                className={styles.th}
+                className={`${styles.th} od-tooltip`}
                 aria-label={label}
+                data-tooltip={t('chat.record.viewLarge')}
                 onClick={path && onOpenImage ? () => onOpenImage(path, i) : undefined}
               >
                 {path && imageSrc
