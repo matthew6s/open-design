@@ -174,6 +174,21 @@ button:disabled {
   overflow-wrap: anywhere;
   white-space: normal;
   will-change: transform;
+  /* 稿 `729fa43ce7:docs/design/chat-panel/src/components.css:2706-2707`:
+       `opacity: 0; transition: opacity var(--duration-faster) var(--ease-out);`
+     两个 token 在 `styles/tokens.css` 里同名同值(`:123` 100ms,`:134` → `:132`
+     `cubic-bezier(0, 0, 0, 1)`),所以连写法一起照搬,不折算成字面值。
+
+     ⚠️ 和 `AGENTS.md`「UI animation philosophy」列的默认值不同 —— 那条默认是
+     `cubic-bezier(0.23, 1, 0.32, 1)`、进场 ~200ms / 退场 ~140ms。这里以稿子为准
+     (聊天面板的设计稿是这个面板的事实源),两条硬约束仍然满足:
+     `cubic-bezier(0,0,0,1)` 是减速曲线,不是被禁的 ease-in;也没有从 scale(0) 起。
+
+     ⚠️ 这条能生效的前提是 `TooltipLayer.tsx` **不卸载**节点、只切 opacity。
+     谁把它改回「hide 时 return null」,这条就重新变成死规则 ——
+     判据在 `tests/components/w129-tooltip-fade.test.tsx`。 */
+  opacity: 0;
+  transition: opacity var(--duration-faster) var(--ease-out);
 }
 /* A hint opened FROM INSIDE an already-open menu belongs to that menu. The
    default ladder deliberately keeps unrelated hints below menus, but applying

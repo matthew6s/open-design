@@ -162,10 +162,10 @@
 .chat-project-header .chat-new-conversation {
   flex: 0 0 auto;
 }
-/* 禁用表现**沿用产品既有的那一条**,不另立一套:历史下拉里那颗「新建」走的是
-   `styles/viewer/composio.css:4271-4273` 的 `cursor: default; opacity: .55`,
-   同一个动作不该有两种禁用样子。
-   额外把底色按回透明:全局 `styles/primitives.css:128-133` 的 `button:disabled`
+/* 禁用表现沿用产品原来那颗「新建」的写法(`cursor: default; opacity: .55`)——
+   那颗按钮和它在 `styles/viewer/composio.css` 里的 `.chat-history-new` 一组样式
+   已随入口收敛删掉了(产品裁决 2026-09-03),这里是它留下的唯一一处禁用表现。
+   额外把底色按回透明:全局 `styles/primitives.css` 的 `button:disabled`
    带 `background: var(--bg-subtle)`,选择器权重压过 `.chat-session-trigger` 自己的
    `background: transparent` —— 不按回来,这颗图标键一禁用就变成一个灰色实心方块,
    读起来是另一种控件。 */

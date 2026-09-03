@@ -1026,8 +1026,9 @@ const OUTRO: Cell[] = [
     node: () => fbRow(null),
     notes: [
       '**静态页里出不了那个气泡**:产品的 tooltip 是 `.od-tooltip` + `TooltipLayer.tsx` 的 **portal**,由 pointer / keyboard modality 驱动;它不是一条 `::after`,没有「原样重放一遍」的规则可抄(第 51 格那招在这儿不成立)。机制比稿子的 `[data-tip]::after` 更完整,不是缺口',
-      '**四条文案已按稿子改**:「有帮助 / 没帮助 / 复制 / 新开会话」,落在按钮的 `aria-label` 与 `data-tooltip` 上(19 语全改;`types.ts` 不动 —— 改的是既有 key 的值,没有新 key)。**这条注记原来写着「四条全要改」,那是旧话**;守卫见 `w118-feedback-row-icons-and-tips.test.tsx`',
+      '**四条文案已按稿子改**:「有帮助 / 没帮助 / 复制 / 新会话」,落在按钮的 `aria-label` 与 `data-tooltip` 上(19 语全改)。第四条**有意不取稿子字面**:稿子这里写「新开会话」,面板头那颗写「新会话」,两处稿子自己就不一致 —— 产品裁决 2026-09-03「聊天面板内只说一句」,取「新会话」,依据同在稿子里(`body-components.html:1243` 的 `aria-label="新会话从这里开始"`)。同一颗按钮的三个态一并统一成 新会话 / 正在开始新会话… / 无法开始新会话。守卫见 `w118-feedback-row-icons-and-tips.test.tsx` 与 `w129-new-session-single-entry.test.tsx`',
       '**气泡材质已按稿改,而且是全站改的**(产品裁决 2026-09-03:「全站都改成稿子这套」):圆角 4 → 8(`--radius`)、内距 `5px 8px` → `5px 9px`、行高 1.2 → 1.4、磨砂 → 实底 `--bg-elevated`(顺带摘掉 `backdrop-filter`)、边色 `--material-separator` → `--border`、`--shadow-sm` → `--shadow-md`、字色 `--vibrancy-label` → `--text-strong`、离按钮 7 → 6px。**这条注记原来写着「待拍板」,那是旧话**;守卫见 `styles/w126-tooltip-design-parity.test.ts`',
+      '**淡入淡出也按稿子接上了**(产品裁决 2026-09-03:做重构):稿子的气泡挂在一个一直存在的 `::after` 上,`opacity: 0` 起手、`transition: opacity var(--duration-faster) var(--ease-out)`;产品原来 hide 时把 portal 卸载,元素根本没机会从 0 走到 1,加 `transition` 是死规则。现在 `TooltipLayer` 常驻挂载、只切 opacity。**代价是那个 `role="tooltip"` 节点一直在 DOM 里**,所以隐藏态挂 `aria-hidden="true"` 把它从可访问性树里摘掉;按下按钮那一路则一刀切(`visibility: hidden`,不淡)—— 否则 100ms 的淡出会被「截图到对话」抓进画面。守卫见 `components/w129-tooltip-fade.test.tsx`',
       '⚠️ **换行那一条有意没跟稿子,仍待产品拍板**:稿子是 `white-space: nowrap` 且不设 max-width,那是为「两三个字的图标名」量身的。这条 primitive 全站共享,上面挂着 202 字符的长描述(`fileViewer.publishSingleFileDescription` 法语)和一批长度无上限的用户数据(工作目录路径、标签页标题),单行会横穿屏幕 —— 所以限宽 260px 换行留着',
       '⚠️ **顺手要收的一处**:产品同时还挂着原生 `title=`,会和自绘 tip 叠在一起;稿子只有 `aria-label` + `data-tip`。`TooltipLayer` 目前在 pointerover 时把 `title` 摘下来暂存,所以真机上不会真的叠出两个气泡 —— 是否仍要去掉 `title` 待拍板',
     ],

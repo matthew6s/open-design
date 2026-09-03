@@ -2600,9 +2600,13 @@ async function sendPrompt(page: Page, prompt: string) {
 
 async function startNewConversation(page: Page) {
   const previousPath = new URL(page.url()).pathname;
+  // Open the history dropdown first: creating a conversation must also dismiss
+  // it, and the `toHaveCount(0)` below only means something if it was open.
   await page.getByTestId('conversation-history-trigger').click();
   await expect(page.getByTestId('conversation-list')).toBeVisible();
-  await page.getByTestId('conversation-history-new').click();
+  // The "new conversation" control lives in the panel header — the dropdown's
+  // duplicate was removed (product ruling 2026-09-03: one entry point only).
+  await page.getByTestId('chat-new-conversation').click();
   await expect(page.getByTestId('conversation-list')).toHaveCount(0);
   await expect
     .poll(() => new URL(page.url()).pathname, { timeout: 10_000 })

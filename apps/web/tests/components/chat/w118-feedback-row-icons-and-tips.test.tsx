@@ -64,7 +64,16 @@ const D_FORK =
 const TIP_UP = '有帮助';
 const TIP_DOWN = '没帮助';
 const TIP_COPY = '复制';
-const TIP_FORK = '新开会话';
+/**
+ * 第四枚**有意不取稿子字面**。稿子 `body-components.html:1189` 写的是「新开会话」,
+ * 而面板头那颗(`src/body-scene.html:8`)写的是「新会话」—— 稿子自己这两处就不一致。
+ * 产品裁决 2026-09-03:**聊天面板内只说一句**,取「新会话」;依据同样在稿子里 ——
+ * `src/body-components.html:1243` 那条 fork 分界线是 `aria-label="新会话从这里开始"`,
+ * 稿子自己把这颗按钮产出的东西叫「新会话」。
+ * 统一之后这颗按钮三个态是一族词:新会话 / 正在开始新会话… / 无法开始新会话。
+ * 19 语的守卫在 `w129-new-session-single-entry.test.tsx`。
+ */
+const TIP_FORK = '新会话';
 
 /* ── 夹具 ──────────────────────────────────────────────────────────── */
 

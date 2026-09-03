@@ -2978,17 +2978,23 @@ export interface Dict {
   'chat.conversationsAria': string;
   'chat.newConversation': string;
   /**
-   * 面板头第二颗图标键的名字。稿子 `729fa43ce7` 的
+   * 面板头图标键的名字,也是**聊天面板内唯一**的「新会话」说法。稿子 `729fa43ce7` 的
    * `docs/design/chat-panel/src/body-scene.html:8`:`aria-label="新会话" data-tip="新会话"`。
    *
-   * ⚠️ 中文这一格和既有的 `chat.newConversation`(「新建对话」)、`chat.new`(「新建」)
-   * 说的是同一件事,只是稿子用的词不同。**待产品统一**,在那之前按稿子的字面走,
-   * 不擅自改动另外两条。非中文语种沿用各自既有的「新建对话」措辞,不引入新词。
+   * 产品裁决 2026-09-03:**只统一聊天面板内**。面板内原来三种说法收成一句 ——
+   * 这一条、回合动作行的 `assistant.forkConversation`、以及历史下拉里那颗
+   * 「新建」(`chat.new`,连按钮一起删了)。面板**外**的 `chat.newConversation`
+   * (「新建对话」)不动。
+   *
+   * ⚠️ 稿子自己这两处不一致:面板头写「新会话」,回合动作行写「新开会话」
+   * (`src/body-components.html:1189`)。取「新会话」的依据也在稿子里 ——
+   * `src/body-components.html:1243` 那条 fork 分界线是 `aria-label="新会话从这里开始"`,
+   * 稿子自己把 Fork 产出的东西叫「新会话」。于是词族定成 名词「新会话」+ 动词「开始」。
+   * 非中文语种沿用各自既有的「新建对话」措辞,不引入新词。
    */
   'chat.newSession': string;
   'chat.newConversationsTitle': string;
   'chat.conversationsHeading': string;
-  'chat.new': string;
   'chat.emptyConversations': string;
   'chat.conversationsSearchPlaceholder': string;
   'chat.conversationsNoMatches': string;
@@ -2997,6 +3003,13 @@ export interface Dict {
   'chat.deleteConversationConfirm': string;
   'chat.untitledConversation': string;
   'chat.forkedConversationTitle': string;
+  /**
+   * 回合动作行那颗按钮失败时的提示。key 名还带 `fork` 是历史,**文案不带** ——
+   * 它和 `assistant.forkConversation` / `assistant.forkingConversation` 是同一颗
+   * 按钮的三个态,过去 hover 说「新开会话」、按下去变「正在分叉…」、失败说
+   * 「无法分叉这个对话」,一颗按钮两套词。产品裁决 2026-09-03 统一成
+   * 名词「新会话」+ 动词「开始」那一族。
+   */
   'chat.forkConversationFailed': string;
   'chat.startTitle': string;
   'chat.startHint': string;
@@ -4336,7 +4349,13 @@ export interface Dict {
   'assistant.doneLabel': string;
   'assistant.canceledLabel': string;
   'assistant.copyMarkdown': string;
+  /**
+   * 回合动作行那颗按钮的名字。**必须和 `chat.newSession` 同字** —— 聊天面板内
+   * 只有一句「新会话」(产品裁决 2026-09-03),守卫在
+   * `tests/components/chat/w129-new-session-single-entry.test.tsx`。
+   */
   'assistant.forkConversation': string;
+  /** 上面那颗按钮的进行态。同一族词:名词「新会话」+ 动词「开始」。 */
   'assistant.forkingConversation': string;
   /** 分叉分界线下面那行脚注 —— 告诉人 Fork 不是跳走,上文已经带过去了。 */
   'assistant.forkNote': string;

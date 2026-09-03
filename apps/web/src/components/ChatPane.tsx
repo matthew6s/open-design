@@ -3696,27 +3696,17 @@ export function ChatPane({
                       </span>
                     </span>
                   </span>
-                  {onNewConversation ? (
-                    <button
-                      type="button"
-                      className="chat-history-new"
-                      data-testid="conversation-history-new"
-                      disabled={newConversationDisabled}
-                      onClick={() => {
-                        if (newConversationDisabled) return;
-                        trackChatPanelClick(analytics.track, {
-                          page_name: 'chat_panel',
-                          area: 'chat_panel',
-                          element: 'new_chat',
-                        });
-                        onNewConversation();
-                        setShowConvList(false);
-                      }}
-                    >
-                      <Icon name="plus" size={11} />
-                      <span>{t('chat.new')}</span>
-                    </button>
-                  ) : null}
+                  {/*
+                    * 这里原来还有一颗「新建」。**产品裁决 2026-09-03:新建入口只留
+                    * 面板头那枚图标键**(`data-testid="chat-new-conversation"`,
+                    * 稿子 `729fa43ce7:docs/design/chat-panel/src/body-scene.html:8`)——
+                    * 同一个动作不该有两个口子。
+                    *
+                    * 删掉不影响可达性:两颗本来就同一个 `onNewConversation` 门槛
+                    * (`onNewConversation ? … : null`)、同一个 `newConversationDisabled`,
+                    * 面板头那枚在侧边聊天(`workspace/SideChatTab.tsx`)与只读项目下
+                    * 一样渲染。这一行只剩标题 + 计数,`.chat-history-menu-head` 本来就
+                    * 不画分隔线,不会留下空分区。 */}
                 </div>
                 <label className="chat-history-search">
                   <Icon name="search" size={12} />
@@ -3776,9 +3766,12 @@ export function ChatPane({
             * —— 紧挨着「历史会话」,同样 `mod-tip-b` ⇒ 气泡朝下。
             *
             * 行为**不新开一条**:走的就是既有的 `onNewConversation`,连
-            * `newConversationDisabled` 一起沿用 —— 和历史下拉里那颗「新建」同一个口子。
-            * 下拉里那颗保留不动:`e2e/ui/app.test.ts:615-617` 按
-            * `conversation-history-new` 定位它。两个入口同时在,是否要收成一个待产品拍。
+            * `newConversationDisabled` 一起沿用。
+            *
+            * **产品裁决 2026-09-03:这是新建会话的唯一入口** —— 历史下拉里那颗
+            * 「新建」(`conversation-history-new`)已经删了,理由见上面那段注释。
+            * e2e 的定位器一并改到这颗:`e2e/ui/app.test.ts`、
+            * `e2e/ui/app-restoration.test.ts`、`e2e/ui/project-management-flows.test.ts`。
             */}
           {onNewConversation ? (
             <button

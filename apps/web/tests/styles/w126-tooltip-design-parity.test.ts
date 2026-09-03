@@ -27,7 +27,7 @@
  * `styles/floating-layer-ladder.test.ts` 就是读 `primitives.css` 的字节,
  * 这一份跟的是同一条路子。
  *
- * ## 两条**没有**跟稿子(见 W126 报告,待产品拍板)
+ * ## 一条**没有**跟稿子(见 W126 报告,待产品拍板)
  *
  * · `white-space: nowrap` + 去掉 `max-width` —— 稿子只服务「纯图标按钮的名字」
  *   那种两三个字的短文案;产品这条 primitive 上挂着长描述,最长的
@@ -35,10 +35,15 @@
  *   还有一批 `data-tooltip={workingDir}` / `{active.title}` 之类**长度无上限**的
  *   用户数据。所以换行策略维持产品现状,下面 `换行策略` 那一组把它钉住,
  *   免得有人照着稿子「顺手补齐」。
- * · `transition: opacity …` —— 产品的气泡是 show 时挂载、hide 时卸载,
- *   元素从来不在 DOM 里从 `opacity:0` 走到 `1`,一条 `transition` 在这套
- *   挂载模型下是**死规则**。要真出淡入淡出得让 `TooltipLayer.tsx` 常驻挂载,
- *   那是行为改动,不在本轮。
+ *
+ * ## `transition` 那一条 —— W126 缓过一轮,W129 补上了
+ *
+ * W126 当时没搬 `transition: opacity …`,理由是产品的气泡 show 时挂载、hide 时卸载,
+ * 元素从来不在 DOM 里从 `opacity:0` 走到 `1`,写了也是死规则。
+ * **产品 2026-09-03 拍板做重构**:`TooltipLayer.tsx` 改成常驻挂载 + 切 opacity,
+ * 淡入淡出真的跑起来了,所以这条声明现在有意义,下面「淡入淡出」那一组把它钉住。
+ * 挂载模型那一半的判据在 `tests/components/w129-tooltip-fade.test.tsx`
+ * (含隐藏态读屏拿不到的证据)。
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +134,40 @@ describe('tooltip 气泡对稿(全站)', () => {
     const match = /const TOOLTIP_GAP = (\d+);/.exec(tooltipLayer);
     expect(match, 'TooltipLayer.tsx 里找不到 TOOLTIP_GAP').toBeTruthy();
     expect(Number(match![1])).toBe(6);
+  });
+});
+
+describe('淡入淡出 —— 稿 components.css:2707', () => {
+  /*
+   * 稿子:`opacity: 0; transition: opacity var(--duration-faster) var(--ease-out);`
+   * 两个 token 在产品的 `styles/tokens.css` 里也在,且**同值**:
+   *   `:123 --duration-faster: 100ms`
+   *   `:134 --ease-out: var(--curve-decelerate-mid)`
+   *   `:132 --curve-decelerate-mid: cubic-bezier(0, 0, 0, 1)`
+   * 所以这里连写法一起照搬,不折算成字面值 —— 折算之后 token 一改这条就悄悄脱钩。
+   *
+   * ⚠️ 和 `AGENTS.md`「UI animation philosophy」的默认值**不同**:那条默认是
+   * `cubic-bezier(0.23, 1, 0.32, 1)`、进场 ~200ms / 退场 ~140ms。这里按稿子走
+   * (聊天面板的设计稿是这个面板的事实源),两条都仍然满足那节的硬约束 ——
+   * `cubic-bezier(0,0,0,1)` 是减速曲线(不是被禁的 ease-in),也没有从 scale(0) 起。
+   */
+  it('起手 opacity: 0', () => {
+    expect(decl('opacity')).toBe('0');
+  });
+
+  it('过渡走 opacity + --duration-faster + --ease-out,和稿子同字', () => {
+    expect(decl('transition')).toBe('opacity var(--duration-faster) var(--ease-out)');
+  });
+
+  it('两个 token 在产品 tokens.css 里的值和稿子对得上', () => {
+    const tokens = withoutComments(read('styles/tokens.css'));
+    const duration = /--duration-faster:\s*([^;]+);/.exec(tokens)?.[1]?.trim();
+    const easeOut = /--ease-out:\s*([^;]+);/.exec(tokens)?.[1]?.trim();
+    const decelerate = /--curve-decelerate-mid:\s*([^;]+);/.exec(tokens)?.[1]?.trim();
+    expect(duration, 'tokens.css 里找不到 --duration-faster').toBe('100ms');
+    expect(easeOut, 'tokens.css 里找不到 --ease-out').toBe('var(--curve-decelerate-mid)');
+    expect(decelerate, 'tokens.css 里找不到 --curve-decelerate-mid')
+      .toBe('cubic-bezier(0, 0, 0, 1)');
   });
 });
 

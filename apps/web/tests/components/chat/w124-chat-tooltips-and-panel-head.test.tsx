@@ -282,10 +282,19 @@ describe('③ 面板头「新会话」—— 稿子 body-scene.html:8', () => {
     expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('历史下拉里那颗「新建」照旧在 —— e2e 还按它定位,这一轮只是补头部入口', () => {
+  /*
+   * W124 这一条原来钉的是「历史下拉里那颗『新建』照旧在」—— 那是 W124 当时
+   * 有意留下的两入口并存状态,**已经被产品裁决推翻**(2026-09-03:新建入口只留
+   * 面板头这一枚)。下拉那颗连同 `chat.new` 一起删了,这里改成反向守卫:
+   * 谁把第二个入口加回来,这里就红。完整的 ③ 判据(含所有入口路径下仍可达)
+   * 在 `w129-new-session-single-entry.test.tsx`。
+   */
+  it('历史下拉里不再有第二颗「新建」—— 入口只此一个', () => {
     renderChat();
     fireEvent.click(screen.getByTestId('conversation-history-trigger'));
-    expect(screen.getByTestId('conversation-history-new')).toBeTruthy();
+    /* 真空探针:下拉确实展开了,下面的 toBeNull 才不是「组件没渲染」 */
+    expect(screen.getByTestId('conversation-history-menu')).toBeTruthy();
+    expect(screen.queryByTestId('conversation-history-new')).toBeNull();
   });
 });
 

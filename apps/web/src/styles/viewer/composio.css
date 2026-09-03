@@ -4181,9 +4181,6 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   line-height: 1;
   margin-left: 6px;
 }
-.chat-history-menu-head .chat-history-new {
-  margin-left: auto;
-}
 .chat-history-search {
   display: flex;
   align-items: center;
@@ -4246,32 +4243,9 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-subtle);
   color: var(--text);
 }
-.chat-history-new {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  height: 22px;
-  padding: 0 7px;
-  font-size: 12px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--bg-subtle) 84%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
-  color: var(--text-muted);
-  transition:
-    background-color 160ms cubic-bezier(0.23, 1, 0.32, 1),
-    border-color 160ms cubic-bezier(0.23, 1, 0.32, 1),
-    color 160ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.chat-history-new:hover {
-  background: var(--bg-muted);
-  border-color: color-mix(in srgb, var(--text-faint) 28%, var(--border));
-  color: var(--text);
-}
-.chat-history-new:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
+/* `.chat-history-new` 那一组(下拉里的「新建」按钮)已随按钮删除 ——
+   产品裁决 2026-09-03:新建入口只留面板头那枚图标键,见
+   `components/ChatPane.tsx` 的 `.chat-history-menu-head` 处注释。 */
 .chat-history-list {
   display: flex;
   flex-direction: column;

@@ -2886,7 +2886,11 @@ test('[P1] project detail conversations menu supports new chat, search, counts, 
     return request.method() === 'POST'
       && request.url().endsWith(`/api/projects/${projectId}/conversations`);
   });
-  await page.getByTestId('conversation-history-new').click();
+  // The "new conversation" control lives in the panel header, not in the open
+  // dropdown — the dropdown's duplicate was removed (product ruling
+  // 2026-09-03: one entry point only). Clicking it still dismisses the menu,
+  // which is what the count assertion below pins.
+  await page.getByTestId('chat-new-conversation').click();
   await newConversationRequestPromise;
   await expect(page.getByTestId('conversation-history-menu')).toHaveCount(0);
 

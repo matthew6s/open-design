@@ -612,9 +612,15 @@ async function sendPrompt(page: Page, prompt: string) {
 }
 
 async function startNewConversation(page: Page) {
+  // The history dropdown is opened first on purpose: creating a conversation
+  // must also dismiss it, and the `toHaveCount(0)` below is only meaningful if
+  // the list was on screen to begin with.
   await page.getByTestId('conversation-history-trigger').click();
   await expect(page.getByTestId('conversation-list')).toBeVisible();
-  await page.getByTestId('conversation-history-new').click();
+  // The "new conversation" control lives in the panel header, not in the
+  // dropdown — the dropdown's duplicate was removed (product ruling
+  // 2026-09-03: one entry point only).
+  await page.getByTestId('chat-new-conversation').click();
   await expect(page.getByTestId('conversation-list')).toHaveCount(0);
 }
 
