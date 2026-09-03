@@ -138,6 +138,87 @@ export function createClaudeStreamHandler(
   let duplicateArtifactCandidate = '';
   const recentWriteContents: string[] = [];
   let wroteHtmlFileThisTurn = false;
+  /**
+   * Assistant message ids whose turn boundary has already been surfaced as
+   * `turn_end`. Claude Code delivers the same `stop_reason` from two different
+   * frames depending on build (see `emitTurnEndOnce`), and a build that fills
+   * both would otherwise announce one turn twice.
+   */
+  const turnEndEmittedForMessageIds = new Set<string>();
+
+  /**
+   * Announce a turn boundary exactly once, whichever frame carried it.
+   *
+   * Claude Code moved this field, and we do not control which build a user has
+   * installed, so all three sources stay wired:
+   *
+   *   1. `stream_event` → `message_delta` → `delta.stop_reason`. The ONLY place
+   *      Claude Code 2.1.259 carries it: measured across six verbatim
+   *      recordings of that build (`tests/fixtures/claude-cli-recordings/`),
+   *      every `assistant` wrapper reported `stop_reason: null` while every
+   *      `message_delta` carried the real value. Requires
+   *      `--include-partial-messages`; without that flag the CLI emits no
+   *      `stream_event` frames at all.
+   *   2. `assistant` → `message.stop_reason`. The legacy shape. Dead on
+   *      2.1.259 (always null there) but it is the only in-stream boundary an
+   *      older CLI — or a fork such as `openclaude` — offers when partial
+   *      messages are not negotiated. Keep it.
+   *   3. The terminal `result` frame, surfaced separately as `usage`. Present
+   *      on every build and every flag combination, and the only boundary left
+   *      when 1 and 2 are both silent. `applyClaudeStreamJsonRunBookkeeping`
+   *      treats `usage` and `turn_end` as equals for that reason.
+   *
+   * There is no version gate on purpose. The runtime detector does probe
+   * `--version` (`detection.ts`), but nothing tells us which Claude Code
+   * release stopped filling the wrapper field, and the `fallbackBins` /
+   * `local-profiles` forks report version strings on their own schedules. A
+   * capability probe we can trust — is the field populated? — only exists once
+   * the frame is in hand, which is precisely what reading all three and
+   * deduping does.
+   *
+   * `messageId` is null only on the legacy no-partial path (no `message_start`
+   * frame and no `message.id`), where source 1 cannot exist and so there is
+   * nothing to collide with.
+   */
+  function emitTurnEndOnce(
+    messageId: string | null,
+    stopReason: string,
+    parentToolUseId: unknown,
+  ): void {
+    // `turn_end` is the MAIN turn's boundary. Under `--verbose`, a Task
+    // sub-agent's frames stream inline carrying a non-null top-level
+    // `parent_tool_use_id`, and its internal turn ends with its own
+    // `stop_reason`. That sub-turn boundary must NOT be treated as the run's
+    // turn completion: emitting `turn_end` for it would let
+    // applyClaudeStreamJsonRunBookkeeping mark `turnCompletedCleanly` and close
+    // stdin while the main turn is still running (so a later non-zero crash
+    // with no result frame is misclassified as succeeded, #5487), and would
+    // reset the per-turn artifact-echo dedup state mid-turn.
+    if (parentToolUseId != null) return;
+    if (messageId !== null) {
+      if (turnEndEmittedForMessageIds.has(messageId)) return;
+      turnEndEmittedForMessageIds.add(messageId);
+    }
+    onEvent({ type: 'turn_end', stopReason });
+    if (stopReason !== 'tool_use') resetArtifactEchoDedupForNextTurn();
+  }
+
+  /**
+   * The artifact-echo dedup below is deliberately PER TURN: it exists to
+   * swallow the model quoting back a file it just wrote, and a turn that never
+   * wrote anything must start from a clean slate. Leaking the state past a turn
+   * boundary silently drops the next turn's genuine inline HTML artifact.
+   *
+   * Called from every turn boundary we can observe — `emitTurnEndOnce` and the
+   * terminal `result` frame — because on a build where the in-stream boundary
+   * is missing (2.1.259 without `--include-partial-messages`) `result` is the
+   * only one there is, and a held-open stream-json stdin gets one `result` per
+   * user turn, not one per process.
+   */
+  function resetArtifactEchoDedupForNextTurn(): void {
+    recentWriteContents.length = 0;
+    wroteHtmlFileThisTurn = false;
+  }
 
   function normalizeTaskStatus(value: unknown): RuntimeTask['status'] {
     if (value === 'completed' || value === 'in_progress' || value === 'stopped') {
@@ -604,7 +685,9 @@ export function createClaudeStreamHandler(
     }
 
     if (obj.type === 'stream_event' && isRecord(obj.event)) {
-      handleStreamEvent(obj.event);
+      // `parent_tool_use_id` rides on the OUTER envelope, not on the inner
+      // `event`, so the sub-agent guard needs it handed down explicitly.
+      handleStreamEvent(obj.event, obj.parent_tool_use_id);
       return;
     }
 
@@ -621,12 +704,21 @@ export function createClaudeStreamHandler(
       if (explicitMsgId) currentMessageId = explicitMsgId;
       const textAlreadyStreamed = textMsgId ? textStreamed.has(textMsgId) : false;
       const thinkingAlreadyStreamed = thinkingMsgId ? thinkingStreamed.has(thinkingMsgId) : false;
-      // Per-turn `stop_reason` is emitted as `turn_end` AFTER the content
-      // blocks have been processed (see below). When `--include-partial-
-      // messages` is unsupported, tool_use events surface only from the
-      // assistant wrapper here — emitting `turn_end` before that loop would
-      // let the daemon's stdin-close handler act on the turn before its
-      // tool_use blocks were seen, closing stdin mid-tool. Read the
+      // LEGACY turn-boundary source. Claude Code 2.1.259 sets this field to
+      // null on every assistant frame — it now emits one wrapper per content
+      // block, and the turn's stop reason is not known yet when the first of
+      // them is written. That build carries the real value on
+      // `stream_event`/`message_delta` instead (see `emitTurnEndOnce`), so on a
+      // current CLI this branch is inert. It stays because it is the only
+      // in-stream boundary an OLDER Claude Code — or an argv-compatible fork —
+      // offers when `--include-partial-messages` is not negotiated, and we do
+      // not control which build a user has installed.
+      //
+      // Emitted AFTER the content blocks have been processed (see below), not
+      // here: when `--include-partial-messages` is unsupported, tool_use events
+      // surface only from this wrapper, and emitting `turn_end` before that
+      // loop would let the daemon's stdin-close handler act on the turn before
+      // its tool_use blocks were seen, closing stdin mid-tool. Read the
       // stop_reason now, emit after.
       const stopReason = typeof obj.message.stop_reason === 'string'
         ? obj.message.stop_reason
@@ -658,24 +750,10 @@ export function createClaudeStreamHandler(
       // Surface the turn_end signal now that every tool_use in this
       // assistant message has been emitted, so the daemon's stdin-close
       // handler sees the final `stop_reason` before deciding whether to
-      // close stream-json input stdin.
-      //
-      // `turn_end` is the MAIN turn's boundary. Under `--verbose`, a Task
-      // sub-agent's messages stream inline carrying a non-null top-level
-      // `parent_tool_use_id`, and its internal turn ends with its own
-      // `stop_reason: 'end_turn'`. That sub-turn boundary must NOT be treated
-      // as the run's turn completion: emitting `turn_end` for it would let
-      // applyClaudeStreamJsonRunBookkeeping mark `turnCompletedCleanly` and
-      // close stdin while the main turn is still running (so a later non-zero
-      // crash with no result frame is misclassified as succeeded, #5487), and
-      // would reset the per-turn artifact-echo dedup state below mid-turn.
-      // Only a main-turn frame (`parent_tool_use_id == null`) may fire it.
-      if (stopReason && obj.parent_tool_use_id == null) {
-        onEvent({ type: 'turn_end', stopReason });
-        if (stopReason !== 'tool_use') {
-          recentWriteContents.length = 0;
-          wroteHtmlFileThisTurn = false;
-        }
+      // close stream-json input stdin. The sub-agent guard and the
+      // once-per-message dedup both live in `emitTurnEndOnce`.
+      if (stopReason) {
+        emitTurnEndOnce(explicitMsgId ?? currentMessageId, stopReason, obj.parent_tool_use_id);
       }
       // A sub-agent (parent_tool_use_id != null) in-stream error must NOT be
       // emitted as a run-level error: it condemns a main turn that has already
@@ -734,6 +812,20 @@ export function createClaudeStreamHandler(
           null,
         ...(isError ? { isError: true } : {}),
       });
+      // A `result` frame ends ONE user turn, not the process: a stream-json
+      // session whose stdin is held open emits one `result` per turn and keeps
+      // reading (verified against
+      // `tests/fixtures/claude-cli-recordings/claude-2.1.259-*-two-turns.jsonl`,
+      // two `result` frames from a single CLI process). So it is a legitimate
+      // per-turn reset point — and on a build with no in-stream boundary at all
+      // (2.1.259 without `--include-partial-messages`) it is the ONLY one, which
+      // is what keeps the next turn's genuine inline HTML artifact from being
+      // mistaken for an echo of a file written in the previous turn.
+      const resultStopReason =
+        (typeof obj.stop_reason === 'string' && obj.stop_reason) ||
+        (typeof obj.terminal_reason === 'string' && obj.terminal_reason) ||
+        null;
+      if (resultStopReason !== 'tool_use') resetArtifactEchoDedupForNextTurn();
       if (isError) {
         const message = errorResultMessage(obj);
         onEvent({
@@ -780,7 +872,18 @@ export function createClaudeStreamHandler(
     return parts.join('\n').trim();
   }
 
-  function handleStreamEvent(ev: Record<string, unknown>) {
+  function handleStreamEvent(ev: Record<string, unknown>, parentToolUseId: unknown = null) {
+    // The turn's real `stop_reason` on Claude Code 2.1.259. It lands after
+    // every `content_block_stop` of the message (verified frame-by-frame
+    // against the recordings in `tests/fixtures/claude-cli-recordings/`), so by
+    // the time it arrives every tool_use of the turn has already been emitted —
+    // the ordering the assistant-wrapper path had to be careful about.
+    if (ev.type === 'message_delta' && isRecord(ev.delta)) {
+      const stopReason = typeof ev.delta.stop_reason === 'string' ? ev.delta.stop_reason : null;
+      if (stopReason) emitTurnEndOnce(currentMessageId, stopReason, parentToolUseId);
+      return;
+    }
+
     if (ev.type === 'message_start') {
       flushPendingArtifactText();
       // Clean up per-message role-marker guard from the previous message.

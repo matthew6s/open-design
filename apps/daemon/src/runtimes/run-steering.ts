@@ -15,10 +15,24 @@
  *     This is a permanent property of the agent, so callers should stop
  *     advertising the affordance rather than retry.
  *  2. The run is still live.
- *  3. `run.stdinOpen` is still true. A clean `turn_end` closes stdin (see
+ *  3. `run.stdinOpen` is still true. A clean turn terminal closes stdin (see
  *     `applyClaudeStreamJsonRunBookkeeping`); a `stop_reason: 'tool_use'` pause
  *     deliberately does NOT — the model is parked mid-tool and still reading,
  *     which is exactly when steering is worth the most.
+ *
+ *     "Turn terminal" is either a `turn_end` or a `usage` event, and which one
+ *     arrives first depends on the installed Claude Code build. On 2.1.259 the
+ *     `assistant` wrapper's `stop_reason` is always null, so `turn_end` comes
+ *     from `stream_event`/`message_delta` and exists only when
+ *     `--include-partial-messages` was negotiated; without that flag the first
+ *     terminal of the turn is the `usage` event synthesized from the `result`
+ *     frame. `chat-run-lifecycle.ts` treats the two as equals for exactly this
+ *     reason — see `claude-stream.ts`'s `emitTurnEndOnce` for the full
+ *     three-source contract and the recordings that pin it down.
+ *
+ *     Practical consequence for callers: the steering window closes at the
+ *     turn's `result` frame on every build, so the affordance is only live
+ *     while the model is still working.
  *
  * `classifyRunSteering` is the single place that verdict is made; the HTTP
  * route, the CLI, and any future caller must go through it instead of
