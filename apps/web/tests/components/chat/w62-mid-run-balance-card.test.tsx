@@ -92,6 +92,7 @@ function failedMidRun(
 function renderChat(opts: {
   messages?: ChatMessage[];
   amrBalanceCardUsd?: number | null;
+  amrBalanceCardUnavailable?: boolean;
 } = {}) {
   return render(
     <ChatPane
@@ -105,6 +106,7 @@ function renderChat(opts: {
       onStop={vi.fn()}
       onRetry={vi.fn()}
       amrBalanceCardUsd={opts.amrBalanceCardUsd ?? null}
+      amrBalanceCardUnavailable={opts.amrBalanceCardUnavailable ?? false}
       onOpenSettings={vi.fn() as never}
       conversations={[
         { projectId: 'project-1', id: 'conv-1', title: 'Current', createdAt: 1, updatedAt: 1 },
@@ -141,6 +143,46 @@ describe('跑到一半余额不足:只有升级卡', () => {
     expect(genericErrorCard(container)).toBeNull();
     expect(screen.queryByTestId('chat-error-contact-support')).toBeNull();
     expect(screen.queryByTestId('chat-error-export-logs')).toBeNull();
+  });
+
+  /*
+   * 交接不是删除:`suppressCard` 说的是「别人已经在说这件事了」,而这里的
+   * 「别人」是升级卡 —— 它只在钱包读数**读得出确定数字**时才画得出来
+   * (`ProjectView` 在失败之后补查一次)。读不出来的时候没有任何人在说话,
+   * 这时还按下白卡,用户在一轮「钱不够」的失败之后**屏幕上什么都不剩**:
+   * 没有充值入口,也没有重试。那是这条 P0 路上唯一的自救口
+   * (`e2e/ui/amr-run-failure-recovery.test.ts:118`)。
+   *
+   * 所以交接只在接手方真的在场时成立;接不住就把白卡还回来。
+   */
+  it('钱包读不出数字时把白卡还回来:充值入口和重试都必须还在', () => {
+    const { container } = renderChat({
+      messages: [failedMidRun({ code: 'AMR_INSUFFICIENT_BALANCE' })],
+      // 补查落空:没有数字,所以升级卡画不出来。
+      amrBalanceCardUsd: null,
+      amrBalanceCardUnavailable: true,
+    });
+
+    expect(screen.queryByTestId('chat-upgrade-card')).toBeNull();
+    expect(genericErrorCard(container)).toBeTruthy();
+    // 主按钮是〔充值〕,次按钮是〔重试〕—— 充值落在带外,所以重试是手动的。
+    expect(screen.getByText('chat.amrError.rechargeCta')).toBeTruthy();
+    expect(screen.getByTestId('chat-error-retry')).toBeTruthy();
+  });
+
+  /*
+   * 反向:补查还没回来的那一格**不出白卡**。否则每次余额不足都要先闪一下
+   * 白卡再换成升级卡 —— 用户 2026-09-02 裁决的「一张卡」会被闪成两张。
+   */
+  it('补查还没落地时,一张卡都不画(不闪白卡)', () => {
+    const { container } = renderChat({
+      messages: [failedMidRun({ code: 'AMR_INSUFFICIENT_BALANCE' })],
+      amrBalanceCardUsd: null,
+      amrBalanceCardUnavailable: false,
+    });
+
+    expect(screen.queryByTestId('chat-upgrade-card')).toBeNull();
+    expect(genericErrorCard(container)).toBeNull();
   });
 
   it('余额 > 0 的那一档同样只有一张卡(告警档)', () => {

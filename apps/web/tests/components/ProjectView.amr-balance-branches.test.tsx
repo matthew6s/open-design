@@ -431,6 +431,27 @@ function renderProjectView(overrides: Partial<ComponentProps<typeof ProjectView>
   return render(projectViewElement(overrides));
 }
 
+/**
+ * 按下〔发送〕—— **等到这一按真的会被受理为止**。
+ *
+ * 按钮一渲染就在,但会话流水还在加载:那段时间 `sendDisabled` 是真的
+ * (`currentConversationLoading`),按下去什么都不会发生。之前这里是渲染完
+ * 立刻按,赢的只是「本机上 `listMessages` 恰好比第一帧先落」那几毫秒 ——
+ * CI 上慢过 5ms 就整条判定路都走不到,弹窗和卡片一个都不出,`waitFor` 白等
+ * 3 秒然后报「找不到弹窗」,看起来像产品坏了。实测阈值在 1ms 和 5ms 之间。
+ *
+ * 和 `tests/components/w62-mid-run-balance-wiring.test.tsx` 的 `sendOnce`
+ * 同一条纪律:先证明这一按会被受理,再断言它的后果。
+ */
+async function clickSendWhenReady() {
+  await screen.findByTestId('normal-send');
+  await waitFor(() =>
+    expect((screen.getByTestId('normal-send') as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(screen.getByTestId('normal-send'));
+}
+
+
 /** 一份可用的钱包读数,余额由调用方给。 */
 const snapshot = (balanceUsd: string): AmrWalletSnapshot => ({
   status: 'available',
@@ -495,8 +516,7 @@ describe('余额不足:身份 × 订阅的四种分支', () => {
     workspaceScopeMocks.ambientContext = context;
     mockedCheckAmrBalanceGate.mockResolvedValue(gate as never);
     renderProjectView({ project: { ...project(), pendingPrompt: null } as never });
-    await screen.findByTestId('normal-send');
-    fireEvent.click(screen.getByTestId('normal-send'));
+    await clickSendWhenReady();
   }
 
   /** 卡出现了吗(ProjectView 交给 ChatPane 的那个余额)。 */
@@ -635,8 +655,7 @@ describe('死胡同:没有账单权限的成员必须拿到一条前进的路', 
     workspaceScopeMocks.ambientContext = callerContext('member', 'team_pro');
     mockedCheckAmrBalanceGate.mockResolvedValue(EMPTY_WALLET as never);
     render(projectViewElement({ project: { ...project(), pendingPrompt: null } as never }));
-    await screen.findByTestId('normal-send');
-    fireEvent.click(screen.getByTestId('normal-send'));
+    await clickSendWhenReady();
 
     const dialog = await screen.findByTestId('amr-balance-owner-dialog');
     // 一条真正的前进的路:把该说的话交到他手上,而不是让他自己猜该找谁。
@@ -695,8 +714,7 @@ describe('守卫:判定放行时四种分支一个都不许冒出来', () => {
     workspaceScopeMocks.ambientContext = context;
     mockedCheckAmrBalanceGate.mockResolvedValue({ kind: 'allow' });
     render(projectViewElement({ project: { ...project(), pendingPrompt: null } as never }));
-    await screen.findByTestId('normal-send');
-    fireEvent.click(screen.getByTestId('normal-send'));
+    await clickSendWhenReady();
 
     await waitFor(() => expect(mockedStreamViaDaemon).toHaveBeenCalled());
     expect(screen.getByTestId('amr-balance-card-prop').textContent).toBe('none');

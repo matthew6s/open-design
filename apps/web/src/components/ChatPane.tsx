@@ -128,6 +128,7 @@ import {
   amrPlansUrlForProfile,
   amrRechargeUrlForProfile,
   daemonFailureVerdictFrom,
+  failureCardHandedToAmrBalanceCard,
   formatModelWindowRetryAt,
   hasSelfContainedRecovery,
   isReconnectOwnedFailure,
@@ -734,6 +735,19 @@ interface Props {
    */
   amrBalanceCardUsd?: number | null;
   /**
+   * **失败之后的那次钱包补查已经落地,而且没读出数字。**
+   *
+   * 只有跑到一半死在余额上那条路用得着它。那条失败自己**不带余额**,升级卡的
+   * 数字要由 `ProjectView` 事后补查一次(`amrInsufficientBalanceFailureMessageId`)。
+   * 补查落空时升级卡画不出来,而报错卡又已经把自己交给了升级卡 —— 两边都不画,
+   * 用户在一轮「钱不够」之后屏幕上什么都不剩,没有充值入口也没有重试。
+   *
+   * 所以这一位说的是「接手方接不住」:置 true 时把白色报错卡还回来。
+   * 补查**还没落地**时它是 false —— 那一格什么都不画,免得每次都先闪一下白卡
+   * 再换成升级卡,把「一张卡」闪成两张。
+   */
+  amrBalanceCardUnavailable?: boolean;
+  /**
    * 升级卡那颗按钮点下去做什么。给了就用它,没给就退回本组件自己的 plans 深链。
    *
    * 之所以由调用方给:**点了跳哪由身份 × 订阅决定**(规格 §6.V 的四组),而那份
@@ -1249,6 +1263,7 @@ export function ChatPane({
   onOpenSettings,
   onSwitchModel,
   amrBalanceCardUsd = null,
+  amrBalanceCardUnavailable = false,
   onAmrBalanceUpgrade,
   showByokRecoveryAction = false,
   onSwitchToLocalCli,
@@ -2117,15 +2132,23 @@ export function ChatPane({
   // 还是两种说法,正是设计稿要避免的。判据两条线索都看:结构化的 code,和这条码
   // 引入之前落库的原文 —— 跟 `ProjectView.hasGenericDisconnectFailureEvent` 同一对。
   // 面板级的那条错误(还没落到消息上)也要过这一道,否则重连行在场时它照样冒出来。
-  const reconnectOwnsFailure =
-    runFailureUi?.suppressCard === true
+  //
+  // `suppressCard` 是**交接**,不是删除:它说的是「别人已经在说这件事了」。
+  // 断线那一档的接手方(重连行)一定在场;余额那一档的接手方是升级卡,而升级卡
+  // 只有在钱包补查读出确定数字时才画得出来 —— 接不住的时候没有任何人在说话,
+  // 这时还按下白卡,用户在一轮「钱不够」的失败之后屏幕上什么都不剩,没有充值
+  // 入口也没有重试。所以交接只在接手方真的在场时成立。
+  const balanceCardCannotTakeTheHandoff =
+    failureCardHandedToAmrBalanceCard(runFailureUi) && amrBalanceCardUnavailable;
+  const anotherSurfaceOwnsFailure =
+    (runFailureUi?.suppressCard === true && !balanceCardCannotTakeTheHandoff)
     || isReconnectOwnedFailure(failedRunErrorEvent?.code, rawError);
   // 面板里那段字是不是**这一轮自己**的上游原文。见上面兜底那两条件的说明。
   const globalErrorIsThisRunsRawText =
     !!currentGlobalError
     && errorSourceAssistantId != null
     && errorSourceAssistantId === retryAssistant?.id;
-  const displayError = reconnectOwnsFailure
+  const displayError = anotherSurfaceOwnsFailure
     ? null
     : runFailureUi?.messageKey
       ? t(runFailureUi.messageKey, { agent: failedAgentLabel, ...runFailureMessageVars })

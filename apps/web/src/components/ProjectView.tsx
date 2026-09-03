@@ -2731,9 +2731,24 @@ export function ProjectView({
     () => amrInsufficientBalanceFailureMessageId(messages),
     [messages],
   );
+  /**
+   * **补查落空了没有。** 落空 = 报错卡那一半没人接得住,得还回去。
+   *
+   * 三态,不是两态:`false` 同时覆盖「没有这样一轮失败」和「补查还在路上」——
+   * 这两格都不该画白卡。前者本来就没有失败可说,后者画了就会先闪一下白卡再
+   * 换成升级卡,把裁决里的「一张卡」闪成两张。只有**查完了、确实没有数字**
+   * 那一格才置 true。
+   */
+  const [amrBalanceFailureWalletUnavailable, setAmrBalanceFailureWalletUnavailable] =
+    useState(false);
   useEffect(() => {
-    if (!amrBalanceFailureMessageId) return;
+    if (!amrBalanceFailureMessageId) {
+      setAmrBalanceFailureWalletUnavailable(false);
+      return;
+    }
     let cancelled = false;
+    // 换了一轮失败就重新查:上一轮的结论不能替这一轮回答。
+    setAmrBalanceFailureWalletUnavailable(false);
     void (async () => {
       // 失败事件本身**不带余额**(daemon 的 `classifyAmrAccountFailure` 只给出
       // 错误码),所以数字只能现查。`refresh` 让 daemon 走一次上游;上游不通时
@@ -2742,8 +2757,15 @@ export function ProjectView({
       if (cancelled) return;
       // 读不出确定的数字就**什么都不念**。这张卡把余额报给用户,编一个出来
       // 比不出卡更糟 —— 判定用的是和闸门同一条解析规则,两处不另算。
+      //
+      // 但「不念数字」不等于「不给出路」:这一轮是死在钱上的,充值入口是它
+      // 唯一的自救口。所以这里把落空**说出来**,由 ChatPane 把白色报错卡
+      // (充值 + 重试)还回来,而不是两张卡都不画、屏幕上什么都不剩。
       const balanceUsd = amrBalanceCardBalanceUsd(snapshot);
-      if (balanceUsd == null) return;
+      if (balanceUsd == null) {
+        setAmrBalanceFailureWalletUnavailable(true);
+        return;
+      }
       setAmrBalanceCardUsd(balanceUsd);
       setAmrBalanceCardProfile(snapshot?.profile ?? null);
     })();
@@ -12544,6 +12566,7 @@ export function ProjectView({
               config={config}
               onOpenSettings={onOpenSettings}
               amrBalanceCardUsd={amrBalanceCardUsd}
+              amrBalanceCardUnavailable={amrBalanceFailureWalletUnavailable}
               onAmrBalanceUpgrade={handleAmrBalanceCardUpgrade}
               showByokRecoveryAction={
                 config.mode === 'api' &&

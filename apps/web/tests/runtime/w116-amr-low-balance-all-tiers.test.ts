@@ -193,7 +193,7 @@ describe('OPEND-2600 · 个人工作区低余额提醒', () => {
   });
 
   it('套餐读不出来(null 档)+ $1.79 也要提醒 —— 这一档不能掉进缝里', async () => {
-    // `isFreeAmrPlan(null)` 和 `isPaidAmrPlan(null)` 都是 false,两个判据不互补。
+    // 读不出来的档位既不是「免费」也不是「付费」——两个判据不互补,这一档要自己钉。
     mockedFetch.mockResolvedValue(walletWithPlan(REPORTED_BALANCE, null));
     stubWorkspaceBilling('ws-unknown', 'wm-unknown', REPORTED_BALANCE);
 

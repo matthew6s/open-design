@@ -465,7 +465,13 @@ describe('余额判定的呈现:告警只出卡,拦截才弹窗', () => {
   ) {
     mockedCheckAmrBalanceGate.mockResolvedValue(gate as never);
     renderProjectView({ project: { ...project(), pendingPrompt: null } as never });
+    // 按钮一渲染就在,但流水还在加载 —— 那段时间 `sendDisabled` 是真的,按下去
+    // 什么都不会发生,后面每一条断言都只是赢在「什么都还没发生」上。CI 上慢过
+    // 几毫秒就整条判定路都走不到(实测阈值在 1ms 和 5ms 之间)。先等它可用。
     await screen.findByTestId('normal-send');
+    await waitFor(() =>
+      expect((screen.getByTestId('normal-send') as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByTestId('normal-send'));
   }
 

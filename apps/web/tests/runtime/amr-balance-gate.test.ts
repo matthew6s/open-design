@@ -900,9 +900,9 @@ describe('checkAmrBalanceGate personal fail-open guard', () => {
   });
 
   it('fails open at zero balance when the plan cannot be resolved at all', async () => {
-    // `isFreeAmrPlan(null)` and `isPaidAmrPlan(null)` are BOTH false — the two
-    // predicates are not complements, so this tier needs its own pin. Failing
-    // open means "not blocked"; it still earns the reminder.
+    // An unreadable tier is not free, and it is not paid either — "free" and
+    // "paid" are not complements, so this tier needs its own pin. Failing open
+    // means "not blocked"; it still earns the reminder.
     const unknownPlan = snapshot({ balanceUsd: '0' });
     mockedFetch
       .mockResolvedValueOnce({ ...unknownPlan, source: 'daemon_cache' })

@@ -281,6 +281,7 @@ vi.mock('../../src/components/ChatPane', () => ({
     sendDisabled?: boolean;
     queuedItems?: Array<{ prompt: string }>;
     amrBalanceCardUsd?: number | null;
+    amrBalanceCardUnavailable?: boolean;
     onSend?: (
       prompt: string,
       attachments: [],
@@ -293,6 +294,9 @@ vi.mock('../../src/components/ChatPane', () => ({
         <div data-testid="active-conversation">{props.activeConversationId ?? ''}</div>
         <div data-testid="amr-balance-card-prop">
           {props.amrBalanceCardUsd == null ? 'none' : String(props.amrBalanceCardUsd)}
+        </div>
+        <div data-testid="amr-balance-unavailable-prop">
+          {props.amrBalanceCardUnavailable === true ? 'yes' : 'no'}
         </div>
         <button
           type="button"
@@ -540,5 +544,58 @@ describe('跑到一半余额不足:谁点亮升级卡', () => {
 
     await waitFor(() => expect(mockedFetchAmrWalletSnapshot).toHaveBeenCalled());
     expect(screen.getByTestId('amr-balance-card-prop').textContent).toBe('none');
+  });
+
+  /*
+   * 但「不念数字」不等于「不给出路」。报错卡已经把自己交给了升级卡
+   * (`amr-guidance` 的 `suppressCard`),升级卡又画不出来 —— 两边都不画,
+   * 用户在一轮死在钱上的失败之后屏幕上什么都不剩:没有充值入口,也没有重试。
+   * 那是这条 P0 路唯一的自救口(`e2e/ui/amr-run-failure-recovery.test.ts:118`)。
+   *
+   * 所以补查落空要**说出来**,由 ChatPane 把白卡还回来。这一条钉的是那个信号。
+   */
+  it('补查落空要报给聊天面板,好让白卡还回来', async () => {
+    mockedFetchAmrWalletSnapshot.mockResolvedValue({
+      ...snapshot('0'),
+      status: 'unavailable',
+      balanceUsd: null,
+    });
+    failMidRunWith('AMR_INSUFFICIENT_BALANCE');
+
+    await sendOnce();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('amr-balance-unavailable-prop').textContent).toBe('yes'),
+    );
+  });
+
+  // 反向对照:读得出数字的那一格不许置位 —— 置了就会在升级卡旁边多出一张白卡,
+  // 正是 2026-09-02 裁决要消掉的那两张。
+  it('读得出数字时不报落空', async () => {
+    mockedFetchAmrWalletSnapshot.mockResolvedValue(snapshot('0'));
+    failMidRunWith('AMR_INSUFFICIENT_BALANCE');
+
+    await sendOnce();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('amr-balance-card-prop').textContent).toBe('0'),
+    );
+    expect(screen.getByTestId('amr-balance-unavailable-prop').textContent).toBe('no');
+  });
+
+  // 反向对照:根本不是余额那一档的失败,不许报落空 —— 那会让别的失败的白卡
+  // 走上一条它不该走的判据。
+  it('别的失败不报落空', async () => {
+    mockedFetchAmrWalletSnapshot.mockResolvedValue({
+      ...snapshot('0'),
+      status: 'unavailable',
+      balanceUsd: null,
+    });
+    failMidRunWith('AGENT_EXECUTION_FAILED');
+
+    await sendOnce();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByTestId('amr-balance-unavailable-prop').textContent).toBe('no');
   });
 });

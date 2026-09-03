@@ -373,12 +373,38 @@ export interface RunFailureUi {
   /**
    * Draw no error card at all — some other surface already owns this story.
    *
-   * Only the browser↔daemon stream drop sets it, and only because the
-   * reconnect line at the tail of the conversation (grid 82–84, S29) is
-   * already saying the same thing with the right button. Two blocks of UI for
-   * one event, in two different wordings, is exactly what the design forbids.
+   * Two failures set it. The browser↔daemon stream drop hands its card to the
+   * reconnect line at the tail of the conversation (grid 82–84, S29), which is
+   * already saying the same thing with the right button; the insufficient
+   * balance hands its card to the upgrade card (component 18). Two blocks of
+   * UI for one event, in two different wordings, is exactly what the design
+   * forbids.
+   *
+   * This is a HAND-OFF, not a delete: it is only true while the surface named
+   * above is actually on screen. The reconnect line always is. The upgrade card
+   * is conditional — see `failureCardHandedToAmrBalanceCard`.
    */
   suppressCard?: boolean;
+}
+
+/**
+ * Is this the failure whose card is handed to the AMR upgrade card, rather
+ * than to the always-present reconnect line?
+ *
+ * The distinction matters because that receiver is conditional: the upgrade
+ * card only renders once a wallet read returns a definite number, and the
+ * failure event itself carries no balance. When that read comes back empty
+ * nobody is telling the story, and honouring the hand-off would leave a run
+ * that died for lack of funds with no top-up entry and no retry — the one
+ * self-rescue path this failure has.
+ *
+ * Callers must therefore confirm the upgrade card is on screen before
+ * honouring `suppressCard` for this failure.
+ */
+export function failureCardHandedToAmrBalanceCard(
+  ui: RunFailureUi | null | undefined,
+): boolean {
+  return ui?.suppressCard === true && ui.primaryAction === 'recharge';
 }
 
 /**
