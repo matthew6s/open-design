@@ -40,7 +40,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../../src/components/ChatPane';
 import {
   ANCHOR_TOP_PADDING,
+  TAIL_SPACER_COLLAPSE_STEP_PX,
+  TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX,
   anchorScrollTop,
+  anchorSpacerHeight,
 } from '../../src/runtime/chat/anchor-to-top';
 import type { ChatMessage } from '../../src/types';
 import { flushMounts, pressEnter, typeAndSettle } from '../helpers/lexical-composer';
@@ -736,5 +739,241 @@ describe('不画出来的那条用户消息,不能拿上一轮的气泡去钉', 
 
     expect(geom.scrollTop).toBe(anchoredScrollTop());
     expect(tailSpacerHeight()).toBe(VIEWPORT - USER_MSG_H - ANCHOR_TOP_PADDING);
+  });
+});
+
+/*
+ * ── W105:会话中段那块大空白 ─────────────────────────────────────────────
+ *
+ * 用户实机报的:agent 正在跑,内容只占屏幕上面一小块,下面一大片空白,浮动药丸
+ * 孤零零挂在最底下。那块空白不是容器内距(20→52px)给的,是**尾部占位块**给的 ——
+ * 实测 215~301px,比内距大 4~15 倍。
+ *
+ * 它只在「钉顶」还活着的时候跟着回复收。用户一旦滚开超过 40px,占位块就冻在
+ * 原地不动了(上一格 `describe` 钉的就是这个);实测一轮开始定到 215px,之后
+ * 32 秒纹丝不动,而这期间内容长了 522px。
+ *
+ * 拍板的做法是**方案 B:只在用户贴近底部时收**。「贴近底部」不按像素门槛算,
+ * 按「这块空白到底有没有戳进视口」算(见 `anchor-to-top.ts` 里那段推导):
+ * 露出来超过 52px 就起手,一帧最多挪动画面 24px,一路收到位。
+ */
+describe('W105 松手之后的尾部占位块:空白戳到眼前才收', () => {
+  /** 单独走一帧 rAF —— 收缩是一帧一格的,`flushFrames` 一次跑 6 轮看不清。 */
+  async function stepFrame() {
+    await act(async () => {
+      rafCallbacks.splice(0).forEach((callback) => callback(performance.now()));
+      await Promise.resolve();
+    });
+  }
+
+  /** 把视图挪到 `top` 并发一个真实 scroll —— 用户的手就是这么进来的。 */
+  async function userScrollTo(top: number) {
+    await act(async () => {
+      geom.scrollTop = Math.min(Math.max(0, top), maxScrollTop());
+      fireEvent.scroll(chatLog());
+      await Promise.resolve();
+    });
+  }
+
+  /**
+   * 一帧一帧走到占位块不再变 —— 完成信号,不是拍脑袋的帧数。
+   * 每一帧记下(占位块高度, scrollTop),后面的不变量全从这条曲线上读。
+   */
+  async function collapseTrace(maxFrames = 60) {
+    const trace: { spacer: number; scrollTop: number }[] = [
+      { spacer: tailSpacerHeight(), scrollTop: geom.scrollTop },
+    ];
+    for (let i = 0; i < maxFrames; i += 1) {
+      await stepFrame();
+      const last = trace[trace.length - 1]!;
+      const next = { spacer: tailSpacerHeight(), scrollTop: geom.scrollTop };
+      trace.push(next);
+      if (
+        next.spacer === last.spacer
+        && next.scrollTop === last.scrollTop
+        && rafCallbacks.length === 0
+      ) {
+        break;
+      }
+    }
+    return trace;
+  }
+
+  /**
+   * 一轮跑起来、用户已经自己滚开、回复又长了 500px 的那个局面。
+   * 这就是缺陷现场:占位块冻在 508,底下 500px 全是新内容。
+   */
+  async function midRunAfterUserScrolledAway(scrollUpBy: number) {
+    const { rerender } = render(chatPaneEl(history(), false));
+    await flushMounts();
+    await flushFrames();
+
+    arriveNewUserTurn();
+    await act(async () => {
+      rerender(chatPaneEl(withNewTurn(null), true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+    // 夹具自检:钉顶确实撑出了那块空白,而且这个数不是 0。
+    expect(tailSpacerHeight()).toBe(508);
+    expect(geom.scrollTop).toBe(anchoredScrollTop());
+
+    // 用户自己往上滚 —— 超过 40px 容差,钉顶松手,占位块从此冻住。
+    await userScrollTo(anchoredScrollTop() - scrollUpBy);
+
+    // 回复接着长了 500px。
+    geom.contentHeight += 500;
+    await act(async () => {
+      rerender(chatPaneEl(withNewTurn('a'.repeat(400)), true));
+    });
+    await flushFrames();
+    await triggerResize();
+    return { rerender };
+  }
+
+  /*
+   * ── 防真空:先证明这条量法看得见「冻住」本身 ────────────────────────
+   *
+   * 不先钉住这一条,后面的正向用例就有可能是在量一个根本不存在的现象。
+   */
+  it('夹具自检:松手之后占位块确实冻在 508,而回复已经长了 500px', async () => {
+    await midRunAfterUserScrolledAway(60);
+
+    expect(tailSpacerHeight()).toBe(508);
+    // 底下 500px 新内容 + 508 空白,而钉顶那会儿真内容只有 80px。
+    expect(geom.contentHeight).toBe(4_580);
+    // 而「该收到多少」早就是 8 了 —— 冻住的是执行,不是判据。
+    expect(
+      anchorSpacerHeight({
+        clientHeight: VIEWPORT,
+        scrollHeight: geom.contentHeight + tailSpacerHeight(),
+        spacerHeight: tailSpacerHeight(),
+        messageTopInContent: geom.lastUserTopInContent,
+      }),
+    ).toBe(8);
+  });
+
+  /*
+   * ── 正向 ────────────────────────────────────────────────────────────
+   */
+  it('用户滚回底部、空白戳到眼前 —— 占位块必须收掉', async () => {
+    await midRunAfterUserScrolledAway(60);
+
+    // 用户自己滚回底部(此刻底下 500px 是内容,再底下 508 才是空白)。
+    await userScrollTo(maxScrollTop());
+    const trace = await collapseTrace();
+
+    // 收到位:只剩「消息还够得着顶端」所需的那 8px。
+    expect(trace[trace.length - 1]!.spacer).toBe(8);
+    // 而且屏幕上真的没有空白了:贴着底时露出来的空白 = 占位块 − 离底距离。
+    const blankOnScreen = tailSpacerHeight() - (maxScrollTop() - geom.scrollTop);
+    expect(blankOnScreen).toBeLessThanOrEqual(TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX);
+  });
+
+  it('离底很远(空白整块在折线以下)—— 一个像素都不许动', async () => {
+    await midRunAfterUserScrolledAway(60);
+
+    // 用户在中间读东西:离底 800px,508 的空白全在他看不见的地方。
+    await userScrollTo(maxScrollTop() - 800);
+    const before = { spacer: tailSpacerHeight(), scrollTop: geom.scrollTop };
+    const trace = await collapseTrace();
+
+    expect(trace[trace.length - 1]!).toEqual(before);
+  });
+
+  /*
+   * ── 反向对照 1:占位块存在的**全部理由**不能被收没了 ────────────────
+   */
+  it('收完之后,下一条新消息照样滚到屏幕最顶', async () => {
+    const { rerender } = await midRunAfterUserScrolledAway(60);
+    await userScrollTo(maxScrollTop());
+    await collapseTrace();
+    expect(tailSpacerHeight()).toBe(8);
+
+    // 用户接着又发了一条。
+    const withFollowUp = withNewTurn('a'.repeat(400));
+    withFollowUp.push({
+      id: 'u-follow-up', role: 'user', content: 'now make it dark',
+      createdAt: 1_700_000_002_000,
+    });
+    geom.lastUserTopInContent = geom.contentHeight;
+    geom.contentHeight += USER_MSG_H;
+    await act(async () => {
+      rerender(chatPaneEl(withFollowUp, true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    expect(geom.scrollTop).toBe(anchoredScrollTop());
+    expect(tailSpacerHeight()).toBe(VIEWPORT - USER_MSG_H - ANCHOR_TOP_PADDING);
+  });
+
+  /*
+   * ── 反向对照 2:阈值边界上反复微滚,不许来回抖 ──────────────────────
+   *
+   * 这是方案 B 最可能的坑:门槛附近手抖一下,空白就跟着一涨一缩。
+   * 护栏有两条 —— 起手判据只问一次(闩),以及收缩本身只减不增。
+   */
+  it('在起手门槛两侧反复微滚,占位块只单调收一次,之后再也不动', async () => {
+    await midRunAfterUserScrolledAway(60);
+
+    // 停在「露出来的空白正好 52px」那条线上 —— 门槛本身,不含。
+    await userScrollTo(maxScrollTop() - (508 - TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX));
+    expect(tailSpacerHeight()).toBe(508);
+
+    const heights: number[] = [tailSpacerHeight()];
+    const jumps: number[] = [];
+    // 门槛两侧来回微滚 12 次,每次 4px。
+    for (let i = 0; i < 12; i += 1) {
+      const before = geom.scrollTop;
+      await userScrollTo(before + (i % 2 === 0 ? 4 : -4));
+      const trace = await collapseTrace();
+      for (let f = 1; f < trace.length; f += 1) {
+        heights.push(trace[f]!.spacer);
+        jumps.push(Math.abs(trace[f]!.scrollTop - trace[f - 1]!.scrollTop));
+      }
+    }
+
+    // 只减不增:整条曲线单调不上升。
+    for (let i = 1; i < heights.length; i += 1) {
+      expect(heights[i]!).toBeLessThanOrEqual(heights[i - 1]!);
+    }
+    // 确实收了(不是靠「一次都没动」蒙混过关)。
+    expect(heights[heights.length - 1]!).toBe(8);
+    // 而且**每一帧**画面挪动都不超过一格预算 —— 这就是「往下滚不会跳」。
+    expect(Math.max(...jumps)).toBeLessThanOrEqual(TAIL_SPACER_COLLAPSE_STEP_PX);
+  });
+
+  /*
+   * ── 反向对照 3:流式期间锚点不许跳 ──────────────────────────────────
+   *
+   * 用户不动手的那条主路(钉顶还活着)必须一个字都没变。
+   */
+  it('用户不动手的一轮:整轮锚点纹丝不动,收缩仍旧走原来那条路', async () => {
+    const { rerender } = render(chatPaneEl(history(), false));
+    await flushMounts();
+    await flushFrames();
+
+    arriveNewUserTurn();
+    await act(async () => {
+      rerender(chatPaneEl(withNewTurn(null), true));
+    });
+    await flushFrames();
+    await advanceSmoothScroll();
+
+    const positions: number[] = [geom.scrollTop];
+    for (let chunk = 1; chunk <= 5; chunk += 1) {
+      geom.contentHeight += 100;
+      await act(async () => {
+        rerender(chatPaneEl(withNewTurn('a'.repeat(chunk * 80)), true));
+      });
+      await flushFrames();
+      await triggerResize();
+      positions.push(geom.scrollTop);
+    }
+
+    expect(new Set(positions)).toEqual(new Set([anchoredScrollTop()]));
+    // 500px 内容长出来之后,占位块按原公式收到 8。
+    expect(tailSpacerHeight()).toBe(8);
   });
 });

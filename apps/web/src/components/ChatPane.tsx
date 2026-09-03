@@ -1,6 +1,7 @@
 import { QuoteBar } from './chat/QuoteBar';
 import { shouldShowJumpToLatest } from '../runtime/chat/jump-to-latest';
 import {
+  distanceFromBottom,
   isAtBottom as isSampleAtBottom,
   nextFollowIntent,
   type FollowIntent,
@@ -8,10 +9,13 @@ import {
 } from '../runtime/chat/stick-to-bottom';
 import {
   ANCHOR_TOP_PADDING,
+  TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX,
   anchorReleasedByScroll,
   anchorScrollTop,
   anchorSpacerHeight,
   isNewTailUserTurn,
+  nextCollapsingTailSpacerHeight,
+  shouldStartCollapsingTailSpacer,
 } from '../runtime/chat/anchor-to-top';
 import { appendQuoteOutcome, type ChatQuote } from '../runtime/chat/quote-selection';
 import {
@@ -1456,6 +1460,21 @@ export function ChatPane({
   const settledTailUserIdRef = useRef<string | null | undefined>(undefined);
   const anchorActiveRef = useRef(false);
   const tailSpacerRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * 松手之后那块预留空白正在收 —— 见 `stepTailSpacerCollapse`。
+   *
+   * 这是方案 B 换来的那一份额外状态,而它换回来的是**边界不抖**:
+   * 「够不够收」这个问题一块空白只问一次,问过之后就闩上一路收到位。
+   * 每帧重问的话,门槛附近手抖一下,答案就跟着手来回翻。
+   */
+  const tailSpacerCollapsingRef = useRef(false);
+  /*
+   * 「几何变了,去重算一次」的入口。它归下面那个 Resize/Mutation observer 的
+   * effect 所有(帧的取消也写在那条 effect 的清理里),而 scroll 监听在**另一条**
+   * effect 上,拿不到那个闭包。用 ref 转一手,而不是把两条 effect 并成一条 ——
+   * 它们的依赖和生命周期本来就不一样。effect 不在时这里是空操作。
+   */
+  const scheduleFollowSyncRef = useRef<() => void>(() => {});
   const chatRailHighlightTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [chatRailHighlightedMessageId, setChatRailHighlightedMessageId] =
     useState<string | null>(null);
@@ -2660,6 +2679,26 @@ export function ChatPane({
       // scroll 事件不会每一跳都排一次重渲,也就不会撞上 React 的
       // "Maximum update depth exceeded"。
       syncFollowState();
+      /*
+       * 用户的手停在贴近底部的位置时,那块冻住的预留空白要开始收。
+       *
+       * 这一格是**回合卡住时唯一的驱动源**:收缩平时挂在内容变化的
+       * Resize/Mutation 观察者上,而 agent 长时间不吐字的那几十秒里一个都不来 ——
+       * 偏偏那正是用户盯着一屏空白的时候。这里只排一帧(rAF 内部自会合并),
+       * 判据仍在 `stepTailSpacerCollapse` 里,不在这儿抢答。
+       *
+       * ⚠️ 门槛写在这里是**故意**的,不是提前抢答:比门槛还矮的空白**永远**起不了手
+       * (`shouldStartCollapsingTailSpacer` 的第一条),给它排帧只会在流式期间每来
+       * 一个 scroll 事件就多跑一趟空转 —— 那种空转正是「自喂环」的柴火。已经在收的
+       * 那一块要放行,否则收到一半、内容又不长了,就卡在半路。
+       */
+      if (
+        !anchorActiveRef.current
+        && (tailSpacerCollapsingRef.current
+          || reservedTailHeight() > TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX)
+      ) {
+        scheduleFollowSyncRef.current();
+      }
     }
 
     /*
@@ -2756,7 +2795,11 @@ export function ChatPane({
         // While anchored, only shrink the tail spacer as the reply grows
         // (resize-only, never scroll) so the user message stays put without
         // fighting a manual scroll-down.
+        // 松手之后走另一条:那块冻住的空白只在戳进视口时才收,而且一帧一格。
+        // 两条互斥 —— 上面那条是等量置换,这条是净减,混用会晃掉锚点。
+        let collapsing = false;
         if (anchorActiveRef.current) sizeAnchorSpacer();
+        else collapsing = stepTailSpacerCollapse();
         syncFollowState();
         // A layout-only resize changes the geometry that the next scroll
         // event is compared against. Refresh the baseline after the resize
@@ -2764,8 +2807,13 @@ export function ChatPane({
         // the old scrollHeight and is mistaken for another layout correction.
         const target = logRef.current;
         if (target) rememberScrollSample(target);
+        // 还没收完就再要一帧。挂在这个 rAF 上而不是自己另起一条:`followFrame`
+        // 的取消已经写在这个 effect 的清理里,收缩跟着一起停,不会漏一条飞着的帧。
+        if (collapsing) scheduleFollowSync();
       });
     };
+    // scroll 监听在另一条 effect 上,拿不到这个闭包 —— 见 `scheduleFollowSyncRef`。
+    scheduleFollowSyncRef.current = scheduleFollowSync;
 
     const resizeObserver =
       typeof ResizeObserver !== 'undefined'
@@ -2852,6 +2900,7 @@ export function ChatPane({
 
     return () => {
       if (followFrame !== null) cancelAnimationFrame(followFrame);
+      scheduleFollowSyncRef.current = () => {};
       mutationObserver?.disconnect();
       resizeObserver?.disconnect();
     };
@@ -2891,6 +2940,10 @@ export function ChatPane({
   function resetTailSpacer() {
     const s = tailSpacerRef.current;
     if (s) s.style.height = '0px';
+    // 闩是「这一块空白正在收」的状态,和这块空白同生共死。新一轮、回合结束、
+    // 点「回到最新」、切会话都会走到这里,闩必须跟着一起清掉,否则下一轮的
+    // 预留空白会带着上一轮的闩出生 —— 一撑出来就被当成「收到一半」接着收。
+    tailSpacerCollapsingRef.current = false;
   }
 
   /*
@@ -3178,6 +3231,65 @@ export function ChatPane({
       spacerHeight: spacer.offsetHeight,
       messageTopInContent: msgTopInContent,
     })}px`;
+  }
+
+  /**
+   * 松手之后,把那块预留空白往回收一帧。返回 `true` = 还没收完,请再给一帧。
+   *
+   * ## 为什么松手之后还要收
+   *
+   * 钉顶松手时占位块是**冻住**的(见 `onScroll` 那段注释:留着当真实可滚区域,
+   * 往下滚才不会突然到底)。代价是它整轮不动:实测一轮开始撑到 215px,32 秒后
+   * 还是 215px,而这期间回复长了 522px。用户滚回底部看到的就是「内容一小块,
+   * 下面一大片空白,浮动药丸孤零零挂在最底」。
+   *
+   * ## 什么时候收 —— 不是「离底 N 像素」,是「这块空白戳没戳进视口」
+   *
+   * 判据全在 `anchor-to-top.ts` 的 `shouldStartCollapsingTailSpacer` 里,那边有
+   * 完整推导。这里只说结论:露出来超过 52px 才起手,起手之后闩上一路收到位,
+   * 一帧最多让画面挪动 24px。三条合起来就是三个不变量 ——
+   *
+   *   · 用户在中间读东西时(空白整块在折线以下)一个像素都不动;
+   *   · 门槛两侧反复微滚不会抖:起手只问一次,收缩只减不增;
+   *   · 往下滚不会「跳」:单帧位移上限比一格触控板滚动还小。
+   *
+   * ## 【不变量】钉顶还活着的时候不许走这条路
+   *
+   * 那条路是 `sizeAnchorSpacer`,它是**等量置换**(内容长多少、空白收多少,总高
+   * 恒定),所以钉住的消息一动不动。这里是**净减**,会把 `scrollTop` 夹回来。
+   * 两条混用就会在流式期间把锚点晃掉,所以调用点只在 `anchorActiveRef` 为假时进。
+   */
+  function stepTailSpacerCollapse(): boolean {
+    const el = logRef.current;
+    const spacer = tailSpacerRef.current;
+    if (!el || !spacer) return false;
+    const spacerHeight = reservedTailHeight();
+    if (spacerHeight <= 0) {
+      tailSpacerCollapsingRef.current = false;
+      return false;
+    }
+    const messageTopInContent = lastUserMsgTopInContent(el);
+    if (messageTopInContent === null) return false;
+    // 真实几何,不扣预留空白 —— 会不会被浏览器夹取看的就是这一份。
+    const viewport = readViewportSample(el);
+    const geometry = {
+      spacerHeight,
+      targetHeight: anchorSpacerHeight({
+        clientHeight: viewport.clientHeight,
+        scrollHeight: viewport.scrollHeight,
+        spacerHeight,
+        messageTopInContent,
+      }),
+      distanceFromBottom: distanceFromBottom(viewport),
+    };
+    if (!tailSpacerCollapsingRef.current) {
+      if (!shouldStartCollapsingTailSpacer(geometry)) return false;
+      tailSpacerCollapsingRef.current = true;
+    }
+    const next = nextCollapsingTailSpacerHeight(geometry);
+    if (next === spacerHeight) return false;
+    spacer.style.height = `${next}px`;
+    return next > geometry.targetHeight;
   }
 
   /**

@@ -73,6 +73,101 @@ export function anchorScrollTop(messageTopInContent: number): number {
   return Math.max(0, messageTopInContent - ANCHOR_TOP_PADDING);
 }
 
+/*
+ * ── 松手之后那块预留空白该怎么办 ──────────────────────────────────────
+ *
+ * 用户自己滚开(`anchorReleasedByScroll`)之后,占位块就不再收缩了 —— 原话是
+ * 「预留的空白留着当真实可滚区域,往下滚才不会突然到底」。代价是它**冻在那儿**:
+ * 一轮开始撑到 200~300px,整轮不动,而回复在这期间长了好几百像素。用户一旦回到
+ * 底部,眼前就是「内容只占上面一小块,下面一大片空白,浮动药丸孤零零挂在最底」。
+ *
+ * 收它的条件不是「用户离底部多少像素」这种拍出来的门槛,而是**这块空白到底有没有
+ * 戳进视口**:
+ *
+ *     屏幕上露出来的空白 = 占位块高度 − 离底距离
+ *
+ * 这个量同时把两件事说清楚了:
+ *
+ *   · 它 > 0 ⇔ 底下已经没有真内容了,剩下的全是我们预留的空 —— 这才是
+ *     「用户贴近底部」的真正含义(不是「离底 N 像素」,而是「下面没东西可读了」);
+ *   · 它 ≤ 0 ⇔ 空白整块在折线以下,用户正在中间读东西,收不收他都看不见,
+ *     那就别动 —— 这正是当初「不收」那条注释要保护的场面。
+ *
+ * 另外它和「回到最新」浮标是**可证互斥**的:浮标的距离读数把占位块扣掉了
+ * (`readContentSample`),所以只要空白还盖在视口里(离底距离 ≤ 占位块高度),
+ * 浮标算出来的距离就是 0,压根不显示。两个东西不会同时出现在屏幕上。
+ */
+
+/**
+ * 露出这么多空白才动手。
+ *
+ * 52 = 药丸让位(`.chat-log.has-plan-pill-reserve` 的 `padding-bottom`)。
+ * 比这还小的一条缝就是流水底部本来就该有的呼吸位,为它挪动画面不划算 ——
+ * 而且这个下限就是边界抖动的护栏:门槛以下一次都不动手。
+ */
+export const TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX = 52;
+
+/**
+ * 一帧最多把可见内容挪动这么多。
+ *
+ * 收掉尾部空白必然要动画面(浏览器会把 `scrollTop` 往回夹),所以问题不是
+ * 「动不动」而是「一次动多少」。上限取 24px:比一格触控板滚动(~40px,
+ * `stick-to-bottom.ts` 里引的就是这个数)还小,于是这套收缩在任何一帧里都
+ * **跑不赢用户自己最小的一次有意滚动**,读起来是「落定」而不是「跳」。
+ * 500px 的空白因此在 21 帧(约 350ms)里收完,和本仓库 UI 动效的时长同量级。
+ */
+export const TAIL_SPACER_COLLAPSE_STEP_PX = 24;
+
+export interface TailSpacerCollapseGeometry {
+  /** 占位块此刻的高度。 */
+  spacerHeight: number;
+  /** 它最终该收到多少 —— 就是 `anchorSpacerHeight` 算出来的那个数。 */
+  targetHeight: number;
+  /** 离**真实**滚动底部还有多远(含占位块,`readViewportSample` 那一份)。 */
+  distanceFromBottom: number;
+}
+
+/** 这块预留空白此刻在屏幕上露出来多少。 */
+export function tailSpacerBlankOnScreen(geometry: TailSpacerCollapseGeometry): number {
+  return Math.max(
+    0,
+    geometry.spacerHeight - Math.max(0, geometry.distanceFromBottom),
+  );
+}
+
+/**
+ * 现在该不该**开始**收。
+ *
+ * 只管起手,不管收到一半 —— 起手之后由调用方把闩扣上一路收到位。分开的理由是
+ * 边界抖动:门槛附近来回微滚时,如果每一帧都重问一次「还够不够 52px」,答案就会
+ * 跟着手来回翻,占位块也跟着一涨一缩。闩上之后这个问题一轮里只问一次。
+ */
+export function shouldStartCollapsingTailSpacer(
+  geometry: TailSpacerCollapseGeometry,
+): boolean {
+  if (geometry.targetHeight >= geometry.spacerHeight) return false;
+  return tailSpacerBlankOnScreen(geometry) > TAIL_SPACER_VISIBLE_BLANK_TRIGGER_PX;
+}
+
+/**
+ * 收缩中的下一帧该是多高。
+ *
+ * 【不变量】**这一帧把可见内容挪动的距离 ≤ `TAIL_SPACER_COLLAPSE_STEP_PX`。**
+ * 证明:浏览器只在 `scrollTop > 新的最大可滚位置` 时才夹取,夹取量正好是
+ * (收缩量 − 离底距离)。这里的收缩量上限是 (离底距离 + 24),所以夹取量 ≤ 24。
+ * 离底距离越大,这一帧越是「白收」——那正是用户在中间读东西的场面,画面一动不动。
+ *
+ * 【不变量】**只减不增。** 内容变矮(折叠块收起、工具卡收拢)会让目标值回涨,
+ * 这里不跟 —— 涨回去就是抖。
+ */
+export function nextCollapsingTailSpacerHeight(
+  geometry: TailSpacerCollapseGeometry,
+): number {
+  if (geometry.targetHeight >= geometry.spacerHeight) return geometry.spacerHeight;
+  const budget = Math.max(0, geometry.distanceFromBottom) + TAIL_SPACER_COLLAPSE_STEP_PX;
+  return Math.max(geometry.targetHeight, geometry.spacerHeight - budget);
+}
+
 /**
  * 占位块按 `anchorSpacerHeight` 定过尺寸之后,能滚到的最大位置。
  *

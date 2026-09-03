@@ -1221,7 +1221,14 @@ describe('尾部预留空白不能把「用户滑走了」这件事吃掉(用户
   it('反面:预留空白在,但用户确实贴在真实底部时,仍然要跟随', async () => {
     /*
      * 这条挡的是「永远不跟随」那种假修法 —— 那样上面两条也会绿。
-     * 预留空白 250px 原封不动,用户停在真实滚动条的最底下,流式内容必须一路跟到新的底。
+     * 用户停在真实滚动条的最底下,流式内容必须**每一步**都跟到新的底。
+     *
+     * ⚠️ 这里原来还钉着「预留空白 250px 原封不动」。W105 之后它不再成立,而且
+     * 那句话本来也不是这条用例要保的东西:它是一句前提陈述,保的是「空白在场时
+     * 跟随照样成立」。空白此刻正戳在用户眼前(他就贴在底上),W105 会把它收掉 ——
+     * 见 `runtime/chat/anchor-to-top.ts` 的 `shouldStartCollapsingTailSpacer`
+     * 和 `tests/components/chat-anchor-to-top.test.tsx` 的 W105 组。
+     * 这条用例改成在**每一步**都验跟随,判别力比原来更强,而不是被放宽。
      */
     const { rerender } = await openAnchoredScreen();
     await rearmFollowByScrollingBack();
@@ -1236,11 +1243,14 @@ describe('尾部预留空白不能把「用户滑走了」这件事吃掉(用户
       });
       await triggerResize();
       await flushFrames();
+      expect(geom.scrollTop).toBe(maxScrollTop());
     }
 
-    expect(tailSpacerHeight()).toBe(250);
+    // 真内容 1700 + 3 × 120 = 2060;空白收干净之后底部就是 2060 − 440。
+    expect(geom.contentHeight).toBe(2_060);
+    expect(tailSpacerHeight()).toBe(0);
     expect(geom.scrollTop).toBe(maxScrollTop());
-    expect(geom.scrollTop).toBe(1870);
+    expect(geom.scrollTop).toBe(1_620);
   });
 
   it('反面:预留空白撑着时,浮标仍然不许被那一屏空白点亮', async () => {
