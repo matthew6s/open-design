@@ -3508,6 +3508,72 @@ describe('ProjectView conversation run isolation', () => {
     expect(screen.queryByTestId('user-send-failed')).toBeNull();
   });
 
+  /**
+   * OPEND-2586 的最后一句:「**再次失败时仍可继续重试**」。
+   *
+   * 上面那条只走了「失败一次 → 重试成功」。这一条走「失败 → 重试 → 又失败」:
+   * 第二次失败必须重新把那一行标回失败态,重试按钮仍在,而且**那条消息只有一条** ——
+   * 每次重试都用同一个 `userMessageId` / `clientRequestId` 重发,不是新开一条。
+   */
+  it('keeps the same user row retryable when the retry fails the same way', async () => {
+    conversationAMessages = [];
+    saveMessage.mockImplementation(
+      async (_projectId: string, _conversationId: string, message: ChatMessage) => message,
+    );
+    streamViaDaemon.mockImplementation(
+      async (options: {
+        onRunStatus?: (status: NonNullable<ChatMessage['runStatus']>) => void;
+        handlers: { onError: (error: Error) => void | Promise<void> };
+      }) => {
+        // POST /api/runs 5xx: no run id ever came back, on every attempt.
+        options.onRunStatus?.('failed');
+        await options.handlers.onError(new Error('daemon 503: unavailable'));
+      },
+    );
+
+    renderProjectView();
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() => expect(screen.getByTestId('send-message')).toHaveProperty('disabled', false));
+
+    fireEvent.click(screen.getByTestId('send-message'));
+
+    await waitFor(() => expect(screen.getByTestId('user-send-failed')).toBeTruthy());
+    const firstCall = streamViaDaemon.mock.calls[0]?.[0] as {
+      clientRequestId: string;
+      userMessageId: string;
+    };
+
+    fireEvent.click(screen.getByTestId('user-send-failed'));
+
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+    // The retry failed exactly as the first send did — the row must come back
+    // to a failed state, not silently settle as sent.
+    await waitFor(() =>
+      expect(screen.getByTestId('user-messages').textContent).toBe(
+        `${firstCall.userMessageId}|failed|hello from b`,
+      ),
+    );
+    expect(screen.getByTestId('user-send-failed')).toBeTruthy();
+
+    const secondCall = streamViaDaemon.mock.calls[1]?.[0] as {
+      clientRequestId: string;
+      userMessageId: string;
+    };
+    expect(secondCall.userMessageId).toBe(firstCall.userMessageId);
+    expect(secondCall.clientRequestId).toBe(firstCall.clientRequestId);
+
+    // …and a third attempt is still reachable from that same row.
+    fireEvent.click(screen.getByTestId('user-send-failed'));
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(screen.getByTestId('user-messages').textContent).toBe(
+        `${firstCall.userMessageId}|failed|hello from b`,
+      ),
+    );
+    expect(screen.getByTestId('assistant-summary').textContent).toBe('');
+  });
+
   it('durably queues one retry when the conversation becomes busy', async () => {
     const failedUser = {
       id: 'failed-user-while-busy',

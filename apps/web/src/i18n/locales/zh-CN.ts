@@ -2256,6 +2256,7 @@ export const zhCN: Dict = {
     "浏览器辅助需要桌面应用，OpenDesign 才能读取实时浏览器页面。",
   "chat.brandBrowserAssistReadFailed":
     "无法读取浏览器页面。请确认品牌网站已打开并完全加载。",
+  "chat.memoryWrittenSummary": "已记住 {count} 条偏好",
   "chat.brandBrowserAssistMessage":
     "OpenDesign 需要浏览器辅助才能完成这次品牌提取。请先在 Browser 标签页清除页面拦截，然后在下方确认。",
   "brandEnrichment.title": "AI 优化",

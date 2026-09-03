@@ -255,3 +255,38 @@ describe('跨多行的选区(first !== last,上面那几条覆盖不到的路)',
     expect(screen.queryByTestId('chat-quote-bar')).not.toBeInTheDocument();
   });
 });
+
+describe('量不到的面板不算「选区在屏外」的证据', () => {
+  /*
+   * 判据要求面板**有高度**才算得出交叠。面板高度为 0 时(还没布局、被隐藏、
+   * 或者测试里没人给它坐标),交叠恒为假 —— 那会把每个选区都判成看不见。
+   *
+   * 这不是假想:`chat-scroll-following.test.tsx` 那条选区暂停追尾的用例只 mock 了
+   * 选区矩形、没 mock 面板矩形,加上可见性判据之后浮条整个消失,全量套件里红了一条。
+   * 「没测量」不等于「测量结果为否」,所以这一档放行。
+   */
+  it('面板矩形是 0 高时,浮条照常出来', () => {
+    render(<Harness />);
+    const scope = screen.getByTestId('scope');
+    // 不 mock scope 的矩形 —— jsdom 默认全 0,正是布局未完成时的形状
+    const textNode = scope.querySelector('p')?.firstChild;
+    if (!textNode) throw new Error('fixture 坏了');
+    const range = document.createRange();
+    range.selectNodeContents(textNode);
+    vi.spyOn(range, 'getBoundingClientRect').mockImplementation(
+      () => rect(120, 300, 160, 24),
+    );
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false, rangeCount: 1,
+      getRangeAt: () => range,
+      toString: () => '一段选中文案',
+    } as unknown as Selection);
+
+    fireEvent(document, new Event('selectionchange'));
+
+    expect(
+      screen.queryByTestId('chat-quote-bar'),
+      '面板量不到就藏,等于把「没测量」当成「不可见」',
+    ).toBeInTheDocument();
+  });
+});

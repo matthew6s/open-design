@@ -893,6 +893,7 @@ import {
   captureRunChatArtifactSnapshots,
   type CaptureRunChatArtifactsReport,
 } from './chat-artifacts/run-capture.js';
+import { associateRunProducedFiles } from './runtimes/run-produced-files.js';
 import { chatArtifactCaptureResultProps } from './chat-artifacts/telemetry.js';
 import { freezeAndRenderChatArtifactCovers } from './chat-artifacts/cover.js';
 import { setMessageArtifactHtmlVersionIds } from './chat-artifacts/store.js';
@@ -11382,6 +11383,24 @@ export async function startServer({
           ? outcome.diff.touchedPaths
           : [];
         if (!outcome?.projectRoot || touchedPaths.length === 0) return;
+        // Attach the turn's deliverable to the turn, before anything else here
+        // can fail. `produced_files_json` otherwise has exactly one writer — a
+        // closure inside the browser's `ProjectView` — so a run whose viewer
+        // navigated away finishes with its artifacts orphaned, and the client's
+        // own repair window has closed by the time the user returns
+        // (OPEND-2598 / OPEND-2608). This only fills a column that is still
+        // NULL, so the client's list stays authoritative when it does arrive.
+        // Its own try: a produced-file miss must not cost the snapshot capture
+        // below, and vice versa.
+        try {
+          await associateRunProducedFiles(db, {
+            messageId: run.assistantMessageId,
+            projectRoot: outcome.projectRoot,
+            touchedPaths,
+          });
+        } catch (err) {
+          console.warn('[chat-artifacts] produced-file association failed', err);
+        }
         const deps = { db, blobs: CHAT_ARTIFACT_BLOBS, quota: CHAT_ARTIFACT_QUOTA };
         const captured = await captureRunChatArtifactSnapshots(deps, {
           projectId: run.projectId,

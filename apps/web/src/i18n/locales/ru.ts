@@ -2162,6 +2162,7 @@ export const ru: Dict = {
   'chat.startHint': 'Опишите, что хотите сгенерировать, или начните с одного из этих примеров:',
   'chat.brandBrowserAssistDesktopOnly': 'Для browser assist нужно десктопное приложение, чтобы OpenDesign мог прочитать живую страницу браузера.',
   'chat.brandBrowserAssistReadFailed': 'Не удалось прочитать страницу браузера. Убедитесь, что сайт бренда открыт и полностью загрузился.',
+  'chat.memoryWrittenSummary': 'Запомнено предпочтений: {count}',
   'chat.brandBrowserAssistMessage': 'OpenDesign нужен browser assist, чтобы завершить извлечение бренда. Используйте карточку ниже, чтобы открыть браузер, затем нажмите «Ещё», выберите «Скачать страницу», дождитесь сообщения об успешном сохранении и используйте левую карточку «Следующий шаг», чтобы продолжить извлечение.',
   'chat.brandBrowserLocalSnapshotMissing': 'Для этого URL нет сохраненного снимка страницы.',
   'chat.brandBrowserLocalSnapshotReadFailed': 'Не удалось прочитать сохраненный снимок страницы.',

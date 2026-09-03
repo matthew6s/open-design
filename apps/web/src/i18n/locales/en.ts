@@ -2162,6 +2162,7 @@ export const en: Dict = {
   'chat.startHint': 'Describe what you want to generate, or start from one of these examples:',
   'chat.brandBrowserAssistDesktopOnly': 'Browser assist needs the desktop app so OpenDesign can read the live browser page.',
   'chat.brandBrowserAssistReadFailed': 'Could not read the browser page. Make sure the brand site is open and fully loaded.',
+  'chat.memoryWrittenSummary': 'Remembered {count} preferences',
   'chat.brandBrowserAssistMessage': 'OpenDesign needs browser assist to finish this brand extraction. Use the card below to open Browser, then click More, choose Download Page, wait for the success message, and use the left Next Step card to continue extraction. If the card is not visible, manually open the Browser tab on the right and follow More > Download Page > Continue extraction.',
   'chat.brandBrowserLocalSnapshotMissing': 'No saved page snapshot is available for this URL.',
   'chat.brandBrowserLocalSnapshotReadFailed': 'Could not read the saved page snapshot.',

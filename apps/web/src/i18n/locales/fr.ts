@@ -2162,6 +2162,7 @@ export const fr: Dict = {
   'chat.startHint': 'Décrivez ce que vous voulez générer, ou partez de l’un de ces exemples :',
   'chat.brandBrowserAssistDesktopOnly': 'L’assistance navigateur nécessite l’app desktop afin qu’OpenDesign puisse lire la page active du navigateur.',
   'chat.brandBrowserAssistReadFailed': 'Impossible de lire la page du navigateur. Assurez-vous que le site de la marque est ouvert et entièrement chargé.',
+  'chat.memoryWrittenSummary': '{count} préférences mémorisées',
   'chat.brandBrowserAssistMessage': 'OpenDesign a besoin de l’assistance navigateur pour terminer cette extraction de marque. Utilisez la carte ci-dessous pour ouvrir Browser, puis cliquez sur Plus, choisissez Télécharger la page, attendez le message de réussite, et utilisez la carte Étape suivante à gauche pour continuer l’extraction. Si la carte n’est pas visible, ouvrez manuellement l’onglet Browser à droite et suivez Plus > Télécharger la page > Continuer l’extraction.',
   'chat.brandBrowserLocalSnapshotMissing': 'Aucun instantané de page enregistré n’est disponible pour cette URL.',
   'chat.brandBrowserLocalSnapshotReadFailed': 'Impossible de lire l’instantané de page enregistré.',

@@ -2264,6 +2264,7 @@ export const zhTW: Dict = {
     "瀏覽器輔助需要桌面應用，OpenDesign 才能讀取即時瀏覽器頁面。",
   "chat.brandBrowserAssistReadFailed":
     "無法讀取瀏覽器頁面。請確認品牌網站已開啟並完整載入。",
+  "chat.memoryWrittenSummary": "已記住 {count} 條偏好",
   "chat.brandBrowserAssistMessage":
     "OpenDesign 需要瀏覽器輔助才能完成這次品牌擷取。請先在 Browser 分頁清除頁面攔截，然後在下方確認。",
   "brandEnrichment.title": "AI 優化",

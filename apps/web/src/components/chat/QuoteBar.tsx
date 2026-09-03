@@ -225,6 +225,19 @@ function sameVisibleGeometry(a: SelectionGeometry, b: SelectionGeometry): boolea
  */
 function selectionOnScreen(geometry: SelectionGeometry): boolean {
   const { firstRect, lastRect, panelRect } = geometry;
+  /*
+   * 量不到的面板不算「选区在屏外」的证据。
+   *
+   * 判据是选区跨度和面板的竖向交叠,而那要求面板**有高度**。面板高度为 0 时
+   * (还没布局、被隐藏、或者测试环境里根本没人给它坐标)交叠恒为假 —— 于是这条
+   * 规则会把每一个选区都判成看不见,浮条永远不出来。那不是保守,是把"没测量"
+   * 当成了"测量结果为否"。
+   *
+   * 实测撞到过:`chat-scroll-following.test.tsx` 那条选区暂停追尾的用例只 mock 了
+   * 选区矩形、没 mock 面板矩形,于是浮条整个消失。真浏览器里面板当然有高度,
+   * 但"我的判据依赖一个没写出来的前提"这件事本身是缺陷,不该靠环境凑巧成立。
+   */
+  if (!(panelRect.bottom > panelRect.top)) return true;
   const top = Math.min(firstRect.top, lastRect.top);
   const bottom = Math.max(firstRect.bottom, lastRect.bottom);
   return bottom > panelRect.top && top < panelRect.bottom;

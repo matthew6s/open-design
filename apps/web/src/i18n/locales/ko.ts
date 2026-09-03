@@ -2162,6 +2162,7 @@ export const ko: Dict = {
   'chat.startHint': '생성하고 싶은 내용을 설명하거나 아래 예시에서 시작하세요:',
   'chat.brandBrowserAssistDesktopOnly': 'OpenDesign에서 현재 브라우저 페이지를 읽으려면 데스크톱 앱의 Browser assist가 필요합니다.',
   'chat.brandBrowserAssistReadFailed': '브라우저 페이지를 읽을 수 없습니다. 브랜드 사이트가 열려 있고 완전히 로드되었는지 확인하세요.',
+  'chat.memoryWrittenSummary': '선호 {count}개를 기억했습니다',
   'chat.brandBrowserAssistMessage': '이 브랜드 추출을 완료하려면 OpenDesign에서 Browser assist가 필요합니다. 아래 카드에서 Browser를 연 다음 More를 클릭하고 Download Page를 선택하세요. 성공 메시지가 나타날 때까지 기다린 후 왼쪽 Next Step 카드에서 추출을 계속하세요. 카드가 보이지 않으면 오른쪽의 Browser 탭을 직접 열고 More > Download Page > Continue extraction 순서로 진행하세요.',
   'chat.brandBrowserLocalSnapshotMissing': '이 URL에 저장된 페이지 스냅샷이 없습니다.',
   'chat.brandBrowserLocalSnapshotReadFailed': '저장된 페이지 스냅샷을 읽을 수 없습니다.',

@@ -3014,6 +3014,7 @@ export interface Dict {
   'chat.startHint': string;
   'chat.brandBrowserAssistDesktopOnly': string;
   'chat.brandBrowserAssistReadFailed': string;
+  'chat.memoryWrittenSummary': string;
   'chat.brandBrowserAssistMessage': string;
   'chat.brandBrowserLocalSnapshotMissing': string;
   'chat.brandBrowserLocalSnapshotReadFailed': string;
