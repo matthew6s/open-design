@@ -909,6 +909,7 @@ export function createRunAnalyticsLifecycle(
           });
           const diagnosticsAnalytics = summarizeRunDiagnosticsForAnalytics({
             events: run.events,
+            promptBudgetDiagnostics: run.promptBudgetDiagnostics,
             exitCode: status.exitCode ?? null,
             signal: status.signal ?? null,
             cancelRequested: !!run.cancelRequested,

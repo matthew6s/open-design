@@ -545,6 +545,17 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   tool_call_seen?: boolean;
   artifact_write_seen?: boolean;
   live_artifact_seen?: boolean;
+  /** Bounded summary of Vela/OpenCode v1 tool-execution lifecycle diagnostics. */
+  tool_execution_lifecycle_seen?: boolean;
+  tool_execution_lifecycle_count_bucket?: '1' | '2_5' | '6_20' | 'gt_20';
+  tool_execution_trigger?: 'exit' | 'abort' | 'deadline' | 'mixed' | 'unknown';
+  tool_execution_terminal?: 'running' | 'returned' | 'failed' | 'interrupted' | 'mixed' | 'unknown';
+  tool_terminal_source?: 'tool_result' | 'tool_error' | 'processor_cleanup' | 'mixed' | 'unknown';
+  tool_kill_outcome?: 'none' | 'requested' | 'sent' | 'failed';
+  tool_child_close_seen?: boolean;
+  tool_stdout_close_seen?: boolean;
+  tool_stderr_close_seen?: boolean;
+  tool_execution_evidence_incomplete?: boolean;
   deliverable_valid?: boolean;
   deliverable_validation?: 'valid' | 'invalid';
   artifact_origin_status?: ArtifactOriginStatus;
@@ -760,6 +771,18 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   retry_original_failure_category?: TrackingRunFailureCategory;
   retry_original_failure_detail?: TrackingRunFailureDetail;
   retry_original_failure_stage?: TrackingRunFailureStage;
+  /** Exact, content-free ACP prompt frame measurement captured at the writer boundary. */
+  prompt_budget_version?: 'prompt_budget_v1';
+  prompt_frame_bytes?: number;
+  prompt_bytes?: number;
+  prompt_token_estimate?: number;
+  prompt_token_estimate_method?: 'utf8_bytes_div_3_ceil_v1';
+  prompt_session_mode?: 'new' | 'resume';
+  prompt_model_id?: string;
+  prompt_context_window_source?: 'model_metadata' | 'unknown';
+  prompt_context_window_tokens?: number;
+  prompt_prior_session_usage_source?: 'agent_session' | 'unknown';
+  prompt_prior_session_input_tokens?: number;
 }
 
 export interface LangfuseReportResultProps {

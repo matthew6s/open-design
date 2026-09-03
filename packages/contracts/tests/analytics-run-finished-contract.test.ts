@@ -162,6 +162,16 @@ describe('analytics run_finished contract', () => {
         tool_call_seen: true,
         tool_result_sent: false,
         approval_requested: true,
+        tool_execution_lifecycle_seen: true,
+        tool_execution_lifecycle_count_bucket: '2_5',
+        tool_execution_trigger: 'deadline',
+        tool_execution_terminal: 'interrupted',
+        tool_terminal_source: 'processor_cleanup',
+        tool_kill_outcome: 'sent',
+        tool_child_close_seen: true,
+        tool_stdout_close_seen: true,
+        tool_stderr_close_seen: false,
+        tool_execution_evidence_incomplete: true,
         stdin_backpressure: false,
         last_progress_age_ms: 610_000,
         amr_opencode_error_phase: 'timeout',
@@ -178,6 +188,17 @@ describe('analytics run_finished contract', () => {
         retry_original_failure_category: 'upstream_unavailable',
         retry_original_failure_detail: 'stream_disconnected',
         retry_original_failure_stage: 'first_token_wait',
+        prompt_budget_version: 'prompt_budget_v1',
+        prompt_frame_bytes: 34_810,
+        prompt_bytes: 34_222,
+        prompt_token_estimate: 11_408,
+        prompt_token_estimate_method: 'utf8_bytes_div_3_ceil_v1',
+        prompt_session_mode: 'resume',
+        prompt_model_id: 'claude-opus-5',
+        prompt_context_window_source: 'model_metadata',
+        prompt_context_window_tokens: 200_000,
+        prompt_prior_session_usage_source: 'agent_session',
+        prompt_prior_session_input_tokens: 123_456,
         source_run_id: 'run-0',
         task_run_index: 1,
         recovery_action_type: 'manual_retry',
@@ -272,6 +293,9 @@ describe('analytics run_finished contract', () => {
     expect(payload.props.first_token_seen).toBe(true);
     expect(payload.props.tool_result_sent).toBe(false);
     expect(payload.props.approval_requested).toBe(true);
+    expect(payload.props.tool_execution_trigger).toBe('deadline');
+    expect(payload.props.tool_terminal_source).toBe('processor_cleanup');
+    expect(payload.props.tool_execution_evidence_incomplete).toBe(true);
     expect(payload.props.stdin_backpressure).toBe(false);
     expect(payload.props.last_progress_age_ms).toBe(610_000);
     expect(payload.props.amr_opencode_error_phase).toBe('timeout');

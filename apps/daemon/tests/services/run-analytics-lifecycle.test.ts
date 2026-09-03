@@ -119,6 +119,57 @@ describe('run analytics lifecycle', () => {
     expect(h.completed).toEqual(['run-under-test']);
   });
 
+  it('publishes only bounded prompt budget facts on run_finished', async () => {
+    const h = harness();
+    h.lifecycle.install({
+      run: fakeRun({
+        agentId: 'amr',
+        events: [{
+          event: 'agent',
+          data: {
+            type: 'diagnostic',
+            name: 'prompt_budget_v1',
+            source: 'acp-json-rpc',
+            schemaVersion: 1,
+            frameBytes: 34_810,
+            promptBytes: 34_222,
+            promptTokenEstimate: 11_408,
+            tokenEstimateMethod: 'utf8_bytes_div_3_ceil_v1',
+            sessionMode: 'resume',
+            modelId: 'claude-opus-5',
+            contextWindowSource: 'model_metadata',
+            contextWindowTokens: 200_000,
+            priorSessionUsageSource: 'agent_session',
+            priorSessionInputTokens: 123_456,
+            prompt: 'PRIVATE_PROMPT_MUST_NOT_LEAK',
+            sessionId: 'PRIVATE_SESSION_MUST_NOT_LEAK',
+            path: '/PRIVATE_PATH_MUST_NOT_LEAK',
+          },
+        }],
+      }),
+      body: { agentId: 'amr' },
+      requestAnalyticsContext: CONTEXT as never,
+    });
+    await settled(h, 'run_created');
+    h.settle({ status: 'succeeded' });
+
+    const finished = await settled(h, 'run_finished');
+    expect(finished.properties).toMatchObject({
+      prompt_budget_version: 'prompt_budget_v1',
+      prompt_frame_bytes: 34_810,
+      prompt_bytes: 34_222,
+      prompt_token_estimate: 11_408,
+      prompt_token_estimate_method: 'utf8_bytes_div_3_ceil_v1',
+      prompt_session_mode: 'resume',
+      prompt_model_id: 'claude-opus-5',
+      prompt_context_window_source: 'model_metadata',
+      prompt_context_window_tokens: 200_000,
+      prompt_prior_session_usage_source: 'agent_session',
+      prompt_prior_session_input_tokens: 123_456,
+    });
+    expect(JSON.stringify(finished.properties)).not.toContain('PRIVATE_');
+  });
+
   it.each([
     ['canceled', 'cancelled'],
     ['failed', 'failed'],

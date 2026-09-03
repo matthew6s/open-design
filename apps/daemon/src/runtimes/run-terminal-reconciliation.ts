@@ -13,6 +13,7 @@ import {
 import { appendMessageStatusEvent } from '../db.js';
 import { reconcileStrategyTaskRunTerminal } from '../strategies/task-store.js';
 import { classifyRunFailure } from '../run-failure-classification.js';
+import { summarizeRunDiagnosticsForAnalytics } from '../run-diagnostics.js';
 import { deriveRunErrorCode, runResultFromStatus } from '../run-result.js';
 import { runAskedUserQuestion } from './run-artifacts.js';
 import {
@@ -469,6 +470,12 @@ export async function reconcileDurableRunTerminals(
         terminal_recovery_reason: recoveryReason,
         ...(errorCode ? { error_code: errorCode } : {}),
         ...(failure ?? {}),
+        ...summarizeRunDiagnosticsForAnalytics({
+          events,
+          exitCode: state.exitCode ?? null,
+          signal: state.signal ?? null,
+          cancelRequested: state.status === 'canceled',
+        }),
       };
       const taskLineage: RunTaskLineageProps = {
         task_execution_id:
