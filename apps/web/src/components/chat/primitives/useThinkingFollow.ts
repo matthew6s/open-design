@@ -1,5 +1,11 @@
 /**
- * 思考正文的**贴底跟随**:agent 一边写一边滚,用户一翻阅就让开,回到底部再接上。
+ * 内层滚动框的**贴底跟随**:agent 一边写一边滚,用户一翻阅就让开,回到底部再接上。
+ *
+ * ⚠️ **名字比它的职责窄**:2026-09-03 起终端输出块(`TerminalOutput`)也吃这一只 ——
+ * 产品原话「这个也要参考 thinking 的那个卡片,感觉应该是一样的……用户滚动了不能跟
+ * 用户抢滚动条」。里面没有任何 thinking 专属的东西,是通用的「内层框贴底跟随」。
+ * 改名会连带动 `thinking-follow.test.tsx` 里那条按路径读源码的守卫,单独一次改名
+ * 提交更干净,所以这一轮**只加复用、不改名**。
  *
  * 用户裁决(2026-09-02):
  *   「thinking 要自动跟随的,agent 一边写一边滚,但是用户如果**手动滚动到上面**,
@@ -109,12 +115,29 @@ export function useThinkingFollow(ref: RefObject<HTMLElement | null>, active: bo
       observer.observe(box);
       for (const child of Array.from(box.children)) observer.observe(child);
     }
+    /*
+     * ⚠️ 光有 ResizeObserver **接不住终端那一档**,原因有两条,缺一条都不够:
+     *   · 盒子自己被 `max-height` 截住之后就不再长了 —— 观察 `box` 收不到通知;
+     *   · 终端是**一行一个 `<div>`**,新输出等于**新增子元素**,而上面那圈
+     *     `Array.from(box.children)` 是挂载那一刻的快照,新来的子元素没人观察。
+     * 思考正文那一档碰巧躲过了(它的子元素是同一批,长的是自己的高度),
+     * 于是这条缺口一直没暴露。补一只 MutationObserver:内容动了就重新对一次几何。
+     *
+     * 它**只触发贴底 / 刷新基线**,不喂给 `nextFollowIntent` —— 意图仍然只由
+     * `scroll` 事件改,那条路上还有 `layoutStable` 兜着,内容变化不会被误判成用户动作。
+     */
+    let mutations: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined') {
+      mutations = new MutationObserver(onGeometry);
+      mutations.observe(box, { childList: true, subtree: true, characterData: true });
+    }
     onGeometry();
 
     return () => {
       box.removeEventListener('scroll', onScroll);
       fold?.removeEventListener('toggle', onToggle);
       observer?.disconnect();
+      mutations?.disconnect();
     };
   }, [ref, active]);
 }

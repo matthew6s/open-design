@@ -36,7 +36,7 @@
  * ⚠️ 那个 span 不许挂 `aria-live` —— 挂了读屏会每秒念一遍。
  * 判据钉在 `tests/components/chat/live-row-elapsed.test.tsx`。
  */
-import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
+import { memo, type ReactElement, type ReactNode } from 'react';
 import { useT } from '../../../i18n';
 import type { ToolRow as ToolRowData } from '../../../runtime/chat/contract';
 import { formatElapsed } from '../../../runtime/chat/format';
@@ -44,8 +44,18 @@ import { openableRecordFilePath, type RecordFileScope } from '../../../runtime/c
 import { FileButton } from './FileButton';
 import { Foldable } from './Foldable';
 import { StatusMark } from './StatusMark';
+import { TerminalOutput } from './TerminalOutput';
 import { toolIcon } from './icons';
 import styles from './record.module.css';
+
+/**
+ * 终端输出的记忆化边界**落在这一层**,不在 `TerminalOutput` 自己身上 ——
+ * 要挡的正是这一层的重渲:轮次跑着的时候 `AssistantMessage` 每秒 tick 一次
+ * (`useTickingNow`),整棵树跟着重渲一遍。装依赖的输出能有几百行、一行一个节点,
+ * 一个跟输出无关的秒数跳动不该把它们全部重算。`text` 没变就整块跳过。
+ * 数字钉在 `tests/components/chat/terminal-render-cost.test.tsx`。
+ */
+const Terminal = memo(TerminalOutput);
 
 export interface ToolRowProps {
   row: ToolRowData;
@@ -220,15 +230,28 @@ export function ToolRow({
 
   /*
    * 跑命令 · 有人话标题:折叠块(组件 11)。
-   * 成功默认收起 —— 标题那一行已经说了跑没跑通;失败默认展开 —— 报错原文是这时候唯一要读的东西。
-   * 正文没有头、没有复制键(W3):这不是代码块,是「刚才那条命令在终端里长什么样」。
+   *
+   * 默认状态逐字照稿子(`docs/design/chat-panel/src/body-components.html:1002-1021`
+   * 的 `cmp-meta`):「**执行中展开 → 完成收起**」。三格样例各自是:
+   *   · `:1010-1011` 执行中 —— `<details class="fold" open>`,正文是命令 + 实时输出
+   *   · `:1014-1015` 成功   —— `<details class="fold">`,不带 `open`
+   *   · `:1018-1019` 失败   —— `<details class="fold is-fail" open>`,报错原文是这时候唯一要读的东西
+   *
+   * ⚠️ 这里原来是 `defaultOpen={row.failed}` —— **只有失败展开,执行中漏了**。
+   * 叠上 `deferBody`(收起的折叠块连 body 都不挂载),后果是一条跑了 57 秒的命令,
+   * 这 57 秒里 DOM 上一个字的输出都没有 —— 哪怕在途输出此刻已经躺在 `row.terminal` 里
+   * (`build-turn-blocks.ts` 的 `inFlightOutputOf`)。用户看到的就是「跑了一分钟什么都没有」。
+   *
+   * 而且 `defaultOpen` **修不了「跑完收起」**:它只是初始值,状态翻面时没人再看它一眼
+   * (同 `Foldable` 的 `lifecycleOpen` 那段)。所以走 `lifecycleOpen` —— 它还顺带
+   * 保住了用户的手:跑的时候手动收起的,跑完不许替他打开;手动展开的,不许替他收走。
    */
   if (row.command && !row.rawTitle) {
     return (
       <Foldable
         summary={<>{icon}<span className={styles.name}>{row.title}</span>{failButton}</>}
         elapsed={elapsed ?? (row.pending ? '' : undefined)}
-        defaultOpen={row.failed}
+        lifecycleOpen={row.pending || row.failed}
         deferBody={deferBody}
         /*
          * 失败标记要落在**这一行自己**身上,和 `div.tool` 那几支一致
@@ -281,34 +304,4 @@ function fileVerb(row: ToolRowData, t: Translate): ReactNode {
   if (row.tool === 'delete') return t('common.delete');
   if (row.tool === 'read') return t('chat.record.verb.read');
   return null;
-}
-
-/**
- * 终端输出。限高滚动并**贴到底部** —— 一段构建日志里要读的永远是最后几行。
- *
- * 绿 / 红只按行首那个符号判(`✓` / `✗`)。设计稿给的是成品截图,没有给判定规则:
- * 我们的事件流里没有任何「这一行是成功还是失败」的结构化信息,输出就是一整块文本。
- * 认符号是能站得住的最小规则,认不出来就按普通行画(和设计稿的中性色一致),
- * 不去猜「哪一行像报错」。这条规则待设计确认。
- */
-function Terminal({ text }: { text: string }): ReactElement {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [text]);
-  return (
-    <div className={styles.term} ref={ref}>
-      {text.replace(/\s+$/, '').split('\n').map((line, i) => (
-        <div key={i} className={lineTone(line)}>{line}</div>
-      ))}
-    </div>
-  );
-}
-
-function lineTone(line: string): string | undefined {
-  const head = line.trimStart().charAt(0);
-  if (head === '\u2713' || head === '\u2714') return styles.ok;      // ✓ ✔
-  if (head === '\u2717' || head === '\u2718' || head === '\u2716') return styles.er;  // ✗ ✘ ✖
-  return undefined;
 }
