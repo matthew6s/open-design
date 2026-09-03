@@ -2236,6 +2236,8 @@ test('codex json stream emits a search tool row for a completed web_search', () 
   handler.feed(`${CODEX_WEB_SEARCH_STARTED}\n${CODEX_WEB_SEARCH_COMPLETED}\n`);
 
   assert.deepEqual(events, [
+    // The early form, from `item.started` — see the note on the next test.
+    { type: 'tool_in_flight', id: CODEX_WEB_SEARCH_ID, name: 'web_search', input: {} },
     {
       type: 'tool_use',
       id: CODEX_WEB_SEARCH_ID,
@@ -2247,19 +2249,32 @@ test('codex json stream emits a search tool row for a completed web_search', () 
 });
 
 /*
- * The negative half of the test above. `web_search`'s started frame carries
- * `query:""`, and the query IS the row (`toolTitle` and `searchPattern` both
- * read it). Emitting the `tool_use` there would lock in a blank 「搜索」 row —
- * the `codexToolUses` guard would then make `item.completed` a no-op and the
- * real query would never arrive. So the started frame must produce nothing at
- * all, and the pair must come from `item.completed`.
+ * ⚠️ This test used to assert the OPPOSITE — that `item.started` produces
+ * nothing at all. The product overruled that on 2026-09-03, verbatim: 「调用前
+ * (流式传输时)就要显示在界面上并开始计时,绝对不能调用完了才出现在界面上」.
+ *
+ * The old reasoning is worth keeping, because it names a trap this change had
+ * to get around rather than one it disproved:
+ *
+ *   `web_search`'s started frame carries `query:""`, and the query IS the row
+ *   (`toolTitle` and `searchPattern` both read it). Emitting the `tool_use`
+ *   there would lock in a blank 「搜索」 row — the `codexToolUses` guard would
+ *   then make `item.completed` a no-op and the real query would never arrive.
+ *
+ * All of that is still true, which is exactly why the early frame emits
+ * `tool_in_flight` and not `tool_use`. That event does not touch
+ * `codexToolUses`, so `item.completed` still emits the real pair with the real
+ * query (asserted above), and the client retires the early row into the settled
+ * one by shared id — one row, one clock, and the term fills itself in.
  */
-test('codex web_search item.started produces no event, because its query is still empty', () => {
+test('codex web_search item.started emits the early row, so the clock starts when the call does', () => {
   const { events, handler } = collectEvents('codex');
 
   handler.feed(`${CODEX_WEB_SEARCH_STARTED}\n`);
 
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, [
+    { type: 'tool_in_flight', id: CODEX_WEB_SEARCH_ID, name: 'web_search', input: {} },
+  ]);
 });
 
 /*

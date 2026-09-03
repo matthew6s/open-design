@@ -52,6 +52,17 @@ export function stampToolTiming(event: unknown, clock: ToolTimingClock = systemC
     if (typeof ev.startedAt !== 'number') ev.startedAt = clock.now();
     return;
   }
+  /*
+   * 早期形态和 `tool_use` 走同一条规矩 —— 它就是「这次调用开始了」的另一种说法,
+   * 只是发生在还不知道结果的时候。契约上 `startedAt` 是**必填**(客户端拿它跑秒表,
+   * 也拿它把早期行退成结算行),而解析器是纯函数、手上没有时钟,所以由这个唯一出口补。
+   *
+   * ACP 那条线自己带 `firstSeenAt`,已经有值的原样保留(同下面「只补不改」)。
+   */
+  if (ev.type === 'tool_in_flight') {
+    if (typeof ev.startedAt !== 'number') ev.startedAt = clock.now();
+    return;
+  }
   if (ev.type === 'tool_result') {
     if (typeof ev.completedAt !== 'number') ev.completedAt = clock.now();
   }

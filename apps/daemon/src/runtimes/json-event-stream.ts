@@ -1148,11 +1148,37 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
       return true;
     }
     if (item.type === 'web_search') {
-      // Consumed on purpose, emitting nothing: the started frame's `query` is
-      // always empty, and a 「搜索」 row with no term is worse than no row. The
-      // pair comes from `item.completed`, where the query exists. Boundary
-      // state is deliberately NOT cleared here — it is cleared where the row is
-      // actually emitted, so an unrecognised action still reads as no tool row.
+      // The started frame's `query` really is always empty (`action.type` is
+      // `"other"` here; the term only exists on `item.completed`). This used to
+      // emit nothing at all for that reason — "a 「搜索」 row with no term is
+      // worse than no row".
+      //
+      // The product overruled that trade-off on 2026-09-03: a call must reach
+      // the screen and start its clock when it is made, never only once it
+      // returns. A row with no term still answers the question the user is
+      // actually asking — where is it stuck — because it carries the stopwatch.
+      // There is no local `web_search` sample to time, so the size is taken
+      // from the same class of call: claude's `WebFetch` runs 7.42s.
+      //
+      // `tool_in_flight` is the generic early form, not an ACP-only event: the
+      // client retires it into the settled `tool_use` that shares its id
+      // (`dropSupersededInFlightToolUses`), so this is one row with one clock,
+      // not a second row. The settled pair below is untouched and still carries
+      // the term. `startedAt` is filled at the single emission gateway
+      // (`stampToolTiming`) because this parser holds no clock.
+      //
+      // ⚠️ `item.id` is the id AFTER `JSON.parse` deduplicates codex's twice-
+      // serialised `id` key — the `exec-…` value, not `item_2`. The completed
+      // frame resolves to the same one, which is exactly why the early row
+      // retires instead of drawing a second search row.
+      if (typeof item.id === 'string' && item.id) {
+        state.codexPreviousEventWasAgentMessage = false;
+        state.codexLastAgentMessageEndedWithNewline = false;
+        onEvent({ type: 'tool_in_flight', id: item.id, name: 'web_search', input: {} });
+      }
+      // Boundary state is otherwise deliberately NOT cleared here — it is
+      // cleared where the settled row is emitted, so an unrecognised action
+      // still reads as no tool row.
       return true;
     }
   }
