@@ -497,6 +497,12 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      */
     .sort((a, b) => (a.startedAt - b.startedAt) || ((a.sequence ?? 0) - (b.sequence ?? 0)));
   let mediaTaskCursor = 0;
+  /**
+   * 每一行生图批次自己的**起点** —— S19 会把连续几次生图调用合并成一行,
+   * 实时耗时得从合并进来的最早那次算起,不能用最后一次的时刻。
+   * 记在行外面,免得为一件记账用的事给渲染契约 `ImageRow` 多加一个字段。
+   */
+  const imageRowStartedAt = new Map<ImageRow, number>();
 
   const activeShell = (): ExecutionShell | null => todoCard ?? top;
   /** 内容落点:进行中的 todo → 它的 items;有清单卡但 todo 都关了 → 卡片层;否则 → 第一张壳 */
@@ -824,6 +830,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
       const last = arr[arr.length - 1];
       // S19:连续的生图调用合并成一行 —— 一次生图动作出 N 张,这是组件 12 的前提。
       // 中间隔了别的工具调用就另起一行(隔开的两组是两件事)。
+      let target: ImageRow;
       if (last && last.kind === 'image') {
         last.total += shot.total;
         last.done += shot.done;
@@ -832,9 +839,27 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
         if (shot.cells) last.cells = [...(last.cells ?? []), ...shot.cells];
         last.pending = last.pending || shot.pending;
         if (shot.elapsedMs != null) last.elapsedMs = (last.elapsedMs ?? 0) + shot.elapsedMs;
+        target = last;
       } else {
         arr.push(shot);
+        target = shot;
       }
+      /*
+       * 这一行自己的起点 —— 合并进来的每一次调用里最早的那个。记在行外面而不是
+       * 行上,是因为 `ImageRow` 是给渲染层看的契约,不该为记账多长一个字段。
+       */
+      const origin = mediaBatchStartedAt(taskSlice) ?? event.startedAt ?? null;
+      const known = imageRowStartedAt.get(target);
+      if (origin != null && (known == null || origin < known)) imageRowStartedAt.set(target, origin);
+      /*
+       * 还没出完的那一行也报耗时(产品 2026-09-03 把 2026-09-02 的裁决补到这一档,
+       * 理由见 `pendingMediaBatchRow`)。**必须排在合并之后**:合并那一句把各次调用
+       * 的结算值相加,而实时值的终点是全轮共用的 `liveEndMs`,相加会把同一段墙钟
+       * 时间数好几遍。行还没结算时,实时值直接顶掉那个和。
+       *
+       * ⚠️ 只在 `pending` 时覆盖 —— 已经出完的那一行归结算值管,秒表不许再跟着 tick 跳。
+       */
+      if (target.pending) target.elapsedMs = spanElapsed(imageRowStartedAt.get(target) ?? null, liveEndMs);
       openText = null;
       continue;
     }
@@ -883,7 +908,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
       openText = null;
       for (const group of activeBatches) {
         for (const task of group) stamp(task.startedAt);
-        sink().push(pendingMediaBatchRow(group));
+        sink().push(pendingMediaBatchRow(group, liveEndMs));
       }
     }
     ensureShell();
@@ -1411,8 +1436,20 @@ function mediaCellSlots(tasks: ProjectMediaTask[], total: number): number[] {
   return usable ? slots : tasks.map((_, i) => i);
 }
 
-/** 轮询先于 terminal `tool_use` 到达时的一批 —— 一行,`batchSize` 个格子 */
-function pendingMediaBatchRow(group: ProjectMediaTask[]): ImageRow {
+/**
+ * 轮询先于 terminal `tool_use` 到达时的一批 —— 一行,`batchSize` 个格子。
+ *
+ * 耗时从**这一批最早那个任务**算到轮次的实时终点(`liveEndMs`)。原来这里写死
+ * `elapsedMs: null`,于是一批图生成的那几分钟里这一行上一个数字都没有 ——
+ * 而生图是最慢的一类动作。产品 2026-09-03 口述:「工具调用最好都有显示的逐渐
+ * 增长的计时,**尽可能所有都有**,包括 thinking,这样用户能感受到当前哪里卡住了」,
+ * 把 2026-09-02 那次裁决(当时只覆盖思考中 / 工具行 / 步骤行)的范围补到了这一档。
+ *
+ * 起点取 `min(startedAt)` 而不是 `head.startedAt`:一批是一件事,从第一张开始算。
+ * 门槛仍是 `spanElapsed` 里的 `UNKNOWN_ELAPSED_BELOW_MS` —— 不到 100ms 一律当
+ * 「不知道」,不显示也不估算(界面上出过「0.0s」,§2.2b)。
+ */
+function pendingMediaBatchRow(group: ProjectMediaTask[], liveEndMs: number | null): ImageRow {
   const head = group[0]!;
   const total = mediaBatchTotal(group, 1);
   const slots = mediaCellSlots(group, total);
@@ -1430,8 +1467,16 @@ function pendingMediaBatchRow(group: ProjectMediaTask[]): ImageRow {
     thumbs: [],
     cells,
     pending: true,
-    elapsedMs: null,
+    elapsedMs: spanElapsed(mediaBatchStartedAt(group), liveEndMs),
   };
+}
+
+/** 一批生图的起点 —— 最早那个任务开工的时刻;一个都算不出来就是 `null`。 */
+function mediaBatchStartedAt(tasks: ProjectMediaTask[]): number | null {
+  const starts = tasks
+    .map((task) => task.startedAt)
+    .filter((at): at is number => typeof at === 'number');
+  return starts.length ? Math.min(...starts) : null;
 }
 
 /**

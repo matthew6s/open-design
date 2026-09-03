@@ -60,7 +60,7 @@ const rowCount = (container: HTMLElement): number => recordBody(container)?.chil
 describe('AssistantMessage 执行记录', () => {
   afterEach(() => cleanup());
 
-  it('没有配对结果的调用不落行,而空壳跑完就整个不渲染(D3 + B47)', () => {
+  it('调用发出去就落行;轮次跑完了,没回来的那一行留着但不再转圈(D3 作废 2026-09-02 / OPEND-2419)', () => {
     const { container } = render(
       <AssistantMessage
         projectKind="prototype"
@@ -79,17 +79,42 @@ describe('AssistantMessage 执行记录', () => {
     );
 
     /*
-     * 两条规则叠起来的结果,分开说清楚:
-     *  · D3:界面上没有「执行中」这一档 —— 调用没回来就不落行,所以壳里是空的
-     *    (老链路会把它画成一张「运行中」的卡,这是**故意改掉**的行为);
-     *  · B47(用户原话「下拉展开卡片里如果没有工具调用或任何内容,就不显示这个了」):
-     *    跑完之后空着的壳整个不渲染 —— 一行孤零零的「已完成」不告诉任何人任何事。
-     * 这一条原来断言「壳仍然是已完成」,那是 B47 之前的形态。
+     * ⚠️ 这一条原来叫「没有配对结果的调用不落行,而空壳跑完就整个不渲染(D3 + B47)」,
+     * 断言的是 `maybeRecord(container)` 为 null。它把**两条**规则叠在一起,而其中
+     * 上面那条已经作废 —— 分寸在这里,别把另一条一起丢了:
+     *
+     *  · D3「界面上没有『执行中』这一档,调用没回来就不落行」**已作废**
+     *    (产品 2026-09-02,OPEND-2419;规格 `chat-panel-next.md:419` 已划掉)。
+     *    产品原话:「调用时不管成功没,都要立刻渲染,所有状态啥的东西都要尽快反应在
+     *    界面上,不然用户会吐槽卡住了啥的」。实测代价:一次卡住 14.1 分钟的下载在
+     *    界面上完全不存在,用户看到的是「转了 40 分钟什么都没出来」。
+     *  · B47「跑完之后空着的壳整个不渲染」**没有被推翻,仍然成立**。变的只是这一条
+     *    fixture 再也造不出空壳了:那次调用现在会落行,壳里有东西,B47 根本不触发。
+     *    B47 自己的守卫在 `tests/runtime/chat/empty-shell.test.ts`(7 条,含 U4 的
+     *    取消档),不依赖这一条 —— 所以改这里不会把 B47 弄丢。
+     *
+     * 于是这一条改钉**翻转后的规则**,外加它带来的那条新约束:轮次已经结束的
+     * pending 行**不许再画成转圈的球**。判据逐字写在
+     * `runtime/chat/contract.ts` 的 `ToolRow.pending` 上:「`pending` 只说『没回来』,
+     * 不说『还在跑』…… 那是『永远停在 running』这个新 bug」。
      */
-    expect(maybeRecord(container)).toBeNull();
+    expect(maybeRecord(container)).not.toBeNull();
+    expect(recordHead(container)).toContain('Done');
+
+    activateExecutionRecord(container);
+    expect(rowCount(container)).toBe(1);
+    expect(bodyText(container)).toContain('Run guard');
+
+    /*
+     * 行首那一格:轮次停了要退成中性灰(`Not started`),不能还是转着的球(`Working`)。
+     * 两句一正一反配着写 —— 只写反向那句的话,「标记整个没渲染」也会绿,等于没测。
+     */
+    const body = recordBody(container)!;
+    expect(body.querySelector('[aria-label="Not started"]'), '没回来的行要有中性灰记号').not.toBeNull();
+    expect(body.querySelector('[aria-label="Working"]'), '轮次停了还转圈是新 bug').toBeNull();
   });
 
-  it('没有 runStatus 的历史消息按「已完成」处理,于是空壳同样不渲染(B47)', () => {
+  it('没有 runStatus 的历史消息按「已完成」处理:壳头是「已完成」,没回来的行不转圈', () => {
     const { container } = render(
       <AssistantMessage
         projectKind="prototype"
@@ -110,9 +135,26 @@ describe('AssistantMessage 执行记录', () => {
       />,
     );
 
-    // 缺 `runStatus` 时落回「已完成」,所以走的是 B47 那条丢空壳的路 ——
-    // 反过来说,壳没了本身就是「这一轮被当成跑完了」的证据。
-    expect(maybeRecord(container)).toBeNull();
+    /*
+     * 这一条问的一直是同一件事:**缺 `runStatus` 的历史消息被当成跑完了没有**。
+     * 变的只是拿什么当证据。
+     *
+     * 原来的证据是「壳整个没了」—— 那是借 B47 反推的:空壳只在还在跑的时候留,
+     * 壳没了就说明这一轮被判成了终态。D3 作废(2026-09-02,OPEND-2419)之后
+     * 那次调用会落行,壳里有东西,B47 不再触发,这条反推的路断了。
+     *
+     * 换成**直接的**证据:壳头写的是「已完成」(还在跑会是「进行中」),
+     * 而且行首那一格是中性灰不是球。比原来那条更贴题 —— 原来是靠一条别的规则的
+     * 副作用间接说话。B47 本身仍然成立,守卫在 `tests/runtime/chat/empty-shell.test.ts`。
+     */
+    expect(maybeRecord(container)).not.toBeNull();
+    expect(recordHead(container)).toContain('Done');
+    expect(recordHead(container)).not.toContain('Working');
+
+    activateExecutionRecord(container);
+    const body = recordBody(container)!;
+    expect(body.querySelector('[aria-label="Not started"]'), '没回来的行要有中性灰记号').not.toBeNull();
+    expect(body.querySelector('[aria-label="Working"]'), '轮次停了还转圈是新 bug').toBeNull();
   });
 
   it('没有 runStatus 的历史消息里有调用报错 → 整轮算「运行失败」', () => {
@@ -154,11 +196,34 @@ describe('AssistantMessage 执行记录', () => {
     expect(recordHead(container)).toContain('Done');
     activateExecutionRecord(container);
     expect(bodyText(container)).toContain('missing.ts');
-    expect(bodyText(container)).toContain('Failed');
     expect(bodyText(container)).toContain('source.ts');
+
+    /*
+     * ⚠️ 这一条的红**和 D3 作废无关** —— 它的两次调用都有配对结果,一条在途行都没有。
+     * 红在另一笔改动上:`02605b1f01`「surface why a tool failed」把 `failReason`
+     * 从写死的 `null` 接通了,于是失败行从「失败写法一」(名字 + 一颗「Failed」按钮)
+     * 走进了稿子的**「失败写法二」**(`ToolRow.tsx:192`:原因跟在名字后面,
+     * 不再重复那个词)。屏幕上现在是「Read missing.ts · File not found」。
+     *
+     * 两种写法都是稿子自己画的,由 `failReason` 有没有决定走哪支(S1,
+     * `chat-panel-next.md:889`,仍挂在 wangchenglong 名下待确认)。所以这里不改回
+     * 去要那个词,改成要**这一行确实被标成失败了**的两件证据:
+     *  · 原因原样出现(写法二的正题:报错原文以前一个字都到不了屏幕上);
+     *  · 那一行仍然带着失败态的类名(`styles.fail`,红点 / 静音灰全挂在它上面)——
+     *    少了这一句,万一哪天写法二把失败态一起丢了,只看文字是发现不了的。
+     */
+    expect(bodyText(container)).toContain('File not found');
+    const failRow = [...recordBody(container)!.children]
+      .find((n) => (n.textContent ?? '').includes('missing.ts'));
+    expect(failRow, '失败那一行还在记录里').toBeTruthy();
+    expect(failRow!.className, '那一行要挂着失败态').toMatch(/fail/i);
+    // 反向守卫:成功那一行没有被一起染成失败
+    const okRow = [...recordBody(container)!.children]
+      .find((n) => (n.textContent ?? '').includes('source.ts'));
+    expect(okRow!.className).not.toMatch(/fail/i);
   });
 
-  it('一轮里多个调用都没有结果:一行都不落,空壳也不留(D3 + B47)', () => {
+  it('一轮里多个调用都没有结果:每个各占一行,不合并也不丢(D3 作废 2026-09-02)', () => {
     const { container } = render(
       <AssistantMessage
         projectKind="prototype"
@@ -182,7 +247,21 @@ describe('AssistantMessage 执行记录', () => {
       />,
     );
 
-    expect(maybeRecord(container)).toBeNull();
+    /*
+     * 上一条的多调用版。D3 作废之后(2026-09-02,OPEND-2419)两次调用各落一行,
+     * 所以这里钉的是**数量**:两次调用 = 两行,不会被折成一行,也不会因为
+     * 「都没有结果」而一起消失。
+     *
+     * ⚠️ 别把这一条读成 B47 的守卫 —— 它现在造不出空壳了。B47(空壳不留)
+     * 仍然成立,守卫在 `tests/runtime/chat/empty-shell.test.ts`。
+     */
+    expect(maybeRecord(container)).not.toBeNull();
+    activateExecutionRecord(container);
+    expect(rowCount(container)).toBe(2);
+    expect(bodyText(container)).toContain('Execute guard');
+    expect(bodyText(container)).toContain('Execute typecheck');
+    // 反向守卫:两行是两次调用,不是同一次画了两遍(去重仍然生效)
+    expect(container.textContent).not.toContain('×2');
   });
 
   it('同一个 tool_use id 出现两次不折成 ×2', () => {
@@ -279,8 +358,27 @@ describe('AssistantMessage 执行记录', () => {
 
     expect(recordHead(container)).toContain('Run failed');
     expect(recordHead(container)).not.toContain('Done');
-    // D3:那次调用没有配对结果,所以不落行 —— 失败原因交给下面的报错卡(B18)
-    expect(recordBody(container)).toBeNull();
+
+    /*
+     * ⚠️ 这里原来是 `expect(recordBody(container)).toBeNull()`,注释写着
+     * 「D3:那次调用没有配对结果,所以不落行」。**两处都不对,而且它一直是绿的** ——
+     * CI 照不出来,是我在做在途行改造时用探针撞出来的:
+     *
+     *  · D3 已作废(2026-09-02,OPEND-2419),没有结果的调用现在照样落行;
+     *  · 更要紧的是,那句断言**从来就不是靠 D3 绿的**。失败那档壳头是收起的
+     *    (`ExecutionShell` 的 `lifecycleOpen = running || stopped`),而收起的壳
+     *    走 `deferCollapsedBodies` —— body 压根没挂载。也就是说不管壳里有没有东西,
+     *    `recordBody` 都是 null:一条**永真**的断言。
+     *
+     * 改成先展开再看,这样它才真的在问「失败那一轮里,那次没回来的调用还在不在」。
+     */
+    activateExecutionRecord(container);
+    const body = recordBody(container)!;
+    expect(body, '失败的一轮也留着执行记录(B47 只在这一档保空壳)').not.toBeNull();
+    expect(body.textContent).toContain('Execute guard');
+    // 轮次已经停了 —— 和跑完那几条同一条规矩:中性灰,不许继续转圈
+    expect(body.querySelector('[aria-label="Not started"]')).not.toBeNull();
+    expect(body.querySelector('[aria-label="Working"]')).toBeNull();
   });
 
   it('手动停止:壳保持「进行中」,「已手动停止」是下面那行状态的词(B7 / W4)', () => {
@@ -369,7 +467,7 @@ describe('AssistantMessage 执行记录', () => {
     },
   );
 
-  it('流式中的调用还没有结果:壳是「进行中」、默认摊开,行还不落(D3 / D18)', () => {
+  it('流式中的调用还没有结果:壳是「进行中」、默认摊开,那一行当场就在(D3 作废 / D18)', () => {
     const { container } = render(
       <AssistantMessage
         projectKind="prototype"
@@ -391,11 +489,25 @@ describe('AssistantMessage 执行记录', () => {
       />,
     );
 
+    /*
+     * D18 那半边**没变**:轮次还在跑,壳头是「进行中」、默认摊开。
+     *
+     * D3 那半边翻了(2026-09-02,OPEND-2419):调用发出去就落行。这一刻恰恰是
+     * 整条裁决的**正题** —— 命令还在跑,屏幕上就得有它。原来这里断言
+     * `recordBody(container)` 是 null(壳里空着),那是「跑完才落行」的形态。
+     *
+     * 行首这一格与上面那几条相反:轮次**还在跑**,所以要的就是转着的球(`Working`)。
+     * 两头都钉住,「不许转圈」那条才不至于矫枉过正把该转的也停掉。
+     */
     expect(recordHead(container)).toContain('Working');
-    expect(recordBody(container)).toBeNull();
+    const body = recordBody(container)!;
+    expect(body, '进行中的调用当场落行').not.toBeNull();
+    expect(body.textContent).toContain('Run guard');
+    expect(body.querySelector('[aria-label="Working"]'), '还在跑的行是转着的球').not.toBeNull();
+    expect(body.querySelector('[aria-label="Not started"]'), '还在跑不该退成中性灰').toBeNull();
   });
 
-  it('还在流的 Write 一行都不落;run 结束后壳收起(D3 + D18)', () => {
+  it('还在流的 Write 当场落行(源码预览仍然不许回来);run 结束后壳收起(D3 作废 + D18)', () => {
     const streamingEvents = [
       {
         kind: 'tool_use' as const,
@@ -428,11 +540,22 @@ describe('AssistantMessage 执行记录', () => {
      * **用户当场把它推翻了**(`chat-panel-feedback.md:422` N4:
      * 「不应该是一个普通工具调用的样式吗?」),喂料的 `liveToolInput` 链路整条删了,
      * 那句断言在这里已经无从证伪 —— 挪去 `chat/write-live-preview.test.tsx`,
-     * 那边守的是「通道不许回来」。这里只剩壳自己的形态。
+     * 那边守的是「通道不许回来」。
+     *
+     * ⚠️ 2026-09-02(OPEND-2419)之后这一条又翻了一半:原来写的是
+     * 「这一刻那次 Write 还没有结果,所以壳里确实空着」+ `rowCount === 1`,
+     * 依据是 D3;**D3 已作废**,Write 发出去就落行,所以现在壳里是**两件东西**:
+     * 那一行 + 那句叙述。
+     *
+     * 但 N4 那条**一个字都没松**,而且正是它给出这条裁决的形状:用户要的是
+     * 「一个普通工具调用的样式」(一行「新建 result.ts」),不是壳外摊开的几十行
+     * HTML 源码。所以下面那句 `not.toContain('export const value = 1;')` 必须留着 ——
+     * 它现在是这一条里唯一还在守 N4 的断言,别当成「顺手带的」删掉。
      */
-    expect(rowCount(container)).toBe(1);                       // 只有那句叙述
+    expect(rowCount(container)).toBe(2);                       // 工具行 + 那句叙述
     expect(bodyText(container)).toContain('Writing the result now.');
-    expect(bodyText(container)).not.toContain('result.ts');    // 工具行还没落
+    expect(bodyText(container)).toContain('result.ts');        // 调用发出去就落行
+    // N4 守卫:落的是一行,不是一块源码预览
     expect(container.textContent ?? '').not.toContain('export const value = 1;');
 
     rerender(

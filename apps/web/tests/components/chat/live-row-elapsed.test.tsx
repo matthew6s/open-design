@@ -77,6 +77,25 @@ const tool = (over: Partial<Extract<ShellItem, { kind: 'tool' }>> = {}): ShellIt
   ...over,
 } as ShellItem);
 
+/**
+ * 生图批次行(组件 12)。稿子给这一档画的是「球 + 『生成配套插图 2/4』+ 一排大格」,
+ * **头上没有耗时槽** —— 收成一行那一档才有。上面那次裁决(2026-09-02)的覆盖范围
+ * 也只写了三类(思考中 / 工具行 / 步骤行),生图行不在内。
+ *
+ * 产品 2026-09-03 口述把范围补齐:「工具调用最好都有显示的逐渐增长的计时,
+ * **尽可能所有都有**,包括 thinking,这样用户能感受到当前哪里卡住了」。
+ * 生图是最慢的一类动作,原来那几分钟里这一行上一个数字都没有。
+ */
+const imageBatch = (over: Partial<Extract<ShellItem, { kind: 'image' }>> = {}): ShellItem => ({
+  kind: 'image', id: 'img-1', total: 4, done: 1, failed: 0, thumbs: [],
+  cells: [
+    { status: 'done', path: 'a.png' },
+    { status: 'pending' }, { status: 'pending' }, { status: 'pending' },
+  ],
+  pending: true, elapsedMs: null,
+  ...over,
+} as ShellItem);
+
 describe('进行中的三类行都带耗时', () => {
   it('**思考中**那一格右边写着秒数(稿子这一格是空的)', () => {
     const { container } = render(show(shellOf(
@@ -110,6 +129,19 @@ describe('进行中的三类行都带耗时', () => {
     const { container } = render(show(shellOf([todo('复刻商品列表页', 'in_progress', 90_000)])));
     expect(container.textContent).toContain('复刻商品列表页');
     expect(container.textContent).toContain('1m 30s');
+  });
+
+  it('**还在出图的生图批次行**头上也写着秒数(产品 2026-09-03 把范围补到第四类)', () => {
+    const { container } = render(show(shellOf([imageBatch({ elapsedMs: 132_000 })])));
+    // 正向对照:确实是大格那一档(还没出完),不是收成一行那一档
+    expect(container.textContent).toContain('1/4');
+    expect(container.textContent).toContain('2m 12s');
+  });
+
+  it('反向守卫:生图批次行拿不到耗时时什么都不写,不用 `0.0s` 顶上', () => {
+    const { container } = render(show(shellOf([imageBatch({ elapsedMs: null })])));
+    expect(container.textContent).toContain('1/4');
+    expect(container.textContent).not.toContain('0.0s');
   });
 
   it('反向守卫:已完成那几行照旧带自己的数字(从 `running-todo-no-elapsed` 搬来)', () => {

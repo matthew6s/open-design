@@ -93,6 +93,14 @@
   font-family: inherit;
   font-variant-numeric: tabular-nums;
 }
+/*
+ * 一行里出现**两枚** `.meta` 的唯一场景:生图批次行的「2/4」+ 实时耗时
+ * (产品 2026-09-03 把「进行中的行都报耗时」补到了这一档)。
+ * 两枚都带 `margin-left: auto` 的话,flex 会把富余空间**平分**给两个 auto 外距,
+ * 计数就飘到行中间去了。第二枚归零,让它紧跟着第一枚(间距走 `.tool` 的 `gap: 7px`)
+ * —— 同 `.meta + .chev` 那条,一样的道理。
+ */
+.meta + .meta { margin-left: 0; }
 
 .fold .body{
   padding: 0 11px 11px;

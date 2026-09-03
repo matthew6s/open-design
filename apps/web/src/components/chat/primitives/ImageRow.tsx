@@ -99,6 +99,23 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
           : <span className={styles.icon}><ImageIcon /></span>}
         <span className={styles.name}>{t('chat.record.imageBatch')}</span>
         <span className={`${styles.meta} ${styles.num}`}>{row.done}/{row.total}</span>
+        {/*
+          * 耗时(**有意偏离设计稿**,产品 2026-09-03)。稿子给大格这一档只画了
+          * 「球 + 『生成配套插图 2/4』+ 一排大格」,耗时要等收成一行那一档才出现。
+          * 2026-09-02 那次「进行中的行也报耗时」的裁决当时只覆盖思考中 / 工具行 /
+          * 步骤行(见 `ToolRow.tsx` 文件头),生图行漏在外面 —— 而它恰恰是最慢的
+          * 一类动作,几分钟里这一行上一个数字都没有。产品 2026-09-03 口述补齐范围:
+          * 「工具调用最好都有显示的逐渐增长的计时,**尽可能所有都有**,包括 thinking,
+          * 这样用户能感受到当前哪里卡住了」。
+          *
+          * 秒数不在这一层算,也没有新起定时器:`build-turn-blocks` 用轮次共用的
+          * `liveEndMs` 算进 `row.elapsedMs`,这里照旧只画。拿不到就整个不画 ——
+          * 不用 `0.0s` 顶上(§2.2b)。
+          * ⚠️ 不许挂 `aria-live`:挂了读屏会每秒念一遍。
+          */}
+        {formatElapsed(row.elapsedMs)
+          ? <span className={styles.meta}>{formatElapsed(row.elapsedMs)}</span>
+          : null}
       </div>
       <div className={styles.imgs}>
         {Array.from({ length: row.total }, (_, i) => {

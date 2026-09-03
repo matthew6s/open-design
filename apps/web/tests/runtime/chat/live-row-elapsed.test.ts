@@ -29,12 +29,13 @@
  * 渲染面的断言在 `tests/components/chat/live-row-elapsed.test.tsx`。
  */
 import { describe, expect, it } from 'vitest';
-import type { PersistedAgentEvent } from '@open-design/contracts';
+import type { PersistedAgentEvent, ProjectMediaTask } from '@open-design/contracts';
 import { buildTurnBlocks } from '../../../src/runtime/chat/build-turn-blocks';
 import { groupThinking, type ThoughtsGroup } from '../../../src/runtime/chat/group-thinking';
 import type {
   BuildTurnInput,
   ExecutionShell,
+  ImageRow,
   TodoSegment,
   ToolRow,
 } from '../../../src/runtime/chat/contract';
@@ -255,5 +256,113 @@ describe('终态切换不回退', () => {
     expect(beforeResult! - afterResult!).toBe(lastTick - completedAt);
     // 反向守卫:值不许直接消失(掉回「没有数」比往回跳更糟)
     expect(afterResult).not.toBeNull();
+  });
+});
+
+/**
+ * 第四类:**生图批次行**(组件 12)。
+ *
+ * 2026-09-02 那次裁决的注释里,覆盖范围写的是「思考中 / 工具行 / 步骤行」三类
+ * (见 `ToolRow.tsx` 文件头)。生图行没在里面 —— 它自己走一条路,
+ * `readImageCall` 只在**每个任务都有 `endedAt`** 时才算耗时,轮询兜底那一行
+ * (`pendingMediaBatchRow`)干脆写死 `elapsedMs: null`。于是一批图生成期间,
+ * 那一行上一个数字都没有,而生图恰恰是最慢的一类动作。
+ *
+ * 产品 2026-09-03 口述把范围补齐了:
+ *   「工具调用最好都有显示的逐渐增长的计时,**尽可能所有都有**,包括 thinking,
+ *     这样用户能感受到当前哪里卡住了」
+ * 所以这一档按同一条规矩接上:同一个 `liveEndMs` 终点、同一个 100ms 门槛,
+ * 起点是这一批**最早**那个任务的 `startedAt`。
+ */
+describe('生图批次行也带实时耗时(产品 2026-09-03)', () => {
+  const imageRows = (input: BuildTurnInput): ImageRow[] =>
+    shellOf(input).items.filter((i): i is ImageRow => i.kind === 'image');
+
+  const mediaTask = (over: Partial<ProjectMediaTask> & { taskId: string }): ProjectMediaTask => ({
+    runId: 'run', surface: 'image', status: 'running',
+    startedAt: T0, endedAt: null, elapsed: 0, progress: [], progressCount: 0,
+    ...over,
+  });
+
+  it('轮询兜底那一行:秒数从这一批最早那个任务算起,跟着 tick 走', () => {
+    const at = (nowMs: number) => imageRows({
+      events: [], runStatus: 'running', startedAtMs: T0, nowMs,
+      mediaTasks: [
+        mediaTask({ taskId: 'm1', batchId: 'b1', batchIndex: 1, batchSize: 2, startedAt: T0 + 5_000 }),
+        mediaTask({ taskId: 'm2', batchId: 'b1', batchIndex: 2, batchSize: 2, startedAt: T0 + 9_000, sequence: 2 }),
+      ],
+    })[0]!;
+
+    expect(at(T0 + 65_000).pending, '还在出图').toBe(true);
+    // 起点是最早那个(+5s),不是最晚那个 —— 这一批是一件事,从第一张开始算
+    expect(at(T0 + 65_000).elapsedMs).toBe(60_000);
+    expect(at(T0 + 125_000).elapsedMs).toBe(120_000);
+  });
+
+  it('事件已经到、但图还没出完:同样有数,不用等全部 `endedAt`', () => {
+    const events: PersistedAgentEvent[] = [
+      { kind: 'tool_use', id: 'g1', name: 'Bash', input: { command: 'od media generate --prompt a' }, startedAt: T0 } as PersistedAgentEvent,
+    ];
+    const row = imageRows({
+      events, runStatus: 'running', startedAtMs: T0, nowMs: T0 + 42_000,
+      mediaTasks: [mediaTask({ taskId: 'm1', batchId: 'b1', batchIndex: 1, batchSize: 1, startedAt: T0 })],
+    })[0]!;
+    expect(row.pending).toBe(true);
+    expect(row.elapsedMs).toBe(42_000);
+  });
+
+  it('S19 合并成一行时:秒数从**合并进来最早那次**算起,不是几次相加', () => {
+    /*
+     * 连续的生图调用会被 S19 合并成一行。结算值那条路是**相加**(几次串行调用的
+     * 总耗时),但实时值不能跟着加 —— 两次的终点都是同一个 `liveEndMs`,加起来
+     * 等于把同一段墙钟时间数两遍。真机上那会画出一个比整轮还长的数。
+     * 正确的是:一行 = 一个跨度,从这一行最早那次调用算到现在。
+     */
+    const rows = imageRows({
+      events: [
+        { kind: 'tool_use', id: 'g1', name: 'Bash', input: { command: 'od media generate --prompt a' }, startedAt: T0 } as PersistedAgentEvent,
+        { kind: 'tool_use', id: 'g2', name: 'Bash', input: { command: 'od media generate --prompt b' }, startedAt: T0 + 20_000 } as PersistedAgentEvent,
+      ],
+      runStatus: 'running', startedAtMs: T0, nowMs: T0 + 50_000,
+      mediaTasks: [
+        mediaTask({ taskId: 'm1', batchId: 'b1', batchIndex: 1, batchSize: 1, startedAt: T0 }),
+        mediaTask({ taskId: 'm2', batchId: 'b2', batchIndex: 1, batchSize: 1, startedAt: T0 + 20_000, sequence: 2 }),
+      ],
+    });
+    expect(rows, '两次连续调用合并成一行').toHaveLength(1);
+    // 50s(从第一次算起),不是 50 + 30 = 80s,也不是 30s(只看最后一次)
+    expect(rows[0]!.elapsedMs).toBe(50_000);
+  });
+
+  it('反向守卫:算出来不到 100ms 的仍然当「不知道」—— 界面上出过 `0.0s`', () => {
+    const row = imageRows({
+      events: [], runStatus: 'running', startedAtMs: T0, nowMs: T0 + 40,
+      mediaTasks: [mediaTask({ taskId: 'm1', batchId: 'b1', batchIndex: 1, batchSize: 1, startedAt: T0 })],
+    })[0]!;
+    expect(row.elapsedMs).toBeNull();
+  });
+
+  it('反向守卫:全部出完之后换回结算值,秒表不再跟着 tick 跳', () => {
+    /*
+     * 轮询兜底那一行只在任务还 `queued` / `running` 时出;都出完了就得走事件那条路
+     * (`tool_use` + `tool_result`),否则这一行根本不存在 —— 第一版夹具就是这么写错的,
+     * 拿到的是 `undefined`。结算值由 `readImageCall` 从任务的 `startedAt` / `endedAt` 算。
+     */
+    const settled = (nowMs: number) => imageRows({
+      events: [
+        { kind: 'tool_use', id: 'g1', name: 'Bash', input: { command: 'od media generate --prompt a' }, startedAt: T0 } as PersistedAgentEvent,
+        { kind: 'tool_result', toolUseId: 'g1', content: '{"status":"done","path":"a.png"}', isError: false, completedAt: T0 + 18_000 } as PersistedAgentEvent,
+      ],
+      runStatus: 'running', startedAtMs: T0, nowMs,
+      mediaTasks: [mediaTask({
+        taskId: 'm1', batchId: 'b1', batchIndex: 1, batchSize: 1,
+        status: 'done', startedAt: T0, endedAt: T0 + 18_000,
+        file: { name: 'a.png' },
+      })],
+    })[0]!;
+    expect(settled(T0 + 30_000).pending).toBe(false);
+    expect(settled(T0 + 30_000).elapsedMs).toBe(18_000);
+    // 时间再往前推,结算值一动不动 —— 实时终点不许接管已经结算的行
+    expect(settled(T0 + 900_000).elapsedMs).toBe(18_000);
   });
 });
