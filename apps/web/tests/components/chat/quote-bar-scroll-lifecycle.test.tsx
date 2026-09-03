@@ -96,15 +96,41 @@ describe('Add to chat 选区浮层的滚动生命周期', () => {
     expect(screen.getByTestId('chat-quote-bar')).toBeInTheDocument();
   });
 
-  it('chat viewport 真正位移时关闭，并等待下一次 selectionchange 才重新出现', () => {
-    const { scope } = selectText();
+  /*
+   * 这一条原来的标题逐字是「chat viewport 真正位移时**关闭**,并等待下一次
+   * selectionchange 才重新出现」,断言的是「一滚就藏」。**那半条裁决在 2026-09-04
+   * 被用户当面推翻**:「选中文本后,『添加到对话』按钮怎么一滚动就消失了?消失
+   * 不会再显示吗?」—— 滚一下就没,而且不重新选一次就再也不回来。
+   *
+   * 另外半条理由仍然成立,不许跟着一起丢:OPEND-2541「滚动会话时选中文案的
+   * Add to chat 浮层随内容移动」说的是真问题 —— 浮条是 `position: fixed`,滚动时
+   * 若不重算就停在原地,变成一条指着不存在内容的鬼影。当年的修法是「那就藏了」;
+   * 现在换成「每帧重新贴」:鬼影同样不可能出现(位置每次都按新几何算),而且这才是
+   * 稿子的行为(`729fa43ce7:docs/design/chat-panel/src/components.css:3136` 把
+   * `.selbar` 用 `absolute` 挂在 `.sel` 自己身上,天然跟着内容滚)。选区真的滚出
+   * 画面那一档仍然要藏,判据是 `QuoteBar.selectionOnScreen`,钉在
+   * `quote-bar-follows-scroll.test.tsx` ②③ 两条。
+   *
+   * 所以这里断言两件事:视口真的动了 → 浮条**还在**,而且**位置跟着新几何走**。
+   * 只断言「还在」会给鬼影放行 —— 停在原地的浮条也「还在」。
+   */
+  it('chat viewport 真正位移时跟着重新定位，不再需要下一次 selectionchange', () => {
+    const { geometry, scope } = selectText();
+    const barTop = (): number =>
+      Number.parseFloat(screen.getByTestId('chat-quote-bar').style.top);
+    const before = barTop();
 
+    // 真浏览器滚动时这两样一起变:容器的 scrollTop,和选区在**屏幕上**的坐标。
     scope.scrollTop = 48;
+    geometry.selectionTop -= 48;
+    geometry.selectionBottom -= 48;
     fireEvent.scroll(scope);
-    expect(screen.queryByTestId('chat-quote-bar')).not.toBeInTheDocument();
 
-    fireEvent(document, new Event('selectionchange'));
     expect(screen.getByTestId('chat-quote-bar')).toBeInTheDocument();
+    expect(
+      Math.round(before - barTop()),
+      '选区上移 48px,浮条也要上移 48px;差值 0 = 停在原地的鬼影(OPEND-2541)',
+    ).toBe(48);
   });
 
   /*

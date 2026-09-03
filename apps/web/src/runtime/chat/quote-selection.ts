@@ -153,9 +153,9 @@ export function visibleQuoteAnchors(input: {
  * (`quoteBarPlacement` 的 `availableAbove >= availableBelow`)带到「朝上」,
  * 再由边缘夹取贴到顶边;`tests/runtime/chat/quote-bar-in-view.test.ts` 钉住了它。
  *
- * 选区**整个**被滚出画面也落在这一档。那种情况的产品裁决在组件层且早就有了 ——
- * `QuoteBar.dismissOnMovedViewport`:视口真的动了就藏掉这条过期浮条。这一层只
- * 保证「就算没藏,坐标也还在画面里」。
+ * 选区**整个**被滚出画面也落在这一档。那种情况的裁决在组件层 ——
+ * `QuoteBar.selectionOnScreen`:选区自己不在可视区里露着了就收起浮条(滚回来会
+ * 自己回来,用户 2026-09-04)。这一层只保证「就算没收,坐标也还在画面里」。
  */
 export function quoteBarPosition(input: {
   /** 选区首行矩形 */

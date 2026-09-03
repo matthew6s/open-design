@@ -209,6 +209,27 @@ function sameVisibleGeometry(a: SelectionGeometry, b: SelectionGeometry): boolea
   );
 }
 
+/**
+ * **浮条在不在,只由这一条决定:选区自己还在可视区里露着吗。**
+ *
+ * 必须成立的是「浮条一定贴着**看得见的**选区」。`quoteBarPosition` 只保证坐标
+ * 落在面板里 —— 选区整个滚出画面之后它仍会算出一个位置,而那个位置是被边缘夹取
+ * 拽到面板边上的,浮条就悬在一段与它毫无关系的正文头上。所以「贴得住」这件事
+ * 不能交给定位函数,得在这里先问一句。
+ *
+ * 判据是**竖直方向的交集**:选区从首行上沿到末行下沿这一整段,和面板的可视区
+ * 有没有重叠。用整段而不是「首行或末行任一露头」,是为了照顾比一屏还高的选区 ——
+ * 首尾都滚出去了、中间那段正占满画面,那当然还看得见。
+ *
+ * 只看竖直:聊天日志只竖着滚,横向没有能让选区离开画面的自由度。
+ */
+function selectionOnScreen(geometry: SelectionGeometry): boolean {
+  const { firstRect, lastRect, panelRect } = geometry;
+  const top = Math.min(firstRect.top, lastRect.top);
+  const bottom = Math.max(firstRect.bottom, lastRect.bottom);
+  return bottom > panelRect.top && top < panelRect.bottom;
+}
+
 /** 从选区往上找出它落在哪条消息里 —— 之后要回跳定位靠它 */
 function messageIdOf(node: Node | null): string | null {
   let el = node instanceof Element ? node : node?.parentElement ?? null;
@@ -247,19 +268,23 @@ export function QuoteBar({
     setBar(null);
   }, []);
 
-  const sync = useCallback(() => {
-    const scope = scopeRef.current;
-    if (!scope) {
-      setSelectionActive(false);
-      return hideBar();
-    }
-    const geometry = readSelectionGeometry(scope);
-    if (!geometry) {
-      setSelectionActive(false);
-      return hideBar();
-    }
+  /**
+   * 把一帧**有效选区**的几何画出来 —— 看得见就贴上去,看不见就收起来。
+   *
+   * 两条路都要先把 `geometry` 记进 `geometryRef`,收起来那一路尤其不能漏:
+   * 滚动回调靠它判断「视口是不是真的动了」,更靠它在选区滚回画面时把浮条接回来。
+   * 收起时若像 `hideBar` 那样把它清成 null,复原的依据就跟着没了 —— 那正是用户
+   * 2026-09-04 说的后半句「消失不会再显示吗」。
+   */
+  const renderBar = useCallback((geometry: SelectionGeometry) => {
+    // 选区仍然有效 —— 哪怕被滚出画面,ChatPane 也不许因此恢复追尾:
+    // 只有用户自己清掉选区(或显式回到最新)才算数。
     setSelectionActive(true);
     geometryRef.current = geometry;
+    if (!selectionOnScreen(geometry)) {
+      setBar(null);
+      return;
+    }
     const measuredBar = barRef.current?.getBoundingClientRect();
     const measuredWidth = measuredBar?.width || QUOTE_BAR_DEFAULT_WIDTH_PX;
     const measuredHeight = measuredBar?.height || QUOTE_BAR_DEFAULT_HEIGHT_PX;
@@ -279,7 +304,21 @@ export function QuoteBar({
       measuredWidth,
       measuredHeight,
     });
-  }, [hideBar, scopeRef, setSelectionActive]);
+  }, [setSelectionActive]);
+
+  const sync = useCallback(() => {
+    const scope = scopeRef.current;
+    if (!scope) {
+      setSelectionActive(false);
+      return hideBar();
+    }
+    const geometry = readSelectionGeometry(scope);
+    if (!geometry) {
+      setSelectionActive(false);
+      return hideBar();
+    }
+    renderBar(geometry);
+  }, [hideBar, renderBar, scopeRef, setSelectionActive]);
 
   // The first selection pass cannot measure a bar that does not exist yet.
   // Re-run once after mount so long localized labels use their real width for
@@ -294,7 +333,24 @@ export function QuoteBar({
 
   useEffect(() => {
     // `selectionchange` 是唯一能同时覆盖鼠标拖选、双击选词、键盘 Shift+方向的信号
-    function dismissOnMovedViewport(): void {
+    /**
+     * 视口动了就**重新贴一次**,而不是把浮条藏掉。
+     *
+     * 稿子(`729fa43ce7:docs/design/chat-panel/src/components.css:3136`)把浮条
+     * `position: absolute` 挂在 `<mark class="sel">` 自己身上,天然跟着内容滚,
+     * 所以稿子里根本没有「滚动怎么办」这个问题。我们改用 `fixed`(真实选区是
+     * DOM Range,没法给它包一层标签),错位才成了我们自己的问题 —— 于是也该由
+     * 我们自己每帧重算来还上,而不是把它转嫁成「一滚就消失」。
+     *
+     * OPEND-2541 那条鬼影(滚动时浮条停在原地、指着不存在的东西)仍然被防着,
+     * 只是换了个防法:重新贴 = 不可能停在原地,选区滚出画面时 `renderBar` 会
+     * 按 `selectionOnScreen` 收起来 = 不可能悬在无关正文上。当时选的「那就藏了」
+     * 是实现方式带出来的副作用,用户 2026-09-04 当面推翻了它的后半段。
+     *
+     * 几何没变就早退:`scroll` 是捕获阶段的全页信号,页面上任何一个可滚元素
+     * 动一下都会来一发,不能每一发都 setState。
+     */
+    function followScrolledSelection(): void {
       const scope = scopeRef.current;
       const previous = geometryRef.current;
       if (!scope || !previous) return;
@@ -305,13 +361,10 @@ export function QuoteBar({
         return;
       }
       if (sameVisibleGeometry(previous, current)) return;
-      // The viewport really moved. Hide the stale fixed-position bar, but keep
-      // the valid Selection active: ChatPane must not resume tail-follow until
-      // the user actually clears it (or explicitly jumps to latest).
-      hideBar();
+      renderBar(current);
     }
     document.addEventListener('selectionchange', sync);
-    window.addEventListener('scroll', dismissOnMovedViewport, true);
+    window.addEventListener('scroll', followScrolledSelection, true);
     window.addEventListener('resize', sync);
     const scope = scopeRef.current;
     const resizeObserver =
@@ -321,12 +374,12 @@ export function QuoteBar({
     if (scope) resizeObserver?.observe(scope);
     return () => {
       document.removeEventListener('selectionchange', sync);
-      window.removeEventListener('scroll', dismissOnMovedViewport, true);
+      window.removeEventListener('scroll', followScrolledSelection, true);
       window.removeEventListener('resize', sync);
       resizeObserver?.disconnect();
       setSelectionActive(false);
     };
-  }, [hideBar, scopeRef, setSelectionActive, sync]);
+  }, [hideBar, renderBar, scopeRef, setSelectionActive, sync]);
 
   if (!bar) return null;
   return (
