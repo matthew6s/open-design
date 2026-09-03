@@ -88,6 +88,32 @@ export interface PanelGrammarStripper {
   flush(): string;
 }
 
+/**
+ * 剥离**吃掉了整帧**吗 —— 也就是这一帧该不该整条扔掉。
+ *
+ * 判据是「**上游到底送没送字符**」,不是「剥完还剩没剩」。两者不是一回事,
+ * 而分不开它们正是 W102 那条回归(2026-09-03)的全部内容:
+ *
+ *  · **原本就空**(`rawDelta === ''`)→ `false`,**照发**。
+ *    claude 的扩展思考出厂就是这个形态:真 CLI 实测 opus-5 与 sonnet-4-5 各一轮,
+ *    `content_block_delta` 的 delta 全是 `{"type":"thinking_delta","thinking":""}`。
+ *    这种帧一个像素都不画,但它是两件事的**唯一**来源 ——
+ *    壳头「思考中」(规格 W11:`thinking_delta` 到达**哪怕 delta 为空**就进入思考中)
+ *    与传输层心跳(web 每收到一条真运行帧就 `markUpstreamActivity`)。
+ *    真机录制 `7ed15c2f`(1150 秒)里 414/414 条思考帧都是空串;把它们扔掉,
+ *    1357 帧只剩 943 帧,最长空档从 73.6 秒变成 300.6 秒。
+ *
+ *  · **送了字符、剥完一个不剩**(`rawDelta` 非空而 `visible` 为空)→ `true`,**扔掉**。
+ *    整片都是评审剧场协议标记(或攒在缓冲里的半截标记),发出去只会让思考区
+ *    多出一格空的「Thoughts」。这正是 ba3e64ea69 要治的那件事,不能回退。
+ *
+ * 空 delta 不成段这件事由客户端管(`build-turn-blocks.ts` 的
+ * `if (!text.trim() && !cont) continue;`),所以「照发」不会画出空段落。
+ */
+export function strippingConsumedTheWholeFrame(rawDelta: string, visible: string): boolean {
+  return rawDelta.length > 0 && visible.length === 0;
+}
+
 export function createPanelGrammarStripper(): PanelGrammarStripper {
   let held = '';
   return {

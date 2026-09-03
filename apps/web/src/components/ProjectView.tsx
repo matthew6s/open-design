@@ -14082,6 +14082,16 @@ export function createBufferedTextUpdates({
   let pendingContentDelta = '';
   let pendingTextEventDelta = '';
   let pendingThinkingEventDelta = '';
+  /**
+   * **来过几帧**思考,和它们**带了多少字**是两件事(W102,2026-09-03)。
+   *
+   * claude 的思考帧正文 100% 是空串,攒起来还是空串。只看 `pendingThinkingEventDelta`
+   * 就等于「一帧都没来过」,于是 `{ kind: 'thinking' }` 一条都不进 `message.events`,
+   * 而壳头的「思考中」(`buildTurnBlocks` 的 `shell.thinking`)**只**认这种事件 ——
+   * 那一格就永远不亮,用户盯着几分钟空白。规格 W11 写死:`thinking_delta` 到达
+   * **哪怕 delta 为空**也要进入思考中。所以帧数要单独记。
+   */
+  let pendingThinkingEventFrames = 0;
   let flushFrame: number | null = null;
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -14184,6 +14194,7 @@ export function createBufferedTextUpdates({
       !pendingContentDelta
       && !pendingTextEventDelta
       && !pendingThinkingEventDelta
+      && pendingThinkingEventFrames === 0
       && !needsFlush
     ) return;
     flushing = true;
@@ -14191,19 +14202,24 @@ export function createBufferedTextUpdates({
     const contentDelta = pendingContentDelta;
     const textEventDelta = pendingTextEventDelta;
     const thinkingEventDelta = pendingThinkingEventDelta;
+    const thinkingFramesArrived = pendingThinkingEventFrames > 0;
     pendingContentDelta = '';
     pendingTextEventDelta = '';
     pendingThinkingEventDelta = '';
+    pendingThinkingEventFrames = 0;
     try {
-      commit((prev) => ({
-        ...prev,
-        content: prev.content + contentDelta,
-        events: appendBufferedAgentDeltas(
-          prev.events ?? [],
+      commit((prev) => {
+        const previousEvents = prev.events ?? [];
+        const nextEvents = appendBufferedAgentDeltas(
+          previousEvents,
           textEventDelta,
           thinkingEventDelta,
-        ),
-      }));
+          thinkingFramesArrived,
+        );
+        // 一串空思考帧里只有第一帧会改动数组;其余帧什么都没变,别白换一次消息身份
+        if (nextEvents === previousEvents && !contentDelta) return prev;
+        return { ...prev, content: prev.content + contentDelta, events: nextEvents };
+      });
       if (replayOpen) {
         replayContentDelta += contentDelta;
       } else {
@@ -14213,7 +14229,13 @@ export function createBufferedTextUpdates({
     } finally {
       flushing = false;
     }
-    if (pendingContentDelta || pendingTextEventDelta || pendingThinkingEventDelta || needsFlush) {
+    if (
+      pendingContentDelta
+      || pendingTextEventDelta
+      || pendingThinkingEventDelta
+      || pendingThinkingEventFrames > 0
+      || needsFlush
+    ) {
       needsFlush = false;
       scheduleFlush();
     }
@@ -14251,7 +14273,8 @@ export function createBufferedTextUpdates({
 
   const appendTextEvent = (delta: string) => {
     if (disposed) return;
-    if (pendingThinkingEventDelta) flushPending();
+    // 攒着的思考先交出去 —— 空帧也算,否则思考与正文的先后会错位
+    if (pendingThinkingEventDelta || pendingThinkingEventFrames > 0) flushPending();
     nonDeltaEventDeduper.reset();
     pendingTextEventDelta += delta;
     needsFlush = true;
@@ -14269,6 +14292,8 @@ export function createBufferedTextUpdates({
       if (pendingTextEventDelta) flushPending();
       nonDeltaEventDeduper.reset();
       pendingThinkingEventDelta += ev.text;
+      // 帧数单独记:claude 的 delta 全是空串,只看上面那行等于「一帧都没来过」
+      pendingThinkingEventFrames += 1;
       needsFlush = true;
       noteReplayActivity();
       scheduleFlush();
@@ -14298,6 +14323,7 @@ export function createBufferedTextUpdates({
     pendingContentDelta = '';
     pendingTextEventDelta = '';
     pendingThinkingEventDelta = '';
+    pendingThinkingEventFrames = 0;
     needsFlush = false;
     nonDeltaEventDeduper.reset();
     if (hasDocument) {
@@ -14412,15 +14438,30 @@ function appendCoalescedAgentEvent(events: AgentEvent[], event: AgentEvent): Age
   return [...events, event];
 }
 
+/**
+ * 把这一批攒住的增量落进事件流。
+ *
+ * `thinkingFramesArrived` 和 `thinkingDelta` 分开传,是 W102(2026-09-03)的判据:
+ * **帧到了**和**帧里有字**是两件事。claude 的思考帧正文 100% 是空串,只看
+ * `thinkingDelta` 就等于「一帧都没来过」——「思考中」那一格于是永远不亮
+ * (规格 W11:`thinking_delta` 到达**哪怕 delta 为空**就进入思考中)。
+ *
+ * 空帧只需要在流里留下「在想」这一个事实,所以已经有一段思考在收尾时就什么都不做:
+ * 数组身份不变,上面的 `commit` 会原样返回,连着几十帧空的也不会换一次消息身份。
+ * 空串本身不成段 —— `build-turn-blocks.ts` 那两道 `!text.trim()` 管这件事。
+ */
 function appendBufferedAgentDeltas(
   events: AgentEvent[],
   textDelta: string,
   thinkingDelta: string,
+  thinkingFramesArrived = false,
 ): AgentEvent[] {
   let next = events;
   if (textDelta) next = appendCoalescedAgentEvent(next, { kind: 'text', text: textDelta });
   if (thinkingDelta) {
     next = appendCoalescedAgentEvent(next, { kind: 'thinking', text: thinkingDelta });
+  } else if (thinkingFramesArrived && next[next.length - 1]?.kind !== 'thinking') {
+    next = appendCoalescedAgentEvent(next, { kind: 'thinking', text: '' });
   }
   return next;
 }

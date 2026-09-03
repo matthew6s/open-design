@@ -470,7 +470,10 @@ import { stageAmrImagePaths } from './media/amr-image-staging.js';
 import { ingestRoutineConnectorEvolution } from './automation-routine-evolution.js';
 import { createClaudeStreamHandler } from './runtimes/claude-stream.js';
 import { createAgentTitleMarkerStripper } from './title-marker.js';
-import { createPanelGrammarStripper } from './panel-grammar-strip.js';
+import {
+  createPanelGrammarStripper,
+  strippingConsumedTheWholeFrame,
+} from './panel-grammar-strip.js';
 import { createArtifactFocusMarkerStripper } from './artifact-focus-marker.js';
 import { createNextStepMarkerStripper } from './next-step-marker.js';
 import { createRoleMarkerGuard } from './role-marker-guard.js';
@@ -14736,10 +14739,17 @@ export async function startServer({
        *
        * 整片都是标记时连事件都不发,免得思考区多出一格空的「Thoughts」;
        * 但"模型已经在出字"这件事照记,否则首字时延会被记晚。
+       *
+       * ⚠️ 该不该扔看的是 `strippingConsumedTheWholeFrame` ——「上游到底送没送字符」,
+       * 不是「剥完还剩没剩」。W102(2026-09-03)在这里栽过:原来写的是 `if (!visible)`,
+       * 而 claude 的思考帧正文 100% 是空串,`strip('')` 也返回空串,于是**整个
+       * claude 家族的思考帧被 100% 丢掉** —— 壳头「思考中」永远不亮(规格 W11 明写
+       * 「哪怕 delta 为空」也要进入思考中),传输层拿这些帧当心跳的静默计时也一起谎报。
+       * 判据与真机数字见 `panel-grammar-strip.ts` 上那个函数的注释。
        */
       if (ev?.type === 'thinking_delta' && typeof ev.delta === 'string') {
         const visible = thinkingGrammarStripper.strip(ev.delta);
-        if (!visible) {
+        if (strippingConsumedTheWholeFrame(ev.delta, visible)) {
           noteFirstOutputEvent(ev);
           return;
         }

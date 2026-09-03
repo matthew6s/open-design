@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { createPanelGrammarStripper } from '../src/panel-grammar-strip.js';
+import {
+  createPanelGrammarStripper,
+  strippingConsumedTheWholeFrame,
+} from '../src/panel-grammar-strip.js';
 
 /**
  * 红测:评审剧场的通信语法**永远不许进可见正文**。
@@ -183,4 +186,37 @@ test('属性长到离谱时放行,不许把正文永远吞掉', () => {
   const out = stripAll([monster, '后面的正文。']);
   // 超过 MAX_HOLD 就放行(fail-open)—— 宁可漏一个畸形标记,也不许吞用户的字
   assert.equal(out.includes('后面的正文。'), true);
+});
+
+/*
+ * W102(2026-09-03):「**原本就空**」和「**剥完变空**」必须分得开。
+ *
+ * 分不开的后果不是少剥一点标记,而是**整个 claude 家族的思考帧被 100% 丢掉** ——
+ * 它的思考帧正文出厂就是空串(真 CLI 实测两个模型各一轮),
+ * `strip('')` 也返回空串,写成 `if (!visible)` 两者就是同一件事。
+ */
+test('W102 · 上游本来就是空串 —— 不算被剥掉,照发', () => {
+  const s = make();
+  // claude 的真实形态:content_block_delta 的 delta.thinking 就是 ''
+  assert.equal(strippingConsumedTheWholeFrame('', s.strip('')), false);
+});
+
+test('W102 · 送了字符、剥完一个不剩 —— 整帧扔掉', () => {
+  const s = make();
+  const raw = '<PANELIST role="Critic" score="8.1">';
+  assert.equal(strippingConsumedTheWholeFrame(raw, s.strip(raw)), true);
+});
+
+test('W102 · 半截标记被攒在缓冲里也算整帧被吃掉', () => {
+  const s = make();
+  const raw = '<PANELIST role=';
+  assert.equal(s.strip(raw), '');
+  assert.equal(strippingConsumedTheWholeFrame(raw, ''), true);
+});
+
+test('W102 · 正常思考正文、纯空白都不算被吃掉', () => {
+  const s = make();
+  assert.equal(strippingConsumedTheWholeFrame('在想第二步。', s.strip('在想第二步。')), false);
+  // 空白不是"没有字符":换行照样是模型写下来的东西,不许当标记扔
+  assert.equal(strippingConsumedTheWholeFrame('\n', s.strip('\n')), false);
 });
