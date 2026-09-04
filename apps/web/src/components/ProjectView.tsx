@@ -305,6 +305,7 @@ import {
   projectWorkspaceContext,
   projectWorkspaceScopeAuthorizesAmr,
   projectWorkspaceScopeReady,
+  projectWorkspaceVisibility,
   runWorkspaceIdentity,
   runWorkspacePersonalAdoptionWitness,
   useProjectWorkspaceScope,
@@ -1923,7 +1924,12 @@ function projectEventToAgentEvent(evt: ProjectEvent): LiveArtifactEventItem['eve
     evt.type === 'comment-changed' ||
     evt.type === 'presence-changed' ||
     evt.type === 'project-metadata-changed' ||
-    evt.type === 'project-content-transfer-state'
+    evt.type === 'project-content-transfer-state' ||
+    // Same shape of signal: `handleProjectEvent` turns it into a targeted
+    // conversation re-read. It must be named here rather than left to fall
+    // through — the tail of this function assumes whatever survives is a
+    // live-artifact refresh and reads `evt.phase` off it.
+    evt.type === 'chat-artifact-refs-changed'
   ) {
     return null;
   }
@@ -2281,6 +2287,11 @@ export function ProjectView({
     workspaceContext: projectRunWorkspaceContext,
     workspaceContextLoading: projectWorkspaceScopeState.loading,
     initialMaterializationPending,
+    // The daemon's own `workspace_projects` verdict for this project. A
+    // `personal` row is the same authority its write gate consults, so the
+    // read-only banner must not outlive it when `/collab/status` cannot
+    // answer (OPEND-2624).
+    projectVisibility: projectWorkspaceVisibility(projectWorkspaceScopeState.scope),
     presenceFilePath: project?.metadata?.entryFile ?? null,
   });
   // A Team-bound placeholder is safe to render and comment around, but its
@@ -4640,6 +4651,11 @@ export function ProjectView({
   // Ref to the (later-defined) comment refresher so the SSE handler above can
   // call it without a temporal-dead-zone reference.
   const refreshPreviewCommentsRef = useRef<(() => Promise<void>) | null>(null);
+  // Same temporal-dead-zone dodge for the conversation re-read, used by the
+  // `chat-artifact-refs-changed` branch below.
+  const scheduleConversationMessageRefreshRef = useRef<((conversationId: string) => void) | null>(
+    null,
+  );
   const handleProjectEvent = useCallback((evt: ProjectEvent) => {
     if (evt.type === 'file-changed') {
       iframeKeepAlivePool.evictProject(project.id);
@@ -4655,6 +4671,29 @@ export function ProjectView({
       // `refreshPreviewComments` is defined later in this component, so reach it
       // through a ref to avoid a temporal-dead-zone reference here.
       if (evt.projectId === project.id) void refreshPreviewCommentsRef.current?.();
+      return;
+    }
+    if (evt.type === 'chat-artifact-refs-changed') {
+      /*
+       * A card's static cover finished rendering after its turn already ended.
+       *
+       * The render deliberately outlives the turn, so it lands well after the
+       * one post-run re-read (`scheduleConversationMessageRefresh`, 150ms) has
+       * already returned a message with no ready ref — measured at 616ms on a
+       * real client against that 150ms window. Without this the card sits on
+       * the live-iframe degrade branch for the rest of the session, which is
+       * what `chat-artifact-versioning-design.md` line 505 forbids: "后台
+       * ready 后消息投影更新".
+       *
+       * Re-read rather than apply: the event carries no refs, so `listMessages`
+       * stays the single authority on what a ref is, and a duplicate event
+       * costs one redundant fetch instead of a wrong card. Reusing the existing
+       * scheduler also keeps the degrade branch mounted until the real refs
+       * arrive — line 505 asks for a follow-up update, not a placeholder.
+       */
+      if (evt.projectId === project.id) {
+        scheduleConversationMessageRefreshRef.current?.(evt.conversationId);
+      }
       return;
     }
     if (evt.type === 'presence-changed') {
@@ -5620,6 +5659,15 @@ export function ProjectView({
       refreshPreviewCommentsRef.current = null;
     };
   }, [refreshPreviewComments]);
+
+  // Same exposure for the conversation re-read, so a pushed
+  // `chat-artifact-refs-changed` can pick up a cover that landed after the turn.
+  useEffect(() => {
+    scheduleConversationMessageRefreshRef.current = scheduleConversationMessageRefresh;
+    return () => {
+      scheduleConversationMessageRefreshRef.current = null;
+    };
+  }, [scheduleConversationMessageRefresh]);
 
   // Cross-daemon comment sync: the daemon merges teammates' comments into the
   // local store on a background poll, but the web panel only shows what it last
