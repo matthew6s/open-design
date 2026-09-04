@@ -620,7 +620,9 @@ describe('HomeView prompt handoff', () => {
       await pluginsResponse;
     });
 
-    expect(screen.getByTestId('home-hero-template-trigger').textContent).not.toContain('Prototype');
+    expect(await screen.findByTestId('home-hero-type-pill-prototype'))
+      .toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByTestId('home-hero-active-plugin')).toBeNull();
   });
 
   it('keeps creation types actionable while an expired plugin cache refreshes after a project round trip', async () => {

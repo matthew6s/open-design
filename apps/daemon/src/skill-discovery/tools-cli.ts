@@ -1,5 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
+import { SkillDiscoveryToolLoadPrepareResponseV1Schema } from '@open-design/contracts';
+
+import { materializeVerifiedSkillDiscoveryResources } from './materialize.js';
+
 type JsonObject = Record<string, unknown>;
 
 export interface SkillDiscoveryToolCliResult {
@@ -298,7 +302,7 @@ export async function runSkillDiscoveryToolCli(
       if (!options.role) return fail('load requires --role primary|auxiliary');
       const purpose = await readTextInput(options.purpose, options.purposeFile, 'purpose');
       if (!purpose.ok) return fail(purpose.error);
-      return printApiResult(await requestJson(baseUrl, token, '/api/tools/skills/load', {
+      const preparedResponse = await requestJson(baseUrl, token, '/api/tools/skills/load', {
         method: 'POST',
         body: JSON.stringify({
           id: options.id,
@@ -308,7 +312,44 @@ export async function runSkillDiscoveryToolCli(
           purpose: purpose.value,
           ...(options.replaceId ? { replaceId: options.replaceId } : {}),
         }),
-      }));
+      });
+      if (preparedResponse.status < 200 || preparedResponse.status >= 300) {
+        return printApiResult(preparedResponse);
+      }
+      const prepared = SkillDiscoveryToolLoadPrepareResponseV1Schema.safeParse(
+        preparedResponse.body,
+      );
+      if (!prepared.success) {
+        return fail('daemon returned an invalid Skill load prepare response');
+      }
+
+      // The verified bundle stays in process memory and is never written to
+      // Agent-visible stdout. Materialization runs under the Agent/CLI cwd
+      // authority rather than the daemon's broader filesystem authority.
+      const materialization = await materializeVerifiedSkillDiscoveryResources({
+        cwd: process.cwd(),
+        alias: prepared.data.alias,
+        resources: prepared.data.resources.map((resource) => ({
+          relativePath: resource.relativePath,
+          digest: resource.digest,
+          size: resource.size,
+          mode: resource.mode,
+          bytes: Buffer.from(resource.bytesBase64, 'base64'),
+        })),
+      });
+      return printApiResult(await requestJson(
+        baseUrl,
+        token,
+        '/api/tools/skills/load/commit',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            pendingToken: prepared.data.pendingToken,
+            expectedStateRevision: prepared.data.expectedStateRevision,
+            materialization,
+          }),
+        },
+      ));
     }
 
     if (options.command === 'resolve') {

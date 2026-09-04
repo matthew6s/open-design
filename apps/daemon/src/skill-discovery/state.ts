@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { SKILL_DISCOVERY_MAX_SUPERSEDED_V1 } from '@open-design/contracts';
 
 type SqliteDb = Database.Database;
 
@@ -163,15 +164,16 @@ export function ensureSkillDiscoveryForRun(
     const runChanged = existing.activeRunId !== input.runId;
     const reopenClarification = existing.status === 'clarification' && runChanged;
     if (catalogChanged) {
-      const invalidated = [
+      const invalidated = retainRecentSuperseded([
         ...existing.superseded,
         ...(existing.activePrimary ? [existing.activePrimary] : []),
         ...existing.activeAuxiliaries,
-      ];
+      ]);
       db.prepare(`
         UPDATE skill_discovery_conversations
            SET active_run_id = ?,
                catalog_revision = ?,
+               bootstrap_run_id = ?,
                status = 'pending',
                active_primary_json = NULL,
                active_auxiliaries_json = '[]',
@@ -183,6 +185,7 @@ export function ensureSkillDiscoveryForRun(
       `).run(
         input.runId,
         input.catalogRevision,
+        input.runId,
         JSON.stringify(invalidated),
         now,
         input.conversationId,
@@ -423,7 +426,7 @@ export function planSkillDiscoveryLoad(
     loaded,
     activePrimary,
     activeAuxiliaries,
-    superseded,
+    superseded: retainRecentSuperseded(superseded),
     status,
     lastResolution: resolution,
     eventKind,
@@ -528,7 +531,7 @@ export function deactivateSkillDiscoveryAuxiliary(
        WHERE conversation_id = ?
     `).run(
       JSON.stringify(activeAuxiliaries),
-      JSON.stringify([...state.superseded, removed]),
+      JSON.stringify(retainRecentSuperseded([...state.superseded, removed])),
       now,
       input.conversationId,
     );
@@ -628,6 +631,7 @@ export function renderSkillDiscoveryLifecycleCapsule(
     `- Superseded: ${superseded}`,
     `- Last resolution: ${lastResolution}`,
     '- Quota: one primary and at most two auxiliaries.',
+    '- On later user turns, decide autonomously whether the task changed enough to reuse, replace, augment, deactivate, resolve none, or clarify. Do not run a mandatory classifier on every turn.',
     '- This capsule is an index, not a Skill body. If the native session no longer contains a required body, call `od tools skills load` again using the exact id and digest from the injected official catalog before task-dependent action.',
   ];
   if (state.status === 'pending' || state.status === 'clarification') {
@@ -679,12 +683,12 @@ function normalizeStateRow(row: StoredStateRow): SkillDiscoveryState {
   const status = normalizeStatus(row.status);
   const activePrimary = parseJson(row.activePrimaryJson, null);
   const activeAuxiliaries = parseJson(row.activeAuxiliariesJson, []);
-  const superseded = parseJson(row.supersededJson, []);
+  const persistedSuperseded = parseJson(row.supersededJson, []);
   const lastResolution = parseJson(row.lastResolutionJson, null);
   if (
     activePrimary !== null && !isLoadedRef(activePrimary)
     || !Array.isArray(activeAuxiliaries) || !activeAuxiliaries.every(isLoadedRef)
-    || !Array.isArray(superseded) || !superseded.every(isLoadedRef)
+    || !Array.isArray(persistedSuperseded) || !persistedSuperseded.every(isLoadedRef)
     || lastResolution !== null && !isResolution(lastResolution)
   ) {
     throw new SkillDiscoveryStateError('Persisted Skill discovery state is malformed.');
@@ -699,12 +703,18 @@ function normalizeStateRow(row: StoredStateRow): SkillDiscoveryState {
     activeRunId: row.activeRunId,
     activePrimary,
     activeAuxiliaries,
-    superseded,
+    superseded: retainRecentSuperseded(persistedSuperseded),
     lastResolution,
     revision: row.revision,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function retainRecentSuperseded(
+  values: LoadedDiscoverySkillRef[],
+): LoadedDiscoverySkillRef[] {
+  return values.slice(-SKILL_DISCOVERY_MAX_SUPERSEDED_V1);
 }
 
 function normalizeLoadedRef(input: LoadedDiscoverySkillRef): LoadedDiscoverySkillRef {

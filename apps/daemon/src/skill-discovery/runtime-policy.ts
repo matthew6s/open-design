@@ -4,28 +4,31 @@ import {
   type SkillDiscoveryState,
 } from './state.js';
 
-const BLOCKED_BEFORE_RESOLUTION = new Set([
-  'connectors:execute',
-  'library:apply',
-  'live-artifacts:create',
-  'live-artifacts:refresh',
-  'live-artifacts:update',
-  'media:generate',
-  'media:scaffold',
-  'project:export',
+const ALLOWED_BEFORE_RESOLUTION = new Set([
+  'connectors:list',
+  'design-systems:read',
+  'library:search',
+  'live-artifacts:list',
+  'skills:deactivate',
+  'skills:load',
+  'skills:resolve',
+  'skills:search',
+  'skills:status',
 ]);
 
 /**
  * The daemon can enforce discovery ordering only for its run-scoped wrapper
- * capabilities. Native Agent filesystem and shell tools remain outside this
- * boundary; this module neither blocks nor observes those native operations.
+ * capabilities. While discovery is unresolved, only explicitly reviewed
+ * read/discovery operations are allowed; unknown future operations fail
+ * closed. Native Agent filesystem and shell tools remain outside this boundary;
+ * this module neither blocks nor observes those native operations.
  */
 export function skillDiscoveryBlocksToolOperation(
   state: Pick<SkillDiscoveryState, 'status'> | null | undefined,
   operation: string,
 ): boolean {
-  return BLOCKED_BEFORE_RESOLUTION.has(operation)
-    && isSkillDiscoveryWrapperBlocked(state);
+  return isSkillDiscoveryWrapperBlocked(state)
+    && !ALLOWED_BEFORE_RESOLUTION.has(operation);
 }
 
 /** Fail closed when a wrapper grant no longer owns the persisted active run. */
@@ -49,12 +52,15 @@ export type SkillDiscoveryLifecyclePrompt =
   | Record<string, never>;
 
 /**
- * `isResuming` is the only host-provided continuity signal available here, so
- * this function adds no lifecycle text on that path. A non-resumed physical
- * attempt gets the complete candidate metadata catalog plus either the one
- * full policy bootstrap (the first bootstrap-Run attempt) or a compact durable
- * state capsule on an observed retry/later Run. This does not claim that the
- * host can detect native context compaction.
+ * `isResuming` is the only host-provided continuity signal available here. A
+ * first physical discovery attempt still gets the full bootstrap, durable
+ * state capsule, and catalog, even when an earlier non-discovery turn created
+ * a resumable native session.
+ * Later resumed attempts add no lifecycle text unless the catalog revision
+ * changed; a revision change refreshes both the full policy and catalog. Cold
+ * retries and later Runs receive the compact durable state capsule plus the
+ * complete candidate metadata catalog. This does not claim that the host can
+ * detect native context compaction.
  */
 export function resolveSkillDiscoveryLifecyclePrompt(input: {
   state: SkillDiscoveryState | null | undefined;
@@ -66,24 +72,25 @@ export function resolveSkillDiscoveryLifecyclePrompt(input: {
   retryAttemptCount?: number | null;
   manualResumeAttemptCount?: number | null;
 }): SkillDiscoveryLifecyclePrompt {
-  if (!input.state || (input.isResuming && input.catalogRevisionChanged !== true)) return {};
+  if (!input.state) return {};
+  const isFirstPhysicalAttempt = input.state.bootstrapRunId === input.runId
+    && (input.retryAttemptCount ?? 0) === 0
+    && (input.manualResumeAttemptCount ?? 0) === 0;
+  if (input.isResuming && !isFirstPhysicalAttempt && input.catalogRevisionChanged !== true) {
+    return {};
+  }
   const catalog = input.catalogMarkdown.trim();
   if (!catalog) throw new TypeError('Skill discovery catalog metadata must not be empty.');
-  if (input.catalogRevisionChanged === true) {
+  if (isFirstPhysicalAttempt || input.catalogRevisionChanged === true) {
+    const bootstrap = input.bootstrapMarkdown.trim();
+    if (!bootstrap) throw new TypeError('Skill discovery bootstrap must not be empty.');
     return {
-      compactLifecycleCapsuleMarkdown: [
+      discoveryBootstrapMarkdown: [
+        bootstrap,
         renderSkillDiscoveryLifecycleCapsule(input.state),
         catalog,
       ].join('\n\n---\n\n'),
     };
-  }
-  const isFirstPhysicalAttempt = input.state.bootstrapRunId === input.runId
-    && (input.retryAttemptCount ?? 0) === 0
-    && (input.manualResumeAttemptCount ?? 0) === 0;
-  if (isFirstPhysicalAttempt) {
-    const bootstrap = input.bootstrapMarkdown.trim();
-    if (!bootstrap) throw new TypeError('Skill discovery bootstrap must not be empty.');
-    return { discoveryBootstrapMarkdown: `${bootstrap}\n\n---\n\n${catalog}` };
   }
   return {
     compactLifecycleCapsuleMarkdown: [

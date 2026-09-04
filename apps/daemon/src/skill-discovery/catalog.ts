@@ -165,9 +165,9 @@ export interface OfficialSkillDiscoveryResourceBundleFileV1 {
 }
 
 /**
- * Daemon-internal verified bytes for staging. This object must never be
- * serialized into an Agent-visible tool result: `sourceRoot` is an authority
- * path and `bytes` may be large or binary.
+ * Daemon-internal verified bytes for a short-lived prepare response.
+ * `sourceRoot` is authority-bearing and must never be serialized; `bytes` may
+ * cross only into the CLI's in-memory materializer and must not reach stdout.
  */
 export interface OfficialSkillDiscoveryResourceBundleV1 {
   skillId: string;
@@ -386,9 +386,9 @@ export function resolveOfficialSkillDiscoveryLoadV1(
 }
 
 /**
- * Resolve selected resource bytes only after the caller has durably accepted
- * the pinned load. Search/catalog construction retains descriptors, not bytes;
- * this second fenced read verifies every size and digest again before staging.
+ * Resolve selected resource bytes only after the caller has selected a pinned
+ * load. Search/catalog construction retains descriptors, not bytes; this
+ * second fenced read verifies every size and digest again before prepare.
  */
 export function resolveOfficialSkillDiscoveryResourceBundleV1(
   input: OfficialSkillDiscoveryCatalogSourcesV1 & {

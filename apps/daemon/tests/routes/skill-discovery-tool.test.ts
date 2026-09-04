@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 
 import type { InstalledPluginRecord } from '@open-design/contracts';
@@ -11,10 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { resolvePluginFolder } from '../../src/plugins/registry.js';
 import { registerSkillDiscoveryToolRoutes } from '../../src/routes/skill-discovery-tool.js';
-import {
-  materializeVerifiedSkillDiscoveryResources,
-  skillDiscoveryMaterializationAlias,
-} from '../../src/skill-discovery/materialize.js';
 import {
   ensureSkillDiscoveryForRun,
   migrateSkillDiscoveryState,
@@ -33,11 +27,10 @@ let db: Database.Database;
 let server: http.Server | undefined;
 let baseUrl: string;
 let operations: string[];
-let projectDir: string;
 let toolRunId: string;
+let nowMs: number;
 
 beforeEach(async () => {
-  projectDir = await mkdtemp(path.join(os.tmpdir(), 'od-skill-discovery-route-'));
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.exec(`
@@ -61,6 +54,7 @@ beforeEach(async () => {
 
   operations = [];
   toolRunId = 'run-1';
+  nowMs = 1_800_000_000_000;
   const app = express();
   app.use(express.json());
   registerSkillDiscoveryToolRoutes(app, {
@@ -93,16 +87,7 @@ beforeEach(async () => {
       projectId: grant.projectId,
       conversationId: 'conversation-1',
     }),
-    materializeResources: async ({ loaded, bundle }) => (
-      materializeVerifiedSkillDiscoveryResources({
-        cwd: projectDir,
-        alias: skillDiscoveryMaterializationAlias({
-          id: loaded.candidate.id,
-          candidateDigest: loaded.candidate.candidateDigest,
-        }),
-        resources: bundle.files,
-      })
-    ),
+    now: () => nowMs,
   });
   server = app.listen(0);
   await new Promise<void>((resolve) => server?.once('listening', resolve));
@@ -118,7 +103,6 @@ afterEach(async () => {
   });
   server = undefined;
   db.close();
-  await rm(projectDir, { recursive: true, force: true });
 });
 
 async function resolveStrategyRecord(): Promise<InstalledPluginRecord> {
@@ -148,8 +132,57 @@ async function request(
   return { status: response.status, body: await response.json() as JsonBody };
 }
 
+function materializationReceipt(prepared: JsonBody): Record<string, unknown> {
+  const resources = (prepared.resources as Array<{
+    relativePath: string;
+    digest: string;
+    size: number;
+  }>)
+    .map(({ relativePath, digest, size }) => ({ relativePath, digest, size }))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath, 'en'));
+  return {
+    materializedRoot: resources.length > 0 ? `.od-skills/${prepared.alias}` : null,
+    resources,
+  };
+}
+
+async function commitPrepared(prepared: JsonBody, receipt = materializationReceipt(prepared)) {
+  return request('/api/tools/skills/load/commit', {
+    body: {
+      pendingToken: prepared.pendingToken,
+      expectedStateRevision: prepared.expectedStateRevision,
+      materialization: receipt,
+    },
+  });
+}
+
+async function prepareAndCommit(body: Record<string, unknown>) {
+  const prepared = await request('/api/tools/skills/load', { body });
+  if (prepared.status !== 200) return prepared;
+  return commitPrepared(prepared.body);
+}
+
+async function preparePrototype() {
+  const searched = await request('/api/tools/skills/search', {
+    body: { query: '帮我做一个官网', role: 'primary', limit: 5 },
+  });
+  const candidate = searched.body.search.candidates.find(
+    (item: { id: string }) => item.id === 'prototype',
+  );
+  expect(candidate).toBeDefined();
+  return request('/api/tools/skills/load', {
+    body: {
+      id: candidate.id,
+      revision: searched.body.search.revision,
+      candidateDigest: candidate.candidateDigest,
+      role: 'primary',
+      purpose: 'Create the requested product website.',
+    },
+  });
+}
+
 describe('agent-native Skill discovery tool routes', () => {
-  it('supports same-run metadata search then verified load without persisting raw intent', async () => {
+  it('prepares verified bytes without ledger mutation, then commits a matching receipt', async () => {
     const searched = await request('/api/tools/skills/search', {
       body: { query: '帮我做一个官网', role: 'primary', limit: 5 },
     });
@@ -168,7 +201,7 @@ describe('agent-native Skill discovery tool routes', () => {
       `sha256:${createHash('sha256').update('帮我做一个官网').digest('hex')}`,
     );
 
-    const loaded = await request('/api/tools/skills/load', {
+    const prepared = await request('/api/tools/skills/load', {
       body: {
         id: candidate.id,
         revision: searched.body.search.revision,
@@ -178,6 +211,25 @@ describe('agent-native Skill discovery tool routes', () => {
       },
     });
 
+    expect(prepared.status).toBe(200);
+    expect(prepared.body.loaded.profileMarkdown).toContain('Prototype execution profile v1');
+    expect(prepared.body.loaded.materialization).toBeUndefined();
+    expect(prepared.body.pendingToken).toMatch(/^odsp_[A-Za-z0-9_-]{43}$/u);
+    expect(prepared.body.expectedStateRevision).toBe(1);
+    expect(prepared.body.resources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        relativePath: 'device-frames/iphone.html',
+        bytesBase64: expect.any(String),
+      }),
+    ]));
+    expect(readSkillDiscoveryState(db, 'conversation-1')?.status).toBe('pending');
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count
+        FROM skill_discovery_events
+       WHERE conversation_id = ? AND kind IN ('load', 'reuse', 'replace')
+    `).get('conversation-1')).toEqual({ count: 0 });
+
+    const loaded = await commitPrepared(prepared.body);
     expect(loaded.status).toBe(200);
     expect(loaded.body.loaded.profileMarkdown).toContain('Prototype execution profile v1');
     expect(loaded.body.loaded.profileMarkdown).not.toContain('RunManifest');
@@ -188,7 +240,8 @@ describe('agent-native Skill discovery tool routes', () => {
       status: 'resolved_skill',
       activePrimary: { id: 'prototype', role: 'primary' },
     });
-    expect(operations).toEqual(['skills:search', 'skills:load']);
+    expect(JSON.stringify(loaded.body)).not.toContain('bytesBase64');
+    expect(operations).toEqual(['skills:search', 'skills:load', 'skills:load']);
   });
 
   it('fails closed on a stale candidate digest and keeps the ledger pending', async () => {
@@ -218,6 +271,93 @@ describe('agent-native Skill discovery tool routes', () => {
     expect(readSkillDiscoveryState(db, 'conversation-1')?.status).toBe('pending');
   });
 
+  it('consumes a pending token once before concurrent commit validation', async () => {
+    const prepared = await preparePrototype();
+    expect(prepared.status).toBe(200);
+    const commitBody = {
+      pendingToken: prepared.body.pendingToken,
+      expectedStateRevision: prepared.body.expectedStateRevision,
+      materialization: materializationReceipt(prepared.body),
+    };
+
+    const results = await Promise.all([
+      request('/api/tools/skills/load/commit', { body: commitBody }),
+      request('/api/tools/skills/load/commit', { body: commitBody }),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count
+        FROM skill_discovery_events
+       WHERE conversation_id = ? AND kind = 'load'
+    `).get('conversation-1')).toEqual({ count: 1 });
+  });
+
+  it('binds a pending token to its original run scope', async () => {
+    const prepared = await preparePrototype();
+    expect(prepared.status).toBe(200);
+    ensureSkillDiscoveryForRun(db, {
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      runId: 'run-2',
+      catalogRevision: readSkillDiscoveryState(db, 'conversation-1')!.catalogRevision,
+      now: nowMs + 1,
+    });
+    toolRunId = 'run-2';
+
+    const committed = await commitPrepared(prepared.body);
+
+    expect(committed).toMatchObject({
+      status: 409,
+      body: { error: { code: 'SKILL_DISCOVERY_STATE_CONFLICT', retryable: true } },
+    });
+    expect(readSkillDiscoveryState(db, 'conversation-1')?.activePrimary).toBeNull();
+  });
+
+  it('fails closed when state changes between prepare and commit', async () => {
+    const prepared = await preparePrototype();
+    expect(prepared.status).toBe(200);
+    const resolved = await request('/api/tools/skills/resolve', {
+      body: { resolution: 'none', reason: 'No official Skill is needed anymore.' },
+    });
+    expect(resolved.status).toBe(200);
+
+    const committed = await commitPrepared(prepared.body);
+
+    expect(committed).toMatchObject({
+      status: 409,
+      body: { error: { code: 'SKILL_DISCOVERY_STATE_CONFLICT', retryable: true } },
+    });
+    expect(readSkillDiscoveryState(db, 'conversation-1')?.activePrimary).toBeNull();
+  });
+
+  it('consumes a token on receipt mismatch and never applies the ledger', async () => {
+    const prepared = await preparePrototype();
+    expect(prepared.status).toBe(200);
+    const forgedReceipt = {
+      ...materializationReceipt(prepared.body),
+      materializedRoot: '.od-skills/discovered-forged-aaaaaaaaaaaa',
+    };
+
+    const forged = await commitPrepared(prepared.body, forgedReceipt);
+    const retry = await commitPrepared(prepared.body);
+
+    expect(forged.status).toBe(409);
+    expect(retry.status).toBe(409);
+    expect(readSkillDiscoveryState(db, 'conversation-1')?.status).toBe('pending');
+  });
+
+  it('rejects an expired pending token without applying the ledger', async () => {
+    const prepared = await preparePrototype();
+    expect(prepared.status).toBe(200);
+    nowMs = prepared.body.expiresAt;
+
+    const committed = await commitPrepared(prepared.body);
+
+    expect(committed.status).toBe(409);
+    expect(readSkillDiscoveryState(db, 'conversation-1')?.status).toBe('pending');
+  });
+
   it('rejects a second primary before resource materialization publishes an alias', async () => {
     const pptSearch = await request('/api/tools/skills/search', {
       body: { query: '帮我做一份融资路演 PPT', role: 'primary', limit: 5 },
@@ -227,14 +367,12 @@ describe('agent-native Skill discovery tool routes', () => {
       (candidate: { id: string }) => candidate.id === 'ppt',
     );
     expect(ppt).toBeDefined();
-    const firstLoad = await request('/api/tools/skills/load', {
-      body: {
+    const firstLoad = await prepareAndCommit({
         id: ppt.id,
         revision: pptSearch.body.search.revision,
         candidateDigest: ppt.candidateDigest,
         role: 'primary',
         purpose: 'Create the presentation.',
-      },
     });
     expect(firstLoad.status).toBe(200);
 
@@ -257,8 +395,6 @@ describe('agent-native Skill discovery tool routes', () => {
 
     expect(rejected.status).toBe(409);
     expect(rejected.body.error.code).toBe('SKILL_DISCOVERY_STATE_CONFLICT');
-    const stagedAliases = await readdir(path.join(projectDir, '.od-skills')).catch(() => []);
-    expect(stagedAliases.some((entry) => entry.startsWith('discovered-prototype-'))).toBe(false);
   });
 
   it('records explicit none and clarification resolutions and exposes rehydration', async () => {
@@ -366,14 +502,12 @@ describe('agent-native Skill discovery tool routes', () => {
       (item: { id: string }) => item.id === 'web-clone',
     );
     expect(candidate).toBeDefined();
-    const loaded = await request('/api/tools/skills/load', {
-      body: {
+    const loaded = await prepareAndCommit({
         id: candidate.id,
         revision: searched.body.search.revision,
         candidateDigest: candidate.candidateDigest,
         role: 'auxiliary',
         purpose: 'Clone the referenced website accurately.',
-      },
     });
     expect(loaded.status).toBe(200);
     expect(loaded.body.state.activeAuxiliaries).toEqual([

@@ -46,22 +46,28 @@ describe('Skill discovery runtime policy', () => {
     expect(skillDiscoveryBlocksToolOperation(state('pending'), 'live-artifacts:create')).toBe(true);
     expect(skillDiscoveryBlocksToolOperation(state('clarification'), 'connectors:execute')).toBe(true);
     expect(skillDiscoveryBlocksToolOperation(state('pending'), 'skills:search')).toBe(false);
+    expect(skillDiscoveryBlocksToolOperation(state('pending'), 'skills:load')).toBe(false);
     expect(skillDiscoveryBlocksToolOperation(state('pending'), 'library:search')).toBe(false);
+    expect(skillDiscoveryBlocksToolOperation(state('pending'), 'future:mutation')).toBe(true);
     expect(skillDiscoveryBlocksToolOperation(state('resolved_none'), 'media:generate')).toBe(false);
     expect(skillDiscoveryBlocksToolOperation(state('resolved_skill'), 'project:export')).toBe(false);
   });
 
   it('uses the full policy once while retaining complete metadata on cold contexts', () => {
     const first = state('pending');
-    expect(resolveSkillDiscoveryLifecyclePrompt({
+    const initial = resolveSkillDiscoveryLifecyclePrompt({
       state: first,
       runId: 'run-1',
       bootstrapMarkdown: '# Discovery',
       catalogMarkdown: '# Catalog\n\nAll candidates.',
       isResuming: false,
-    })).toEqual({
-      discoveryBootstrapMarkdown: '# Discovery\n\n---\n\n# Catalog\n\nAll candidates.',
     });
+    const initialBootstrap = 'discoveryBootstrapMarkdown' in initial
+      ? initial.discoveryBootstrapMarkdown
+      : '';
+    expect(initialBootstrap).toContain('# Discovery');
+    expect(initialBootstrap).toContain('Decision state: `pending`');
+    expect(initialBootstrap).toContain('# Catalog\n\nAll candidates.');
 
     expect(resolveSkillDiscoveryLifecyclePrompt({
       state: first,
@@ -117,6 +123,7 @@ describe('Skill discovery runtime policy', () => {
     expect(capsule).toContain('tools skills resolve --none');
     expect(capsule).toContain('tools skills resolve --clarify');
     expect(capsule).toContain('Wrong selection is more harmful than no selection');
+    expect(capsule).toContain('Do not run a mandatory classifier on every turn');
     expect(capsule).toContain('Loading auxiliaries alone does not');
     expect(capsule).not.toContain('context compaction');
   });
@@ -131,29 +138,58 @@ describe('Skill discovery runtime policy', () => {
     })).toEqual({});
   });
 
-  it('forces refreshed metadata into a native resume after the catalog revision changes', () => {
+  it('bootstraps the first discovery attempt even when the native session is resumed', () => {
+    const resumed = resolveSkillDiscoveryLifecyclePrompt({
+      state: state('pending'),
+      runId: 'run-1',
+      bootstrapMarkdown: '# Discovery',
+      catalogMarkdown: '# Catalog\n\nAll candidates.',
+      isResuming: true,
+    });
+    const resumedBootstrap = 'discoveryBootstrapMarkdown' in resumed
+      ? resumed.discoveryBootstrapMarkdown
+      : '';
+    expect(resumedBootstrap).toContain('# Discovery');
+    expect(resumedBootstrap).toContain('Decision state: `pending`');
+    expect(resumedBootstrap).toContain('# Catalog\n\nAll candidates.');
+  });
+
+  it('refreshes the full policy and metadata after the catalog revision changes', () => {
     const refreshed = {
       ...state('pending'),
       catalogRevision: `sha256:${'b'.repeat(64)}`,
+      bootstrapRunId: 'run-2',
       activeRunId: 'run-2',
+      superseded: [{
+        id: 'prototype',
+        kind: 'task-profile' as const,
+        role: 'primary' as const,
+        version: '1',
+        candidateDigest: `sha256:${'c'.repeat(64)}`,
+        contentDigest: `sha256:${'d'.repeat(64)}`,
+        catalogRevision: `sha256:${'a'.repeat(64)}`,
+        purposeDigest: `sha256:${'e'.repeat(64)}`,
+        loadedAt: 123,
+        runId: 'run-1',
+      }],
     };
     const prompt = resolveSkillDiscoveryLifecyclePrompt({
       state: refreshed,
       runId: 'run-2',
-      bootstrapMarkdown: '# Discovery policy from the original context',
+      bootstrapMarkdown: '# Current Discovery policy',
       catalogMarkdown: '# Catalog B\n\nAll current candidates.',
       catalogRevisionChanged: true,
       isResuming: true,
     });
 
     expect(prompt).toMatchObject({
-      compactLifecycleCapsuleMarkdown: expect.stringContaining('# Catalog B'),
+      discoveryBootstrapMarkdown: expect.stringContaining('# Current Discovery policy'),
     });
-    const capsule = 'compactLifecycleCapsuleMarkdown' in prompt
-      ? prompt.compactLifecycleCapsuleMarkdown
+    const bootstrap = 'discoveryBootstrapMarkdown' in prompt
+      ? prompt.discoveryBootstrapMarkdown
       : '';
-    expect(capsule).toContain(`Catalog revision: \`sha256:${'b'.repeat(64)}\``);
-    expect(capsule).toContain('Decision state: `pending`');
-    expect(capsule).not.toContain('original context');
+    expect(bootstrap).toContain('Decision state: `pending`');
+    expect(bootstrap).toContain(`prototype (sha256:${'d'.repeat(64)})`);
+    expect(bootstrap).toContain('# Catalog B\n\nAll current candidates.');
   });
 });

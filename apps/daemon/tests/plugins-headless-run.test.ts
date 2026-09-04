@@ -867,7 +867,7 @@ process.stdin.on('end', () => {
       throw new Error('prompt did not expose the pinned Prototype metadata');
     }
     const candidate = JSON.parse(candidateLine.trim());
-    const loadResponse = await fetch(process.env.OD_DAEMON_URL + '/api/tools/skills/load', {
+    const prepareResponse = await fetch(process.env.OD_DAEMON_URL + '/api/tools/skills/load', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -878,9 +878,37 @@ process.stdin.on('end', () => {
         purpose: 'Create the requested official website prototype.',
       }),
     });
-    const load = await loadResponse.json();
-    if (!loadResponse.ok) throw new Error('load failed: ' + JSON.stringify(load));
-    const materializedRoot = load.loaded.materialization?.materializedRoot;
+    const prepared = await prepareResponse.json();
+    if (!prepareResponse.ok) throw new Error('prepare failed: ' + JSON.stringify(prepared));
+    const path = require('node:path');
+    const materializedRoot = prepared.resources.length > 0
+      ? '.od-skills/' + prepared.alias
+      : null;
+    for (const resource of prepared.resources) {
+      const destination = path.join(process.cwd(), materializedRoot, resource.relativePath);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, Buffer.from(resource.bytesBase64, 'base64'));
+    }
+    const commitResponse = await fetch(
+      process.env.OD_DAEMON_URL + '/api/tools/skills/load/commit',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          pendingToken: prepared.pendingToken,
+          expectedStateRevision: prepared.expectedStateRevision,
+          materialization: {
+            materializedRoot,
+            resources: prepared.resources
+              .map(({ relativePath, digest, size }) => ({ relativePath, digest, size }))
+              .sort((left, right) => left.relativePath.localeCompare(right.relativePath, 'en')),
+          },
+        }),
+      },
+    );
+    const load = await commitResponse.json();
+    if (!commitResponse.ok) throw new Error('commit failed: ' + JSON.stringify(load));
+    const committedRoot = load.loaded.materialization?.materializedRoot;
     fs.writeFileSync(process.env.OD_DISCOVERY_EVIDENCE, JSON.stringify({
       candidateId: candidate.id,
       status: load.state.status,
@@ -894,8 +922,8 @@ process.stdin.on('end', () => {
         (resource) => !Object.prototype.hasOwnProperty.call(resource, 'content')
           && !Object.prototype.hasOwnProperty.call(resource, 'bytes'),
       ),
-      materializedFrameExists: typeof materializedRoot === 'string'
-        && fs.existsSync(require('node:path').join(process.cwd(), materializedRoot, 'device-frames', 'iphone.html')),
+      materializedFrameExists: typeof committedRoot === 'string'
+        && fs.existsSync(path.join(process.cwd(), committedRoot, 'device-frames', 'iphone.html')),
       preResolutionMediaBlocked: true,
       loadedDirectlyFromCatalog: true,
     }));

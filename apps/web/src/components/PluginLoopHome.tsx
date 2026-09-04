@@ -11,7 +11,6 @@ import type {
   ProjectSkillDiscovery,
   RunContextSelection,
 } from '@open-design/contracts';
-import { OPEN_DESIGN_OFFICIAL_SKILL_DISCOVERY } from '@open-design/contracts';
 import {
   applyPlugin,
   duplicatePluginAsProject,
@@ -210,7 +209,6 @@ export function PluginLoopHome({ onSubmit }: Props) {
     onSubmit({
       prompt: trimmed,
       pluginId: active?.record.id ?? null,
-      ...(!active ? { skillDiscovery: OPEN_DESIGN_OFFICIAL_SKILL_DISCOVERY } : {}),
       appliedPluginSnapshotId: active?.result.appliedPlugin?.snapshotId ?? null,
       pluginTitle: active?.record.title ?? null,
       taskKind: active?.result.appliedPlugin?.taskKind ?? null,

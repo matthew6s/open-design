@@ -20,7 +20,7 @@ v1 中，Agent 动态发现并加载 Prototype 只表示：
 
 - 当前普通单 Agent 回合加载了独立的 strategy-neutral Prototype v1 adapter；原 OD Next v2 profile 只在 daemon 内用于核验 first-party package 身份，不作为普通回合指令返回；
 - 同时加载独立的 ordinary Agent-turn orchestration；公开响应使用 discovery v1 attestation，不暴露或伪造 `AppliedStrategyBindingV2`；
-- side-file bytes 不进入模型响应；daemon 对选中 package 二次校验后，将资源原子 stage 到项目私有 `.od-skills/` 路径，只返回 `materializedRoot` 与 relative path/digest/size roster；
+- side-file bytes 不进入模型响应；daemon 对选中 package 二次校验并签发短期 prepare，`od` CLI 在 Agent 自身 cwd 权限域内原子 materialize 到项目相对 `.od-skills/`，随后 daemon 以一次性 token 复核 scope、state revision、catalog、bundle 与 receipt 后才写 ledger；最终 stdout 只返回 `materializedRoot` 与 relative path/digest/size roster；
 - Agent 在当前回合按这些规则完成工作。
 
 它**不表示**当前回合已经成为完整 OD Next 任务，不创建假的 OD Next recipe identity，不事后篡改 frozen package，不伪造 request/clarification/production 状态，也不宣称拥有 OD Next 的 native continuation、plan contract 或 task execution。
@@ -188,23 +188,27 @@ gate，不等于完成了真实语义冲突策展。明显互斥 Skill 的 confl
 gold cases 仍属于真实模型发布质量门禁，不能把“validator 可用”写成“冲突风险已
 覆盖”。
 
-### 4.3 Strategy-neutral task-profile adapter 与资源 staging
+### 4.3 Strategy-neutral task-profile adapter 与资源 materialization
 
 四个 task profile 都使用 `agent-discovery/task-profiles/*.md` 下的独立 v1
 adapter 和 `agent-discovery/ordinary-orchestration.md`。它们不包含 OD Next stage、
 RunManifest、Plan Contract 或 task-chain 指令。Prototype 还可能声明 handset
-shell、layout CSS 等 resources，因此 `load(prototype)` 必须原子地完成：
+shell、layout CSS 等 resources，因此一次 `load(prototype)` CLI 调用必须完成以下
+两阶段协议：
 
 1. 重新解析 exact bundled package identity；
 2. 在 daemon 内校验原 v2 profile binding/digest，再单独校验 v1 adapter、ordinary orchestration、catalog revision 与 attestation；原 v2 binding 不进入公开 response；
-3. catalog metadata/load 的公开结构只携带决策元数据和 resource descriptor，不读取或内联二进制 side-file bytes；
-4. 选中 load 时对 resource bytes 做第二次 fenced read，逐个复核 size、digest、mode、symlink、traversal 与 TOCTOU；
-5. 将完整资源集原子发布到稳定的项目相对 `.od-skills/discovered-<id>-<digest>/`；staging root 被非目录或 symlink 占用时 fail closed；
-6. 只有 verified staging 成功后才写入成功 ledger，并向 Agent 返回 v1 profile、ordinary orchestration、attestation、`materializedRoot` 和 digest roster。
+3. daemon 对 resource bytes 做第二次 fenced read，逐个复核 size、digest、mode、symlink、traversal 与 TOCTOU，并返回绑定 run scope、state revision 和 bundle fingerprint 的 30 秒一次性 prepare token；
+4. prepare DTO 中的 bytes 只允许由 bundled CLI 在内存中消费，不得写入 Agent-visible stdout；
+5. CLI 在 Agent 自身 cwd 权限域内，将完整资源集原子发布到稳定的项目相对 `.od-skills/discovered-<id>-<digest>/`；root 或 destination 被非目录或 symlink 占用时 fail closed；
+6. CLI 将仅含 relative path/digest/size 的 materialization receipt 交给 commit endpoint；daemon 先消费 token，再重新校验 run/project/conversation scope、state revision、catalog metadata、bundle fingerprint 和 exact receipt；
+7. 只有 commit 全部通过后才写入成功 ledger，并向 Agent 的最终 stdout 返回 v1 profile、ordinary orchestration、attestation、`materializedRoot` 和 digest roster。
 
-`.od-skills/` 是 daemon 管理的项目私有 staging barrier，不是用户交付物；这是
-`skills:load` 内部唯一允许的预 resolution 资源写入。任何一步失败都不能返回
-半个 profile、伪写成功 ledger 或回落到同 id user Skill。
+`.od-skills/` 是 Agent cwd 下的项目私有 materialization namespace，不是 daemon
+data root，也不是用户交付物。daemon 不解析或写入该项目路径；其权威只来自一次性
+prepare/commit fence 与 ledger。任何一步失败都不能伪写成功 ledger、返回半个
+profile 或回落到同 id user Skill；已完整 materialize 但 commit 失败的 alias 不获得
+ledger 权威，后续 exact load 可按确定性 alias 覆盖。
 
 ## 5. Agent-native 工具协议
 
@@ -220,7 +224,8 @@ od tools skills rehydrate --json
 
 对应 daemon endpoints：
 
-- `POST /api/tools/skills/load`
+- `POST /api/tools/skills/load`（prepare，仅供 bundled CLI 消费）
+- `POST /api/tools/skills/load/commit`（一次性 commit）
 - `POST /api/tools/skills/deactivate`
 - `POST /api/tools/skills/resolve`
 - `GET /api/tools/skills/status`
@@ -240,10 +245,11 @@ od tools skills rehydrate --json
 ### 5.2 `load`
 
 - `purpose` 必填，记录 Agent 为什么在当前任务加载该 Skill；空 purpose 拒绝。
-- daemon 重新校验 official identity、metadata、role、配额、conflict、version、digest 和 resources。
+- daemon prepare 重新校验 official identity、metadata、role、配额、conflict、version、digest 和 resources，但不写项目路径或成功 ledger。
+- bundled CLI 在 Agent 权限域 materialize verified bytes；commit 再复核一次性 token、scope、state revision、catalog、bundle 和 exact receipt 后写 ledger。
 - task-profile load 返回 strategy-neutral v1 profile、ordinary orchestration 与
-  discovery attestation；functional load 返回其官方 `SKILL.md` body。side-file
-  bytes 不进入响应；若存在 side files，响应只返回已 stage 的项目相对
+  discovery attestation；functional load 返回其官方 `SKILL.md` body。prepare bytes
+  不进入 Agent-visible stdout；最终响应若存在 side files，只返回项目相对
   `materializedRoot` 与 relative path/digest/size roster。
 - load stdout 进入同一个 Agent turn 的 native tool result/context；不需要 daemon 伪造第二个 user turn。
 - endpoint receipt 只证明 daemon 返回了内容，不能单独证明模型已阅读、遵守或产出正确结果。
@@ -446,7 +452,7 @@ Adapter allowlist 与 catalog allowlist 必须独立配置，便于只回滚一�
 
 | 机制 | 设计效果 | 完成时间 | 任务智能 | 模型成本 |
 |---|---|---|---|---|
-| Official-only metadata gate | 减少错误风格/流程注入，Prototype 获得 verified v1 profile、orchestration 与 staged resources | 避免错误 Skill 导致返工 | 候选边界可信、可解释 | side-file bytes 不进入模型响应 |
+| Official-only metadata gate | 减少错误风格/流程注入，Prototype 获得 verified v1 profile、orchestration 与 Agent-materialized verified resources | 避免错误 Skill 导致返工 | 候选边界可信、可解释 | side-file bytes 不进入模型响应 |
 | 全量 metadata + Agent 自主 load/none | 清晰任务获得专用方法，模糊任务不会硬套模板 | 省去正常链路的搜索调用，同一 turn 完成选择与执行 | Agent 直接理解完整闭集，支持 reuse/replace/augment/none/clarify | 稳定 metadata 可缓存，只加载实际使用的完整 body |
 | XML 外壳 + Markdown | 指令、上下文和用户原文边界稳定，降低 prompt 混淆 | canonical composer 与恢复更确定 | 为 Agent 暴露稳定结构，不替 Agent 决策 | 提升稳定 prefix 的可缓存性，避免重复全文 |
 | Ledger + capsule | restart 后继续遵守 exact Skill 版本 | 避免重复发现和无谓重做 | 让跨 turn 状态可恢复、可审计 | capsule 只放 id/digest/purpose，需要时再 load |
@@ -519,7 +525,7 @@ Adapter allowlist 与 catalog allowlist 必须独立配置，便于只回滚一�
 2. **项目权威**：daemon 是否写入 verified `skillDiscoveryBinding`；不证明本 run 使用。
 3. **路由事实**：run 是否选择 `agent-turn/v1` 或 OD Next v2；不证明 provider 收到。
 4. **Prompt artifact**：canonical XML 的 exact bytes、schema、Discovery Skill 是否存在；只证明本地 composer 产物。
-5. **Tool endpoint receipt**：load/deactivate/resolve/status/rehydrate（以及兼容 search）的 token、run、conversation、catalog revision、digest 和响应；不证明 Agent 已遵守内容。
+5. **Tool endpoint receipt**：load prepare/commit、deactivate/resolve/status/rehydrate（以及兼容 search）的 token、run、conversation、catalog revision、digest 和响应；证明 daemon 接受了与 prepare 匹配的 receipt，但不单独证明 Agent cwd 的物理文件仍存在或 Agent 已遵守内容，真实 materialization 还需 artifact readback。
 6. **Runtime event order**：Agent 实际观察到的 wrapper/native tool_use/tool_result；只能覆盖 adapter 暴露的事件。
 7. **Provider receipt**：只有 provider/adapter 明确回执或受信 trace 才能证明；CLI 自报 model 或 daemon request config 不是 provider receipt。
 8. **Artifact outcome**：实际文件、可运行 entry、交互和 rubric；与 prompt 正确、工具调用成功是不同证据。
@@ -532,7 +538,7 @@ Wrong primary、side-effect、latency、cost 和设计质量都必须基于对�
 
 - 新增 typed create authority、daemon binding、default-route suppression。
 - 新增 `open-design.agent-turn/v1` serializer/parser/snapshots。
-- 建立 official catalog provider、metadata validator、四个 strategy-neutral task-profile adapter、ordinary orchestration 与 verified `.od-skills` staging。
+- 建立 official catalog provider、metadata validator、四个 strategy-neutral task-profile adapter、ordinary orchestration，以及 prepare → Agent CLI materialize → commit 的 verified `.od-skills` 协议。
 - 建立全量 metadata lifecycle context，以及 token-scoped load/deactivate/resolve/status/rehydrate、兼容 search、CLI wrapper、ledger、capsule。
 - explicit task type 的 OD Next v2 prompt、frozen identity 和 continuation 做 byte/semantic non-regression。
 - 默认 mode 保持 `off`；完成 Phase 1 后才由部署显式进入 canary/active。
@@ -611,8 +617,8 @@ Rollback 优先使用可恢复的配置降级，不删除 ledger、不改写 pro
 - 所有新 Home Agent prompt 均处于 OD Next v2 或 `agent-turn/v1` XML 外壳内；
 - Discovery Skill 只在符合条件的 conversation 首轮完整注入，且每个可观测 cold physical context 都携带当前完整候选 metadata；
 - official-only catalog metadata/load/resolve 可在同一 Agent turn 工作，且 user shadow 不可越权；
-- task-profile load 原子包含 verified v1 adapter、ordinary orchestration、attestation
-  和 `.od-skills` staged resource receipt，不返回 inline side-file bytes，并明确保持
+- task-profile load CLI 调用完整包含 verified v1 adapter、ordinary orchestration、attestation
+  和 `.od-skills` materialization receipt；daemon 不写 Agent cwd，prepare bytes 不进入 Agent-visible stdout，并明确保持
   ordinary single-agent 语义；
 - primary/auxiliary、purpose、conflict、replacement、ledger 和 capsule 合同经过测试；
 - wrapper gate 有强制证据，native pre-resolution write 只有观测性结论且表述准确；

@@ -1921,6 +1921,7 @@ function cloneProjectMetadataForDuplicate(sourceProject: any): Record<string, un
   delete sourceMetadata.projectLocationId;
   delete sourceMetadata.fromTrustedPicker;
   delete sourceMetadata.orchestratorWorkspace;
+  delete sourceMetadata.skillDiscoveryBinding;
   return {
     ...sourceMetadata,
     sourceProjectId: sourceProject.id,

@@ -13,6 +13,7 @@ export const OFFICIAL_SKILL_DISCOVERY_LOAD_SCHEMA_V1 =
 export const OFFICIAL_SKILL_DISCOVERY_ATTESTATION_SCHEMA_V1 =
   'open-design.official-skill-discovery-attestation/v1' as const;
 export const OFFICIAL_SKILL_DISCOVERY_MAX_SEARCH_RESULTS_V1 = 5 as const;
+export const SKILL_DISCOVERY_MAX_SUPERSEDED_V1 = 16 as const;
 
 const canonicalSkillIdSchema = z.string()
   .min(1)
@@ -268,7 +269,7 @@ export type OfficialSkillDiscoveryAttestationV1 = z.infer<
 >;
 
 export const OfficialSkillDiscoveryMaterializationV1Schema = z.object({
-  /** Project-relative daemon-managed package root. No resource bytes enter model context. */
+  /** Project-relative Agent-materialized package root. No resource bytes enter model stdout. */
   materializedRoot: portableRelativePathSchema.nullable(),
   resources: z.array(OfficialSkillDiscoveryLoadedResourceV1Schema).max(32),
 }).strict();
@@ -302,6 +303,55 @@ export const SkillDiscoveryToolLoadRequestV1Schema =
   }).strict();
 export type SkillDiscoveryToolLoadRequestV1 = z.infer<
   typeof SkillDiscoveryToolLoadRequestV1Schema
+>;
+
+const preparedResourceBytesSchema = z.string()
+  .max(350_000)
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, {
+    message: 'Prepared Skill resource bytes must use canonical base64.',
+  });
+
+export const SkillDiscoveryPreparedResourceV1Schema =
+  OfficialSkillDiscoveryLoadedResourceV1Schema.extend({
+    mode: z.number().int().min(0).max(0o7777),
+    bytesBase64: preparedResourceBytesSchema,
+  }).strict();
+export type SkillDiscoveryPreparedResourceV1 = z.infer<
+  typeof SkillDiscoveryPreparedResourceV1Schema
+>;
+
+export const SkillDiscoveryPreparedLoadV1Schema =
+  OfficialSkillDiscoveryLoadResponseV1Schema.omit({ materialization: true });
+export type SkillDiscoveryPreparedLoadV1 = z.infer<
+  typeof SkillDiscoveryPreparedLoadV1Schema
+>;
+
+const skillDiscoveryPendingTokenSchema = z.string()
+  .regex(/^odsp_[A-Za-z0-9_-]{43}$/);
+
+/**
+ * Transient daemon-to-CLI prepare response. The CLI consumes these verified
+ * bytes locally and must never print this object to Agent-visible stdout.
+ */
+export const SkillDiscoveryToolLoadPrepareResponseV1Schema = z.object({
+  pendingToken: skillDiscoveryPendingTokenSchema,
+  expiresAt: z.number().int().nonnegative(),
+  expectedStateRevision: z.number().int().positive(),
+  alias: canonicalSkillIdSchema,
+  loaded: SkillDiscoveryPreparedLoadV1Schema,
+  resources: z.array(SkillDiscoveryPreparedResourceV1Schema).max(32),
+}).strict();
+export type SkillDiscoveryToolLoadPrepareResponseV1 = z.infer<
+  typeof SkillDiscoveryToolLoadPrepareResponseV1Schema
+>;
+
+export const SkillDiscoveryToolLoadCommitRequestV1Schema = z.object({
+  pendingToken: skillDiscoveryPendingTokenSchema,
+  expectedStateRevision: z.number().int().positive(),
+  materialization: OfficialSkillDiscoveryMaterializationV1Schema,
+}).strict();
+export type SkillDiscoveryToolLoadCommitRequestV1 = z.infer<
+  typeof SkillDiscoveryToolLoadCommitRequestV1Schema
 >;
 
 export const SkillDiscoveryToolResolveRequestV1Schema = z.object({
@@ -340,7 +390,8 @@ export const PublicSkillDiscoveryStateV1Schema = z.object({
   catalogRevision: digestSchema,
   activePrimary: LoadedSkillDiscoveryRefV1Schema.nullable(),
   activeAuxiliaries: z.array(LoadedSkillDiscoveryRefV1Schema).max(2),
-  superseded: z.array(LoadedSkillDiscoveryRefV1Schema),
+  superseded: z.array(LoadedSkillDiscoveryRefV1Schema)
+    .max(SKILL_DISCOVERY_MAX_SUPERSEDED_V1),
   lastResolution: z.object({
     kind: z.enum(['skill', 'none', 'clarify']),
     runId: z.string().min(1),

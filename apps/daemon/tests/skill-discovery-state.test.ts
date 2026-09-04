@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { SKILL_DISCOVERY_MAX_SUPERSEDED_V1 } from '@open-design/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -201,7 +202,7 @@ describe('conversation-scoped Agent Skill discovery state', () => {
     expect(invalidated).toMatchObject({
       catalogRevision: 'catalog-v2',
       status: 'pending',
-      bootstrapRunId: 'run-1',
+      bootstrapRunId: 'run-2',
       activeRunId: 'run-2',
       activePrimary: null,
       activeAuxiliaries: [],
@@ -430,6 +431,48 @@ describe('conversation-scoped Agent Skill discovery state', () => {
       },
       conflictsWith: [],
     })).toThrow(/at most 2 active auxiliary/);
+  });
+
+  it('bounds the durable superseded index while retaining full event history', () => {
+    const db = database();
+    ensureSkillDiscoveryForRun(db, {
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      runId: 'run-1',
+      catalogRevision: 'catalog-v1',
+    });
+
+    let previousId: string | undefined;
+    const replacementCount = SKILL_DISCOVERY_MAX_SUPERSEDED_V1 + 4;
+    for (let index = 0; index <= replacementCount; index += 1) {
+      const id = `profile-${index}`;
+      applySkillDiscoveryLoad(db, {
+        conversationId: 'conversation-1',
+        runId: 'run-1',
+        ...(previousId ? { replaceId: previousId } : {}),
+        loaded: {
+          id,
+          kind: 'task-profile',
+          role: 'primary',
+          version: '1',
+          candidateDigest: digest('p'),
+          contentDigest: digest('c'),
+          catalogRevision: 'catalog-v1',
+          purposeDigest: digest('u'),
+        },
+        conflictsWith: [],
+      });
+      previousId = id;
+    }
+
+    const current = readSkillDiscoveryState(db, 'conversation-1');
+    expect(current?.superseded).toHaveLength(SKILL_DISCOVERY_MAX_SUPERSEDED_V1);
+    expect(current?.superseded[0]?.id).toBe('profile-4');
+    expect(current?.superseded.at(-1)?.id).toBe(`profile-${replacementCount - 1}`);
+    expect(db.prepare(`
+      SELECT COUNT(*) FROM skill_discovery_events
+       WHERE kind IN ('load', 'replace')
+    `).pluck().get()).toBe(replacementCount + 1);
   });
 
   it('treats none as a safe resolution and reopens clarification on the next run', () => {

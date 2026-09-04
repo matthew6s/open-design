@@ -1172,10 +1172,6 @@ import {
   scopeSkillDiscoveryStateForRun,
   skillDiscoveryBlocksToolOperation,
 } from './skill-discovery/runtime-policy.js';
-import {
-  materializeVerifiedSkillDiscoveryResources,
-  skillDiscoveryMaterializationAlias,
-} from './skill-discovery/materialize.js';
 
 /** @typedef {import('@open-design/contracts').ApiErrorCode} ApiErrorCode */
 /** @typedef {import('@open-design/contracts').ApiError} ApiError */
@@ -8006,21 +8002,6 @@ export async function startServer({
         projectId: activeRun.projectId,
         conversationId: activeRun.conversationId,
       };
-    },
-    materializeResources: async ({ scope, loaded, bundle }) => {
-      const project = getProject(db, scope.projectId);
-      if (!project) {
-        throw new Error('Skill discovery project is unavailable for resource staging.');
-      }
-      const cwd = resolveProjectDir(PROJECTS_DIR, scope.projectId, project.metadata);
-      return materializeVerifiedSkillDiscoveryResources({
-        cwd,
-        alias: skillDiscoveryMaterializationAlias({
-          id: loaded.candidate.id,
-          candidateDigest: loaded.candidate.candidateDigest,
-        }),
-        resources: bundle.files,
-      });
     },
   });
 

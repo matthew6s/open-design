@@ -1,17 +1,20 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import {
   OfficialSkillDiscoverySearchRequestV1Schema,
   OfficialSkillDiscoveryLoadResponseV1Schema,
   PublicSkillDiscoveryStateV1Schema,
   SkillDiscoveryToolDeactivateRequestV1Schema,
+  SkillDiscoveryToolLoadCommitRequestV1Schema,
+  SkillDiscoveryToolLoadPrepareResponseV1Schema,
   SkillDiscoveryToolLoadRequestV1Schema,
   SkillDiscoveryToolRehydrateRequestV1Schema,
   SkillDiscoveryToolResolveRequestV1Schema,
   type ApiErrorCode,
+  type OfficialSkillDiscoveryLoadRequestV1,
   type OfficialSkillDiscoverySearchRequestV1,
-  type OfficialSkillDiscoveryLoadResponseV1,
   type OfficialSkillDiscoveryMaterializationV1,
+  type SkillDiscoveryPreparedLoadV1,
   type SkillDiscoveryToolLoadRequestV1,
   type SkillDiscoveryToolResolveRequestV1,
 } from '@open-design/contracts';
@@ -26,7 +29,7 @@ import {
   type OfficialSkillDiscoveryCatalogSourcesV1,
   type OfficialSkillDiscoveryResourceBundleV1,
 } from '../skill-discovery/catalog.js';
-import { SkillDiscoveryMaterializationError } from '../skill-discovery/materialize.js';
+import { skillDiscoveryMaterializationAlias } from '../skill-discovery/materialize.js';
 import {
   SkillDiscoveryStateError,
   applySkillDiscoveryLoad,
@@ -36,6 +39,7 @@ import {
   recordSkillDiscoverySearch,
   renderSkillDiscoveryLifecycleCapsule,
   resolveSkillDiscovery,
+  type SkillDiscoveryLoadInput,
   type SkillDiscoveryState,
 } from '../skill-discovery/state.js';
 import type { ToolTokenGrant } from '../tool-tokens.js';
@@ -54,11 +58,19 @@ export interface SkillDiscoveryRunScope {
   conversationId: string;
 }
 
-export interface MaterializeOfficialSkillDiscoveryLoadInput {
+interface PendingSkillDiscoveryLoad {
   scope: SkillDiscoveryRunScope;
-  loaded: OfficialSkillDiscoveryLoadResponseV1;
-  bundle: OfficialSkillDiscoveryResourceBundleV1;
+  request: OfficialSkillDiscoveryLoadRequestV1;
+  loaded: SkillDiscoveryPreparedLoadV1;
+  loadInput: Omit<SkillDiscoveryLoadInput, 'expectedStateRevision'>;
+  expectedStateRevision: number;
+  alias: string;
+  bundleFingerprint: string;
+  expiresAt: number;
+  cleanupTimer: NodeJS.Timeout;
 }
+
+const PENDING_LOAD_TTL_MS = 30_000;
 
 export interface RegisterSkillDiscoveryToolRoutesDeps {
   auth: {
@@ -76,16 +88,16 @@ export interface RegisterSkillDiscoveryToolRoutesDeps {
   resolveCatalogSources: () => OfficialSkillDiscoveryCatalogSourcesV1;
   /** Resolve conversation identity from the daemon-owned run, never from request input. */
   resolveRunScope: (grant: ToolTokenGrant) => SkillDiscoveryRunScope | null;
-  /** Publish verified bytes into the project-private Skill staging root. */
-  materializeResources: (
-    input: MaterializeOfficialSkillDiscoveryLoadInput,
-  ) => Promise<OfficialSkillDiscoveryMaterializationV1>;
+  /** Test seam for pending-grant expiry; production uses the wall clock. */
+  now?: () => number;
 }
 
 export function registerSkillDiscoveryToolRoutes(
   app: Express,
   ctx: RegisterSkillDiscoveryToolRoutesDeps,
 ): void {
+  const pendingLoads = new Map<string, PendingSkillDiscoveryLoad>();
+
   app.post('/api/tools/skills/search', (req, res) => {
     withAuthorizedScope(req, res, ctx, 'skills:search', (scope) => {
       if (!requireActiveDiscoveryState(ctx, res, scope)) return;
@@ -129,7 +141,7 @@ export function registerSkillDiscoveryToolRoutes(
         ...catalogSources,
         request: catalogRequest,
       });
-      const plannedAt = Date.now();
+      const plannedAt = ctx.now?.() ?? Date.now();
       const loadInput = {
         conversationId: scope.conversationId,
         runId: scope.runId,
@@ -154,18 +166,108 @@ export function registerSkillDiscoveryToolRoutes(
         ...catalogSources,
         request: catalogRequest,
       });
-      const materialization = await ctx.materializeResources({
-        scope,
-        loaded: loadedBeforeMaterialization,
-        bundle,
+      const { materialization: _unusedMaterialization, ...preparedLoaded } =
+        loadedBeforeMaterialization;
+      const pendingToken = createPendingLoadToken();
+      const pendingTokenHash = hashPendingLoadToken(pendingToken);
+      const expiresAt = plannedAt + PENDING_LOAD_TTL_MS;
+      const alias = skillDiscoveryMaterializationAlias({
+        id: loadedBeforeMaterialization.candidate.id,
+        candidateDigest: loadedBeforeMaterialization.candidate.candidateDigest,
       });
+      const cleanupTimer = setTimeout(() => {
+        pendingLoads.delete(pendingTokenHash);
+      }, PENDING_LOAD_TTL_MS);
+      cleanupTimer.unref?.();
+      dropPendingLoadsForScope(pendingLoads, scope);
+      pendingLoads.set(pendingTokenHash, {
+        scope,
+        request: catalogRequest,
+        loaded: preparedLoaded,
+        loadInput,
+        expectedStateRevision: plan.expectedStateRevision,
+        alias,
+        bundleFingerprint: fingerprintBundle(bundle),
+        expiresAt,
+        cleanupTimer,
+      });
+
+      res.json(SkillDiscoveryToolLoadPrepareResponseV1Schema.parse({
+        pendingToken,
+        expiresAt,
+        expectedStateRevision: plan.expectedStateRevision,
+        alias,
+        loaded: preparedLoaded,
+        resources: bundle.files.map((file) => ({
+          relativePath: file.relativePath,
+          digest: file.digest,
+          size: file.size,
+          mode: file.mode,
+          bytesBase64: file.bytes.toString('base64'),
+        })),
+      }));
+    });
+  });
+
+  app.post('/api/tools/skills/load/commit', async (req, res) => {
+    await withAuthorizedScope(req, res, ctx, 'skills:load', async (scope) => {
+      const parsed = SkillDiscoveryToolLoadCommitRequestV1Schema.safeParse(req.body);
+      if (!parsed.success) {
+        return sendValidationError(ctx, res, parsed.error.issues);
+      }
+
+      // Consume before any further validation. Two concurrent commits can never
+      // both reach ledger apply, and every failed commit requires a fresh prepare.
+      const pendingTokenHash = hashPendingLoadToken(parsed.data.pendingToken);
+      const pending = pendingLoads.get(pendingTokenHash);
+      if (pending) {
+        pendingLoads.delete(pendingTokenHash);
+        clearTimeout(pending.cleanupTimer);
+      }
+      if (!pending || pending.expiresAt <= (ctx.now?.() ?? Date.now())) {
+        return sendPendingLoadConflict(ctx, res);
+      }
+      if (!sameScope(pending.scope, scope)) {
+        return sendPendingLoadConflict(ctx, res);
+      }
+      if (parsed.data.expectedStateRevision !== pending.expectedStateRevision) {
+        return sendPendingLoadConflict(ctx, res);
+      }
+      const stateBeforeCommit = requireActiveDiscoveryState(ctx, res, scope);
+      if (!stateBeforeCommit) return;
+      if (stateBeforeCommit.revision !== pending.expectedStateRevision) {
+        return sendPendingLoadConflict(ctx, res);
+      }
+
+      const catalogSources = ctx.resolveCatalogSources();
+      const freshlyLoaded = resolveOfficialSkillDiscoveryLoadV1({
+        ...catalogSources,
+        request: pending.request,
+      });
+      const { materialization: _freshMaterialization, ...freshPreparedLoad } = freshlyLoaded;
+      if (stableJson(freshPreparedLoad) !== stableJson(pending.loaded)) {
+        return sendPendingLoadConflict(ctx, res, 'Official Skill load metadata changed after prepare.');
+      }
+      const freshBundle = resolveOfficialSkillDiscoveryResourceBundleV1({
+        ...catalogSources,
+        request: pending.request,
+      });
+      if (fingerprintBundle(freshBundle) !== pending.bundleFingerprint) {
+        return sendPendingLoadConflict(ctx, res, 'Official Skill resources changed after prepare.');
+      }
+
+      const expectedReceipt = expectedMaterializationReceipt(pending.alias, freshBundle);
+      if (stableJson(parsed.data.materialization) !== stableJson(expectedReceipt)) {
+        return sendPendingLoadConflict(ctx, res, 'Skill materialization receipt did not match prepare.');
+      }
+
       const loaded = OfficialSkillDiscoveryLoadResponseV1Schema.parse({
-        ...loadedBeforeMaterialization,
-        materialization,
+        ...freshPreparedLoad,
+        materialization: parsed.data.materialization,
       });
       const state = applySkillDiscoveryLoad(ctx.db, {
-        ...loadInput,
-        expectedStateRevision: plan.expectedStateRevision,
+        ...pending.loadInput,
+        expectedStateRevision: pending.expectedStateRevision,
       });
       res.json({ loaded, state: publicState(state) });
     });
@@ -293,16 +395,6 @@ function sendRouteError(
     );
     return;
   }
-  if (error instanceof SkillDiscoveryMaterializationError) {
-    ctx.http.sendApiError(
-      res,
-      500,
-      'SKILL_DISCOVERY_MATERIALIZATION_FAILED',
-      error.message,
-      { retryable: true },
-    );
-    return;
-  }
   ctx.http.sendApiError(
     res,
     500,
@@ -356,6 +448,77 @@ function formatIssues(
 
 function digestText(value: string): string {
   return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
+
+function createPendingLoadToken(): string {
+  return `odsp_${randomBytes(32).toString('base64url')}`;
+}
+
+function hashPendingLoadToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+function fingerprintBundle(bundle: OfficialSkillDiscoveryResourceBundleV1): string {
+  return digestText(stableJson({
+    skillId: bundle.skillId,
+    candidateDigest: bundle.candidateDigest,
+    files: bundle.files.map(({ relativePath, digest, size, mode }) => ({
+      relativePath,
+      digest,
+      size,
+      mode,
+    })),
+  }));
+}
+
+function expectedMaterializationReceipt(
+  alias: string,
+  bundle: OfficialSkillDiscoveryResourceBundleV1,
+): OfficialSkillDiscoveryMaterializationV1 {
+  if (bundle.files.length === 0) {
+    return { materializedRoot: null, resources: [] };
+  }
+  return {
+    materializedRoot: `.od-skills/${alias}`,
+    resources: bundle.files
+      .map(({ relativePath, digest, size }) => ({ relativePath, digest, size }))
+      .sort((left, right) => left.relativePath.localeCompare(right.relativePath, 'en')),
+  };
+}
+
+function sameScope(left: SkillDiscoveryRunScope, right: SkillDiscoveryRunScope): boolean {
+  return left.runId === right.runId
+    && left.projectId === right.projectId
+    && left.conversationId === right.conversationId;
+}
+
+function dropPendingLoadsForScope(
+  pendingLoads: Map<string, PendingSkillDiscoveryLoad>,
+  scope: SkillDiscoveryRunScope,
+): void {
+  for (const [tokenHash, pending] of pendingLoads) {
+    if (!sameScope(pending.scope, scope)) continue;
+    pendingLoads.delete(tokenHash);
+    clearTimeout(pending.cleanupTimer);
+  }
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function sendPendingLoadConflict(
+  ctx: RegisterSkillDiscoveryToolRoutesDeps,
+  res: Response,
+  message = 'Prepared Skill load is invalid, expired, consumed, or out of scope.',
+): void {
+  ctx.http.sendApiError(
+    res,
+    409,
+    'SKILL_DISCOVERY_STATE_CONFLICT',
+    message,
+    { retryable: true },
+  );
 }
 
 function publicState(state: SkillDiscoveryState) {

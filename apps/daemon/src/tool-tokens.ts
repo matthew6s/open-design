@@ -29,6 +29,7 @@ export const CHAT_TOOL_ENDPOINTS = [
   '/api/tools/design-systems/read',
   '/api/tools/skills/search',
   '/api/tools/skills/load',
+  '/api/tools/skills/load/commit',
   '/api/tools/skills/deactivate',
   '/api/tools/skills/resolve',
   '/api/tools/skills/status',

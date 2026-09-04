@@ -40,9 +40,9 @@ export function skillDiscoveryMaterializationAlias(input: {
 }
 
 /**
- * Atomically publish an already verified resource package below the daemon's
- * existing `.od-skills` write barrier. The model receives only this relative
- * root plus the digest roster; binary bytes never enter the tool response.
+ * Atomically publish an already verified resource package below the Agent
+ * process cwd. This runs inside the `od tools skills load` CLI, keeping every
+ * project-path write in the Agent's filesystem authority domain.
  */
 export async function materializeVerifiedSkillDiscoveryResources(input: {
   cwd: string;
