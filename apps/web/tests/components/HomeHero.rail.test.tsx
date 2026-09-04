@@ -568,10 +568,13 @@ describe('HomeHero intent rail', () => {
   // `automaticDefault` is not the OD Next gate and never was — it says the
   // chip's plugin is the product's own choice for that surface, so the create
   // travels without a plugin id and the daemon stamps the automatic scenario
-  // binding. The OD Next route is decided separately, by chip id, and these
-  // surfaces own none.
-  it('keeps ordinary media chips outside automatic OD Next routing', () => {
-    for (const id of ['image', 'video', 'audio', 'live-artifact']) {
+  // binding. The OD Next route is decided separately, by chip id. Image owns
+  // a route; the other media surfaces do not.
+  it('routes Image through OD Next while keeping other media chips outside', () => {
+    expect(automaticStrategyTaskProfileForRouteId('image')).toBe('image');
+    expect(findChip('image')?.action).toMatchObject({ automaticDefault: true });
+
+    for (const id of ['video', 'audio', 'live-artifact']) {
       expect(automaticStrategyTaskProfileForRouteId(id), id).toBeNull();
       expect(findChip(id)?.action, id).toMatchObject({ automaticDefault: true });
     }
