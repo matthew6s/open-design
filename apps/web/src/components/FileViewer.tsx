@@ -322,6 +322,7 @@ import {
 } from '../edit-mode/source-patches';
 import { MANUAL_EDIT_STYLE_PROPS, type ManualEditBridgeMessage, type ManualEditHistoryEntry, type ManualEditPatch, type ManualEditStyles, type ManualEditTarget } from '../edit-mode/types';
 import { isRenderableSketchJson, SketchPreview } from './SketchPreview';
+import { shouldAdoptPersistedManualEditDocument } from '../runtime/manual-edit-document-latch';
 import {
   decideDeckSlideReport,
   type DeckSlideIntent,
@@ -9550,12 +9551,13 @@ function HtmlViewer({
   // proves the current DOM is still exact. A genuinely different source then
   // releases the latch and consumes the latest metadata generation once.
   const previewRuntimeCanAdoptPersistedManualEditDocument =
-    !manualEditMode
-    && !manualEditSrcDocActive
-    && manualEditPersistedDocumentRef.current?.reloadKey === reloadKey
-    && source !== null
-    && manualEditPersistedDocumentRef.current.sourceFingerprint
-      === previewSourceFingerprint(source);
+    shouldAdoptPersistedManualEditDocument({
+      manualEditMode,
+      manualEditSrcDocActive,
+      latch: manualEditPersistedDocumentRef.current,
+      reloadKey,
+      sourceFingerprint: source === null ? null : previewSourceFingerprint(source),
+    });
   const previewRuntimeOwnerKey =
     `${sourceAuthorizationScopeKey ?? 'pending'}\0${projectId}\0${file.name}`;
   const previewRuntimeRevisionIdentityRef = useRef({
@@ -13332,7 +13334,12 @@ function HtmlViewer({
         < manualEditUrlStandbyRequestedRef.current,
     );
     setManualEditSrcDocActive(false);
-    manualEditPersistedDocumentRef.current = null;
+    // The latch is NOT cleared here. It is the proof that the bridge already
+    // applied the exact persisted bytes to the live document, and the render
+    // that consumes it happens after edit mode closes — clearing it in the
+    // same block guaranteed it was always null when read, so every saved edit
+    // replaced the browsing context and discarded the page's live state. It
+    // releases itself as soon as the source genuinely differs.
     setManualEditMode(false);
     return true;
   }
