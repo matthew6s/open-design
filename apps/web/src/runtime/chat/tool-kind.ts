@@ -435,6 +435,17 @@ export function commandFile(command: string): { path: string; label: string } | 
 /**
  * 搜索行要显示「搜索 <模式> N 处」(D23),模式从入参或命令里抽。
  * 先按引号切词,再截到第一个裸的 `|` / `&&` / `;` —— 引号里的 `|` 是模式的一部分。
+ *
+ * **抽不出来就返回 `null`,不拿字面量 `'.'` 顶上。** 这一格回答的是「搜的是什么」;
+ * 命令没说,就没有答案 —— 而 `ToolRow` 把这个字符串塞进 `FileButton`,伪造出来的
+ * `.` 会长成一枚看着能点开的文件(真机上就是「搜索 . 14 处」,命令是
+ * `cd "<项目>" && ls -la && …`)。同一套规矩在这个文件里已经写过两遍:`commandFile`
+ * 的「多目标 / glob / 动态变量不猜 —— 猜错比回落成命令更糟」,和 `ToolRow` 那支
+ * 回落分支的「不能伪造一个可点文件」。
+ *
+ * 设计稿只画过 `搜索 商品卡 6 处` 一条搜索行,没有列目录这一行,所以这里不发明新
+ * 行型 —— 返回 `null` 之后行退回稿子已有的形态(有命令没人话 → 搜索 + 命令 + 命中数;
+ * 有人话 → 命令折叠块)。`pattern` 本来就是 `string | null`,`null` 是它一直就有的取值。
  */
 export function searchPattern(_toolName: string, input: unknown): string | null {
   const rec = asRecord(input);
@@ -445,10 +456,8 @@ export function searchPattern(_toolName: string, input: unknown): string | null 
   if (!segment) return null;
   const head = segment.token;
   const toks = segment.words.slice(segment.headIndex + 1);
-  if (/^(ls|tree)$/.test(head)) {
-    const target = positionalArgs(toks)[0];
-    return target || '.';
-  }
+  // `ls docs` 的 `docs` 是用户真打出来的目标,照答;`ls -la` 没有目标,就没有答案。
+  if (/^(ls|tree)$/.test(head)) return positionalArgs(toks)[0] || null;
   if (/^(which|locate)$/.test(head)) return positionalArgs(toks)[0] ?? null;
   if (!/^(find|fd|grep|rg|egrep)$/.test(head)) return null;
   if (/^(find|fd)$/.test(head)) {
@@ -465,9 +474,10 @@ export function searchPattern(_toolName: string, input: unknown): string | null 
     if (!tok) continue;
     const next = toks[i + 1];
     if (/^(-e|--regexp)$/.test(tok) && next) return next;
+    // `rg --files` 只是把文件列出来,同样没有模式;带 `-g` 时那个 glob 才是模式。
     if (tok === '--files') {
       const globIndex = toks.findIndex((value) => value === '-g' || value === '--glob');
-      return globIndex >= 0 ? (toks[globIndex + 1] ?? '.') : '.';
+      return globIndex >= 0 ? (toks[globIndex + 1] ?? null) : null;
     }
     if (/^(-g|--glob|-t|--type|-A|-B|-C|-m|--max-count|--include|--exclude|--exclude-dir)$/.test(tok)) {
       i += 1;

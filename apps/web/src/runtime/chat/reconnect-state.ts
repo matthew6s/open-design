@@ -76,6 +76,18 @@ export interface ChatReconnectView {
    * 传输层后来接管出来的真读数不带它,于是闸对真读数一律无效。
    */
   manualRetry: boolean;
+  /**
+   * 这一行是**浏览器自己说这一屏没网了**推出来的,不是传输层数出来的。
+   *
+   * 为什么要分开记:两个上膛口的收场方式不一样。传输层那一段由 `cleared` /
+   * `exhausted` 自己收;掉线这一段只由 `online` 收 —— 而 `online` 不该碰传输层
+   * 正在数的那一行(线断没断和这一屏有没有网是两件事,后者好了不代表前者通了)。
+   * 这个标记就是那道分界。
+   *
+   * 也是「谁盖得住谁」的判据:传输层的读数更具体(它数得出第几次、能走到 22-3),
+   * 所以它一到就把这一档盖掉;反过来不行。
+   */
+  offline?: boolean;
 }
 
 /**
@@ -162,7 +174,25 @@ export type ChatReconnectSignal =
    *
    * 对不是乐观读数的那一行一律不动,所以传输层真的接管之后这把闸自动作废。
    */
-  | { kind: 'manual-retry-expired'; runId: string };
+  | { kind: 'manual-retry-expired'; runId: string }
+  /**
+   * **浏览器自己报的**这一屏的联网状态(`online` / `offline` 事件 +
+   * `navigator.onLine`)。传输层那条梯子之外的第二个上膛口。
+   *
+   * 为什么必须有第二个:今天那一行只有 socket 真的断掉才上膛。可 daemon 跑在
+   * **本机回环**上 —— 页签断网时那条流常常一点事都没有,25 秒一次的 keepalive
+   * 照旧到,75 秒的静默闸(`DAEMON_STREAM_IDLE_TIMEOUT_MS`)一次都不上膛,
+   * 于是「重连预算」从头到尾是 0。真机 2026-09-03:断网一分钟后
+   * `navigator.onLine` 已经是 `false`,壳头还写着「进行中」、秒数还在往上走,
+   * 屏幕上一个字都没有。**浏览器早就知道,我们没问过它。**
+   *
+   * 读数固定 `1/1`:这一档背后**没有梯子在数**,写「1/5」是假话。
+   * `Reconnect` 的 `showCount = max > 1` 于是自动只画那句话,不画分数。
+   *
+   * 也没有 `exhausted`:没网这件事不会「重试到用尽」,它由 `online` 收场,
+   * 摆一颗〔重新连接〕没有对应的动作 —— 能做的事在浏览器那头,不在这颗按钮上。
+   */
+  | { kind: 'network'; runId: string; conversationId: string; online: boolean };
 
 /**
  * 一条信号推一次状态。`prev` 原样返回表示「这条信号跟屏幕上这一行无关」。
@@ -182,6 +212,29 @@ export function nextChatReconnectView(
   if (signal.kind === 'manual-retry-expired') {
     if (!prev || prev.runId !== signal.runId || !prev.manualRetry) return prev;
     return { ...prev, attempt: prev.max, exhausted: true, manualRetry: false };
+  }
+
+  if (signal.kind === 'network') {
+    /*
+     * 网回来了只收自己那一段。传输层正在数的那一行不许碰:这一屏有没有网,
+     * 和浏览器 ↔ daemon 那条流通没通,是两件事 —— 后者好没好由它自己的
+     * `cleared` 说了算,拿 `online` 去撤它就等于替它宣布「已经接上了」。
+     */
+    if (signal.online) return prev?.offline ? null : prev;
+    // 传输层的读数更具体(数得出第几次、走得到 22-3),它在场就不降级。
+    if (prev && !prev.offline) return prev;
+    // 同一轮里重复报 offline 不产生新对象,免得白刷一次渲染。
+    if (prev && prev.runId === signal.runId) return prev;
+    return {
+      reason: 'transport',
+      runId: signal.runId,
+      conversationId: signal.conversationId,
+      attempt: 1,
+      max: 1,
+      exhausted: false,
+      manualRetry: false,
+      offline: true,
+    };
   }
 
   if (signal.kind === 'agent-retry' || signal.kind === 'agent-reconnect') {
@@ -207,11 +260,22 @@ export function nextChatReconnectView(
       max: signal.max,
       exhausted: false,
       manualRetry: false,
+      offline: false,
     };
   }
 
   if (signal.kind === 'dropped') {
     if (signal.runId && prev && prev.runId !== signal.runId) return prev;
+    /*
+     * 「重挂真的开始了」撤掉的是**传输层那一段读数** —— 换一条流,前一段的
+     * 第几次就作废了。可这一屏有没有网跟换不换流无关:重挂起来了网也没回来,
+     * 而重挂那条流自己会失败,再由传输层报它自己的读数盖上来。撤了它,
+     * 屏幕就在「重挂开始」到「重挂失败」之间空一段,壳头又只剩「进行中」。
+     *
+     * 不带 `runId` 的全清(切会话、离开项目、卸载)照旧连它一起撤:那时
+     * 本地压根不跟这条流了,任何一行都不该留在屏幕上。
+     */
+    if (signal.runId && prev?.offline) return prev;
     return null;
   }
 
@@ -254,6 +318,8 @@ export function nextChatReconnectView(
     exhausted: signal.phase === 'exhausted',
     // 传输层的原话永远不是乐观读数 —— 它一接管,那把到期闸就作废。
     manualRetry: false,
+    // 也不是浏览器那一档:传输层接管之后 `online` 不该再撤这一行(见 `network`)。
+    offline: false,
   };
 }
 

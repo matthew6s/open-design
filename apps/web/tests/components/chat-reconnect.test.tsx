@@ -32,6 +32,18 @@ describe('Reconnect · 82 重连中', () => {
     expect(orb()).not.toBeNull();
   });
 
+  it('drops the fraction when nothing is counting behind it', () => {
+    /*
+     * 浏览器自己报「这一屏没网了」时推的就是这一档(`ChatReconnectSignal` 的
+     * `network`,读数固定 1/1)。背后**没有梯子在数** —— 那种断法里传输层的
+     * 重连预算一次都没上膛 —— 所以写「1/5」是假话,写「1/1」像倒计时且一个
+     * 信息都没给。判据是组件自己的 `showCount = max > 1`,这里钉住它的外观。
+     */
+    render(<Reconnect attempt={1} max={1} />);
+    expect(row().textContent).toBe('正在重新连接');
+    expect(orb()).not.toBeNull();
+  });
+
   it('renders nothing once the connection is no longer dropping', () => {
     // 传输层恢复时发的是 { attempt: 0, phase: 'cleared' } —— 调用方可以直接铺进来,
     // 由组件自己判「这一行该没了」。设计稿:恢复后整行消失,不留「已恢复」。

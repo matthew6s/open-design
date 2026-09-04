@@ -4015,10 +4015,12 @@ function SystemReminderBlock({
 /**
  * 推理段落的 markdown 形态(可展开、按 markdown 渲染、文件链接在应用内打开)。
  *
- * **当前没有消费方,故意留着**:新执行记录把 thinking 放进壳内,走 `SayText` 的纯文字形态
- * (`chat/primitives/SayText.tsx`),所以「推理里的链接可以点」这条能力在新链路里
- * **还没有对应实现**。删掉它等于把这条能力一起删掉,所以先停在这儿等设计/产品拍板:
- * 壳内文字要不要按 markdown 渲染。删除之前不要动。
+ * **当前没有消费方。** 原来留着是在等一条拍板:「壳内文字要不要按 markdown 渲染」。
+ * **那条拍板已经来了**(用户 2026-09-03:「都要 markdown 啊」),`SayText` 与
+ * `ThinkingMarkdown` 现在都走 `renderMarkdown`,链接也一起回来了 —— 所以这一份
+ * 不再背着「唯一还有 markdown 能力的实现」这个职责。剩下的差异只有
+ * `onLinkClick`(文件链接在应用内打开)壳内还没接。清理它是一次独立的收尾,
+ * 要么把 `onLinkClick` 透给壳内两个渲染组件、要么连这份一起删,别再当作待拍板项挂着。
  */
 function ThinkingBlock({
   text,

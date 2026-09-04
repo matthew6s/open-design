@@ -53,6 +53,8 @@ describe('nextChatReconnectView · 82 重连中', () => {
       // 传输层的原话永远不是「按下之后的乐观读数」。这个字段是那把到期闸的钥匙,
       // 见 `ChatReconnectView.manualRetry`。
       manualRetry: false,
+      // 也不是浏览器那一档:传输层接管之后 `online` 不该再撤这一行(见 `network` 信号)。
+      offline: false,
     });
   });
 
@@ -242,6 +244,8 @@ describe('nextChatReconnectView · 按下〔重新连接〕要有回音,而且�
       max: 5,
       exhausted: false,
       manualRetry: true,
+      // 这一行本来就是传输层数出来的,一次按压不会把它变成浏览器那一档。
+      offline: false,
     });
   });
 
@@ -343,5 +347,67 @@ describe('settledSignalFromMessages · 结局从别的门进来时也要撤那�
 
   it('says nothing when there is no row on screen', () => {
     expect(settledSignalFromMessages(null, [{ runId: RUN, runStatus: 'succeeded' }])).toBeNull();
+  });
+});
+
+/**
+ * 第二个上膛口:浏览器自己说这一屏没网了(`network` 信号)。
+ *
+ * 传输层那条梯子只认「socket 真的断掉」;daemon 跑在本机回环上时,页签断网
+ * 常常一点事都不出 —— 流没断、keepalive 照旧到,预算从头到尾是 0。所以这一档
+ * 不是锦上添花,它是那种断法**唯一**的证据来源。它自己的三条边界都在这里。
+ */
+describe('nextChatReconnectView · 这一屏没网了', () => {
+  const offline = { kind: 'network', runId: RUN, conversationId: CONV, online: false } as const;
+  const online = { kind: 'network', runId: RUN, conversationId: CONV, online: true } as const;
+
+  it('puts the row up with no fraction — there is no ladder counting', () => {
+    const view = nextChatReconnectView(null, offline);
+    expect(view).toEqual<ChatReconnectView>({
+      reason: 'transport',
+      runId: RUN,
+      conversationId: CONV,
+      attempt: 1,
+      // `Reconnect` 的 showCount = max > 1,所以这一档只画那句话。
+      // 写「1/5」是假话:背后没有任何东西在数。
+      max: 1,
+      exhausted: false,
+      manualRetry: false,
+      offline: true,
+    });
+  });
+
+  it('takes the row away when the tab is back online', () => {
+    const view = nextChatReconnectView(nextChatReconnectView(null, offline), online);
+    // 「恢复后整行消失,不留『已恢复』」—— 文件头第 1 条。
+    expect(view).toBeNull();
+  });
+
+  it('does not let online retract a reading the transport layer is still counting', () => {
+    const counting = nextChatReconnectView(null, reconnecting(3));
+    // 这一屏有网了,不代表浏览器 ↔ daemon 那条流通了。撤它等于替传输层宣布已接上。
+    expect(nextChatReconnectView(counting, online)).toBe(counting);
+  });
+
+  it('lets the transport reading take over the offline row, never the other way round', () => {
+    const offlineRow = nextChatReconnectView(null, offline);
+    const taken = nextChatReconnectView(offlineRow, reconnecting(2));
+    expect(taken).toMatchObject({ attempt: 2, max: 5, offline: false });
+    // 反过来:传输层在数的时候再报一次 offline,不许把 2/5 降级成没有分数的那一档。
+    expect(nextChatReconnectView(taken, offline)).toBe(taken);
+  });
+
+  it('survives a reattach starting — a fresh stream does not bring the network back', () => {
+    const offlineRow = nextChatReconnectView(null, offline);
+    expect(nextChatReconnectView(offlineRow, { kind: 'dropped', runId: RUN })).toBe(offlineRow);
+    // 整屏级的全清(切会话 / 卸载)照旧连它一起撤。
+    expect(nextChatReconnectView(offlineRow, { kind: 'dropped' })).toBeNull();
+  });
+
+  it('goes away with the turn it belonged to', () => {
+    const offlineRow = nextChatReconnectView(null, offline);
+    expect(
+      nextChatReconnectView(offlineRow, { kind: 'settled', runId: RUN, status: 'succeeded' }),
+    ).toBeNull();
   });
 });

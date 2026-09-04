@@ -198,8 +198,32 @@ describe('searchPattern · 搜索行要显示搜的是什么', () => {
     expect(searchPattern('Bash', bash(`cd "$PWD" && rg -n 'TODO|FIXME' src`))).toBe('TODO|FIXME');
   });
 
-  it('列目录没有显式路径时以当前目录为搜索目标', () => {
-    expect(searchPattern('Bash', bash('ls -la'))).toBe('.');
+  /*
+   * 光秃秃的 `ls` 没有「搜了什么」这个答案 —— 它只是把当前位置有什么摊开。
+   * 原来这里回落成字面量 `'.'`,真机上就画成「搜索 . 14 处」(用户 2026-09-03
+   * 指认,命令是 `cd "<项目>" && ls -la && …`)。
+   *
+   * `'.'` 不只是难看:`ToolRow` 的搜索支把 `pattern` 塞进 `FileButton`,所以那个点
+   * 是**一枚看起来能点开的文件**。同一个文件里 `commandFile` 的规矩写得很清楚
+   * ——「多目标 / glob / 动态变量不猜 —— 猜错比回落成命令更糟」,而
+   * `ToolRow` 那支回落分支的注释逐字是「不能伪造一个可点文件」。`'.'` 正是那种伪造。
+   *
+   * 设计稿(`docs/design/chat-panel/src/body-components.html`,729fa43ce7)只画过
+   * 一条搜索行:`搜索 商品卡 6 处` —— 模式是用户真的搜的那个词。稿子从头到尾
+   * **没有列目录这一行**,所以这里不发明新行型:抽不出模式就返回 `null`,行退回
+   * 稿子已有的形态(有命令没人话 → `搜索 <命令> N 处`;有人话 → 命令折叠块)。
+   */
+  it('抽不出模式就不伪造:光秃秃的 ls 不返回字面量 "."', () => {
+    expect(searchPattern('Bash', bash('ls -la'))).toBeNull();
+    // 用户真机上那条(命令原样,只把项目路径匿名化)
+    expect(searchPattern('Bash', bash('cd "/Users/u/proj" && ls -la && cat package.json'))).toBeNull();
+    // 显式给了路径时仍然照答 —— 那是用户真的打出来的目标
+    expect(searchPattern('Bash', bash('ls -la docs'))).toBe('docs');
+  });
+
+  it('rg --files 不带 -g 时同样没有模式可报', () => {
+    expect(searchPattern('Bash', bash('rg --files'))).toBeNull();
+    expect(searchPattern('Bash', bash('rg --files -g "*.ts"'))).toBe('*.ts');
   });
 });
 

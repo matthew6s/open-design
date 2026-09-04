@@ -821,7 +821,13 @@ describe('思考只有一条渲染路径,普通正文是另一回事', () => {
   it('普通过程叙述不套灰底容器 —— 它不是推理', () => {
     const root = mount(SCENE);
     const tail = topChild(root, '收尾那一句');
-    expect(tail.tagName).toBe('P');
+    /*
+     * 叙述这一格是 `SayText` 自己那只 `.think` 容器(2026-09-03 起里面装的是
+     * markdown 块树,不再是一只裸 `<p>`;换成容器是为了让逐字化开有一只身份稳定的
+     * 元素可挂,见 `say-text-markdown.test.tsx`)。
+     * 这一条钉的始终是**边界**:它不是 `ThoughtsRow` 那只灰底容器。
+     */
+    expect(tail.className).toMatch(/think/);
     expect(tail.querySelector('[data-testid="thinking-markdown"]')).toBeNull();
   });
 });

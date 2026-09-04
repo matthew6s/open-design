@@ -3544,7 +3544,7 @@ export const tr: Dict = {
   'assistant.systemReminder': 'Sistem hatırlatıcısı',
   'assistant.possiblePromptInjection': 'Olası istem enjeksiyonu',
   'assistant.designSystemDirectionLocked': 'Etkin tasarım sistemi seçildi. Görsel yön zaten belirlendi.',
-  'assistant.waitingFirstOutput': 'İlk girdi için bekleniyor',
+  'assistant.waitingFirstOutput': 'İlk çıktı bekleniyor',
   'assistant.statusBootingAgent': 'Ajan başlatılıyor',
   'assistant.statusPreparing': 'Hazırlanıyor...',
   'assistant.statusStarting': 'Başlıyor',

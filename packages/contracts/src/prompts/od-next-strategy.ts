@@ -75,6 +75,25 @@ export interface OdNextStrategyStableRequestContextV2 {
   sessionMode?: ChatSessionMode | undefined;
   locale?: string | undefined;
   /**
+   * The name of the plan tool THIS runtime actually has, as one sentence the
+   * host resolved — or null/absent when the host has no verified name for it.
+   *
+   * A fact about the selected Coding Agent, not a new rule: the planning
+   * surface below already asks for a live Todo plan, and the charter it
+   * mirrors sanctions "otherwise, provide a numbered plan in your response".
+   * A model never told its tool's NAME reads the prose branch as the compliant
+   * one — which is what a codex run did on 2026-09-03, answering an explicit
+   * request to plan with a seven-item list in its reply body and no tool call.
+   *
+   * The host resolves the sentence (`planToolNoteForRuntime` in
+   * `apps/daemon/src/prompts/system.ts`) so the runtime→tool-name table has
+   * exactly one home. This layer only carries it: a runtime the host has no
+   * verified name for passes nothing and pays nothing, and this file must
+   * never grow its own copy of that table — a second source of truth for tool
+   * names is precisely what the Claude Code 2.1 rename punished.
+   */
+  planToolNote?: string | null | undefined;
+  /**
    * The host detected an explicit deck request in the user-authored
    * conversation even though the project is bound to another Task Profile.
    * This does not reclassify the task; it only exposes the canonical deck
@@ -538,6 +557,19 @@ export function composeOdNextStrategyStableRequestContextV2(
   if (Object.keys(runtimeSelection).length > 0) {
     factualStructured('runtime-selection', runtimeSelection);
   }
+  // Sits next to the runtime identity it is derived from, and inside this
+  // per-run block rather than the Bundle head: the head is byte-identical
+  // across every task sharing a strategy version, task type, and execution
+  // profile, and which agent is driving is not one of those dimensions. So the
+  // note costs bytes but no cache-prefix churn, and only on runs that have a
+  // plan tool to be told about.
+  //
+  // Guarded, unlike the deck directive below. That block bypasses
+  // `assertOdNextPlanningBuildOnlyV2` because it is a long protocol document
+  // whose legitimate wording brushes the forbidden vocabulary; one short
+  // sentence naming a tool has no such excuse, and a note that ever did
+  // contain post-Build semantics should stop the run rather than ship.
+  instructionText('runtime-plan-tool', context.planToolNote ?? undefined);
   const deckFrameworkMode = context.deckFrameworkMode
     ?? (context.deckIntent ? 'canonical' : undefined);
   if (deckFrameworkMode) {

@@ -695,6 +695,17 @@ export interface ComposeInput {
   odNextStrategyRecipe?: OdNextStrategyRequestRecipeV2 | undefined;
   agentId?: string | null | undefined;
   streamFormat?: string | undefined;
+  /**
+   * The plan-tool sentence for this run, pre-resolved by the caller.
+   *
+   * Only the OD Next fork reads it. The legacy stack below resolves its own
+   * from `planToolNoteForRuntime(agentId, streamFormat)` a few lines down, and
+   * a caller that passes nothing gets exactly today's behaviour there. It is an
+   * input rather than a second internal derivation so this composer and its
+   * `@open-design/contracts` mirror stay byte-identical for identical inputs —
+   * the parity that `tests/plugins-strategy-recipe.test.ts` pins.
+   */
+  planToolNote?: string | null | undefined;
   skillBody?: string | undefined;
   skillName?: string | undefined;
   skillMode?:
@@ -853,6 +864,7 @@ export interface ComposeInput {
 export function composeSystemPrompt({
   odNextStrategyRecipe,
   agentId,
+  planToolNote,
   skillBody,
   skillName,
   skillMode,
@@ -905,6 +917,13 @@ export function composeSystemPrompt({
   if (odNextStrategyRecipe) {
     return composeOdNextStrategyRequestPromptV2(odNextStrategyRecipe, {
       agentId,
+      // The plan-tool fact has to cross the fork with everything else. Without
+      // it an OD Next run keeps the pre-fix behaviour the slim charter no
+      // longer has: a plan step whose tool is never named, and a sanctioned
+      // prose branch to fall into instead. Resolved by the caller (see
+      // `planToolNote` on ComposeInput) so this fork and its contracts mirror
+      // stay byte-identical.
+      planToolNote,
       sessionMode,
       locale,
       deckIntent: odNextStrategyRecipe.taskType !== 'ppt' && freeformDeckSignal === true,
@@ -1536,8 +1555,17 @@ const OPENCODE_PLAN_TOOL_NOTE = `Your plan tool is \`todowrite\` — use it for 
  * demonstrably reduces that tool's output into a `TodoWrite` snapshot; naming
  * a tool that does not exist is the exact failure the Claude Code 2.1 rename
  * caused, and a silent guess would rebuild it.
+ *
+ * This is the ONE home for that table, and it now has two consumers: the slim
+ * charter below, and the OD Next fork, which composes an entirely separate
+ * prompt and would otherwise stay in the pre-fix state forever. OD Next
+ * receives the resolved sentence as `planToolNote` — first through
+ * `odNextStableRequestContext` in server.ts (the shipping Bundle path), and
+ * mirrored on this file's own early return. Callers pass the sentence rather
+ * than the runtime so the table never gets a second copy on the other side of
+ * the fork.
  */
-function planToolNoteForRuntime(
+export function planToolNoteForRuntime(
   agentId: string | null | undefined,
   streamFormat: string | undefined,
 ): string | null {

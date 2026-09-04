@@ -187,6 +187,14 @@ export interface ComposeInput {
   // this from plugin ids; the daemon must supply a verified recipe payload.
   odNextStrategyRecipe?: OdNextStrategyRequestRecipeV2 | undefined;
   agentId?: string | null | undefined;
+  /**
+   * One sentence naming the plan tool this runtime actually has, already
+   * resolved by the host (`planToolNoteForRuntime`, daemon-side). Carried, not
+   * derived: keeping the runtime→tool-name table in one place is what stops a
+   * second copy from drifting. Only the OD Next fork reads it — the legacy
+   * stack composes its own note from the same table.
+   */
+  planToolNote?: string | null | undefined;
   skillBody?: string | undefined;
   skillName?: string | undefined;
   skillMode?:
@@ -281,6 +289,7 @@ export interface ComposeInput {
 export function composeSystemPrompt({
   odNextStrategyRecipe,
   agentId,
+  planToolNote,
   skillBody,
   skillName,
   skillMode,
@@ -318,6 +327,11 @@ export function composeSystemPrompt({
   if (odNextStrategyRecipe) {
     return composeOdNextStrategyRequestPromptV2(odNextStrategyRecipe, {
       agentId,
+      // The plan-tool fact has to cross the fork with everything else. Without
+      // it an OD Next run keeps the pre-fix behaviour the legacy stack no
+      // longer has: a plan step whose tool is never named, and a sanctioned
+      // prose branch to fall into instead.
+      planToolNote,
       sessionMode,
       locale,
       deckIntent: odNextStrategyRecipe.taskType !== 'ppt' && freeformDeckSignal === true,

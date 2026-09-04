@@ -117,9 +117,17 @@ describe('N2 跑完的 thinking 收进折叠行', () => {
     const { container } = render(show(shellOf([say('好,先把列表页搭起来。'), tool('a.png')])));
     openShell(container);
     expect(screen.queryByText('思考过程')).toBeNull();
-    // 同上:叙述必须仍然直接挂在壳 body 上,别被顺手卷进折叠
+    /*
+     * 同上:叙述必须仍然直接挂在壳 body 上,别被顺手卷进折叠。
+     *
+     * 叙述改走 markdown 之后(2026-09-03),`getByText` 拿到的是块树里的那只
+     * `<p class="md-p">`,它的父层是 `SayText` 自己的 `.think` 容器 —— 化开要挂在
+     * 一只**身份稳定**的元素上,块树会换元素(见 `say-text-markdown.test.tsx`)。
+     * 所以这里要先上溯到 `.think` 那一层再看它挂在谁身上,判据本身没变。
+     */
     const p = screen.getByText('好,先把列表页搭起来。');
-    expect(p.parentElement?.className).toMatch(/body/);
+    const block = p.closest('[class*="think"]');
+    expect(block?.parentElement?.className).toMatch(/body/);
   });
 
   it('被工具行隔开的两段 thinking 收成【两个】折叠行,不跨工具合并', () => {

@@ -65,6 +65,7 @@ import {
   detectMediaIntentSignal,
   detectPlatformIntentSignal,
   extractUserAuthoredSignalText,
+  planToolNoteForRuntime,
   renderConnectedExternalMcpDirective,
   resolveExclusiveSurface,
 } from './prompts/system.js';
@@ -10312,6 +10313,13 @@ export async function startServer({
       ? {
           agentId,
           streamFormat,
+          // The runtime's real plan-tool name. OD Next composes its own prompt
+          // and never reaches the slim charter that carries this note, so
+          // without it here an OD Next codex run is told to keep a Todo plan
+          // live and is never told what its plan tool is called. Resolved from
+          // the single daemon-side table; a runtime with no verified name
+          // resolves to null and adds no bytes.
+          planToolNote: planToolNoteForRuntime(agentId, streamFormat),
           executionProfile: executionProfileFromStreamFormat(streamFormat),
           deckIntent: odNextDeckIntent,
           deckFrameworkMode: odNextDeckFrameworkMode,

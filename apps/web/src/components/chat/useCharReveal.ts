@@ -61,6 +61,23 @@
  *  ④ **没有新字进来时必须原地不动**。壳头的秒数每秒跳一次,每一跳都是一次重渲染;
  *     若每次重渲染都重排一遍延时,还在开的那几个字每秒重播一次。
  *     → 这一帧长度没变、上一批还没开完 ⇒ **直接 return,一个节点都不碰**。
+ *
+ * ## 光比字符串判不出来的坑(2026-09-03)
+ *
+ *  · **不能用「值还是那个前缀」来判断 React 没写过这个节点**。收尾时要把截短过的节点
+ *     还原成完整值,判据原来是 `nodeValue === full.slice(0, kept)`。可 React 这一帧写进去的
+ *     新值**可能正好等于那个前缀** —— markdown 一闭合就常常如此:
+ *
+ *       上一帧  `<p>` = 文本「先看一下**规」 → 截短成「先看一下」+ span「**」「规」
+ *       这一帧  React 把同一只文本节点写成「先看一下」,并在后面挂上 `<strong>规格</strong>`
+ *
+ *     两者一模一样,判据认成「React 没动过」,于是把陈的「先看一下**规」盖了回去,
+ *     屏幕上留下「先看一下**规规格」。**而且它不会自愈**:下一帧 React 认为那只节点
+ *     已经是「先看一下」,值没变就不再写,那几个多出来的字**永久留在正文里**
+ *     (`say-text-markdown.test.tsx` 钉着这条;发现时思考流那一格也在踩)。
+ *     → 判据换成**观察**:挂一只 `MutationObserver` 专门看文本节点的值被谁改过。
+ *       我们自己写完就把记录抽干,于是下一帧抽出来的就只剩 React 的那些写入;
+ *       名单里的节点一律**不还原**,它现在的值是 React 的新意图。
  */
 import { useLayoutEffect, type RefObject } from 'react';
 
@@ -165,6 +182,42 @@ interface RevealState {
 
 const states = new WeakMap<HTMLElement, RevealState>();
 
+/**
+ * 每只 host 一台观察器,**只为 `takeRecords()` 而存在** —— 回调永远是空的,
+ * 我们从不异步地对变更做反应,只在需要判断的那一刻把积压的记录同步抽出来。
+ *
+ * 为什么非它不可(细节见文件头「光比字符串判不出来的坑」):「这只文本节点的值是我截短的,
+ * 还是 React 刚写的」光比字符串**判不出来**(两者可能一模一样),只有真的看着 DOM 才知道。
+ * React 的 DOM 变更发生在 layout effect **之前**,所以我们这一帧抽到的记录
+ * 正好就是 React 这一帧的写入。
+ */
+const watchers = new WeakMap<HTMLElement, MutationObserver>();
+
+function watcher(host: HTMLElement): MutationObserver | null {
+  if (typeof MutationObserver === 'undefined') return null;
+  let mo = watchers.get(host);
+  if (!mo) {
+    mo = new MutationObserver(() => {});
+    mo.observe(host, { characterData: true, subtree: true });
+    watchers.set(host, mo);
+  }
+  return mo;
+}
+
+/** 把积压的记录抽干并丢掉 —— 「我们自己刚写的那几笔不算 React 写的」。 */
+function forgetOwnWrites(host: HTMLElement): void {
+  watchers.get(host)?.takeRecords();
+}
+
+/** 抽出并清空:自上次抽取以来,值被**别人**(= React)改过的那些文本节点。 */
+function foreignWrites(host: HTMLElement): Set<Node> {
+  const out = new Set<Node>();
+  for (const record of watchers.get(host)?.takeRecords() ?? []) {
+    if (record.type === 'characterData') out.add(record.target);
+  }
+  return out;
+}
+
 export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boolean): void {
   // 用 layout effect:DOM 改完到浏览器画之前做掉,不会闪
   useLayoutEffect(() => {
@@ -176,9 +229,13 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
       if (stale?.timer) clearTimeout(stale.timer);
       restore(host);
       states.delete(host);
+      watchers.get(host)?.disconnect();
+      watchers.delete(host);
       return;
     }
     if (globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    // 观察器要在**第一次截短之前**就挂上,否则第一帧的写入没人记录
+    watcher(host);
 
     const now = performance.now();
     const prev = states.get(host);
@@ -298,6 +355,7 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
       states.set(host, { shown: len, len, until: 0, touched: [], timer: 0 });
     }, plan.totalMs + 16);
 
+    forgetOwnWrites(host);   // 这一批的截短是我们写的,不算 React 的写入
     states.set(host, { shown: len, len, until: now + plan.totalMs, touched, timer });
   });
 }
@@ -305,9 +363,13 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
 /** 把我们加过的节点全收走(span **和**裸空白),并把截短过的节点还原成完整值 */
 function restore(host: HTMLElement): void {
   const state = states.get(host);
+  // 上一次抽取之后 React 改过值的那些文本节点 —— 它们身上的 `full` 已经作废
+  const rewritten = foreignWrites(host);
   for (const t of state?.touched ?? []) {
     for (const node of t.inserted) node.remove();
-    // React 若已经重写过这个节点,它的值就是新的 —— 那时不能拿旧的盖回去
+    // React 若已经重写过这个节点,它的值就是新的 —— 那时不能拿旧的盖回去。
+    // 值比对**判不出** React 恰好写回同一个前缀的那一种,所以先认观察到的名单。
+    if (rewritten.has(t.node)) continue;
     if (t.node.isConnected && t.node.nodeValue === t.full.slice(0, t.kept)) t.node.nodeValue = t.full;
   }
   // 兜底:状态丢了(热更新、组件换了个 host)时留下的 span 也扫掉。
@@ -315,6 +377,7 @@ function restore(host: HTMLElement): void {
   for (const span of [...host.querySelectorAll(`[${OWNED}]`)]) span.remove();
   if (state) state.touched = [];
   host.removeAttribute('data-reveal');
+  forgetOwnWrites(host);   // 刚才那几笔还原是我们写的,别留到下一帧冒充 React
 }
 
 /** 参与化开的文本节点,文档顺序 */

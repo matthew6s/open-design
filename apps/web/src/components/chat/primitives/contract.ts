@@ -94,8 +94,12 @@ export interface ToolRowProps {
 }
 
 /* ── SayText ────────────────────────────────────────────────
- * 壳【内】的纯文字:thinking 落下的段落、todo_abandon 的 reason。
- * 壳【外】的普通文本不走这个组件,由消息层直接渲染 markdown。
+ * 壳【内】的文字:thinking 落下的段落、todo_abandon 的 reason。
+ * 壳【外】的普通文本不走这个组件,由消息层渲染。
+ *
+ * **壳内壳外都走 markdown**(用户裁决 2026-09-03:「都要 markdown 啊」)。
+ * 原来这里写的是「壳内是纯文字」,那条已作废 —— 裸的 `**` / 反引号 / `##`
+ * 显示在屏幕上是 bug,不是设计。
  */
 export interface SayTextProps {
   text: string;

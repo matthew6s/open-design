@@ -13,9 +13,10 @@ import { buildTurnBlocks } from '../../../src/runtime/chat/build-turn-blocks';
  * (`primitives/SayText.tsx` 和 `chat/ThinkingMarkdown.tsx`)都是拿原文直接渲染,
  * 中间没有任何剥离 —— 等于兜底盖住的是重构之后几乎没内容的那一半。
  *
- * 更要命的是 `SayText` 把文本塞进 React 文本节点(自动转义),标记会**原样显示**;
- * 壳外走 markdown,未知标签反而看不见。所以"用户能看见原样标签"这件事本身,
- * 就说明泄漏在壳内。
+ * 更要命的是壳内两个组件都把文本交给 React 渲染(自动转义),标记会**原样显示**。
+ * 所以"用户能看见原样标签"这件事本身,就说明泄漏在壳内。
+ * (2026-09-03 起 `SayText` 也走 markdown 了 —— 但 `renderMarkdown` 同样不碰
+ *  `dangerouslySetInnerHTML`,未知标签照旧当文本显示,这道兜底一点没变得多余。)
  *
  * 修在 `buildTurnBlocks` 的入口而不是两个组件里:壳内壳外的文字**同源**
  * (`AssistantMessage` 的结论段也是 `buildTurnBlocks` 算出来的),一处收口两条 lane

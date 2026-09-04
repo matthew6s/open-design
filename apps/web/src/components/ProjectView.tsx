@@ -3070,6 +3070,51 @@ export function ProjectView({
     if (signal) pushReconnectSignal(signal);
   }, [reconnectView, messages, pushReconnectSignal]);
   /**
+   * 组件 22 的**第二个上膛口**:浏览器自己说这一屏没网了。
+   *
+   * 第一个上膛口是传输层那条重连预算,它只认「socket 真的断掉」。那条路本身是通的
+   * (`tests/providers/daemon-sse-tab-offline.test.ts` 走的就是它)。可 daemon 跑在
+   * **本机回环**上 —— 页签断网时那条流常常一点事都没有:25 秒一次的 keepalive 照旧到,
+   * 75 秒的静默闸(`DAEMON_STREAM_IDLE_TIMEOUT_MS`)一次都不上膛,预算于是从头到尾是 0。
+   *
+   * 真机 2026-09-03:一条长任务跑着,把那个页签断网,一分钟后 `navigator.onLine`
+   * 已经是 `false`,而壳头照旧写着「进行中」、秒数还在往上走,「正在重新连接 /
+   * 连接失败 / 重新连接」一个字都没有。**浏览器早就知道,我们没问过它。**
+   *
+   * 只在**这个会话里有一轮还在跑**的时候上膛:没有在跑的东西就没有可重连的东西,
+   * 那时报「正在重新连接」是凭空多一句话。收场只认 `online` 与这一轮的终态
+   * (`settled`),判据全在 `nextChatReconnectView` 的 `network` 分支。
+   */
+  const offlineWatchRunId = useMemo(() => {
+    // 切会话的那一拍 `messages` 可能还是上一个会话的,别把别人的 run 盖上这个会话的戳。
+    if (!activeConversationId || messagesConversationId !== activeConversationId) return null;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role !== 'assistant' || !message.runId) continue;
+      if (!isActiveRunStatus(message.runStatus)) continue;
+      return message.runId;
+    }
+    return null;
+  }, [messages, activeConversationId, messagesConversationId]);
+  useEffect(() => {
+    const runId = offlineWatchRunId;
+    const conversationId = activeConversationId;
+    if (!runId || !conversationId) return undefined;
+    const push = (online: boolean): void => {
+      pushReconnectSignal({ kind: 'network', runId, conversationId, online });
+    };
+    // 挂上来时就已经断着的那一种:事件早发过了,只有问一次才知道。
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) push(false);
+    const handleOffline = (): void => push(false);
+    const handleOnline = (): void => push(true);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [offlineWatchRunId, activeConversationId, pushReconnectSignal]);
+  /**
    * 22-3 那颗〔重新连接〕。
    *
    * 语义是**接回同一轮的流**,不是重试 —— 复用已有的重挂通道

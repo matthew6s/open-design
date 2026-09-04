@@ -915,12 +915,146 @@
 /* ── 壳内文字(thinking 落下的段落 / done 之前的过程叙述 / 作废理由)── */
 
 .think {
+  min-width: 0;
   margin: 0;
   font-size: var(--chat-t-mini);
   line-height: var(--chat-lh-body);
   color: var(--chat-text-strong);
   overflow-wrap: anywhere;
+  /*
+   * 段落里的**单个**换行照旧是换行(markdown 那边把它当软换行,一个空格就抹平了)。
+   * 壳内叙述一直是这个行为,`SayText` 改走 markdown 不该顺手改掉它。
+   * 代码块自己会把 `white-space` 覆盖回 `pre`(见下面 `.md-code`)。
+   */
   white-space: pre-wrap;
+}
+/*
+ * ── 壳内叙述的 markdown 子树 ──────────────────────────────────
+ *
+ * `SayText` 走 `renderMarkdown`(用户裁决 2026-09-03:壳内也要 markdown),
+ * 发出来的是**全局**类名 `.md-*`,所以要 `:global()` 包住 —— 不包的话 CSS Module
+ * 会把它们改写成哈希名,规则一条都落不上(这个坑本文件里已经踩过两次,见 `.md-h` 那条)。
+ *
+ * ⚠️ 这一份和 `ThinkingMarkdown.module.css` 是**两份**,不是漏抽公共:那边的 `.think`
+ * 是另一个 Module 的哈希类名,两边合成一份就要靠 `:global` 打洞或者互传 className,
+ * 而本文件的层叠是按「谁的祖先更长」逐条量出来的(见 `.fold .thoughts > .body > *`
+ * 那几条注释)。`chat/AGENTS.md` §1b 也把「执行记录这一族共用这一个文件」写死了。
+ * 两边要一起改的只有口径,不是选择器。
+ */
+.think > :global(.md-p),
+.think > :global(.md-h),
+.think > :global(.md-ul),
+.think > :global(.md-ol),
+.think > :global(.md-quote),
+.think > :global(.md-code-block),
+.think > :global(.md-table-wrap),
+.think > :global(.md-hr) {
+  margin-block: 0;
+}
+/* 段与段之间 0.75em —— 和思考流那一格同一个口径 */
+.think > :global(*) + :global(*) {
+  margin-top: 0.75em;
+}
+/*
+ * 小标题**跟着这一段走**,不自己喊。
+ *
+ * 不照抄 `ThinkingMarkdown.module.css` 那条的 `--chat-text-strong`:壳内叙述按**位置**
+ * 分两档(开场白深色 / 步骤间小结静音灰,见上面 `.stepRow ~ .think:has(~ .stepRow)`),
+ * 写死深色会让静音那一档里冒出几行黑粗字 —— 用户 2026-09-02 在思考那一格里已经指过
+ * 一次同样的毛病。字号也继承:壳内没有第二档字号。
+ */
+.think :global(.md-h) {
+  color: inherit;
+  font-size: inherit;
+  line-height: var(--chat-lh-row);
+  font-weight: 600;
+}
+.think :global(.md-ul),
+.think :global(.md-ol) {
+  padding-inline-start: 1.5em;
+}
+.think :global(.md-ul) li,
+.think :global(.md-ol) li {
+  margin-block: 0.25em;
+}
+.think :global(.md-quote) {
+  padding-inline-start: 0.75em;
+  border-inline-start: var(--chat-stroke) solid var(--chat-border-strong);
+  color: var(--chat-text-muted);
+}
+.think :global(.md-code-block) {
+  overflow: hidden;
+  border: var(--chat-stroke) solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+}
+.think :global(.md-code-header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: var(--chat-stroke) solid var(--chat-border);
+  color: var(--chat-text-muted);
+}
+.think :global(.md-code-actions) {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.think :global(.md-code-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--chat-radius-sm);
+  background: transparent;
+  color: var(--chat-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.think :global(.md-code-action:hover) {
+  background: var(--chat-bg-fill-tertiary);
+  color: var(--chat-text-strong);
+}
+.think :global(.md-code) {
+  margin: 0;
+  padding: 8px;
+  overflow-x: auto;
+  /* 覆盖 `.think` 的 `pre-wrap`:围栏里的长行要横向滚,不能折 */
+  white-space: pre;
+}
+.think :global(.md-link) {
+  color: var(--chat-blue);
+  text-decoration: none;
+}
+.think :global(.md-link:hover) {
+  text-decoration: underline;
+}
+.think :global(.md-table-wrap) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.think :global(.md-table) {
+  border-collapse: collapse;
+}
+.think :global(.md-table) th,
+.think :global(.md-table) td {
+  padding: 4px 6px;
+  border: var(--chat-stroke) solid var(--chat-border);
+}
+.think :global(.md-hr) {
+  border: 0;
+  border-top: var(--chat-stroke) solid var(--chat-border);
+}
+/*
+ * 等宽 + 小一档。两条分开写是有原因的:`.md-inline-code` 是 `<code>`,
+ * 但围栏那只 `.md-code` 是 `<pre>` —— 按元素名选的 `.think code` 够不着它。
+ */
+.think :global(.md-inline-code),
+.think :global(.md-code) {
+  font-family: var(--chat-font-mono);
+  font-size: var(--chat-t-cap);
 }
 .think code {
   font-family: var(--chat-font-mono);
