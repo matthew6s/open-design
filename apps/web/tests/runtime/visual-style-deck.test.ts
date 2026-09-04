@@ -35,24 +35,34 @@ import {
 const CATALOG = Array.from({ length: 22 }, (_, i) => `s${String(i).padStart(2, '0')}`);
 
 describe('一批的大小', () => {
-  it('产品口径就是 6', () => {
-    expect(VISUAL_STYLE_BATCH_SIZE).toBe(6);
+  it('产品口径就是 4(2026-09-04 从 6 改的)', () => {
+    /*
+     * ⚠️ 6 → 4(产品口述 2026-09-04)。原来是 08-27 的裁决「点击换一批时,顺序从
+     * 22 个里每次挑 6 个出来」;OPEND-2584 报「稿子 4 张、产品 6 张」之后产品改口:
+     * 「VISUAL_STYLE_BATCH_SIZE 先改成 4 吧」。
+     *
+     * 这一条不是"照稿子改"—— `specs/current/chat-panel-feedback.md` 里有条更早的
+     * 裁决说得很死:「稿子里的数据是模拟的…不能因为稿子是 4 张就不做『看全部』」,
+     * 而且点名的就是这张卡。所以 4 是产品重新选的数,不是稿子推导出来的。
+     * 「换一批」照旧存在(下面那几条钉着),只是一批少两张。
+     */
+    expect(VISUAL_STYLE_BATCH_SIZE).toBe(4);
   });
 
-  it('首屏那一批按目录顺序取前 6 张', () => {
+  it('首屏那一批按目录顺序取前 4 张', () => {
     expect(resolveVisualStyleBatch({ all: CATALOG, current: null, keep: [] })).toEqual([
-      's00', 's01', 's02', 's03', 's04', 's05',
+      's00', 's01', 's02', 's03',
     ]);
   });
 
-  it('目录不够 6 张时就全给出来,不补空位', () => {
+  it('目录不够一批时就全给出来,不补空位', () => {
     const short = ['a', 'b', 'c'];
     expect(resolveVisualStyleBatch({ all: short, current: null, keep: [] })).toEqual(short);
   });
 });
 
 describe('换一批', () => {
-  it('真的换掉了 —— 6 张全是新的,而且仍然是 6 张', () => {
+  it('真的换掉了 —— 整批全是新的,而且张数不变', () => {
     const first = resolveVisualStyleBatch({ all: CATALOG, current: null, keep: [] });
     const next = rotateVisualStyleBatch({ all: CATALOG, current: first, keep: [], cursor: 0 });
 
@@ -62,17 +72,22 @@ describe('换一批', () => {
     expect(next.batch.filter((v) => first.includes(v))).toEqual([]);
   });
 
-  it('顺着目录往下走,连点四下才绕回开头', () => {
+  /*
+   * ⚠️ 一批从 6 改成 4 之后,「绕回开头」需要的点击次数跟着变了:22 张目录,
+   * 每批 4 张 → 要 6 批(24 张)才盖满,也就是首屏之后再点 5 下。
+   * 这个数是从目录长度和批量算出来的,不是抄来的常数 —— 目录再变时按同一条算式改。
+   */
+  it('顺着目录往下走,连点五下才绕回开头', () => {
     let batch = resolveVisualStyleBatch({ all: CATALOG, current: null, keep: [] });
     let cursor = 0;
     const seen: string[] = [...batch];
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 5; i += 1) {
       const next = rotateVisualStyleBatch({ all: CATALOG, current: batch, keep: [], cursor });
       batch = next.batch;
       cursor = next.cursor;
       seen.push(...batch);
     }
-    // 22 张目录,4 批 × 6 = 24 —— 前 22 张各出现一次,最后两张是绕回来的重复
+    // 22 张目录,6 批 × 4 = 24 —— 前 22 张各出现一次,最后两张是绕回来的重复
     expect(new Set(seen.slice(0, 22)).size).toBe(22);
   });
 });
@@ -80,7 +95,7 @@ describe('换一批', () => {
 describe('选中的那张不许被轮换出去', () => {
   it('换一批之后它还在,而且还在原来的槽位上', () => {
     const first = resolveVisualStyleBatch({ all: CATALOG, current: null, keep: [] });
-    const keep = [first[2]!]; // 第 3 张被选中
+    const keep = [first[2]!]; // 第 3 张被选中(一批 4 张,所以这是倒数第二个槽)
     const next = rotateVisualStyleBatch({ all: CATALOG, current: first, keep, cursor: 0 });
 
     expect(next.batch).toHaveLength(VISUAL_STYLE_BATCH_SIZE);
@@ -110,14 +125,17 @@ describe('选中的那张不许被轮换出去', () => {
     }
   });
 
-  it('选满两张时两张都留住,剩下四个槽还在换', () => {
+  it('选满两张时两张都留住,剩下的槽还在换', () => {
     const first = resolveVisualStyleBatch({ all: CATALOG, current: null, keep: [] });
-    const keep = [first[1]!, first[4]!];
+    // 一批 4 张(2026-09-04 从 6 改的),所以取首尾两个槽而不是 1 / 4
+    const keep = [first[1]!, first[3]!];
     const next = rotateVisualStyleBatch({ all: CATALOG, current: first, keep, cursor: 0 });
 
     expect(next.batch[1]).toBe(keep[0]);
-    expect(next.batch[4]).toBe(keep[1]);
-    expect(next.batch.filter((v, i) => v !== first[i])).toHaveLength(4);
+    expect(next.batch[3]).toBe(keep[1]);
+    // 留住 2 张 → 还剩 (4 - 2) 个槽该换掉;数字从批量算,别写死
+    expect(next.batch.filter((v, i) => v !== first[i]))
+      .toHaveLength(VISUAL_STYLE_BATCH_SIZE - keep.length);
   });
 
   /**
@@ -136,8 +154,9 @@ describe('选中的那张不许被轮换出去', () => {
 });
 
 describe('目录换了(切换产物类型)时自愈', () => {
-  it('上一批里已经不在目录中的值被丢掉,并补满 6 张', () => {
-    const stale = ['gone-1', 'gone-2', 's03', 's04', 'gone-3', 's07'];
+  it('上一批里已经不在目录中的值被丢掉,并补满一批', () => {
+    // 一批 4 张:两张已下架 + 两张还在,补完仍是 4 张且认得的留在原槽
+    const stale = ['gone-1', 'gone-2', 's03', 's04'];
     const batch = resolveVisualStyleBatch({ all: CATALOG, current: stale, keep: [] });
 
     expect(batch).toHaveLength(VISUAL_STYLE_BATCH_SIZE);
@@ -146,7 +165,6 @@ describe('目录换了(切换产物类型)时自愈', () => {
     // 还认得的那几张留在自己的槽位上
     expect(batch[2]).toBe('s03');
     expect(batch[3]).toBe('s04');
-    expect(batch[5]).toBe('s07');
   });
 
   it('一批里永远没有重复', () => {

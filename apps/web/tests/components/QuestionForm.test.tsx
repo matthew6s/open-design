@@ -1390,21 +1390,23 @@ describe('QuestionFormView', () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
 
     /* 铺开 = 右上角那枚网格切换,**内联**,不弹窗 —— 这才是 B53 要守的东西。
-       铺开的是这次的 6 张(2026-08-27 产品口径),不是整份目录:
+       铺开的是这次的一批(2026-09-04 产品口径改成 4 张,原为 6),不是整份目录:
        目录里别的通过「换一批」够得着,见 `QuestionForm.deck-batch.test.tsx`。 */
     fireEvent.click(container.querySelector('[data-action="toggle-view"]')!);
     expect(visualStyleCardsForContext('deck').length).toBeGreaterThan(VISUAL_STYLE_BATCH_SIZE);
     expect(container.querySelectorAll('.qf-visual-stack .qf-visual-card'))
       .toHaveLength(VISUAL_STYLE_BATCH_SIZE);
 
-    // 「Premium pitch」是目录第 5 张,落在首批那 6 张里
-    fireEvent.click(card('Premium pitch'));
+    /* 「Data briefing」是目录第 4 张 —— 一批从 6 缩到 4 之后,原来用的
+       「Premium pitch」(第 5 张)落到了批外,`card()` 就找不到它了。
+       挑批内最后一张,既仍然验到"铺开的是这一批"、又不依赖批量具体是几。 */
+    fireEvent.click(card('Data briefing'));
     /* 精确对象,不是 objectContaining —— `source` 的 `'gallery'` 那一档随弹窗一起退场,
        多出一个键这里就会红。 */
     expect(onInteraction).toHaveBeenCalledWith({
       element: 'visual_style_card',
       questionId: 'tone',
-      styleId: 'deck-premium-pitch',
+      styleId: 'deck-data-briefing',
       styleContext: 'deck',
       source: 'inline',
     });
@@ -1412,9 +1414,9 @@ describe('QuestionFormView', () => {
     expect(container.querySelector('.qf-visual-custom-summary')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    expect(onSubmit.mock.calls[0]?.[1]).toEqual({ tone: 'deck-premium-pitch' });
+    expect(onSubmit.mock.calls[0]?.[1]).toEqual({ tone: 'deck-data-briefing' });
     expect(onSubmit.mock.calls[0]?.[0]).toContain(
-      'Premium pitch [value: deck-premium-pitch]',
+      'Data briefing [value: deck-data-briefing]',
     );
   });
 
