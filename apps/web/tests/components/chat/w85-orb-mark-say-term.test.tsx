@@ -188,7 +188,16 @@ describe('W85 · 四条量尺差异的真实归属', () => {
       ], 'succeeded');
       const marks = marksIn(root);
       // 两条断言必须一起看:上面那条给「已完成」,这条给别的 —— 读数不是恒等式
-      expect(marks, `记号是 ${JSON.stringify(marks)}`).toContain('未开始');
+      /*
+       * 中性记号那一档 OPEND-2626 改了名:原来它和「未开始」共用一个名字,
+       * 现在叫「未完成」。**这一格正是不能叫「已取消」的那个反例** ——
+       * 轮次是 succeeded,没有任何人取消过它,只是 agent 收尾时没再发一次清单。
+       * 要守的东西没变:不许变成绿勾(那是替 agent 说它没说过的话),
+       * 也不许说成「从没开始过」(它起过步)。
+       */
+      expect(marks, `记号是 ${JSON.stringify(marks)}`).toContain('未完成');
+      expect(marks).not.toContain('未开始');
+      expect(marks).not.toContain('已取消');
     });
 
     it('反向对照:轮次还在跑时那条步骤是「进行中」,没有被收掉', () => {

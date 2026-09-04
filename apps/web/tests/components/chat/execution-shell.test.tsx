@@ -97,10 +97,23 @@ describe('壳头', () => {
     expect(document.querySelector('details')?.open).toBe(false);
   });
 
-  it('手动停止:状态词仍是「进行中」,不挂球(秒数停住,不是第四种状态)', () => {
+  /*
+   * ⚠️ 这一条 OPEND-2626 **翻过案**。原来钉的是「状态词仍是『进行中』」,理由是
+   * 手动停止不是第四态、下面那行「已手动停止」已经说清楚了。翻案的原因是那句
+   * 「下面那行」在**历史回合**上是 `opacity: 0`(OPEND-2542 的 hover 揭示),
+   * 于是一轮已经停掉的活,屏幕上常驻的唯一说法就是「进行中」+ 一个几分钟的秒数。
+   * 详见 `ExecutionShell` 里 `head` 的注释与
+   * `tests/components/chat/opend-2626-stopped-turn-history.test.tsx`。
+   *
+   * 没变的三样仍然钉在这里:不挂球、不是第四种 `status`(壳仍走 `stopped` 旗标)、
+   * 不退成红色的「运行失败」。
+   */
+  it('手动停止:状态词是「已取消」,不挂球(秒数停住,仍不是第四种状态)', () => {
     const [shell] = shellsOf(call('t1', 'Bash', { command: 'ls' }), 'canceled');
     render(<ExecutionShell shell={shell as ShellData} />);
-    expect(screen.getByText('进行中')).toBeTruthy();
+    expect(screen.getByText('已取消')).toBeTruthy();
+    expect(screen.queryByText('进行中')).toBeNull();
+    expect(screen.queryByText('运行失败')).toBeNull();
     expect(document.querySelector('[data-orb]')).toBeNull();
   });
 

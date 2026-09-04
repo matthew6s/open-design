@@ -85,8 +85,10 @@ export function planPillState(
  * 记号的判据和执行记录里那一列(`ExecutionShell.markFor`)保持一致 ——
  * 同一件事在同一个产品里只该有一种画法。
  *
- * 中断 / 取消(`stopped`)走「未开始」那一档的中性灰,红留给真的错误;
- * 这一条也是照抄执行记录,不在这里另立规矩。
+ * ⚠️ 药丸**看不到** `stopped` 那一档:`planPillState` 在 `running` 为假时直接返回
+ * `null`,而一条步骤只有在轮次被停那一刻才会变成 `stopped`(`build-turn-blocks` 的
+ * `closeRunningSegments`)。所以这里没有、也不需要那一支;OPEND-2626 给执行记录
+ * 那一列新开的 `'stopped'` 记号不必往这边同步。真要同步,先确认药丸那时还在不在。
  */
 function markFor(todo: PlanPillTodo, current: boolean): PlanPillMark {
   if (current) return 'running';

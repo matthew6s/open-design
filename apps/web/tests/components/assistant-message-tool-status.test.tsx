@@ -381,7 +381,13 @@ describe('AssistantMessage 执行记录', () => {
     expect(body.querySelector('[aria-label="Working"]')).toBeNull();
   });
 
-  it('手动停止:壳保持「进行中」,「已手动停止」是下面那行状态的词(B7 / W4)', () => {
+  /*
+   * ⚠️ OPEND-2626 **翻过案**:壳头不再沿用「进行中」。
+   * 原来的理由是「下面那行『已手动停止』已经说清楚了」,而那一行在**历史回合**上
+   * 是 `opacity: 0`(OPEND-2542 的 hover 揭示)—— 前提在历史回合上不成立。
+   * 这一条仍然守着「两行说的是同一件事的两句话」:壳头报终态、状态行报是谁停的。
+   */
+  it('手动停止:壳头报「已取消」,「已手动停止」是下面那行状态的词(B7 / W4)', () => {
     const { container } = render(
       <AssistantMessage
         projectKind="prototype"
@@ -418,8 +424,10 @@ describe('AssistantMessage 执行记录', () => {
       />,
     );
 
-    // 设计稿的执行记录只有三态,手动停止不是第四态:秒数停住、状态词仍是「进行中」
-    expect(recordHead(container)).toContain('Working');
+    // 手动停止仍不是第四种 `status`(壳走 `stopped` 旗标、秒数停住),
+    // 但壳头那个词报的是终态本身,不再和真的在跑的回合共用「进行中」。
+    expect(recordHead(container)).toContain('Canceled');
+    expect(recordHead(container)).not.toContain('Working');
     expect(recordHead(container)).not.toContain('Done');
     expect(container.querySelector('[data-testid="assistant-label"]')?.textContent).toBe('Stopped manually');
   });

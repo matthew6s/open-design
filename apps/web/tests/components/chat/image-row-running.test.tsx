@@ -24,6 +24,7 @@ function imageItem(over: Partial<ImageRow> = {}): ShellItem {
   const row: ImageRow = {
     kind: 'image',
     id: 'media-batch:b1',
+    surface: 'image',
     total: 3,
     done: 1,
     failed: 0,

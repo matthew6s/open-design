@@ -8,7 +8,7 @@
  * 架构视角:`specs/current/chat-panel-dev-design.md`
  * 参考实现:`docs/design/chat-sim/sim.js`(评审载体,15 个场景在跑)
  */
-import type { PersistedAgentEvent, ProjectMediaTask } from '@open-design/contracts';
+import type { MediaSurface, PersistedAgentEvent, ProjectMediaTask } from '@open-design/contracts';
 
 export type { ToolKind } from './tool-kind';
 export type { ArtifactKind, DiffStat } from './format';
@@ -115,7 +115,24 @@ export interface ShellTodo { kind: 'todo'; segment: TodoSegment }
 export interface ImageRow {
   kind: 'image';
   id: string;
-  /** 文案是固定的「生成配套插图」,由组件层翻译 —— 这一层不放人话 */
+  /**
+   * 这一批生成的到底是**哪一类**媒体(OPEND-2625)。
+   *
+   * 名字仍叫 `ImageRow` 是历史,行本身早就不只装图片了:同一条 `od media generate`
+   * 出音频、出视频、出图,走的是同一条落行路径。缺了这一格,渲染层只剩「图片」
+   * 一种可讲 —— 真机上一次 `--surface audio` 被写成
+   * `Generating illustrations · 1 images`,那一格还摆了个 `<img src=….mp3>`
+   * 的破图,读起来像生成失败了。
+   *
+   * 事实一直都在,只是没被带过来:daemon 的 `media_tasks` 记了 `surface`
+   * (`routes/media.ts:1278` 逐字回传),命令行自己也带着 `--surface`
+   * (`cli.ts:1838`,必填)。这里存的就是那两个证人里能拿到的那个。
+   *
+   * ⚠️ 不许在渲染层从文件后缀反推:进行中的格子**还没有文件**,而进行中恰恰是
+   * 用户最需要知道「在生成什么」的那一档。
+   */
+  surface: MediaSurface;
+  /** 文案由组件层按 `surface` 翻译 —— 这一层不放人话 */
   total: number;
   done: number;
   failed: number;

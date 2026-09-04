@@ -935,6 +935,16 @@
 .mark.pending {
   border: var(--chat-stroke) dashed var(--chat-border-strong);
 }
+/*
+ * 被打断的那一步(OPEND-2626)。同一枚圈、同一档中性灰,**实线**。
+ *
+ * 虚线在这套记号里说的是「还没起步」;这一条起过步,只是没跑完 ——
+ * 两者共用虚线时,一轮跑到一半被停在屏幕上读出来是「一步都没开始」。
+ * 不给红:红留给真的错误(`ExecutionShell.markFor` 那条裁决没变)。
+ */
+.mark.stopped {
+  border: var(--chat-stroke) solid var(--chat-border-strong);
+}
 
 /* ── 壳内文字(thinking 落下的段落 / done 之前的过程叙述 / 作废理由)── */
 
@@ -1351,6 +1361,13 @@
 
 /* 占位图:一块纯灰压住图片该占的范围,不画界面细节 —— 评审看的是框和排布 */
 .mini { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--chat-bg-muted); }
+/* 音频 / 视频那一格(OPEND-2625)。这一格里**没有一帧画面可放** —— 从前统一走
+   `<img src=…mp3>`,浏览器加载不动,给出来的是一枚碎图标,读起来像生成失败了。
+   改画字形:它如实说「这里有一段音频 / 视频」,不假装有缩略图。
+   底色沿用出图格的 `--chat-bg-subtle`,一排格子并排时和图片那一档同一层灰;
+   字形按格子尺寸取中间偏小的一档,26×34 的缩略图条里也还认得出轮廓。 */
+.glyph { display: grid; place-items: center; background: var(--chat-bg-subtle); color: var(--chat-text-soft); }
+.glyph svg { width: 45%; height: 45%; max-width: 28px; max-height: 28px; }
 /* 还没出来的格子:设计稿 21:02 版把它从「幕布」换成了像素液体(见 `PixelLiquid`)。
    为什么液体比幕布对:幕布要求格子里【已经有一张图】,它演的是「图正在显出来」;
    而这一格要说的是【还没生成出来】—— 那时候什么都还没有,底下没有图可以糊。

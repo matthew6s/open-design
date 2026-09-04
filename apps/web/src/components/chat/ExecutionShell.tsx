@@ -11,7 +11,9 @@
  *            靠文字判断永远等不到(S21 / W11)
  *   已完成   纯文本 + 总耗时,**默认收起**
  *   运行失败 红色状态词,默认收起 —— 原因和下一步交给下面的报错卡(B18)
- *   (手动停止:状态词仍是「进行中」、秒数停住,「已手动停止」是下方那行的词)
+ *   (手动停止:状态词是「已取消」、秒数停住、不挂球也不挂扫光。OPEND-2626 之前
+ *    这一档沿用「进行中」,而下方那行「已手动停止」在历史回合上是 hover 才揭示的,
+ *    于是一轮停掉的活在屏幕上常驻的唯一说法是「进行中」。判据见 `head` 里的注释。)
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useT } from '../../i18n';
@@ -181,8 +183,28 @@ export function ExecutionShell({
       return <span className={styles.stFail}>{t('chat.record.failedTurn')}</span>;
     }
     if (shell.stopped) {
-      // 停住:不再动,所以不挂扫光也不挂球 —— 秒数就停在那儿(场景稿注释)
-      return <span>{t('chat.record.running')}</span>;
+      /*
+       * 停住:不再动,所以不挂扫光也不挂球 —— 秒数就停在那儿(场景稿注释)。
+       *
+       * ── 状态词从「进行中」换成「已取消」(OPEND-2626)──────────────────
+       *
+       * 这里原来写的是 `t('chat.record.running')`,和一个**真的在跑**的回合逐字
+       * 同一个词。当时的理由(`build-turn-blocks` 的 `kept` 注释)是:手动停止不是
+       * 第四态,而且「紧跟在下面那行『已取消』」已经说清楚了,壳头再说一遍是重复。
+       *
+       * **那个前提在历史回合上不成立。** 说那句话的是 `AssistantFooter` 的
+       * 「已手动停止」,而它在 `data-last="false"` 那一档是 `opacity: 0` ——
+       * OPEND-2542 把历史回合的这一行改成了 hover / focus 才揭示。于是用户退出项目
+       * 再进来,一轮**已经停掉**的活,屏幕上常驻的唯一一句状态是壳头那个「进行中」,
+       * 右边还挂着一个 12 分钟的秒数。用户报的「仍显示 Working 4m 58s、误以为还在跑」
+       * 就是这一帧(真机 run `b13328d8-d151-4628-9134-23ad9da4b64f`)。
+       *
+       * 壳头是这一轮**唯一常驻**的状态陈述,所以由它把终态说出来。用的是记录卡自己
+       * 那一档词 `chat.record.canceled`(en "Canceled" / zh「已取消」),不是页脚那句
+       * 「已手动停止」—— 两处同时可见时(最后一轮)说的是同一件事的两句话,不是同一句
+       * 话说两遍;而原来那个「进行中 vs 已取消」的**自相矛盾**正好被这一改消掉。
+       */
+      return <span>{t('chat.record.canceled')}</span>;
     }
     if (running) {
       /**
@@ -819,9 +841,20 @@ function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): Re
   );
 }
 
-function markFor(segment: TodoSegment): 'ok' | 'running' | 'pending' | 'skip' {
+/**
+ * 一条步骤落到哪一档记号。
+ *
+ * `stopped`(轮次被停时它正在跑,见 `build-turn-blocks` 的 `closeRunningSegments`)
+ * **有自己的一档**,不再落回 `pending`(OPEND-2626)。原来两者共用那枚虚线圈,
+ * 连 `aria-label` 都是同一个 `chat.record.pending`(en "Not started")—— 于是一份
+ * 「一步在跑、两步没开始」的清单被停掉之后,三条全报「从没开始过」,票上那句
+ * 「三个计划步骤全部显示 Not started」说的就是这个。
+ *
+ * 中性灰这条裁决没有变(红要留给真的错误),换的只是虚线 → 实线 + 换一个说实话的名字。
+ */
+function markFor(segment: TodoSegment): 'ok' | 'running' | 'pending' | 'stopped' | 'skip' {
   if (segment.status === 'in_progress') return 'running';
-  if (segment.status === 'stopped') return 'pending';   // 中断时正在跑的:中性灰,红要留给真的错误
+  if (segment.status === 'stopped') return 'stopped';   // 中断时正在跑的:中性灰,红要留给真的错误
   if (segment.abandoned) return 'skip';                 // D16:作废沿用完成态
   if (segment.status === 'completed') return 'ok';
   return 'pending';

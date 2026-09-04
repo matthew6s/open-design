@@ -366,6 +366,7 @@ describe('生图行(组件 12)', () => {
   const img = (over: Partial<ImageRowData> = {}): ImageRowData => ({
     kind: 'image',
     id: 'g1',
+    surface: 'image',
     total: 4,
     done: 4,
     failed: 0,

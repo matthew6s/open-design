@@ -265,7 +265,10 @@ describe('中断的一轮 · 状态词', () => {
     }));
 
     expect(container.textContent).toContain(en['assistant.canceledLabel']);
-    expect(container.textContent).toContain(en['chat.record.running']);
+    // 壳头报的是终态本身。OPEND-2626 之前这里是 `chat.record.running`,
+    // 和一个真的在跑的回合共用同一个词;这一条要守的「不退成红色运行失败」没变。
+    expect(container.textContent).toContain(en['chat.record.canceled']);
+    expect(container.textContent).not.toContain(en['chat.record.running']);
     expect(container.textContent).not.toContain(en['chat.record.failedTurn']);
   });
 });

@@ -21,7 +21,7 @@
  * 用户会看到文字跳一下 —— 候选 E 就是因为这个代价被否的。所以所有落点都要「一次到位」,
  * 只有 run 结束那一刻允许有一次重排(liftConclusion)。
  */
-import type { PersistedAgentEvent, ProjectMediaTask } from '@open-design/contracts';
+import type { MediaSurface, PersistedAgentEvent, ProjectMediaTask } from '@open-design/contracts';
 import {
   OD_DONE_KEY_ATTR_RE,
   OD_DONE_OPEN_TAG,
@@ -568,8 +568,18 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
 
   const results = new Map<string, Extract<PersistedAgentEvent, { kind: 'tool_result' }>>();
   for (const e of events) if (e.kind === 'tool_result') results.set(e.toolUseId, e);
+  /*
+   * **三类媒体任务都要进来**(OPEND-2625)。
+   *
+   * 这里原来是 `.filter((task) => task.surface === 'image')` —— 引入时(`bb4292e82b`)
+   * 行叫 `ImageRow`,只装得下图片,于是把音频 / 视频**整条丢掉**。代价不是「少画一行」,
+   * 是画错:任务被丢掉之后,`readImageCall` 拿到空 slice,退回去读命令输出,
+   * 于是一次 `--surface audio` 被画成「生成配套插图 · 1 张」,那一格还摆了
+   * 一个 `<img src=…mp3>` 的破图 —— 用户读成生成失败了。
+   *
+   * 行现在自己带 `surface`(见 `readMediaSurface`),三类都装得下,过滤没有理由再留。
+   */
   const mediaTasks = (input.mediaTasks ?? [])
-    .filter((task) => task.surface === 'image')
     .slice()
     /*
      * 并行扇出的那一批 `startedAt` 会**全部相同**(同一毫秒发出去的),按它排等于
@@ -577,7 +587,27 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * `sequence` 是 daemon 的创建计数器,平局时用它定序(只比较,不显示也不落库)。
      */
     .sort((a, b) => (a.startedAt - b.startedAt) || ((a.sequence ?? 0) - (b.sequence ?? 0)));
-  let mediaTaskCursor = 0;
+  /**
+   * **每一类媒体各自排一条队,各自一个游标**(OPEND-2625)。
+   *
+   * 一条全局游标在三类任务混流之后会**撕批**:daemon 的批本来就是按类型分的
+   * (`media/task-batches.ts` 的 `batchKey` 里带着 `surface`),而 `takeMediaBatch`
+   * 靠「从游标开始连着同一个 `batchId`」认边界 —— 一次生图和一次生音频并行在飞时,
+   * 排序后的列表里两批是**交错**的,游标走到第一条异类任务就停,那一批剩下的格子
+   * 全部被落在游标前面,再也取不到。
+   *
+   * 分桶把这个状态直接消掉,而不是打补丁去绕:同一类之内的顺序、批边界、游标推进
+   * 与过滤掉音视频之前**逐字相同** —— 只放图片的那条队列就是从前那份列表本身,
+   * 所以纯生图的会话行为一格都没变。
+   */
+  const mediaQueues = new Map<MediaSurface, ProjectMediaTask[]>();
+  for (const task of mediaTasks) {
+    const surface = readMediaSurface([task], '');
+    const queue = mediaQueues.get(surface);
+    if (queue) queue.push(task);
+    else mediaQueues.set(surface, [task]);
+  }
+  const mediaCursors = new Map<MediaSurface, number>();
   /**
    * 每一行生图批次自己的**起点** —— S19 会把连续几次生图调用合并成一行,
    * 实时耗时得从合并进来的最早那次算起,不能用最后一次的时刻。
@@ -941,9 +971,15 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * 组件 12 整行画不出来。查用法不是生图,不许动游标。
      */
     const mediaCallCount = isMediaGenerateCommand(command) ? mediaGenerateCount(command) : 0;
+    /*
+     * 这次调用去**哪一条队列**取任务:命令行上的 `--surface`(必填,`cli.ts:1838`)。
+     * 认不出来时落到图片那条 —— 与分桶之前逐字相同的那一条。
+     */
+    const callSurface = readMediaSurface([], command);
+    const callQueue = mediaQueues.get(callSurface) ?? [];
     const { slice: taskSlice, next: nextMediaCursor } =
-      takeMediaBatch(mediaTasks, mediaTaskCursor, mediaCallCount);
-    mediaTaskCursor = nextMediaCursor;
+      takeMediaBatch(callQueue, mediaCursors.get(callSurface) ?? 0, mediaCallCount);
+    if (mediaCallCount > 0) mediaCursors.set(callSurface, nextMediaCursor);
     const shot = readImageCall(event, results.get(event.id), taskSlice);
     if (shot) {
       ensureShell();
@@ -954,8 +990,13 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
       const last = arr[arr.length - 1];
       // S19:连续的生图调用合并成一行 —— 一次生图动作出 N 张,这是组件 12 的前提。
       // 中间隔了别的工具调用就另起一行(隔开的两组是两件事)。
+      //
+      // ⚠️ **类型不同也另起一行**(OPEND-2625)。合并只加总计数,行上只有一个
+      // `surface` —— 一次生图紧跟一次生音频被合掉之后,那一行必然有一半在说谎
+      // (先来的那类赢,后来的那类被吞掉,连同它的文案、图标和格子渲染)。
+      // 判据用行自己的 `surface`,和落行用的是同一个证人。
       let target: ImageRow;
-      if (last && last.kind === 'image') {
+      if (last && last.kind === 'image' && last.surface === shot.surface) {
         last.total += shot.total;
         last.done += shot.done;
         last.failed += shot.failed;
@@ -1017,7 +1058,12 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * slice becomes empty, so the provisional row cannot duplicate the
      * event-backed ImageRow.
      */
-    const unconsumed = mediaTasks.slice(mediaTaskCursor);
+    /*
+     * 每条队列各自剩下的尾巴,再按全局时刻并回一条 —— 三类任务在同一次运行里
+     * 本来就是交错发出去的,并回来才是用户看到的先后。
+     */
+    const unconsumed = [...mediaQueues].flatMap(([surface, queue]) => queue.slice(mediaCursors.get(surface) ?? 0))
+      .sort((a, b) => (a.startedAt - b.startedAt) || ((a.sequence ?? 0) - (b.sequence ?? 0)));
     /*
      * 一次「生成配套插图」是**一批**,不是 N 件事(OPEND-2195)。分组是 daemon 给的
      * (`batchId`:同 runId + 同 surface + 生命周期有重叠),前端只照着画。
@@ -1054,8 +1100,8 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * 但那一行不能跟着消失。
      *
      * **取消**那一档不留。这条原来和失败合在一起,是错的:手动停止不是第四态,
-     * 壳头写的仍是「进行中」(秒数停住、状态词不变),对一轮已经停掉的活既没有
-     * 信息,又和紧跟在下面那行「已取消」自相矛盾。用户 2026-08-27 指认:
+     * 壳头只是把秒数停住、挂一枚 `stopped` 旗标,对一轮已经停掉的活,一张空壳
+     * 既没有信息,又和紧跟在下面那行「已取消」自相矛盾。用户 2026-08-27 指认:
      * 「之前不是说如果 done 之前,没有任何工具调用或 thinking 或普通文案,
      * 就不出现这个了吗?」—— B47 的原话本来就该管到这一格。
      */
@@ -1374,7 +1420,12 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     liftConclusion();
 
     if (status === 'canceled') {
-      // 手动停止:壳保持「进行中」,只挂旗标(B7 / W4)
+      // 手动停止:壳不进 failed / done,只挂旗标(B7 / W4)
+      /*
+       * `stopped` 是旗标,不是第四种 `status` —— 壳仍然按「这一轮到此为止」结算,
+       * 由 `ExecutionShell` 拿这枚旗标去决定壳头那个词(OPEND-2626 起是「已取消」,
+       * 不再和真的在跑的回合共用「进行中」)。这一层只陈述事实,不选词。
+       */
       for (const shell of [top, todoCard]) {
         if (!shell) continue;
         shell.stopped = true;
@@ -1551,6 +1602,36 @@ function isMediaGenerateCommand(command: string): boolean {
 }
 
 /**
+ * 这一批生成的是哪一类媒体(OPEND-2625)—— **两个证人,按可信度排队**。
+ *
+ * 1. `task.surface`:daemon 亲自落盘的那一格(`media_tasks`),
+ *    `/api/projects/:id/media/tasks` 逐字回传(`routes/media.ts:1278`)。
+ *    这是唯一权威 —— 它说的是这次生成**实际**打给了哪条渲染路。
+ * 2. 命令行上的 `--surface`:任务还没轮询到时的第二证人。这个 flag 是
+ *    **必填**的(`cli.ts:1838-1840` 拒收缺失或非法值),所以一次真正的
+ *    `od media generate` 一定带着它。
+ *
+ * 两个都没有才落到 `'image'`。这不是猜:走到这里意味着命令既是
+ * `media generate` 又没有 `--surface`,而那样的命令 CLI 根本不会执行 ——
+ * 也就没有任务、没有结果、这一行本来就画不出内容。留一个确定值只是为了
+ * 不让类型多出一档 `null` 传染到渲染层。
+ *
+ * ⚠️ **不许从文件后缀反推**:进行中的格子还没有文件,而进行中恰恰是用户最需要
+ * 知道「在生成什么」的那一档。
+ */
+const MEDIA_SURFACE_FLAG_RE = /--surface[=\s]+(image|video|audio)\b/;
+
+function readMediaSurface(tasks: readonly ProjectMediaTask[], command: string): MediaSurface {
+  for (const task of tasks) {
+    const declared = task.surface;
+    if (declared === 'image' || declared === 'video' || declared === 'audio') return declared;
+  }
+  const flagged = MEDIA_SURFACE_FLAG_RE.exec(command)?.[1];
+  if (flagged === 'image' || flagged === 'video' || flagged === 'audio') return flagged;
+  return 'image';
+}
+
+/**
  * 这次调用消费掉哪几条任务。
  *
  * 有 `batchId` 时**批就是边界**:一次「生成配套插图」在 daemon 那边已经分好组了,
@@ -1647,6 +1728,7 @@ function pendingMediaBatchRow(group: ProjectMediaTask[], liveEndMs: number | nul
   return {
     kind: 'image',
     id: head.batchId != null ? `media-batch:${head.batchId}` : `media-task:${head.taskId}`,
+    surface: readMediaSurface(group, ''),
     total,
     done: 0,
     failed: 0,
@@ -1737,6 +1819,7 @@ function readImageCall(
     return {
       kind: 'image',
       id: event.id,
+      surface: readMediaSurface(tasks, command),
       total,
       done,
       failed,
@@ -1817,6 +1900,7 @@ function readImageCall(
   return {
     kind: 'image',
     id: event.id,
+    surface: readMediaSurface(tasks, command),
     total,
     done,
     failed,

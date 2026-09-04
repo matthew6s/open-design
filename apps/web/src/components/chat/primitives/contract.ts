@@ -74,7 +74,7 @@ export interface FoldableProps {
 /* ── StatusMark ─────────────────────────────────────────────
  * 只标「单条记录成没成」,不承载整轮状态
  */
-export type MarkStatus = 'ok' | 'fail' | 'running' | 'pending' | 'skip';
+export type MarkStatus = 'ok' | 'fail' | 'running' | 'pending' | 'stopped' | 'skip';
 export interface StatusMarkProps {
   status: MarkStatus;
   /** 计划步骤用序号代替图标 */

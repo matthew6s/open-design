@@ -94,6 +94,7 @@ function settledImageRow(total: number): ImageRowData {
   return {
     kind: 'image',
     id: 'img-1',
+    surface: 'image',
     total,
     done: total,
     failed: 0,

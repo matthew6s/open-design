@@ -175,6 +175,39 @@ export const ImageIcon = (): ReactElement => (
 );
 
 /**
+ * 生成 —— 音频(OPEND-2625)。
+ *
+ * 和 `ImageIcon` 是并列的一枚,不是它的变体:同一条 `od media generate` 出音频、
+ * 出视频、出图,行首那一格必须能一眼分出是哪一类。原来只有 `ImageIcon` 一枚,
+ * 一次 `--surface audio` 于是顶着图片图标出现在记录里。
+ *
+ * 字形是**波形**(中间高两侧低的一组竖线),不是喇叭 —— 喇叭说的是「播放 / 音量」,
+ * 这一行说的是「生成了一段声音」。粗细、圆角、24 视框跟着 `STROKE_ICON` 那一族走。
+ */
+export const AudioIcon = (): ReactElement => (
+  <svg {...STROKE_ICON}>
+    <path d="M4 10.5v3" />
+    <path d="M8 7.5v9" />
+    <path d="M12 4.5v15" />
+    <path d="M16 7.5v9" />
+    <path d="M20 10.5v3" />
+  </svg>
+);
+
+/**
+ * 生成 —— 视频(OPEND-2625)。见 `AudioIcon` 的同一条理由。
+ *
+ * 字形是**画面框 + 播放三角**:框说「这是一帧画面」,三角说「它会动」。
+ * 不用胶片齿孔 —— 16px 上那排小孔会糊成一条锯齿边。
+ */
+export const VideoIcon = (): ReactElement => (
+  <svg {...STROKE_ICON}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M10.5 9.5l4.5 2.5-4.5 2.5z" />
+  </svg>
+);
+
+/**
  * 认不出类别时的兜底 —— 一个中性的「工具」记号(六边螺帽 + 中心孔)。
  *
  * 为什么不硬塞进已有的五类:归错比「我认不出来」更糟。把一次子 agent 调度画成

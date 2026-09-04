@@ -24,9 +24,61 @@ import { useT } from '../../../i18n';
 import type { ImageRow as ImageRowData } from '../../../runtime/chat/contract';
 import { formatElapsed } from '../../../runtime/chat/format';
 import { PixelLiquid } from '../../PixelLiquid';
-import { FailIcon, ImageIcon, RetryIcon } from './icons';
+import { AudioIcon, FailIcon, ImageIcon, RetryIcon, VideoIcon } from './icons';
 import { StatusMark } from './StatusMark';
 import styles from './record.module.css';
+
+/**
+ * 这一行按哪一类媒体说话(OPEND-2625)。
+ *
+ * 三件事都得跟着 `row.surface` 换,少换一件就有一半在说谎:
+ *   `batch` / `count`  文案与计数单位 —— 「生成配套插图 · 1 张」摆在一段音频上,
+ *                      用户根本无从判断刚才在生成什么
+ *   `icon`             行首那一格
+ *   `preview: 'image'` 这一格能不能真的用 `<img>` 装
+ *
+ * 最后一条是**破图的来源**:`<img src="…/line.mp3">` 浏览器加载不动,给出来的
+ * 是一枚碎图标 —— 读起来像「生成失败了」,而那次生成其实是成功的。
+ * 音频 / 视频这一格改画字形:它如实说「这里有一段音频 / 视频」,不假装有一帧画面。
+ * (真正的音频播放器是 `AudioArtifact`,那是打开产物之后的事,不是记录行的活。)
+ */
+type MediaSurface = ImageRowData['surface'];
+
+interface SurfaceCopy {
+  batch: 'chat.record.imageBatch' | 'chat.record.audioBatch' | 'chat.record.videoBatch';
+  count: 'chat.record.imageCount' | 'chat.record.audioCount' | 'chat.record.videoCount';
+  pendingNote: 'chat.record.imagePending' | 'chat.record.audioPending' | 'chat.record.videoPending';
+  view: 'chat.record.viewImage' | 'chat.record.viewAudio' | 'chat.record.viewVideo';
+  icon: () => ReactElement;
+  preview: 'image' | 'glyph';
+}
+
+const SURFACE_COPY: Record<MediaSurface, SurfaceCopy> = {
+  image: {
+    batch: 'chat.record.imageBatch',
+    count: 'chat.record.imageCount',
+    pendingNote: 'chat.record.imagePending',
+    view: 'chat.record.viewImage',
+    icon: ImageIcon,
+    preview: 'image',
+  },
+  audio: {
+    batch: 'chat.record.audioBatch',
+    count: 'chat.record.audioCount',
+    pendingNote: 'chat.record.audioPending',
+    view: 'chat.record.viewAudio',
+    icon: AudioIcon,
+    preview: 'glyph',
+  },
+  video: {
+    batch: 'chat.record.videoBatch',
+    count: 'chat.record.videoCount',
+    pendingNote: 'chat.record.videoPending',
+    view: 'chat.record.viewVideo',
+    icon: VideoIcon,
+    preview: 'glyph',
+  },
+};
 
 export interface ImageRowProps {
   row: ImageRowData;
@@ -50,37 +102,55 @@ export interface ImageRowProps {
 export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false }: ImageRowProps): ReactElement {
   const t = useT();
   const settled = !row.pending && row.done + row.failed >= row.total;
+  /* 这一行说哪一类媒体的话 —— 见 `SURFACE_COPY` 的说明 */
+  const copy = SURFACE_COPY[row.surface] ?? SURFACE_COPY.image;
+  const SurfaceIcon = copy.icon;
+  /**
+   * 一个已出产物的格子里画什么。
+   *
+   * 图片才走 `<img>`;音频 / 视频画字形 —— **不许**把非图片的路径塞进 `src`
+   * (那正是真机上那枚破图)。拿不到 `imageSrc`(静态镜像、陈列页)时同样退回
+   * 空占位,和从前一致。
+   */
+  const preview = (path: string | undefined): ReactElement => {
+    if (copy.preview === 'glyph') {
+      return <span className={`${styles.mini} ${styles.glyph}`}><SurfaceIcon /></span>;
+    }
+    return path && imageSrc
+      ? <img className={styles.mini} src={imageSrc(path)} alt="" loading="lazy" />
+      : <span className={styles.mini} />;
+  };
 
   /* 全出完且一张没砸:收成一行 */
   if (settled && row.failed === 0) {
     return (
       <div className={styles.tool}>
-        <span className={styles.icon}><ImageIcon /></span>
+        <span className={styles.icon}><SurfaceIcon /></span>
         <span className={styles.name}>
-          {t('chat.record.imageBatch')} · {t('chat.record.imageCount', { count: row.total })}
+          {t(copy.batch)} · {t(copy.count, { count: row.total })}
         </span>
         <span className={styles.strip}>
           {Array.from({ length: row.total }, (_, i) => {
             const path = row.thumbs[i];
-            const label = t('chat.record.viewImage', { index: i + 1 });
+            const label = t(copy.view, { index: i + 1 });
             return (
               /* 稿子 `729fa43ce7` 的 `src/components.css:2533-2534` 把理由写死了:
                  「.th 是 button 不是 span:有 hover、有键盘焦点、**有 tip**。
                  26×34 已经小到看不出内容了,tip 是它唯一能自报家门的方式」。
                  —— `aria-label` 只有读屏听得到,用眼睛的人反而没有,所以这里
                  两条都给:带序号的那句给读屏,常量「查看大图」给气泡
-                 (`src/body-components.html:1041` `data-tip="查看大图"`)。 */
+                 (`src/body-components.html:1041` `data-tip="查看大图"`)。
+                 ⚠️ 「查看大图」只对图片成立 —— 一段音频没有「大图」可看,气泡照搬
+                 就是又一句替 agent 编的话。音视频的气泡直接用那句带序号的说明。 */
               <button
                 key={i}
                 type="button"
                 className={`${styles.th} od-tooltip`}
                 aria-label={label}
-                data-tooltip={t('chat.record.viewLarge')}
+                data-tooltip={copy.preview === 'image' ? t('chat.record.viewLarge') : label}
                 onClick={path && onOpenImage ? () => onOpenImage(path, i) : undefined}
               >
-                {path && imageSrc
-                  ? <img className={styles.mini} src={imageSrc(path)} alt="" loading="lazy" />
-                  : <span className={styles.mini} />}
+                {preview(path)}
               </button>
             );
           })}
@@ -96,8 +166,8 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
       <div className={styles.tool}>
         {row.pending
           ? <StatusMark status={running ? 'running' : 'pending'} />
-          : <span className={styles.icon}><ImageIcon /></span>}
-        <span className={styles.name}>{t('chat.record.imageBatch')}</span>
+          : <span className={styles.icon}><SurfaceIcon /></span>}
+        <span className={styles.name}>{t(copy.batch)}</span>
         <span className={`${styles.meta} ${styles.num}`}>{row.done}/{row.total}</span>
         {/*
           * 耗时(**有意偏离设计稿**,产品 2026-09-03)。稿子给大格这一档只画了
@@ -131,12 +201,10 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
                 type="button"
                 className={styles.shot}
                 data-image-cell="done"
-                aria-label={t('chat.record.viewImage', { index: i + 1 })}
+                aria-label={t(copy.view, { index: i + 1 })}
                 onClick={path && onOpenImage ? () => onOpenImage(path, i) : undefined}
               >
-                {path && imageSrc
-                  ? <img className={styles.mini} src={imageSrc(path)} alt="" loading="lazy" />
-                  : <span className={styles.mini} />}
+                {preview(path)}
               </button>
             );
           }
@@ -169,7 +237,7 @@ export function ImageRow({ row, onRetry, onOpenImage, imageSrc, running = false 
           return (
             <span key={i} className={`${styles.shot} ${styles.load}`} data-image-cell="loading">
               <PixelLiquid />
-              <VisuallyHidden role="status">{t('chat.record.imagePending')}</VisuallyHidden>
+              <VisuallyHidden role="status">{t(copy.pendingNote)}</VisuallyHidden>
             </span>
           );
         })}

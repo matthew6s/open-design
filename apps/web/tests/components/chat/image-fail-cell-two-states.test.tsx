@@ -65,6 +65,7 @@ const failedCell = (root: HTMLElement): HTMLElement => {
 const liveRow = (over: Partial<ImageRowData> = {}): ImageRowData => ({
   kind: 'image',
   id: 'media-batch:b1',
+  surface: 'image',
   total: 3,
   done: 1,
   failed: 1,

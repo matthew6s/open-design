@@ -5558,6 +5558,13 @@ export interface Dict {
   'chat.record.done': string;
   'chat.record.canceled': string;
   'chat.record.pending': string;
+  /**
+   * 一条步骤**没跑完就结束了** —— 不知道它成没成(`closeRunningSegments`)。
+   * 两种来源:轮次被用户停掉,或者轮次跑完了但 agent 收尾时没再发一次清单。
+   * 所以不能写成「已取消」(succeeded 那一档没人取消过它),也不能写成
+   * 「未开始」(它起过步)—— OPEND-2626。
+   */
+  'chat.record.unfinished': string;
   'chat.record.failedTurn': string;
   'chat.record.plan': string;
   /* Plan 卡收起态那枚药丸(设计稿第 71 格):N = 当前正在做第几步,M = 总步数 */
@@ -5575,6 +5582,15 @@ export interface Dict {
    */
   'chat.record.viewLarge': string;
   'chat.record.imagePending': string;
+  /* OPEND-2625:音频 / 视频不是「插图」,三类各说各的话 */
+  'chat.record.audioBatch': string;
+  'chat.record.videoBatch': string;
+  'chat.record.audioCount': string;
+  'chat.record.videoCount': string;
+  'chat.record.audioPending': string;
+  'chat.record.videoPending': string;
+  'chat.record.viewAudio': string;
+  'chat.record.viewVideo': string;
   /*
    * 「设计系统工作区 · 自动创建」状态卡的两句文案。逐字取自稿子
    * `729fa43ce7:docs/design/chat-panel/src/body-components.html:50-51`:
