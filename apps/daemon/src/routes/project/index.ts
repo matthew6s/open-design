@@ -5823,6 +5823,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     'draw',
     'tweaks',
     'palette',
+    'presentation',
     'edit',
   ] as const satisfies readonly PreviewRuntimeCapability[];
 
@@ -7672,6 +7673,17 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
             'observability',
             buildPreviewObservabilityBridge(),
             PREVIEW_OBSERVABILITY_BRIDGE_MARKER,
+          ),
+          // Presenting is a view change on the running document, so the bridge
+          // cannot be negotiated through the document URL — the scoped URL
+          // carries only the passive guards, and changing it would renavigate
+          // the very document presentation is supposed to keep alive. Install
+          // it with the rest of the runtime instead; it registers a listener
+          // and does nothing until the host asks it to present.
+          buildInstalledScriptRuntimeModule(
+            'presentation',
+            buildDeckPresentationBridge(),
+            DECK_PRESENTATION_BRIDGE_MARKER,
           ),
           buildTweaksRuntimeModule(),
           buildPaletteRuntimeModule(),

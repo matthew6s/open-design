@@ -19,6 +19,12 @@ export const PREVIEW_RUNTIME_CAPABILITIES = [
   'tweaks',
   'palette',
   'deck',
+  // Full-screen presentation. Installed like `observability` rather than
+  // toggled: the bridge only registers a listener at parse time and stays
+  // inert until the host negotiates, and putting the switch in the document
+  // URL would renavigate the running document — which is exactly what
+  // presenting in place must not do.
+  'presentation',
   'edit',
 ] as const;
 

@@ -17,6 +17,30 @@ import { startServer } from '../src/server.js';
 
 const PAD = 'x'.repeat(PREVIEW_URL_GUARD_MAX_HTML_BYTES + 256);
 
+
+/**
+ * `fetch` silently drops a manual Host header, so the scoped origin is
+ * unreachable through it. Address the daemon directly and set Host by hand.
+ */
+function getWithHost(pathname: string, host: string): Promise<{ status: number; html: string }> {
+  const port = Number(new URL(baseUrlRef.value).port);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, path: pathname, method: 'GET', headers: { Host: host } },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, html: body }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+const baseUrlRef = { value: '' };
+
 describe('deck presentation bridge injection', () => {
   let server: http.Server;
   let baseUrl: string;
@@ -31,6 +55,7 @@ describe('deck presentation bridge injection', () => {
       server: http.Server;
     };
     baseUrl = started.url;
+    baseUrlRef.value = started.url;
     server = started.server;
 
     const created = await fetch(`${baseUrl}/api/projects`, {
@@ -96,6 +121,51 @@ describe('deck presentation bridge injection', () => {
     const response = await fetch(`${poweredUrl('deck.html')}?odPreviewBridge=presentation`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain(DECK_PRESENTATION_BRIDGE_MARKER);
+  });
+
+  // The converged transport. Everything above tests `/raw` and `/powered`,
+  // which the runtime convergence moved off: a settled file now loads from the
+  // scoped preview origin, and that path does NOT carry the bridge query.
+  // `buildPreviewSessionNavigation` only ever appends the sandbox/focus/redirect
+  // guards, and says so on purpose — "Interactive Deck support is negotiated
+  // after navigation; it must never become part of the document URL."
+  //
+  // So the bridge has to arrive the way every other post-load capability does:
+  // installed by the Preview Runtime bootstrap. It was left out of that module
+  // list, and measured live the document reports no
+  // `od:deck-presentation-ready` at all, so presenting a deck promotes the
+  // right document and then cannot hide its chrome.
+  //
+  // Injecting it unconditionally is safe by construction: the bridge only
+  // registers a message listener at parse time and does nothing until the host
+  // negotiates, which is also why this needs no URL switch (a URL change would
+  // renavigate the document and defeat the whole point of presenting in place).
+  it('installs the bridge on the scoped preview transport, with no bridge query', async () => {
+    const minted = await fetch(
+      `${baseUrl}/api/projects/${projectId}/preview-url?file=${encodeURIComponent('deck.html')}`,
+    );
+    expect(minted.status).toBe(200);
+    const body = await minted.json() as { scopedOrigin?: { normalUrl?: string } };
+    const normalUrl = body.scopedOrigin?.normalUrl;
+    expect(typeof normalUrl).toBe('string');
+
+    // The converged document loads from the scoped ORIGIN
+    // (`n-<session>.localhost`), not from the `/preview/<scope>/` path — that
+    // distinction matters, because only the origin serves the runtime
+    // bootstrap. Subdomains of localhost do not resolve here, so address the
+    // daemon directly and carry the scope in the Host header.
+    const scopedUrl = new URL(normalUrl!);
+    // Deliberately no `odPreviewBridge=` on this request: the scoped document
+    // URL is built without one for anything but the passive guards.
+    const { status, html } = await getWithHost(scopedUrl.pathname, scopedUrl.host);
+    expect(status).toBe(200);
+
+    // Control: the runtime bootstrap really is on this transport, so a missing
+    // presentation bridge is a missing module and not a broken probe.
+    expect(html).toContain('od:preview:hello');
+
+    expect(html).toContain(DECK_PRESENTATION_BRIDGE_MARKER);
+    expect(html).toContain('od:deck-presentation');
   });
 
   it('never injects the bridge into previews that did not negotiate it', async () => {
