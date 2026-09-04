@@ -60,6 +60,34 @@ export interface ProjectConversationCreatedSsePayload {
   createdAt: number;
 }
 
+/**
+ * Emitted by the daemon on `/api/projects/:id/events` when a finished message's
+ * artifact refs changed AFTER its run's terminal frame already went out.
+ *
+ * The one producer today is the HTML card's static cover. Freezing the renderer
+ * input is awaited at the terminal chokepoint, but the render itself is
+ * deliberately not (`chat-artifacts/cover.ts`) — a turn should not stay open for
+ * a thumbnail. So the cover lands a few hundred milliseconds into a message the
+ * client already considers done, and the client's one post-run re-read has
+ * already been and gone. Without this signal the card keeps the live-iframe
+ * degrade branch for the rest of the session, which is precisely what
+ * `chat-artifact-versioning-design.md` line 505 rules out: "pending thumbnail
+ * 不出 placeholder,直接走 §6.4 的降级支;后台 ready 后消息投影更新".
+ *
+ * Thin by design, like the collab invalidation events it sits beside: it names
+ * the message whose projection went stale and carries no refs of its own. The
+ * consumer re-reads the conversation, so one authority (`listMessages`) keeps
+ * deciding what a ref actually is, and a dropped or duplicated event costs a
+ * redundant fetch rather than a wrong card.
+ */
+export interface ChatArtifactRefsChangedSsePayload {
+  type: 'chat-artifact-refs-changed';
+  projectId: string;
+  conversationId: string;
+  messageId: string;
+  at?: number;
+}
+
 export const CHAT_SSE_PROTOCOL_VERSION = 1;
 
 export interface ChatSseStartPayload {

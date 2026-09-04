@@ -4,6 +4,7 @@ import { bindStreamVisibility } from '../lib/stream-visibility';
 import {
   COLLAB_PROJECT_INVALIDATION_EVENTS,
   PROJECT_CONTENT_TRANSFER_STATE_EVENT,
+  type ChatArtifactRefsChangedSsePayload,
   type CollabProjectInvalidationSsePayload,
   type LiveArtifactRefreshSsePayload,
   type LiveArtifactSsePayload,
@@ -35,11 +36,21 @@ export type ProjectLiveArtifactEvent = LiveArtifactSsePayload | LiveArtifactRefr
 // receipt — the event carries no body.
 export type ProjectCollabInvalidationEvent = CollabProjectInvalidationSsePayload;
 
+/**
+ * A finished message's artifact refs changed after its run's terminal frame.
+ *
+ * Same thin-invalidation shape as the collab events above — it names the stale
+ * message and carries no refs, so the consumer re-reads the conversation rather
+ * than trusting a projection assembled on the wire.
+ */
+export type ProjectChatArtifactRefsChangedEvent = ChatArtifactRefsChangedSsePayload;
+
 export type ProjectEvent =
   | ProjectFileChangeEvent
   | ProjectConversationCreatedEvent
   | ProjectLiveArtifactEvent
   | ProjectCollabInvalidationEvent
+  | ProjectChatArtifactRefsChangedEvent
   | ProjectContentTransferStateSsePayload;
 
 export interface ProjectEventsConnectionOptions {
@@ -201,6 +212,24 @@ export function createProjectEventsConnection(
         }
       });
     }
+    // A cover finished rendering after its turn already ended. Thin signal:
+    // it names the stale message, and the consumer re-reads the conversation.
+    es.addEventListener('chat-artifact-refs-changed', (evt) => {
+      try {
+        const data = JSON.parse(
+          (evt as MessageEvent).data,
+        ) as ProjectChatArtifactRefsChangedEvent;
+        onChange(data);
+      } catch (err) {
+        if (
+          typeof process !== 'undefined'
+          && process.env?.NODE_ENV === 'development'
+        ) {
+          // eslint-disable-next-line no-console
+          console.warn('[project-events] malformed chat-artifact-refs-changed payload', err);
+        }
+      }
+    });
     es.addEventListener(PROJECT_CONTENT_TRANSFER_STATE_EVENT, (evt) => {
       try {
         // Thin invalidation only. The consumer must re-read exact-scoped

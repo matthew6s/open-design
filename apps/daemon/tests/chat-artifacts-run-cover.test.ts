@@ -87,6 +87,73 @@ async function waitFor<T>(
   return last;
 }
 
+interface CapturedSseEvent {
+  event: string;
+  data: any;
+}
+
+/**
+ * Read `/api/projects/:id/events` as raw SSE frames.
+ *
+ * `EventSource` does not exist in this runtime and the daemon writes one frame
+ * per `res.write` (`createSseResponse`), so a body reader split on the blank
+ * line is both sufficient and closer to the wire than any client shim: it sees
+ * the event NAME, which is the thing under test.
+ */
+async function openProjectEventStream(projectId: string): Promise<{
+  events: CapturedSseEvent[];
+  ready: Promise<void>;
+  close: () => void;
+}> {
+  const controller = new AbortController();
+  const response = await fetch(`${baseUrl}/api/projects/${projectId}/events`, {
+    headers: { Accept: 'text/event-stream' },
+    signal: controller.signal,
+  });
+  expect(response.ok, 'the project event stream should accept the subscription').toBe(true);
+
+  const events: CapturedSseEvent[] = [];
+  let markReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
+
+  void (async () => {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffered = '';
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffered += decoder.decode(value, { stream: true });
+        let boundary = buffered.indexOf('\n\n');
+        while (boundary !== -1) {
+          const frame = buffered.slice(0, boundary);
+          buffered = buffered.slice(boundary + 2);
+          const name = /^event:\s*(.*)$/m.exec(frame)?.[1]?.trim();
+          if (name) {
+            const raw = /^data:\s*(.*)$/m.exec(frame)?.[1];
+            let data: any = null;
+            try {
+              data = raw ? JSON.parse(raw) : null;
+            } catch {
+              // A frame we cannot parse is still a frame; keep the name.
+            }
+            events.push({ event: name, data });
+            if (name === 'ready') markReady();
+          }
+          boundary = buffered.indexOf('\n\n');
+        }
+      }
+    } catch {
+      // Aborted by `close()` at the end of the test.
+    }
+  })();
+
+  return { events, ready, close: () => controller.abort() };
+}
+
 function dataDir(): string {
   const dir = process.env.OD_DATA_DIR;
   if (!dir) throw new Error('OD_DATA_DIR is required for chat artifact cover tests');
@@ -372,5 +439,84 @@ describe('run terminal HTML cover wiring', () => {
     expect(versions.ok).toBe(true);
     const body = (await versions.json()) as { versions?: Array<{ id: string }> };
     expect((body.versions ?? []).map((v) => v.id)).toContain(html!.versionId);
+  });
+
+  /**
+   * 设计文档第 505 行:「pending thumbnail 不出 placeholder,直接走 §6.4 的降级支;
+   * **后台 ready 后消息投影更新**」。
+   *
+   * 前半条早就成立(上面几条测的就是它),后半条一直是空的:封面**故意不 await**,
+   * 它在终止帧之后几百毫秒才落库,而 daemon 落库时**一声不吭**。客户端在
+   * run 终止后 150ms 拉一次(`ProjectView.scheduleConversationMessageRefresh`),
+   * 那一拉必然早于封面,之后再也不拉 —— 于是卡片在整个会话里一直停在降级支的
+   * live iframe 上,直到整页刷新。真机实测这一局输了 466 毫秒:ref 落库
+   * 17:13:05,封面 ready 17:13:06。
+   *
+   * ── 这个量法能看见缺陷吗 ────────────────────────────────────────────────
+   * 关键是**订阅发生在 run 已经终止之后**。这正是真实用户的处境:他盯着一条
+   * 已经写完的消息。如果先订阅再跑,事件可能是被终止帧顺路带出来的,那就证不出
+   * 「封面自己会说话」。所以这里先把 renderer 关在闸门后跑完一整轮,确认此刻
+   * **还没有** ready 的 ref,再连上事件流,最后才放行渲染。
+   *
+   * 断言的是 wire 上的事件名和消息身份,不是某个内部函数被调用过 —— 后者在
+   * daemon 不推送的今天也能被 mock 成绿的。
+   */
+  it('tells the project stream when a cover lands after the turn already ended', async () => {
+    exporterCalls = [];
+    let release!: () => void;
+    renderGate = new Promise<void>((r) => {
+      release = r;
+    });
+    exporterResult = async () => {
+      const out = join(await fsp.mkdtemp(join(tmpdir(), 'od-cover-out-')), 'cover.png');
+      await fsp.writeFile(out, PNG_1X1);
+      return { ok: true, path: out, mime: 'image/png', bytes: PNG_1X1.byteLength };
+    };
+
+    const turn = await runTurnThatWritesHtml();
+
+    // The turn is terminal and the renderer is parked at the gate, so the card
+    // the user is looking at right now has no cover — it is on the live-iframe
+    // degrade branch. That is the moment this test is about.
+    await waitFor(() => exporterCalls.length, (n) => n > 0, 8_000);
+    const beforeRelease = refsFor(turn.projectId, turn.messageId);
+    expect(
+      beforeRelease.find((ref) => ref.label === 'index.html')?.snapshotState,
+      'the cover must still be outstanding, otherwise this test proves nothing',
+    ).not.toBe('ready');
+
+    // The viewer connects AFTER the run finished, exactly like someone sitting
+    // on a completed message.
+    const stream = await openProjectEventStream(turn.projectId);
+    try {
+      await stream.ready;
+
+      release();
+
+      const signal = await waitFor(
+        () => stream.events.find((evt) => evt.event === 'chat-artifact-refs-changed'),
+        (evt) => Boolean(evt),
+        8_000,
+      );
+
+      expect(
+        signal,
+        'a cover that lands after the terminal frame must announce itself on the project stream',
+      ).toBeTruthy();
+      // The payload has to name the message whose projection went stale, or the
+      // client cannot know which conversation to re-read.
+      expect(signal?.data?.projectId).toBe(turn.projectId);
+      expect(signal?.data?.conversationId).toBe(turn.conversationId);
+      expect(signal?.data?.messageId).toBe(turn.messageId);
+
+      // And the re-read the signal invites must actually return the cover.
+      const refs = await waitFor(
+        () => refsFor(turn.projectId, turn.messageId),
+        (list) => list.some((ref) => ref.label === 'index.html' && ref.snapshotState === 'ready'),
+      );
+      expect(refs.find((ref) => ref.label === 'index.html')?.thumbnailUrl).toBeTruthy();
+    } finally {
+      stream.close();
+    }
   });
 });

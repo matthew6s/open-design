@@ -100,6 +100,21 @@ export interface FreezeChatArtifactCoversInput {
    * only tests that want a deterministic failure pass anything else.
    */
   videoFrameExtractor?: ChatArtifactVideoFrameExtractor;
+  /**
+   * Announce that this ref's projection changed after the turn already ended.
+   *
+   * The render outlives the turn on purpose, so by the time a cover exists the
+   * client has already done its one post-run re-read and is showing the
+   * live-iframe degrade branch. Something has to tell it to look again — spec
+   * line 505, "后台 ready 后消息投影更新".
+   *
+   * A callback rather than an import: this module has no business knowing what
+   * an SSE sink is, and the same indifference is what lets the tests observe
+   * the render without standing up a transport. Fired only for a cover that
+   * actually landed — a failure changes no projection, so announcing one would
+   * buy the client a pointless fetch.
+   */
+  onRefsChanged?: (row: MessageArtifactRow) => void;
 }
 
 export interface FreezeChatArtifactCoversReport {
@@ -173,7 +188,7 @@ export async function freezeAndRenderChatArtifactCovers(
     // Serial: the desktop renderer is one Electron window behind one IPC
     // socket, so firing these in parallel would only queue them somewhere less
     // observable.
-    void renderCoversSequentially(deps, input.renderer, pending);
+    void renderCoversSequentially(deps, input.renderer, pending, input.onRefsChanged);
   }
   return report;
 }
@@ -357,10 +372,11 @@ async function renderCoversSequentially(
   deps: ChatArtifactCaptureDeps,
   renderer: ChatArtifactCoverRenderer,
   pending: ReadonlyArray<{ row: MessageArtifactRow; render: DesktopExportArtifactInput }>,
+  onRefsChanged: ((row: MessageArtifactRow) => void) | undefined,
 ): Promise<void> {
   for (const item of pending) {
     try {
-      await renderOneCover(deps, renderer, item.row, item.render);
+      await renderOneCover(deps, renderer, item.row, item.render, onRefsChanged);
     } catch (err) {
       // A cover is never allowed to take anything else down with it: the turn
       // has already been reported as finished by the time this runs.
@@ -379,6 +395,7 @@ async function renderOneCover(
   renderer: ChatArtifactCoverRenderer,
   row: MessageArtifactRow,
   render: DesktopExportArtifactInput,
+  onRefsChanged: ((row: MessageArtifactRow) => void) | undefined,
 ): Promise<void> {
   let result: DesktopExportArtifactResult;
   try {
@@ -401,6 +418,14 @@ async function renderOneCover(
       bytes,
       mime: result.mime || 'image/png',
     });
+    // The cover is durable now, so the client's re-read is guaranteed to find
+    // it. Announcing before the attach would race the very fetch it invites.
+    // Never allowed to fail the render it is reporting on.
+    try {
+      onRefsChanged?.(row);
+    } catch (err) {
+      logCoverFailure(row.labelAtCapture, err);
+    }
   } finally {
     // The renderer's temp file is the daemon's to clean up — the same contract
     // the `od export` route follows.

@@ -11427,6 +11427,27 @@ export async function startServer({
           projectRoot: outcome.projectRoot,
           rows: captured.rows,
           renderer: desktopArtifactExporter,
+          /*
+           * The cover outlives the turn by design, so it lands into a message
+           * the client already filed as done — after the single post-run
+           * re-read (`ProjectView.scheduleConversationMessageRefresh`, 150ms)
+           * has been and gone. Without this nudge the card keeps the
+           * live-iframe degrade branch until a full reload, which is the
+           * regression spec line 505 exists to forbid.
+           *
+           * Thin on purpose: it names the stale message and nothing else, so
+           * `listMessages` stays the only thing that decides what a ref is.
+           */
+          onRefsChanged: (row) => {
+            if (!run.projectId || !run.conversationId) return;
+            emitProjectEvent(run.projectId, {
+              type: 'chat-artifact-refs-changed',
+              projectId: run.projectId,
+              conversationId: run.conversationId,
+              messageId: row.messageId,
+              at: Date.now(),
+            });
+          },
         });
       } catch (err) {
         console.warn('[chat-artifacts] run terminal capture failed', err);
