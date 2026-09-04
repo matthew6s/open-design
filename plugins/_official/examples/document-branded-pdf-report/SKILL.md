@@ -29,7 +29,7 @@ Use this skill when the user wants a document in the visual and information patt
 
 ### One-page print gate
 
-This template has a hard A4 page budget. Keep `.page` and `.page-inner` at the fixed A4 height; never change either to `min-height`, `height:auto`, or a multi-page flow to accommodate longer copy. If supplied content does not fit, tighten the copy, shorten labels, or simplify a lower-priority block while retaining the required information structure. Do not shrink the body text below the reference's readable scale and do not let a footer, next action, or image be clipped.
+This template has a hard A4 **print** page budget. In `@media print`, keep `.page` and `.page-inner` at the fixed A4 height; never change the print layout to `min-height`, `height:auto`, or a multi-page flow to accommodate longer copy. Responsive browser breakpoints may use `height:auto` and `overflow:visible` so stacked content can expand without clipping. If supplied content does not fit the printed page, tighten the copy, shorten labels, or simplify a lower-priority block while retaining the required information structure. Do not shrink the body text below the reference's readable scale and do not let a footer, next action, or image be clipped.
 
 Before delivery, print the final self-contained HTML to A4 PDF and confirm the PDF has exactly one page. A browser preview that looks plausible is insufficient: an extra spill page is a failed result.
 
@@ -50,6 +50,7 @@ Before delivery, print the final self-contained HTML to A4 PDF and confirm the P
 
 - The output opens without external setup and visually matches `example.webp` at first glance.
 - Text remains readable in both browser preview and print/PDF output.
+- Responsive browser previews expand vertically without clipping stacked sections.
 - No content, chart, table, ornament, or footer is clipped.
 - The output preserves the reference page geometry: A4, exactly 1 page.
 - The final HTML contains the user's actual content rather than lorem ipsum, placeholder images, or invented numbers.

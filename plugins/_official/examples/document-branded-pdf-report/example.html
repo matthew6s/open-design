@@ -113,10 +113,10 @@
       .page { width:210mm; height:297mm; box-shadow:none; }
       .page-inner { height:297mm; }
     }
-    @media (max-width:650px) {
+    @media screen and (max-width:650px) {
       body { padding:0; }
-      .page { min-height:100vh; box-shadow:none; }
-      .page-inner { min-height:100vh; padding:31px 28px 30px; }
+      .page { height:auto; min-height:100vh; overflow:visible; box-shadow:none; }
+      .page-inner { height:auto; min-height:100vh; padding:31px 28px 30px; }
       .hero { grid-template-columns:1fr; }
       h1 { font-size:56px; }
       .product-visual { min-height:290px; }
