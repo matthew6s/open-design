@@ -639,22 +639,31 @@ describe('slim core — regression-audit fixes vs classic', () => {
 
   it('keeps the plan step agent-agnostic — no hardcoded TodoWrite in the charter', () => {
     // OpenDesign drives many code agents (codex, opencode, Qwen CLI, ACP
-    // family) that have no TodoWrite tool. The charter must NOT hardcode it,
-    // or the plan step is dead for ~2/3 of production traffic. Freeze the
-    // generic wording and the anti-hallucination guard.
+    // family) and none of them has a tool literally called TodoWrite — the
+    // ones that can plan spell it `update_plan` / `todowrite`, and some
+    // cannot plan at all. The charter is prepended to every slim run, so it
+    // must NOT hardcode one family's name. The concrete per-runtime name is
+    // added outside the charter (`planToolNoteForRuntime`, covered by
+    // `plan-tool-note.test.ts`). Freeze the generic wording and the
+    // anti-hallucination guard.
     const charter = renderSlimCoreCharter('filesystem');
     expect(charter).not.toContain('TodoWrite');
     expect(charter).toContain('If the runtime supports task lists, use one');
     expect(charter).toContain('Do not simulate tool calls that the current runtime does not support');
   });
 
-  it('injects the concrete TodoWrite note only for Claude-family runs', () => {
+  it('injects the concrete TodoWrite note for Claude-family runs', () => {
     const base = { metadata: { kind: 'other' as const },
       executionProfile: 'filesystem' as const, promptCoreVariant: 'slim' as const };
     // Claude family (claude/codebuddy/amp) → named tool + live-card benefit.
+    // The whole family shares one stream format, so it is identified by
+    // `streamFormat` alone and needs no agent id.
     expect(composeSystemPrompt({ ...base, streamFormat: 'claude-stream-json' }))
       .toContain('Your plan tool is `TodoWrite`');
-    // codex / opencode (json-event-stream) → generic charter only, no note.
+    // `json-event-stream` is shared by codex, opencode and cursor-agent, so
+    // the format alone identifies no runtime and names no tool. Which agents
+    // DO get a note, and which tool each is told to call, is
+    // `plan-tool-note.test.ts`.
     expect(composeSystemPrompt({ ...base, streamFormat: 'json-event-stream' }))
       .not.toContain('Your plan tool is');
   });

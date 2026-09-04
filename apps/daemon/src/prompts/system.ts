@@ -995,14 +995,13 @@ export function composeSystemPrompt({
             '\n\n---\n\n',
           ]
         : [PROMPT_INJECTION_RESISTANCE, '\n\n---\n\n'];
-  // The slim charter's plan step is deliberately generic ("use your runtime's
-  // plan/todo tool, else a numbered list") so it works on codex / opencode /
-  // ACP agents that have no such tool. Claude-family runs (streamFormat
-  // 'claude-stream-json': claude, codebuddy, amp) are the only ones with a
-  // `TodoWrite` tool the host renders as a live Todos card — name the concrete
-  // tool + its UI benefit here, for that family only.
-  if (isSlimCharterHead && streamFormat === 'claude-stream-json') {
-    parts.push(CLAUDE_PLAN_TOOL_NOTE, '\n\n---\n\n');
+  // The slim charter's plan step stays generic ("use your runtime's plan/todo
+  // tool, else a numbered list") because it is prepended to every slim run and
+  // some runtimes genuinely have no such tool. The concrete tool NAME is added
+  // here instead, per runtime, so only the runs that can act on it pay for it.
+  if (isSlimCharterHead) {
+    const planToolNote = planToolNoteForRuntime(agentId, streamFormat);
+    if (planToolNote) parts.push(planToolNote, '\n\n---\n\n');
   }
   const activeDesignSystemBody = designSystemBody?.trim();
   const activeSkillModes = new Set(
@@ -1501,6 +1500,55 @@ export function composeSystemPrompt({
  * retired one pointed newer builds at a tool that does not exist.
  */
 const CLAUDE_PLAN_TOOL_NOTE = `Your plan tool is \`TodoWrite\`, or \`TaskCreate\` plus \`TaskUpdate\` on builds that ship those instead — use whichever your session actually exposes for the plan step above; the host renders either as the same live Todos card. Mark each item \`in_progress\` when started and \`completed\` as it lands.`;
+
+/**
+ * Codex's plan tool is `update_plan`. Both codex transports translate its
+ * frames into the same canonical `TodoWrite` snapshot the Todos card is drawn
+ * from — `handleTurnPlan` for the app-server `turn/plan/updated` notification,
+ * `emitCodexTodoList` for the `exec --json` `todo_list` item — so a plan codex
+ * commits through the tool lands in exactly the card the Claude family gets.
+ */
+const CODEX_PLAN_TOOL_NOTE = `Your plan tool is \`update_plan\` — use it for the plan step above; the host renders it as a live Todos card. Mark each item \`in_progress\` when started and \`completed\` as it lands.`;
+
+/**
+ * OpenCode's plan tool is `todowrite`, spelled lowercase. Unlike the Claude and
+ * codex families the parser forwards this name unchanged, and the canonical
+ * `isTodoWriteToolName` accepts it, so the call reaches the Todos card as-is.
+ */
+const OPENCODE_PLAN_TOOL_NOTE = `Your plan tool is \`todowrite\` — use it for the plan step above; the host renders it as a live Todos card. Mark each item \`in_progress\` when started and \`completed\` as it lands.`;
+
+/**
+ * The plan-tool note for one run, or null when this runtime has no plan tool
+ * whose output the daemon can turn into a Todos card.
+ *
+ * Why the note is needed at all: the charter's plan step offers "Otherwise,
+ * provide a numbered plan in your response" as a sanctioned branch, and asks
+ * the model to self-assess whether "the runtime supports task lists". A model
+ * that was never told its tool's NAME reads the prose branch as the compliant
+ * one — which is what a codex run did on 2026-09-03 in answer to an explicit
+ * 「先用 todo 进行一轮规划」: it wrote a seven-item plan into the reply body and
+ * called no plan tool. Naming the tool removes the ambiguity without touching
+ * the charter (which is under a byte ceiling and is prepended to every run);
+ * a runtime with no plan tool still pays nothing.
+ *
+ * Every entry is evidence-backed, not inferred from a family resemblance. A
+ * runtime is added here only once its real tool name is known AND the daemon
+ * demonstrably reduces that tool's output into a `TodoWrite` snapshot; naming
+ * a tool that does not exist is the exact failure the Claude Code 2.1 rename
+ * caused, and a silent guess would rebuild it.
+ */
+function planToolNoteForRuntime(
+  agentId: string | null | undefined,
+  streamFormat: string | undefined,
+): string | null {
+  // claude / codebuddy / amp — the whole Claude-stream family.
+  if (streamFormat === 'claude-stream-json') return CLAUDE_PLAN_TOOL_NOTE;
+  if (agentId === 'codex') return CODEX_PLAN_TOOL_NOTE;
+  if (agentId === 'opencode' || agentId === 'byok-opencode') {
+    return OPENCODE_PLAN_TOOL_NOTE;
+  }
+  return null;
+}
 
 const API_MODE_OVERRIDE = `# API mode — no tools available (read first — overrides every rule below)
 
