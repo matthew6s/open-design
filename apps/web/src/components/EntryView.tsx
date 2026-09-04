@@ -257,6 +257,8 @@ export function EntryView({
 }: Props) {
   const t = useT();
   const [topTab, setTopTab] = useState<TopTab>('designs');
+  const hasProjects = !projectsLoading && projects.length > 0;
+  const effectiveTopTab: TopTab = topTab === 'designs' && !hasProjects ? 'examples' : topTab;
   const [previewSystemId, setPreviewSystemId] = useState<string | null>(null);
   const [previewPromptTemplate, setPreviewPromptTemplate] =
     useState<PromptTemplateSummary | null>(null);
@@ -586,28 +588,30 @@ export function EntryView({
             >
               {t('entry.tabHome')}
             </button>
+            {hasProjects && (
+              <TopTabButton current={effectiveTopTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
+            )}
+            <TopTabButton current={effectiveTopTab} value="examples" label={t('entry.tabExamples')} onClick={setTopTab} />
             <TopTabButton
-              current={topTab}
+              current={effectiveTopTab}
               value="active-tasks"
               label={t('entry.tabActiveTasks')}
               onClick={setTopTab}
             />
-            <TopTabButton current={topTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
-            <TopTabButton current={topTab} value="examples" label={t('entry.tabExamples')} onClick={setTopTab} />
             <TopTabButton
-              current={topTab}
+              current={effectiveTopTab}
               value="design-systems"
               label={t('entry.tabDesignSystems')}
               onClick={setTopTab}
             />
             <TopTabButton
-              current={topTab}
+              current={effectiveTopTab}
               value="image-templates"
               label={t('entry.tabImageTemplates')}
               onClick={setTopTab}
             />
             <TopTabButton
-              current={topTab}
+              current={effectiveTopTab}
               value="video-templates"
               label={t('entry.tabVideoTemplates')}
               onClick={setTopTab}
@@ -615,14 +619,14 @@ export function EntryView({
           </div>
         </div>
         <div className="entry-tab-content">
-          {topTab === 'active-tasks' ? (
+          {effectiveTopTab === 'active-tasks' ? (
             projectsLoading ? (
               <CenteredLoader label={t('common.loading')} />
             ) : (
               <ActiveTasksTab projects={projects} onOpen={onOpenProject} />
             )
           ) : null}
-          {topTab === 'designs' ? (
+          {effectiveTopTab === 'designs' ? (
             // DesignsTab uses skills + designSystems for tag rendering on
             // each card, so wait until projects + that metadata are present
             // to avoid a flash of "No projects yet" before the real list
@@ -640,14 +644,14 @@ export function EntryView({
               />
             )
           ) : null}
-          {topTab === 'examples' ? (
+          {effectiveTopTab === 'examples' ? (
             skillsLoading ? (
               <CenteredLoader label={t('common.loading')} />
             ) : (
               <ExamplesTab skills={skills} onUsePrompt={usePromptFromSkill} />
             )
           ) : null}
-          {topTab === 'design-systems' ? (
+          {effectiveTopTab === 'design-systems' ? (
             designSystemsLoading ? (
               <CenteredLoader label={t('common.loading')} />
             ) : (
@@ -659,7 +663,7 @@ export function EntryView({
               />
             )
           ) : null}
-          {topTab === 'image-templates' ? (
+          {effectiveTopTab === 'image-templates' ? (
             promptTemplatesLoading ? (
               <CenteredLoader label={t('common.loading')} />
             ) : (
@@ -670,7 +674,7 @@ export function EntryView({
               />
             )
           ) : null}
-          {topTab === 'video-templates' ? (
+          {effectiveTopTab === 'video-templates' ? (
             promptTemplatesLoading ? (
               <CenteredLoader label={t('common.loading')} />
             ) : (
