@@ -267,12 +267,35 @@ function isBundledBinaryMissingText(text: string): boolean {
   return /\bbundled (?:OpenCode|agent) binary (?:is )?missing\b/i.test(text);
 }
 
+/**
+ * The endpoint was never reached from this machine.
+ *
+ * These are the OS-level answers to "the connection could not even be opened":
+ * the name did not resolve (`getaddrinfo` / `ENOTFOUND` / `EAI_AGAIN`), no route
+ * existed (`EHOSTUNREACH` / `ENETUNREACH` / `ENETDOWN`), or something on the path
+ * refused it (`ECONNREFUSED`).
+ *
+ * This is the FIRST shape a lost network produces, and the reason it needs to be
+ * named separately from `stream_disconnected`: a request has to resolve and
+ * connect before it can be reset, so a machine that just went offline fails at
+ * DNS, not with a socket error. Only a call that was *already streaming* when the
+ * link died reports a reset — which is why the two arrive with different words
+ * for one physical cause, and why matching only the reset vocabulary leaves the
+ * commoner half to fall through to the last-resort `execution_failed` bucket.
+ *
+ * They stay in the client-environment family rather than the upstream one on
+ * purpose: nothing is wrong at the provider, so the honest answer is the
+ * environment card and not "the provider is having trouble".
+ */
+const ENDPOINT_NEVER_REACHED_RE =
+  /\b(ECONNREFUSED|ENETUNREACH|ENETDOWN|EHOSTUNREACH|ENOTFOUND|EAI_AGAIN|getaddrinfo|network unreachable|local connection failed)\b/i;
+
 function clientEnvironmentFailureDetail(text: string): TrackingRunFailureDetail | null {
   if (/\b(Windows Application Control|AppLocker)\b/i.test(text)) return 'host_policy_block';
   if (/\b(SQLite|WAL).*(?:I\/O|readonly|locked|corrupt|failed)\b/i.test(text)) return 'local_storage_failure';
   if (/\b(certificate|CERT_|self[- ]signed|unable to verify)\b/i.test(text)) return 'certificate_failure';
   if (/\b(unsupported proxy protocol|proxy configuration)\b/i.test(text)) return 'proxy_configuration';
-  if (/\b(ECONNREFUSED|ENETUNREACH|network unreachable|local connection failed)\b/i.test(text)) return 'network_configuration';
+  if (ENDPOINT_NEVER_REACHED_RE.test(text)) return 'network_configuration';
   return null;
 }
 
