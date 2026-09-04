@@ -1114,6 +1114,7 @@ import {
   parseHostHeader,
 } from './origin-validation.js';
 import { registerLibraryRoutes } from './routes/library.js';
+import { registerSkillDiscoveryToolRoutes } from './routes/skill-discovery-tool.js';
 import {
   libraryExtensionAllowedOrigins,
   seedLibraryExtensionOrigins,
@@ -1155,6 +1156,26 @@ import {
 } from './http/local-daemon-request.js';
 import { renderOAuthResultPage } from './http/oauth-result-page.js';
 import { bearerTokenFromRequest, createToolRequestAuth } from './http/tool-request-auth.js';
+import {
+  agentNativeSkillDiscoveryBehaviorEnabled,
+  readVerifiedProjectSkillDiscoveryBinding,
+} from './skill-discovery/binding.js';
+import {
+  readOfficialSkillDiscoveryPromptContextV1,
+} from './skill-discovery/catalog.js';
+import {
+  ensureSkillDiscoveryForRun,
+  readSkillDiscoveryState,
+} from './skill-discovery/state.js';
+import {
+  resolveSkillDiscoveryLifecyclePrompt,
+  scopeSkillDiscoveryStateForRun,
+  skillDiscoveryBlocksToolOperation,
+} from './skill-discovery/runtime-policy.js';
+import {
+  materializeVerifiedSkillDiscoveryResources,
+  skillDiscoveryMaterializationAlias,
+} from './skill-discovery/materialize.js';
 
 /** @typedef {import('@open-design/contracts').ApiErrorCode} ApiErrorCode */
 /** @typedef {import('@open-design/contracts').ApiError} ApiError */
@@ -1983,7 +2004,7 @@ const FORM_ANSWERS_HEADER_RE =
 // form-echo regression on GPT-OSS / Gemini Flash.
 export const FORM_ANSWERED_SYSTEM_OVERRIDE = `## OVERRIDE \u2014 submitted form answers are authoritative
 
-The user already submitted their form answers (see # User request below).
+The user already submitted their form answers (see the user_first_prompt element).
 Apply those answers. RULE 1 does not require another form merely because its
 example appears in the system prompt.
 
@@ -2012,7 +2033,7 @@ Required output for this turn:
 // Exported so tests can pin the literal content independently.
 export const FORM_ANSWERED_GENERIC_OVERRIDE = `## OVERRIDE \u2014 submitted form answers are authoritative
 
-The user already submitted their form answers (see # User request below).
+The user already submitted their form answers (see the user_first_prompt element).
 Do not ask the same form again. Treat the submitted answers as the active
 user instruction and respond accordingly. Ask again only if a new, materially
 blocking requirement remains unresolved.
@@ -2055,7 +2076,7 @@ function formAnswerTransitionForCurrentPrompt(currentPrompt) {
 export function composeChatUserRequestForAgent(
   message,
   currentPrompt,
-  options: { skipTranscript?: boolean } = {},
+  options: { skipTranscript?: boolean; allowEmpty?: boolean } = {},
 ) {
   // When the adapter resumes its own session, the
   // daemon-rendered `## user` / `## assistant` transcript is a duplicate
@@ -2073,7 +2094,7 @@ export function composeChatUserRequestForAgent(
     ? (typeof currentPrompt === 'string' ? currentPrompt : message)
     : message;
   const body =
-    typeof bodySource === 'string' && bodySource.trim()
+    typeof bodySource === 'string' && (bodySource.trim() || options.allowEmpty === true)
       ? bodySource
       : '(No extra typed instruction.)';
   const transition = formAnswerTransitionForCurrentPrompt(currentPrompt);
@@ -3219,11 +3240,28 @@ export async function startServer({
     isRunActive: (runId) => toolTokenRegistry.activeRunTokenCount(runId) > 0,
   });
   const {
-    authorizeToolRequest,
+    authorizeToolRequest: authorizeToolRequestBase,
     optionalToolGrantFromRequest,
     requestProjectOverride,
     requestRunOverride,
   } = createToolRequestAuth(toolTokenRegistry);
+  let resolveSkillDiscoveryGrantState = (_grant) => null;
+  const authorizeToolRequest = (req, res, operation, options = {}) => {
+    const grant = authorizeToolRequestBase(req, res, operation, options);
+    if (!grant) return null;
+    const discoveryState = resolveSkillDiscoveryGrantState(grant);
+    if (skillDiscoveryBlocksToolOperation(discoveryState, operation)) {
+      sendApiError(
+        res,
+        409,
+        'TOOL_OPERATION_DENIED',
+        'Resolve official Skill discovery before using a task-dependent Open Design write tool.',
+        { details: { operation, discoveryStatus: discoveryState.status } },
+      );
+      return null;
+    }
+    return grant;
+  };
   // Wire the upload-destination bridge to this db so multer can route
   // file uploads into baseDir-rooted projects' actual folders.
   projectMetadataLookup = (id) => {
@@ -3335,6 +3373,37 @@ export async function startServer({
     }
   } catch (err) {
     console.warn(`[plugins] bundled registration failed: ${(err)?.message ?? err}`);
+  }
+
+  // OD Next V2 is an internal strategy package, so the bundled-plugin walker
+  // deliberately keeps it out of `installed_plugins`. Skill discovery still
+  // needs the same provenance-checked record as the V2 recipe loader; resolve
+  // it directly from the shipped package once and never fall back to a user or
+  // marketplace row with the same id.
+  const officialSkillDiscoveryStrategyFolder = path.join(
+    BUNDLED_PLUGINS_DIR,
+    'scenarios',
+    'od-next-strategy',
+  );
+  let officialSkillDiscoveryStrategyPlugin = null;
+  try {
+    const resolved = await resolvePluginFolder({
+      folder: officialSkillDiscoveryStrategyFolder,
+      folderId: 'od-next-strategy',
+      sourceKind: 'bundled',
+      source: officialSkillDiscoveryStrategyFolder,
+      trust: 'bundled',
+    });
+    if (resolved.ok) officialSkillDiscoveryStrategyPlugin = resolved.record;
+    else {
+      console.warn(
+        `[skill-discovery] bundled strategy package is unavailable: ${resolved.errors.join('; ')}`,
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[skill-discovery] bundled strategy package resolution failed: ${error?.message ?? error}`,
+    );
   }
 
   try {
@@ -7558,6 +7627,37 @@ export async function startServer({
     getAppVersion: currentAppVersion,
     readAnalyticsContext,
   };
+  resolveSkillDiscoveryGrantState = (grant) => {
+    if (!agentNativeSkillDiscoveryBehaviorEnabled(process.env)) return null;
+    let project;
+    try {
+      project = getProject(db, grant.projectId);
+    } catch {
+      return null;
+    }
+    if (!readVerifiedProjectSkillDiscoveryBinding(project?.metadata)) return null;
+    const activeRun = design.runs.get(grant.runId);
+    if (
+      !activeRun
+      || activeRun.projectId !== grant.projectId
+    ) {
+      return { status: 'pending' };
+    }
+    // A verified project binding is conversation eligibility, not authority to
+    // gate every later run. Explicit task/profile/Skill runs deliberately set
+    // this flag false and must retain their normal wrapper capabilities.
+    if (activeRun.skillDiscoveryEnabled !== true) return null;
+    if (
+      typeof activeRun.conversationId !== 'string'
+      || !activeRun.conversationId
+    ) {
+      return { status: 'pending' };
+    }
+    return scopeSkillDiscoveryStateForRun(
+      readSkillDiscoveryState(db, activeRun.conversationId),
+      { runId: grant.runId, projectId: grant.projectId },
+    );
+  };
   const taskObservationRollout = createTaskObservationRolloutService({
     db,
     dataDir: RUNTIME_DATA_DIR,
@@ -7877,6 +7977,51 @@ export async function startServer({
     projectsRoot: PROJECTS_DIR,
     requireLocalDaemonRequest,
     composio: composioConnectorProvider,
+  });
+  registerSkillDiscoveryToolRoutes(app, {
+    auth: { authorizeToolRequest },
+    http: { sendApiError },
+    db,
+    resolveCatalogSources: () => {
+      const bundledStrategyPlugin = officialSkillDiscoveryStrategyPlugin;
+      if (!bundledStrategyPlugin) {
+        throw new Error('Bundled official strategy package is unavailable.');
+      }
+      return {
+        bundledStrategyPlugin,
+        builtInFunctionalSkillsRoot: SKILLS_DIR,
+      };
+    },
+    resolveRunScope: (grant) => {
+      const activeRun = design.runs.get(grant.runId);
+      if (
+        !activeRun
+        || activeRun.skillDiscoveryEnabled !== true
+        || activeRun.projectId !== grant.projectId
+        || typeof activeRun.conversationId !== 'string'
+        || !activeRun.conversationId
+      ) return null;
+      return {
+        runId: activeRun.id,
+        projectId: activeRun.projectId,
+        conversationId: activeRun.conversationId,
+      };
+    },
+    materializeResources: async ({ scope, loaded, bundle }) => {
+      const project = getProject(db, scope.projectId);
+      if (!project) {
+        throw new Error('Skill discovery project is unavailable for resource staging.');
+      }
+      const cwd = resolveProjectDir(PROJECTS_DIR, scope.projectId, project.metadata);
+      return materializeVerifiedSkillDiscoveryResources({
+        cwd,
+        alias: skillDiscoveryMaterializationAlias({
+          id: loaded.candidate.id,
+          candidateDigest: loaded.candidate.candidateDigest,
+        }),
+        resources: bundle.files,
+      });
+    },
   });
 
   // Detailed terminal-report activity is local diagnostics, not public health.
@@ -10586,9 +10731,15 @@ export async function startServer({
     }
     const safeCommentAttachments =
       normalizeCommentAttachments(commentAttachments);
+    const hasDeclaredProjectAttachment = Array.isArray(attachments)
+      && attachments.some((attachment) => typeof attachment === 'string' && attachment.length > 0);
+    const hasDeclaredImage = Array.isArray(imagePaths)
+      && imagePaths.some((imagePath) => typeof imagePath === 'string' && imagePath.length > 0);
     if (
-      (typeof message !== 'string' || !message.trim()) &&
-      safeCommentAttachments.length === 0
+      (typeof message !== 'string' || !message.trim())
+      && safeCommentAttachments.length === 0
+      && !hasDeclaredProjectAttachment
+      && !hasDeclaredImage
     ) {
       return failRun('BAD_REQUEST', 'message required');
     }
@@ -10734,6 +10885,14 @@ export async function startServer({
     const safeAttachments = !odNextTaskInputSnapshot && cwd
       ? resolveSafeProjectAttachments(cwd, attachments)
       : [];
+    if (
+      (typeof message !== 'string' || !message.trim())
+      && safeCommentAttachments.length === 0
+      && safeAttachments.length === 0
+      && safeImages.length === 0
+    ) {
+      return failRun('BAD_REQUEST', 'message or a readable attachment is required');
+    }
     run.projectAttachmentPaths = odNextTaskInputSnapshot
       ? odNextTaskInputSnapshot.attachmentReferences
       : safeAttachments;
@@ -10748,6 +10907,67 @@ export async function startServer({
       typeof projectId === 'string' && projectId
         ? getProject(db, projectId)
         : null;
+    let skillDiscoveryState = null;
+    let skillDiscoveryBootstrapMarkdown = '';
+    let skillDiscoveryCatalogMarkdown = '';
+    let skillDiscoveryCatalogCandidateCount = 0;
+    let skillDiscoveryCatalogRevisionChanged = false;
+    const explicitRunSkillSelection = (
+      typeof skillId === 'string' && skillId.trim().length > 0
+    ) || (
+      Array.isArray(skillIds)
+      && skillIds.some((candidate) => typeof candidate === 'string' && candidate.trim().length > 0)
+    ) || (
+      typeof projectRecord?.skillId === 'string'
+      && projectRecord.skillId.trim().length > 0
+    );
+    const hasExplicitContextPluginSelection = Array.isArray(projectRecord?.metadata?.contextPlugins)
+      && projectRecord.metadata.contextPlugins.length > 0;
+    const skillDiscoveryBinding =
+      agentNativeSkillDiscoveryBehaviorEnabled(process.env)
+      && runSessionMode === 'design'
+      && !strategyTaskAtStart
+      && !run.appliedPluginSnapshotId
+      && !explicitRunSkillSelection
+      && !hasExplicitContextPluginSelection
+        ? readVerifiedProjectSkillDiscoveryBinding(projectRecord?.metadata)
+        : null;
+    if (skillDiscoveryBinding) {
+      try {
+        const bundledStrategyPlugin = officialSkillDiscoveryStrategyPlugin;
+        if (!bundledStrategyPlugin) {
+          throw new Error('Bundled official strategy package is unavailable.');
+        }
+        const catalogSources = {
+          bundledStrategyPlugin,
+          builtInFunctionalSkillsRoot: SKILLS_DIR,
+        };
+        const discoveryPromptContext = readOfficialSkillDiscoveryPromptContextV1(catalogSources);
+        const officialCatalog = discoveryPromptContext.catalog;
+        skillDiscoveryBootstrapMarkdown = discoveryPromptContext.policyMarkdown;
+        skillDiscoveryCatalogMarkdown = discoveryPromptContext.catalogMarkdown;
+        skillDiscoveryCatalogCandidateCount = officialCatalog.candidates.length;
+        const previousSkillDiscoveryState = readSkillDiscoveryState(db, conversationId);
+        skillDiscoveryCatalogRevisionChanged = previousSkillDiscoveryState !== null
+          && previousSkillDiscoveryState.catalogRevision !== officialCatalog.revision;
+        skillDiscoveryState = ensureSkillDiscoveryForRun(db, {
+          projectId,
+          conversationId,
+          runId: run.id,
+          catalogRevision: officialCatalog.revision,
+        });
+        run.skillDiscoveryEnabled = true;
+        run.skillDiscoveryCatalogRevision = officialCatalog.revision;
+      } catch (error) {
+        return failRun(
+          'SKILL_DISCOVERY_CATALOG_INVALID',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    } else {
+      run.skillDiscoveryEnabled = false;
+      run.skillDiscoveryCatalogRevision = null;
+    }
     const effectiveRunSkillId = resolveSkillId(
       typeof skillId === 'string' && skillId
         ? skillId
@@ -11446,7 +11666,12 @@ export async function startServer({
           // existing session. A create turn still sends the full transcript so
           // a brand-new session (incl. first turn after another agent)
           // is seeded with prior context.
-          { skipTranscript: agentResumePromptPolicy.skipTranscript },
+          {
+            skipTranscript: agentResumePromptPolicy.skipTranscript,
+            allowEmpty: safeCommentAttachments.length > 0
+              || safeAttachments.length > 0
+              || safeImages.length > 0,
+          },
         );
     // The stable instruction slice (daemon prompt + tool contract + system
     // prompt = design system / skills / memory) is identical across turns of
@@ -11516,7 +11741,7 @@ export async function startServer({
     // the turn-shape every agent CLI expects (user message carrying both
     // instructions and request) — see server.ts:9920 composer notes.
     const ECHO_GUARD =
-      '\n\n(Do not quote, restate, or echo the # Instructions block above in your reply. Begin your response with the answer to the # User request below.)';
+      '\n\n(Do not quote, restate, or echo the instructions element in your reply. Begin with the answer to the user_first_prompt element.)';
     const formAnswerMatch = FORM_ANSWERS_HEADER_RE.exec(
       typeof currentPrompt === 'string' ? currentPrompt : '',
     );
@@ -11563,6 +11788,51 @@ export async function startServer({
           odNextTaskInputSnapshot?.requestInputText ?? '',
         ].filter(Boolean).join('\n\n---\n\n')
       : '';
+    const skillDiscoveryLifecycle = resolveSkillDiscoveryLifecyclePrompt({
+      state: skillDiscoveryState,
+      runId: run.id,
+      bootstrapMarkdown: skillDiscoveryBootstrapMarkdown,
+      catalogMarkdown: skillDiscoveryCatalogMarkdown,
+      catalogRevisionChanged: skillDiscoveryCatalogRevisionChanged,
+      isResuming: agentResumeCtx.isResuming,
+      retryAttemptCount: run.retryAttemptCount,
+      manualResumeAttemptCount: run.manualResumeAttemptCount,
+    });
+    const skillDiscoveryLifecycleKind = 'discoveryBootstrapMarkdown' in skillDiscoveryLifecycle
+      ? 'bootstrap'
+      : 'compactLifecycleCapsuleMarkdown' in skillDiscoveryLifecycle
+        ? 'compact'
+        : 'none';
+    const skillDiscoveryLifecycleContent = 'discoveryBootstrapMarkdown' in skillDiscoveryLifecycle
+      ? skillDiscoveryLifecycle.discoveryBootstrapMarkdown
+      : 'compactLifecycleCapsuleMarkdown' in skillDiscoveryLifecycle
+        ? skillDiscoveryLifecycle.compactLifecycleCapsuleMarkdown
+        : '';
+    const skillDiscoveryTelemetrySection = skillDiscoveryState
+      ? {
+          kind: 'skillDiscoveryLifecycle' as const,
+          content: skillDiscoveryLifecycleContent,
+          metadata: {
+            lifecycleKind: skillDiscoveryLifecycleKind,
+            catalogRevision: skillDiscoveryState.catalogRevision,
+            candidateCount: skillDiscoveryCatalogCandidateCount,
+          },
+        }
+      : null;
+    const skillDiscoveryPromptBudgetError = skillDiscoveryLifecycleContent
+      ? checkPromptArgvBudget(def, skillDiscoveryLifecycleContent)
+      : null;
+    if (skillDiscoveryPromptBudgetError) {
+      run.promptTelemetry = buildPromptStackTelemetry({
+        composedPrompt: skillDiscoveryLifecycleContent,
+        sections: skillDiscoveryTelemetrySection ? [skillDiscoveryTelemetrySection] : [],
+      });
+      design.runs.persistState(run);
+      return failRun(
+        skillDiscoveryPromptBudgetError.code,
+        `${skillDiscoveryPromptBudgetError.message} Open Design must send the complete official Skill metadata catalog for agent-native discovery; it will not silently fall back to lexical search.`,
+      );
+    }
     const composedResult = strategyTaskAtStart
       ? {
           composedPrompt: persistedStrategyFinalText!,
@@ -11586,6 +11856,7 @@ export async function startServer({
       projectAttachmentReferences: attachmentHint,
       commentAttachmentReferences: commentHint,
       imageReferences: promptImagePaths.map((p) => `@${p}`).join(' '),
+      ...skillDiscoveryLifecycle,
       strategyInputStage: strategyTaskAtStart?.inputStage ?? null,
         });
     const {
@@ -11643,6 +11914,7 @@ export async function startServer({
               kind: 'pluginStagePrompt',
               content: promptTelemetryParts?.pluginStagePrompt,
             },
+            ...(skillDiscoveryTelemetrySection ? [skillDiscoveryTelemetrySection] : []),
             { kind: 'cwdHint', content: cwdHint, metadata: cwd ? [cwd] : [] },
             {
               kind: 'linkedDirsHint',

@@ -21,6 +21,39 @@ The API/BYOK mirror at `packages/contracts/src/prompts/system.ts:318` forks the
 same way. The two sides share no composition floor: a rule added to one holds
 only for the runs that take that side.
 
+## Outer Agent-turn envelopes
+
+The system-prompt fork above is the inner instruction source. Before a
+user-originated turn is written to an Agent process, the daemon gives it one
+canonical XML transport envelope with Markdown leaves:
+
+| User-originated turn | Canonical envelope | Owner |
+|---|---|---|
+| Ordinary Design/Chat turn | `open-design.agent-turn/v1` | `packages/contracts/src/prompts/agent-turn.ts` |
+| Explicit OD Next request stage | `open-design.od-next-prompt-bundle/v2` | `packages/contracts/src/prompts/od-next-prompt-bundle-v2.ts` |
+
+`composeChatAgentTextPayload` in
+`apps/daemon/src/runtimes/chat-prompt-inputs.ts` owns this final boundary. The
+ordinary envelope has fixed instruction, attachment, context, lifecycle, and
+`user_first_prompt` slots; empty optional slots remain explicit markers, and
+`user_first_prompt` is always last. Discovery can occupy the lifecycle slot as
+either the full first-turn bootstrap or a compact reconstruction capsule, never
+both. For eligible untyped conversations, every cold physical context also
+includes the complete compact metadata index for the pinned auto-selectable
+official Skill catalog; only selected full Skill bodies are loaded later. The
+daemon attributes the actual lifecycle bytes, catalog revision, candidate count,
+and bootstrap/compact lifecycle kind in prompt-stack telemetry without storing
+the catalog body. For argv-bound adapters, the complete lifecycle payload must
+pass the adapter's prompt budget or the Run fails before spawn; discovery never
+silently degrades to lexical search.
+The XML serializer handles CDATA terminators; callers must not assemble these
+envelopes with string interpolation.
+
+This does not rewrite OD Next's internal stage-to-stage handoffs. Once an
+explicit OD Next request has entered its existing V2 task chain, non-request
+stage text retains the V2 protocol's established transport semantics. That is
+an internal orchestration delta, not a new user-originated prompt.
+
 ## Which runs take which path
 
 OD Next is opt-in and gated. `evaluateOdNextRollout`

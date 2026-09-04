@@ -198,5 +198,6 @@ describe('HomeView one-click create from a scene-specific carousel line', () => 
       projectKind: 'prototype',
     });
     expect(submitted.projectMetadata).toEqual(metadata);
+    expect(submitted).not.toHaveProperty('skillDiscovery');
   });
 });

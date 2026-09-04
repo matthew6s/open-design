@@ -574,9 +574,54 @@ describe('HomeView prompt handoff', () => {
     expect(screen.getByTestId('home-hero-submit').getAttribute('aria-busy')).toBe('false');
   });
 
-  // Removed with the fresh-home default type seed: Home no longer binds a
-  // type on its own, so there is no binding turn for Send to wait on. Picking
-  // a type from the row below the composer is the only thing that binds one.
+  // With no default type seed, free-form Send does not wait for the plugin
+  // catalog. It submits the agent-owned Discovery marker instead of silently
+  // selecting Prototype or the legacy scenario default.
+  it('keeps free-form Send available while the plugin catalog loads', async () => {
+    let resolvePlugins: (response: Response) => void = () => undefined;
+    const pluginsResponse = new Promise<Response>((resolve) => {
+      resolvePlugins = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (typeof url === 'string' && url === '/api/plugins') return pluginsResponse;
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    stubAnimationFrame();
+
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    render(
+      <HomeView
+        projects={[]}
+        onSubmit={onSubmit}
+        onOpenProject={() => undefined}
+        onViewAllProjects={() => undefined}
+      />,
+    );
+
+    await setPromptAndSettle('Turn these review habits into an infographic.');
+    const submit = screen.getByTestId('home-hero-submit') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      pluginId: null,
+      skillDiscovery: {
+        mode: 'agent',
+        catalog: 'open-design-official',
+      },
+    })));
+
+    await act(async () => {
+      resolvePlugins(new Response(JSON.stringify({ plugins: [WEB_PROTOTYPE_PLUGIN] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+      await pluginsResponse;
+    });
+
+    expect(screen.getByTestId('home-hero-template-trigger').textContent).not.toContain('Prototype');
+  });
 
   it('keeps creation types actionable while an expired plugin cache refreshes after a project round trip', async () => {
     let resolveRefresh: (response: Response) => void = () => undefined;
@@ -903,7 +948,7 @@ describe('HomeView prompt handoff', () => {
     });
   });
 
-  it('routes free-form submits through the hidden default plugin without applying a visible chip', async () => {
+  it('routes free-form submits through agent Skill discovery without applying a visible chip', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (url) => {
       if (typeof url === 'string' && url === '/api/plugins') {
         return new Response(JSON.stringify({ plugins: [HIDDEN_DEFAULT_PLUGIN, DEFAULT_PLUGIN] }), {
@@ -932,11 +977,15 @@ describe('HomeView prompt handoff', () => {
     expect(screen.queryByTestId('home-hero-active-plugin')).toBeNull();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       prompt: 'Make a launch page for a robotics studio',
-      pluginId: 'od-default',
+      pluginId: null,
+      skillDiscovery: {
+        mode: 'agent',
+        catalog: 'open-design-official',
+      },
       appliedPluginSnapshotId: null,
-      pluginInputs: { prompt: 'Make a launch page for a robotics studio' },
       projectKind: 'other',
     }));
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty('pluginInputs');
   });
 
   it('falls back to od-new-generation when od-plugin-authoring is not registered yet', async () => {

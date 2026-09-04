@@ -107,6 +107,10 @@ import { captureOdNextSessionSkillPackage } from '../strategies/od-next/session-
 import { resolveSkillCatalogScope } from '../skill-catalog-scope.js';
 import type { SkillInfo } from '../skills.js';
 import {
+  agentNativeSkillDiscoveryBehaviorEnabled,
+  readVerifiedProjectSkillDiscoveryBinding,
+} from '../skill-discovery/binding.js';
+import {
   buildOdNextTaskConfigurationV1,
   createOdNextTaskInputSnapshot,
   OdNextTaskInputSnapshotError,
@@ -1727,9 +1731,17 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         typeof requestBody.conversationId === 'string' && requestBody.conversationId
           ? requestBody.conversationId
           : getFirstProjectConversation(db, requestBody.projectId)?.id ?? null;
-      const defaultPluginId = defaultScenarioPluginIdForProjectMetadata(
+      const verifiedSkillDiscoveryBinding = agentNativeSkillDiscoveryBehaviorEnabled(process.env)
+        ? readVerifiedProjectSkillDiscoveryBinding(
+            rolloutProject?.metadata as ContractProjectMetadata | null | undefined,
+          )
+        : null;
+      const projectKindDefaultPluginId = defaultScenarioPluginIdForProjectMetadata(
         toScenarioProjectMetadata(rolloutProject?.metadata),
       );
+      const defaultPluginId = verifiedSkillDiscoveryBinding
+        ? null
+        : projectKindDefaultPluginId;
       const suppliedSnapshotWasNamed = typeof requestBody.appliedPluginSnapshotId === 'string'
         && requestBody.appliedPluginSnapshotId.trim().length > 0;
       const suppliedPluginWasNamed = typeof requestBody.pluginId === 'string'
@@ -1777,12 +1789,14 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
       const projectPinIsAutomaticDefault = Boolean(
         projectHasExplicitPin
         && verifiedScenarioBinding?.provenance === 'automatic_default'
-        && verifiedScenarioBinding.pluginId === defaultPluginId,
+        && verifiedScenarioBinding.pluginId === projectKindDefaultPluginId,
       );
       const suppressAutomaticDefaultPinFallback = Boolean(
         projectPinIsAutomaticDefault
-        && verifiedExampleBinding
-        && !selectedExamplePlugin,
+        && (
+          verifiedSkillDiscoveryBinding
+          || (verifiedExampleBinding && !selectedExamplePlugin)
+        ),
       );
       const suppliedContextPluginWasNamed = Boolean(
         Array.isArray((rolloutProject?.metadata as ContractProjectMetadata | undefined)?.contextPlugins)

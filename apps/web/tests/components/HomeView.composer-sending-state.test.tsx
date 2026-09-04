@@ -91,7 +91,7 @@ function renderHome(onSubmit: (payload: unknown) => Promise<boolean> | void) {
 }
 
 describe('home composer sending state', () => {
-  it('stamps free-form Design submits as automatic default routing', async () => {
+  it('hands free-form Design submits to agent skill discovery without a default plugin', async () => {
     const onSubmit = vi.fn().mockResolvedValue(true);
     renderHome(onSubmit);
 
@@ -101,10 +101,16 @@ describe('home composer sending state', () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      pluginId: 'od-default',
-      pluginSelectionProvenance: 'automatic-default',
+      pluginId: null,
+      skillDiscovery: {
+        mode: 'agent',
+        catalog: 'open-design-official',
+      },
       conversationMode: 'design',
     }));
+    const payload = onSubmit.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('pluginSelectionProvenance');
+    expect(payload).not.toHaveProperty('automaticStrategyTaskProfile');
   });
 
   it('keeps the send arrow stable and swallows repeat clicks while creation is in flight', async () => {
