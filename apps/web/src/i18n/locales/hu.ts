@@ -89,7 +89,6 @@ export const hu: Dict = {
   'chat.amrLowBalance.message': 'Már csak {balance} maradt — valószínűleg nem elég a feladat befejezéséhez. Előbb tölts fel vagy válts csomagot.',
   'chat.amrLowBalance.rechargeCta': 'Feltöltés',
   'chat.amrLowBalance.proceedCta': 'Indítás mégis',
-  'chat.amrLowBalance.dontRemind': 'Ne kérdezze többé',
   'chat.amrArtifactUpgrade.title': 'Finomíts tovább erősebb modellekkel',
   'chat.amrArtifactUpgrade.message': 'Oldj fel fejlett modelleket, több párhuzamos feladatot és több havi kreditet.',
   'chat.amrArtifactUpgrade.benefit1': 'Több fejlett modell, köztük a Fable 5 és a GPT-5.6',

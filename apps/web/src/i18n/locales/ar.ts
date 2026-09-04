@@ -89,7 +89,6 @@ export const ar: Dict = {
   'chat.amrLowBalance.message': 'لم يتبقَّ سوى {balance} — قد لا يكفي لإتمام هذه المهمة. اشحن أو قم بترقية باقتك أولًا.',
   'chat.amrLowBalance.rechargeCta': 'اشحن الرصيد',
   'chat.amrLowBalance.proceedCta': 'ابدأ على أي حال',
-  'chat.amrLowBalance.dontRemind': 'لا تسأل مجددًا',
   'chat.amrArtifactUpgrade.title': 'تابع تحسين عملك بنماذج أقوى',
   'chat.amrArtifactUpgrade.message': 'افتح نماذج متقدمة ومهام متوازية أكثر ورصيدًا شهريًا أكبر.',
   'chat.amrArtifactUpgrade.benefit1': 'مزيد من النماذج المتقدمة، بما فيها Fable 5 وGPT-5.6',

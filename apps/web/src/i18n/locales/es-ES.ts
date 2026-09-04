@@ -89,7 +89,6 @@ export const esES: Dict = {
   'chat.amrLowBalance.message': 'Solo quedan {balance}: probablemente no alcance para terminar esta tarea. Recarga o mejora tu plan primero.',
   'chat.amrLowBalance.rechargeCta': 'Recargar',
   'chat.amrLowBalance.proceedCta': 'Iniciar de todos modos',
-  'chat.amrLowBalance.dontRemind': 'No volver a preguntar',
   'chat.amrArtifactUpgrade.title': 'Sigue perfeccionando con modelos más potentes',
   'chat.amrArtifactUpgrade.message': 'Desbloquea modelos avanzados, más tareas en paralelo y más créditos mensuales.',
   'chat.amrArtifactUpgrade.benefit1': 'Más modelos avanzados, como Fable 5 y GPT-5.6',

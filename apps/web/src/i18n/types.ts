@@ -2828,7 +2828,6 @@ export interface Dict {
   'chat.amrLowBalance.message': string;
   'chat.amrLowBalance.rechargeCta': string;
   'chat.amrLowBalance.proceedCta': string;
-  'chat.amrLowBalance.dontRemind': string;
   'chat.amrArtifactUpgrade.title': string;
   'chat.amrArtifactUpgrade.message': string;
   'chat.amrArtifactUpgrade.benefit1': string;

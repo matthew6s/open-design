@@ -89,7 +89,6 @@ export const de: Dict = {
   'chat.amrLowBalance.message': 'Nur noch {balance} übrig — vermutlich nicht genug für diese Aufgabe. Lade vorher auf oder upgrade deinen Plan.',
   'chat.amrLowBalance.rechargeCta': 'Aufladen',
   'chat.amrLowBalance.proceedCta': 'Trotzdem starten',
-  'chat.amrLowBalance.dontRemind': 'Nicht mehr fragen',
   'chat.amrArtifactUpgrade.title': 'Mit stärkeren Modellen weiter verfeinern',
   'chat.amrArtifactUpgrade.message': 'Schalte leistungsstarke Modelle, mehr parallele Aufgaben und mehr monatliches Guthaben frei.',
   'chat.amrArtifactUpgrade.benefit1': 'Weitere leistungsstarke Modelle wie Fable 5 und GPT-5.6',

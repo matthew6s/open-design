@@ -89,7 +89,6 @@ export const ptBR: Dict = {
   'chat.amrLowBalance.message': 'Restam apenas {balance} — provavelmente não é o bastante para concluir esta tarefa. Recarregue ou faça upgrade antes.',
   'chat.amrLowBalance.rechargeCta': 'Recarregar',
   'chat.amrLowBalance.proceedCta': 'Iniciar mesmo assim',
-  'chat.amrLowBalance.dontRemind': 'Não perguntar novamente',
   'chat.amrArtifactUpgrade.title': 'Continue refinando com modelos mais potentes',
   'chat.amrArtifactUpgrade.message': 'Desbloqueie modelos avançados, mais tarefas paralelas e mais créditos mensais.',
   'chat.amrArtifactUpgrade.benefit1': 'Mais modelos avançados, incluindo Fable 5 e GPT-5.6',

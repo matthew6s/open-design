@@ -18,6 +18,7 @@ import {
   buildWorkspacePermissions,
   buildWorkspaceSeatSummary,
   type AmrWalletSnapshot,
+  type WorkspaceBillingResponse,
   type WorkspaceCollabContext,
 } from '@open-design/contracts';
 import type { ComponentProps, ReactNode } from 'react';
@@ -374,6 +375,11 @@ function stubFetch() {
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/api/workspace/billing')) {
+        return new Response(JSON.stringify(workspaceBillingResponse ?? {}), {
+          status: 200,
+        });
+      }
       if (url.includes('/api/workspace/context')) {
         return new Response(JSON.stringify({ context: CALLER_CONTEXT }), { status: 200 });
       }
@@ -416,6 +422,52 @@ function renderProjectView(overrides: Partial<ComponentProps<typeof ProjectView>
   return render(projectViewElement(overrides));
 }
 
+/**
+ * 一份**被后端证明过**的工作区钱包投影。
+ *
+ * 这个项目绑在团队工作区上,所以它花的是工作区的钱 —— 补查读的也必须是这一份
+ * (`/api/workspace/billing?scope=workspace&…&freshness=authoritative`),而不是
+ * 账号级的 `/api/integrations/vela/wallet`。原先这个夹具只给了账号读数,
+ * 那是**生产不会出现的形状**:同一个人的个人钱包和这个团队的钱包是两笔钱。
+ * 「念的是哪个钱包」由 `w62-mid-run-balance-workspace-wallet.test.tsx` 单独钉;
+ * 这一页只需要那份读数存在,好继续断言「谁把卡点亮」。
+ */
+function provenWorkspaceBilling(balanceUsd: string): WorkspaceBillingResponse {
+  const observedAt = new Date().toISOString();
+  return {
+    summary: null,
+    workspaceBalance: {
+      workspaceId: TEAM_WORKSPACE,
+      workspaceMemberId: TEAM_MEMBER,
+      balanceUsd,
+      billingScopeVersion: 2,
+      expiresAt: null,
+      updatedAt: observedAt,
+    },
+    workspaceRuntime: {
+      workspaceId: TEAM_WORKSPACE,
+      workspaceMemberId: TEAM_MEMBER,
+      status: 'fresh',
+      revision: '1',
+      observedAt,
+      softExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      hardExpiresAt: new Date(Date.now() + 600_000).toISOString(),
+      retryAt: null,
+      errorCode: null,
+      reason: 'authoritative',
+      sourceGapDetected: false,
+    },
+    authoritativeWorkspaceRead: {
+      workspaceId: TEAM_WORKSPACE,
+      workspaceMemberId: TEAM_MEMBER,
+      observedAt,
+    },
+  };
+}
+
+/** 这一轮 `/api/workspace/billing` 回什么;`null` = 读不出工作区钱包。 */
+let workspaceBillingResponse: WorkspaceBillingResponse | null = null;
+
 /** 一份可用的钱包读数,余额由调用方给。 */
 const snapshot = (balanceUsd: string): AmrWalletSnapshot => ({
   status: 'available',
@@ -431,6 +483,7 @@ const snapshot = (balanceUsd: string): AmrWalletSnapshot => ({
 describe('跑到一半余额不足:谁点亮升级卡', () => {
   beforeEach(() => {
     resourceContextObservations.length = 0;
+    workspaceBillingResponse = null;
     window.sessionStorage.clear();
     window.localStorage.clear();
     resetWorkspaceContextCache();
@@ -497,6 +550,7 @@ describe('跑到一半余额不足:谁点亮升级卡', () => {
 
   it('跑到一半的余额不足:把钱包读数交给升级卡', async () => {
     mockedFetchAmrWalletSnapshot.mockResolvedValue(snapshot('0'));
+    workspaceBillingResponse = provenWorkspaceBilling('0');
     failMidRunWith('AMR_INSUFFICIENT_BALANCE');
 
     await sendOnce();
@@ -508,6 +562,7 @@ describe('跑到一半余额不足:谁点亮升级卡', () => {
 
   it('余额还剩一点的那一档,念的是真实读数,不是 0', async () => {
     mockedFetchAmrWalletSnapshot.mockResolvedValue(snapshot('0.35'));
+    workspaceBillingResponse = provenWorkspaceBilling('0.35');
     failMidRunWith('AMR_INSUFFICIENT_BALANCE');
 
     await sendOnce();
@@ -573,6 +628,7 @@ describe('跑到一半余额不足:谁点亮升级卡', () => {
   // 正是 2026-09-02 裁决要消掉的那两张。
   it('读得出数字时不报落空', async () => {
     mockedFetchAmrWalletSnapshot.mockResolvedValue(snapshot('0'));
+    workspaceBillingResponse = provenWorkspaceBilling('0');
     failMidRunWith('AMR_INSUFFICIENT_BALANCE');
 
     await sendOnce();

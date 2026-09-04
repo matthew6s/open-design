@@ -89,7 +89,6 @@ export const id: Dict = {
   'chat.amrLowBalance.message': 'Hanya tersisa {balance} — kemungkinan tidak cukup untuk menyelesaikan tugas ini. Isi ulang atau tingkatkan paket dulu.',
   'chat.amrLowBalance.rechargeCta': 'Isi ulang',
   'chat.amrLowBalance.proceedCta': 'Tetap mulai',
-  'chat.amrLowBalance.dontRemind': 'Jangan tanya lagi',
   'chat.amrArtifactUpgrade.title': 'Terus sempurnakan dengan model yang lebih kuat',
   'chat.amrArtifactUpgrade.message': 'Buka model canggih, lebih banyak tugas paralel, dan lebih banyak kredit bulanan.',
   'chat.amrArtifactUpgrade.benefit1': 'Lebih banyak model canggih, termasuk Fable 5 dan GPT-5.6',

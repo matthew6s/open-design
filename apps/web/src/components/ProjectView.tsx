@@ -24,7 +24,6 @@ import {
   type DaemonAgentReconnectState,
   type DaemonAgentRetryState,
   type DaemonReconnectState,
-  fetchAmrWalletSnapshot,
   fetchChatRunStatus,
   GENERIC_DAEMON_DISCONNECT_CODE,
   GENERIC_DAEMON_DISCONNECT_MESSAGE,
@@ -164,6 +163,7 @@ import {
   amrBalanceGateScopesMatch,
   amrWalletBalanceUsd,
   checkAmrBalanceGate,
+  fetchAmrBalanceCardWalletSnapshot,
   isAmrBalanceGateScope,
   type AmrBalanceGateScope,
 } from '../runtime/amr-balance-gate';
@@ -2772,6 +2772,29 @@ export function ProjectView({
    */
   const [amrBalanceFailureWalletUnavailable, setAmrBalanceFailureWalletUnavailable] =
     useState(false);
+  /**
+   * 补查要读**哪个钱包**。
+   *
+   * 和发送前那道闸门钉在同一个工作区身份上(`projectRunPreflightContext`)——
+   * 这一轮的钱是从那儿出的。少了这一步,补查会去读账号级的
+   * `/api/integrations/vela/wallet`,而那条请求里根本没有 workspace 参数
+   * (`daemon/src/routes/vela.ts:601`):团队项目会念出这个人**个人账号**的余额。
+   * 那不是「数字略有出入」,是整张卡说反 —— 团队钱包 $0 的那一轮会被个人的
+   * $12.50 画成橙色的「余额可能撑不完下一个任务」,而真相是「现在无法开始新任务」,
+   * 且他把个人钱包充满也救不了这个团队。
+   *
+   * 判据字符串化之后当 effect 的依赖:scope 落定得比这条失败晚时,effect 会
+   * 自己重跑一次把数字换过来,不需要额外的等待态。
+   */
+  const amrBalanceCardScope = useMemo(
+    () => amrBalanceGateScopeForWorkspaceContext(projectRunPreflightContext),
+    [projectRunPreflightContext],
+  );
+  const amrBalanceCardScopeKey = amrBalanceCardScope
+    ? `${amrBalanceCardScope.workspaceType}:${amrBalanceCardScope.workspaceId}:${amrBalanceCardScope.workspaceMemberId}`
+    : '';
+  const amrBalanceCardScopeRef = useRef(amrBalanceCardScope);
+  amrBalanceCardScopeRef.current = amrBalanceCardScope;
   useEffect(() => {
     if (!amrBalanceFailureMessageId) {
       setAmrBalanceFailureWalletUnavailable(false);
@@ -2782,9 +2805,12 @@ export function ProjectView({
     setAmrBalanceFailureWalletUnavailable(false);
     void (async () => {
       // 失败事件本身**不带余额**(daemon 的 `classifyAmrAccountFailure` 只给出
-      // 错误码),所以数字只能现查。`refresh` 让 daemon 走一次上游;上游不通时
-      // 它自己会回落到缓存快照(`source: 'daemon_cache'`)。
-      const snapshot = await fetchAmrWalletSnapshot({ refresh: true });
+      // 错误码),所以数字只能现查。有工作区身份就走闸门那条被后端证明过的
+      // 工作区读数,没有(旧的未绑定项目)才退回账号钱包 —— 那种项目花的
+      // 本来就是账号的钱。
+      const snapshot = await fetchAmrBalanceCardWalletSnapshot(
+        amrBalanceCardScopeRef.current,
+      );
       if (cancelled) return;
       // 读不出确定的数字就**什么都不念**。这张卡把余额报给用户,编一个出来
       // 比不出卡更糟 —— 判定用的是和闸门同一条解析规则,两处不另算。
@@ -2803,7 +2829,7 @@ export function ProjectView({
     return () => {
       cancelled = true;
     };
-  }, [amrBalanceFailureMessageId]);
+  }, [amrBalanceFailureMessageId, amrBalanceCardScopeKey]);
   /**
    * 这一次要付钱的工作区,把这个人放进 §6.V 的哪一格。
    *

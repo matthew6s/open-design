@@ -89,7 +89,6 @@ export const fa: Dict = {
   'chat.amrLowBalance.message': 'فقط {balance} باقی مانده است — احتمالاً برای اتمام این وظیفه کافی نیست. ابتدا شارژ کنید یا طرح خود را ارتقا دهید.',
   'chat.amrLowBalance.rechargeCta': 'شارژ کنید',
   'chat.amrLowBalance.proceedCta': 'به هر حال شروع کن',
-  'chat.amrLowBalance.dontRemind': 'دیگر نپرس',
   'chat.amrArtifactUpgrade.title': 'با مدل‌های قدرتمندتر به بهبود کار ادامه دهید',
   'chat.amrArtifactUpgrade.message': 'مدل‌های پیشرفته، وظایف هم‌زمان بیشتر و اعتبار ماهانهٔ بالاتر را فعال کنید.',
   'chat.amrArtifactUpgrade.benefit1': 'مدل‌های پیشرفتهٔ بیشتر، از جمله Fable 5 و GPT-5.6',

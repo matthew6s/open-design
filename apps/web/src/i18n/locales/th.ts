@@ -89,7 +89,6 @@ export const th: Dict = {
   'chat.amrLowBalance.message': 'เหลือเพียง {balance} อาจไม่พอสำหรับงานนี้ แนะนำให้เติมเงินหรืออัปเกรดแพ็กเกจก่อน',
   'chat.amrLowBalance.rechargeCta': 'เติมเงิน',
   'chat.amrLowBalance.proceedCta': 'เริ่มต่อไป',
-  'chat.amrLowBalance.dontRemind': 'ไม่ต้องถามอีก',
   'chat.amrArtifactUpgrade.title': 'ปรับแต่งงานต่อด้วยโมเดลที่ทรงพลังยิ่งขึ้น',
   'chat.amrArtifactUpgrade.message': 'ปลดล็อกโมเดลขั้นสูง งานแบบขนานที่มากขึ้น และเครดิตรายเดือนที่สูงขึ้น',
   'chat.amrArtifactUpgrade.benefit1': 'เข้าถึงโมเดลขั้นสูงได้มากขึ้น เช่น Fable 5 และ GPT-5.6',

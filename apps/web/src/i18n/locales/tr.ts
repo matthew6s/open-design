@@ -89,7 +89,6 @@ export const tr: Dict = {
   'chat.amrLowBalance.message': 'Yalnızca {balance} kaldı — bu görevi bitirmeye yetmeyebilir. Önce bakiye yükleyin veya planınızı yükseltin.',
   'chat.amrLowBalance.rechargeCta': 'Bakiye yükle',
   'chat.amrLowBalance.proceedCta': 'Yine de başlat',
-  'chat.amrLowBalance.dontRemind': 'Bir daha sorma',
   'chat.amrArtifactUpgrade.title': 'Daha güçlü modellerle geliştirmeye devam edin',
   'chat.amrArtifactUpgrade.message': 'Gelişmiş modellerin, daha fazla paralel görevin ve daha çok aylık kredinin kilidini açın.',
   'chat.amrArtifactUpgrade.benefit1': 'Fable 5 ve GPT-5.6 gibi daha fazla gelişmiş model',

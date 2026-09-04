@@ -5,7 +5,13 @@
 //           subscription dialog is the only way forward (plus dismiss).
 //   SOFT  — the run can start but may die mid-flight: balance is at or below
 //           the low-balance warning line. The user is warned once per send and
-//           may proceed anyway, top up first, or opt out of future warnings.
+//           may proceed anyway or top up first.
+//
+// The soft tier has no permanent mute. It used to: a "don't ask again"
+// checkbox on Home's low-balance dialog wrote a localStorage bit that this
+// gate also read, so opting out on Home silently disabled the project page's
+// upgrade card forever — a surface the user never agreed to silence. Removed
+// 2026-09-04; the warning is a function of the balance alone.
 //
 // Legacy account-scoped reads fail open when unavailable. Every explicitly
 // workspace-scoped run fails closed when its exact member epoch cannot be proven:
@@ -34,8 +40,6 @@ export const AMR_HARD_BLOCK_BALANCE_USD = 0;
  * line should actually sit.
  */
 export const AMR_LOW_BALANCE_WARN_USD = 2;
-
-const LOW_BALANCE_WARN_OPTOUT_KEY = 'open-design:amr-low-balance-warn-optout:v1';
 
 export type AmrBalanceGateResult =
   | { kind: 'allow' }
@@ -141,26 +145,6 @@ export function amrWalletBalanceInsufficient(
 ): boolean {
   const balance = amrWalletBalanceUsd(snapshot);
   return balance != null && balance <= AMR_HARD_BLOCK_BALANCE_USD;
-}
-
-/** Whether the user opted out of the low-balance soft warning ("don't remind
- * me again"). Hard blocks are never subject to this opt-out. */
-export function isAmrLowBalanceWarnOptedOut(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(LOW_BALANCE_WARN_OPTOUT_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function setAmrLowBalanceWarnOptedOut(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(LOW_BALANCE_WARN_OPTOUT_KEY, '1');
-  } catch {
-    // Persistence failure just means the warning shows again next time.
-  }
 }
 
 /**
@@ -278,6 +262,54 @@ async function fetchWorkspaceWalletSnapshot(
   };
 }
 
+/**
+ * The wallet whose balance a post-failure surface is allowed to NAME for a run
+ * in `scope` — the upgrade card's 剩余额度.
+ *
+ * The number is not decoration. It picks the card's tier (orange "running low"
+ * vs red "out"), the sentence beside it, and whether the reader believes the
+ * next run can start at all. So it has to be the money the run was actually
+ * spending, which for a workspace-scoped run is the WORKSPACE wallet.
+ *
+ * `/api/integrations/vela/wallet` cannot answer that question: it is the
+ * signed-in ACCOUNT's wallet and takes no workspace parameter, so on a team
+ * project it reports the reader's personal balance. A team wallet at $0 next to
+ * a personal $12.50 does not merely print the wrong digits — it paints the card
+ * orange and says 「余额可能撑不完下一个任务」 for a run that cannot start, and
+ * points at money that could never have funded it.
+ *
+ * Same read, and the same refusal to fall back, as the send gate: an explicitly
+ * scoped run whose exact member epoch cannot be proven returns null rather than
+ * substituting account money. Null means NOBODY can name this number, and the
+ * caller must hand the story back to the error card instead of printing the
+ * account's.
+ *
+ * No scope at all is the legacy/account case — an unbound historical project
+ * spends the account wallet, so there the account read IS the answer.
+ */
+export async function fetchAmrBalanceCardWalletSnapshot(
+  scope?: AmrBalanceGateScope,
+): Promise<AmrWalletSnapshot | null> {
+  if (!scope) {
+    // `refresh` forces one upstream read: the failure event carries no balance,
+    // and a cache that predates the run's own spending would under-report it.
+    return fetchAmrWalletSnapshot({ refresh: true }).catch(() => null);
+  }
+  // The account read rides along only for `profile` / `user` — the metadata the
+  // recovery link's profile fallback needs. It is never consulted for money.
+  const [accountSnapshot, workspaceSnapshot] = await Promise.all([
+    fetchAmrWalletSnapshot().catch(() => null),
+    fetchWorkspaceWalletSnapshot(scope, null).catch(() => null),
+  ]);
+  if (!workspaceSnapshot) return null;
+  if (!accountSnapshot) return workspaceSnapshot;
+  return {
+    ...workspaceSnapshot,
+    profile: accountSnapshot.profile,
+    user: accountSnapshot.user,
+  };
+}
+
 async function checkWorkspaceBalanceGate(
   scope: AmrBalanceGateScope,
   modelId?: string | null,
@@ -330,7 +362,7 @@ async function checkWorkspaceBalanceGate(
     }
     // Fall through: not blocked, but an empty wallet is still worth saying.
   }
-  if (balance <= AMR_LOW_BALANCE_WARN_USD && !isAmrLowBalanceWarnOptedOut()) {
+  if (balance <= AMR_LOW_BALANCE_WARN_USD) {
     return { kind: 'soft', snapshot: workspaceSnapshot! };
   }
   return { kind: 'allow' };
@@ -351,9 +383,7 @@ export async function checkAmrBalanceGate(
       (cachedBalance != null && cachedBalance <= AMR_HARD_BLOCK_BALANCE_USD);
     if (!cachedHardCandidate) {
       if (cachedBalance == null) return { kind: 'allow' };
-      if (cachedBalance > AMR_LOW_BALANCE_WARN_USD || isAmrLowBalanceWarnOptedOut()) {
-        return { kind: 'allow' };
-      }
+      if (cachedBalance > AMR_LOW_BALANCE_WARN_USD) return { kind: 'allow' };
       // Above the hard line, so nothing here can block — and a plan never
       // silences the reminder (OPEND-2600). Skipping the plan read also keeps
       // the soft tier off the network, which is the latency red line.
@@ -383,7 +413,7 @@ export async function checkAmrBalanceGate(
     ) {
       return { kind: 'hard', reason: 'insufficient', snapshot: fresh };
     }
-    if (freshBalance <= AMR_LOW_BALANCE_WARN_USD && !isAmrLowBalanceWarnOptedOut()) {
+    if (freshBalance <= AMR_LOW_BALANCE_WARN_USD) {
       return { kind: 'soft', snapshot: fresh };
     }
     return { kind: 'allow' };

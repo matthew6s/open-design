@@ -89,7 +89,6 @@ export const ru: Dict = {
   'chat.amrLowBalance.message': 'Осталось всего {balance} — вероятно, не хватит, чтобы завершить задачу. Сначала пополните баланс или улучшите тариф.',
   'chat.amrLowBalance.rechargeCta': 'Пополнить',
   'chat.amrLowBalance.proceedCta': 'Всё равно запустить',
-  'chat.amrLowBalance.dontRemind': 'Больше не спрашивать',
   'chat.amrArtifactUpgrade.title': 'Продолжайте улучшать работу с более мощными моделями',
   'chat.amrArtifactUpgrade.message': 'Откройте продвинутые модели, больше параллельных задач и больше кредитов в месяц.',
   'chat.amrArtifactUpgrade.benefit1': 'Больше продвинутых моделей, включая Fable 5 и GPT-5.6',

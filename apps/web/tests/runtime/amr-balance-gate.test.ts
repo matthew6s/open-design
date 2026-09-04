@@ -10,9 +10,7 @@ import {
   amrWalletBalanceInsufficient,
   amrWalletBalanceUsd,
   checkAmrBalanceGate,
-  isAmrLowBalanceWarnOptedOut,
   retryUnavailableAmrBalanceGate,
-  setAmrLowBalanceWarnOptedOut,
 } from '../../src/runtime/amr-balance-gate';
 import {
   fetchAmrWalletSnapshot,
@@ -234,12 +232,16 @@ describe('checkAmrBalanceGate', () => {
     ).resolves.toEqual({ kind: 'soft', snapshot: low });
   });
 
-  it('skips the soft warning once the user opted out — but never the hard block', async () => {
-    expect(isAmrLowBalanceWarnOptedOut()).toBe(false);
-    setAmrLowBalanceWarnOptedOut();
-    expect(isAmrLowBalanceWarnOptedOut()).toBe(true);
-    mockedFetch.mockResolvedValueOnce(snapshot({ balanceUsd: '1.20' }));
-    await expect(checkAmrBalanceGate()).resolves.toEqual({ kind: 'allow' });
+  // The soft tier used to be permanently mutable from Home's dialog; that
+  // opt-out was removed 2026-09-04 because the bit also silenced the project
+  // page's upgrade card. The stale localStorage bit real users still carry
+  // must now be inert. Full coverage of the removal lives in
+  // `amr-low-balance-optout-removed.test.ts`.
+  it('ignores the retired low-balance opt-out bit left on disk', async () => {
+    window.localStorage.setItem('open-design:amr-low-balance-warn-optout:v1', '1');
+    const low = snapshot({ balanceUsd: '1.20' });
+    mockedFetch.mockResolvedValueOnce(low);
+    await expect(checkAmrBalanceGate()).resolves.toEqual({ kind: 'soft', snapshot: low });
     mockedFetch.mockReset();
     const empty = snapshot({ balanceUsd: '0' });
     mockedFetch.mockResolvedValueOnce(empty).mockResolvedValueOnce(empty);

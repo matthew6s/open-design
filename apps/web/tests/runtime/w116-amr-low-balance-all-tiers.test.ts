@@ -19,14 +19,14 @@
 //      这一条在下面用「$1.79 这条路上 `fetchVelaLoginStatus` 一次都没被调用」
 //      来量 —— 套餐读数只有硬拦那一档才需要。
 //
-// 反向对照(团队工作区 / 免费档 $0 / 已 opt-out)一并钉住,保证这次只放开该放开的。
+// 反向对照(团队工作区 / 免费档 $0 / 遗留静音位)一并钉住,保证这次只放开该放开的。
+//
+// 补记(2026-09-04):「不再提醒」那颗 opt-out 已整颗拆除,原来那三条 opt-out
+// 对照改成钉住「遗留的静音位不再改变任何判定」。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AmrWalletSnapshot } from '@open-design/contracts';
-import {
-  checkAmrBalanceGate,
-  setAmrLowBalanceWarnOptedOut,
-} from '../../src/runtime/amr-balance-gate';
+import { checkAmrBalanceGate } from '../../src/runtime/amr-balance-gate';
 import {
   fetchAmrWalletSnapshot,
   fetchVelaLoginStatus,
@@ -103,6 +103,14 @@ function authoritativeWorkspaceBillingResponse(
       observedAt,
     },
   };
+}
+
+/**
+ * 真实用户机器上留下的那条裸数据。读取方已删,它必须是一条死数据 —— 故意直接写
+ * localStorage 而不是走已删掉的 setter。
+ */
+function seedRetiredOptOut() {
+  window.localStorage.setItem('open-design:amr-low-balance-warn-optout:v1', '1');
 }
 
 function stubWorkspaceBilling(
@@ -368,9 +376,9 @@ describe('OPEND-2600 · 反向对照:团队工作区行为不变', () => {
   });
 });
 
-describe('OPEND-2600 · 反向对照:「不再提醒」和健康余额', () => {
-  it('已经 opt-out 的人 + $1.79 不再收到提醒', async () => {
-    setAmrLowBalanceWarnOptedOut();
+describe('OPEND-2600 · 反向对照:遗留的静音位和健康余额', () => {
+  it('留着遗留静音位的人 + $1.79 → 照样提醒', async () => {
+    seedRetiredOptOut();
     mockedFetch.mockResolvedValue(walletWithPlan(REPORTED_BALANCE, 'pro'));
     stubWorkspaceBilling('ws-optout', 'wm-optout', REPORTED_BALANCE);
 
@@ -381,11 +389,14 @@ describe('OPEND-2600 · 反向对照:「不再提醒」和健康余额', () => {
         workspaceMemberId: 'wm-optout',
       },
       MODEL_ID,
-    )).resolves.toEqual({ kind: 'allow' });
+    )).resolves.toEqual({
+      kind: 'soft',
+      snapshot: expect.objectContaining({ balanceUsd: REPORTED_BALANCE }),
+    });
   });
 
-  it('已经 opt-out 的套餐用户 + 零余额:既不提醒也不拦', async () => {
-    setAmrLowBalanceWarnOptedOut();
+  it('留着遗留静音位的套餐用户 + 零余额:提醒但不拦(T15)', async () => {
+    seedRetiredOptOut();
     mockedFetch.mockResolvedValue(walletWithPlan('0', 'pro'));
     stubWorkspaceBilling('ws-optout-zero', 'wm-optout-zero', '0');
 
@@ -396,11 +407,14 @@ describe('OPEND-2600 · 反向对照:「不再提醒」和健康余额', () => {
         workspaceMemberId: 'wm-optout-zero',
       },
       MODEL_ID,
-    )).resolves.toEqual({ kind: 'allow' });
+    )).resolves.toEqual({
+      kind: 'soft',
+      snapshot: expect.objectContaining({ balanceUsd: '0' }),
+    });
   });
 
-  it('opt-out 永远压不掉硬拦:免费档 + 零余额 照拦', async () => {
-    setAmrLowBalanceWarnOptedOut();
+  it('遗留静音位永远压不掉硬拦:免费档 + 零余额 照拦', async () => {
+    seedRetiredOptOut();
     mockedFetch.mockResolvedValue(walletWithPlan('0', 'free'));
     stubWorkspaceBilling('ws-optout-free', 'wm-optout-free', '0');
 

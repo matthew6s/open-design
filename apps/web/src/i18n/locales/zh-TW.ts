@@ -92,7 +92,6 @@ export const zhTW: Dict = {
   "chat.amrLowBalance.message": "額度僅剩 {balance}，可能不夠完成這個任務，建議先儲值或升級方案。",
   "chat.amrLowBalance.rechargeCta": "去儲值",
   "chat.amrLowBalance.proceedCta": "仍要發起任務",
-  "chat.amrLowBalance.dontRemind": "不再提示",
   "chat.amrArtifactUpgrade.title": "用更強模型繼續完善作品",
   "chat.amrArtifactUpgrade.message": "解鎖進階模型、更多任務並行與更高每月積分。",
   "chat.amrArtifactUpgrade.benefit1": "更多進階模型，如 Fable 5、GPT-5.6",
