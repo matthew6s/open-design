@@ -34,6 +34,7 @@ import {
   MEDIA_TASK_WAIT_TOOL_ENDPOINT,
   type ToolTokenGrant,
 } from '../tool-tokens.js';
+import { associateLateRunProducedFile } from '../runtimes/run-produced-files.js';
 import { scaffoldHyperFramesComposition } from '../media/hyperframes-scaffold.js';
 import { assignMediaTaskBatches } from '../media/task-batches.js';
 import { mediaTaskErrorFromFailure } from '../media/task-error.js';
@@ -354,6 +355,38 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         hasCompositionDir: Boolean(req.body?.compositionDir),
       }));
 
+      /**
+       * Hand this task's output back to the turn that asked for it.
+       *
+       * A media generation is a 202 dispatch: the file can land long after the
+       * run went terminal, and the run-terminal produced-file floor works off a
+       * filesystem diff frozen before these bytes existed (Plane OPEND-2608 /
+       * OPEND-2609). `associateLateRunProducedFile` is additive and refuses to
+       * act while the run is still live, so the terminal pass keeps ownership
+       * of every file that DID land in time.
+       *
+       * Resolves the project directory exactly the way `generateMedia` does
+       * (`ensureProject(projectsRoot, projectId)` — no metadata), so this points
+       * at the bytes that were actually written.
+       */
+      const attachLateOutputToRunMessage = async (meta: unknown): Promise<void> => {
+        const runId = options.grant?.runId;
+        const name =
+          meta && typeof meta === 'object' && typeof (meta as { name?: unknown }).name === 'string'
+            ? (meta as { name: string }).name
+            : '';
+        if (!runId || !name) return;
+        try {
+          await associateLateRunProducedFile(db, {
+            runId,
+            projectRoot: resolveProjectDir(PROJECTS_DIR, projectId),
+            projectRelativePath: name,
+          });
+        } catch (err) {
+          console.warn('[media] late produced-file association failed', err);
+        }
+      };
+
       const proxyDispatcher = proxyDispatcherRequestInit(process.env, {
         headersTimeout: LONG_MEDIA_PROXY_TIMEOUT_MS,
         bodyTimeout: LONG_MEDIA_PROXY_TIMEOUT_MS,
@@ -426,7 +459,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
           providerRequestSummary = summary;
         },
       })
-        .then((meta: any) => {
+        .then(async (meta: any) => {
           task.status = 'done';
           task.file = meta;
           task.endedAt = Date.now();
@@ -454,6 +487,12 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
             fileSize: typeof meta?.size === 'number' ? meta.size : undefined,
             mime: typeof meta?.mime === 'string' ? meta.mime : undefined,
           }));
+          // Last, and only after the waiters have been told: this generation
+          // may have outlived the turn that asked for it, and the run-terminal
+          // floor froze its file list before these bytes existed. Attach them
+          // to that turn now, additively. A no-op whenever the run is still
+          // live — the terminal pass covers that case on its own.
+          await attachLateOutputToRunMessage(meta);
         })
         .catch((err: any) => {
           task.status = 'failed';
