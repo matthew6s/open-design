@@ -2400,7 +2400,12 @@
   padding: 5px;
   gap: 8px;
   border-color: var(--border-soft);
-  border-radius: var(--radius-xl);
+  /* Concentric with the white input inside it: the input owns the radius
+     (--radius-xl, see .chat-composer-fixed-layer .composer-input-wrap), and
+     the shell adds the 6px it sits outside of that box (1px border + 5px
+     padding) so both corners trace the same curve instead of the shell
+     reading squarer at an equal literal radius. */
+  border-radius: calc(var(--radius-xl) + 6px);
   background: color-mix(in srgb, var(--bg-subtle) 45%, var(--bg-panel));
   box-shadow: none;
 }
