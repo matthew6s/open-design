@@ -4391,12 +4391,17 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(await screen.findByRole('button', { name: /present/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /in this tab/i }));
 
+    // The invariant is unchanged — a presented document must still be able to
+    // download — but the frame it belongs to moved. Presenting promotes the
+    // document already running instead of minting a second one, so the overlay
+    // owns no iframe and the sandbox to check is the preview's own.
     await waitFor(() => {
-      const frame = document.body.querySelector('.present-overlay iframe');
-      expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-downloads');
-      expect(frame?.getAttribute('data-od-render-mode')).toBe('url-load');
+      expect(container.querySelector('.html-viewer.is-tab-present')).toBeTruthy();
     });
-    expect(container.querySelector('.html-viewer.is-tab-present')).toBeTruthy();
+    expect(document.body.querySelector('.present-overlay iframe')).toBeNull();
+    const presentedFrame = container.querySelector('.viewer.is-tab-present iframe');
+    expect(presentedFrame).not.toBeNull();
+    expect(presentedFrame?.getAttribute('sandbox')).toContain('allow-downloads');
     const overlay = document.body.querySelector<HTMLElement>('.present-overlay');
     expect(overlay?.parentElement).toBe(document.body);
     expect(document.body.style.getPropertyValue('--workspace-tabs-chrome-height')).toBe('34px');
@@ -4442,11 +4447,20 @@ describe('FileViewer SVG artifacts', () => {
     fireEvent.click(await screen.findByRole('button', { name: /present/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /in this tab/i }));
 
+    // Escape stops reaching the host once focus is inside the sandboxed frame,
+    // so the presented document forwards it as `od:present-escape`. That path
+    // is unchanged; only the frame that sends it moved, because presenting now
+    // promotes the running preview instead of minting a second document.
+    // The active preview frame specifically: the viewer also holds an inert
+    // second frame, and only the active one is the presented document.
     const frame = await waitFor(() => {
-      const nextFrame = document.body.querySelector<HTMLIFrameElement>('.present-overlay iframe');
+      const nextFrame = container.querySelector<HTMLIFrameElement>(
+        '.viewer.is-tab-present iframe[data-od-active="true"]',
+      );
       expect(nextFrame).toBeTruthy();
       return nextFrame!;
     });
+    expect(document.body.querySelector('.present-overlay iframe')).toBeNull();
     expect(container.querySelector('.html-viewer.is-tab-present')).toBeTruthy();
 
     window.dispatchEvent(new MessageEvent('message', {
