@@ -174,10 +174,13 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* Archive toggle, parked in the card's top-right corner. Revealed on
-   hover/focus only: the summary line already carries title, body and meta, and
-   a permanent button there competed with the chevron for the same corner. It
-   stays reachable by keyboard because `:focus-within` opens it too. */
+/* Archive toggle, parked in the card's top-right corner. Always on (per
+   product: 去 hover 的所有状态) — the card carries no hover feedback at all now,
+   so a reveal-on-hover button would simply be unreachable with a mouse. It sat
+   at `opacity: 0` until `.item:hover`/`:focus-within` opened it, which is
+   exactly the state this card no longer has; touch already got it permanently
+   through a `(hover: none)` block, so this is that treatment everywhere. The
+   chevron it once competed with is inline beside the title, not in the corner. */
 .archiveAction {
   position: absolute;
   top: 8px;
@@ -194,25 +197,6 @@
   background: var(--bg);
   color: var(--text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms var(--ease-out), color 120ms var(--ease-out);
-}
-
-.item:hover .archiveAction,
-.item:focus-within .archiveAction {
-  opacity: 1;
-}
-
-.archiveAction:hover:not(:disabled) {
-  background: var(--bg);
-  color: var(--text-strong);
-}
-
-/* Touch has no hover to reveal it, so it stays put there. */
-@media (hover: none) {
-  .archiveAction {
-    opacity: 1;
-  }
 }
 
 .itemExpanded {
@@ -239,13 +223,9 @@
   cursor: pointer;
 }
 
-.itemSummary:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.itemExpanded .itemSummary:hover {
-  background: transparent;
-}
+/* No hover wash (per product): the summary used to take `--accent` at 5%, with
+   an expanded-state rule cancelling it again. The card is a read surface, not a
+   list row — `cursor: pointer` is the affordance it keeps. */
 
 .itemTitle {
   width: 100%;
