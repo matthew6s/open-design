@@ -2820,6 +2820,7 @@ export const th: Dict = {
   'designFiles.newDocument': 'เอกสารใหม่',
   'designFiles.newDocumentTitle': 'สร้างเอกสาร Markdown ใหม่',
   'designFiles.empty': 'ลากไฟล์มาใส่เลย หรือสร้างภาพสเก็ตช์',
+  'designFiles.buildingPreview': 'ดูตัวอย่างเต็มจอ',
   'designFiles.syncing': 'กำลังซิงค์ไฟล์ที่ทีมแชร์…',
   'designFiles.refresh': 'รีเฟรช',
   'designFiles.delete': 'ลบ',

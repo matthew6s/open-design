@@ -34,7 +34,10 @@ import {
   getHtmlThumbnailSource,
   loadHtmlThumbnailSource,
 } from './html-thumbnail-source-cache';
+import { BuildPreviewToggle } from './design-files/BuildPreviewToggle';
 import { DesignFilesEmptyState } from './design-files/DesignFilesEmptyState';
+import { DesignFilesBuildingState } from './design-files/DesignFilesBuildingState';
+import { selectBuildPreviewHtmlEntry } from './auto-open-file';
 import type { RunProgressStep } from '../runtime/run-progress';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
@@ -68,8 +71,6 @@ interface Props {
   // True while the chat agent is generating. Drives the empty state's status
   // line, so an empty project reads as "working on it" rather than blank.
   running?: boolean;
-  /** The chat's most recent user prompt, echoed by the empty state. */
-  latestUserPrompt?: string | null;
   /** The running turn's tool calls, newest first. The empty state names the
    *  first one as the current step and stacks the rest beneath it. */
   runSteps?: RunProgressStep[];
@@ -451,7 +452,6 @@ export function DesignFilesPanel({
   rootDirName,
   reloading,
   running = false,
-  latestUserPrompt = null,
   runSteps,
   files,
   folders,
@@ -479,6 +479,23 @@ export function DesignFilesPanel({
   const { workspaceContext } = useProjectCollabContext();
   const t = useT();
   const analytics = useAnalytics();
+  // The page the run is currently building, if it has produced one. Only HTML
+  // qualifies: there is nothing to watch take shape in a markdown file or an
+  // image, and swapping the preview for one mid-run would be a downgrade.
+  const buildPreviewName = useMemo(
+    () => (running ? selectBuildPreviewHtmlEntry(files) : null),
+    [running, files],
+  );
+  const buildPreviewFile = useMemo(
+    () => (buildPreviewName ? files.find((file) => file.name === buildPreviewName) ?? null : null),
+    [buildPreviewName, files],
+  );
+  // A long run must not trap the user away from their files. The topbar's
+  // preview switch flips this both ways; it resets when the next run starts.
+  const [buildPreviewDismissed, setBuildPreviewDismissed] = useState(false);
+  useEffect(() => {
+    if (running) setBuildPreviewDismissed(false);
+  }, [running]);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [dropReadError, setDropReadError] = useState<string | null>(null);
   const dragDepthRef = useRef(0);
@@ -1445,7 +1462,19 @@ export function DesignFilesPanel({
       <div className="df-main">
         <div className="df-topbar">
           <div className="df-topbar-left">{breadcrumbs}</div>
-          <div className="df-topbar-right">{fileActions}</div>
+          <div className="df-topbar-right">
+            {/* Only while there is something to preview: a run in flight that
+                has already written a page. Outside that window the pane has
+                one view, and a switch with nothing on its other side would be
+                a control that does nothing. */}
+            {buildPreviewFile && running ? (
+              <BuildPreviewToggle
+                checked={!buildPreviewDismissed}
+                onChange={(next) => setBuildPreviewDismissed(!next)}
+              />
+            ) : null}
+            {fileActions}
+          </div>
         </div>
         <div
           className="df-body"
@@ -1526,7 +1555,21 @@ export function DesignFilesPanel({
               </div>
             </div>
           ) : null}
-          {files.length === 0 && liveArtifacts.length === 0 && (folders?.length ?? 0) === 0 ? (
+          {buildPreviewFile && running && !buildPreviewDismissed ? (
+            /* The middle state: a page exists but the run is still writing it.
+               Watching it take shape beats a grid of file cards whose only news
+               is that a file appeared. Falls back to the grid the moment the run
+               ends, or when the topbar's preview switch is turned off. */
+            <div className="df-empty" data-testid="design-files-building-host">
+              <DesignFilesBuildingState
+                projectId={projectId}
+                file={buildPreviewFile}
+                filesRefreshKey={filesRefreshKey ?? 0}
+                steps={runSteps ?? []}
+                workspaceContext={workspaceContext}
+              />
+            </div>
+          ) : files.length === 0 && liveArtifacts.length === 0 && (folders?.length ?? 0) === 0 ? (
             downloadPending ? (
               // A shared project whose local mirror has not caught up yet
               // reads as EXACTLY the same zero-files result as a genuinely
@@ -1545,11 +1588,7 @@ export function DesignFilesPanel({
               </div>
             ) : (
               <div className="df-empty" data-testid="design-files-empty">
-                <DesignFilesEmptyState
-                  latestUserPrompt={latestUserPrompt}
-                  running={running}
-                  steps={runSteps}
-                />
+                <DesignFilesEmptyState running={running} steps={runSteps} />
               </div>
             )
           ) : (

@@ -13,6 +13,8 @@
 
 import { useEffect, useRef } from 'react';
 
+import { DEFAULT_HOLE_FEATHER, holeAlphaAt, type HoleRect } from './space-hole';
+
 /** Fallback particle tint when the host exposes no `--space-particle`. */
 const AUTO_LIGHT = 'rgba(0, 0, 0, 0.85)';
 const AUTO_DARK = 'rgba(255, 255, 255, 0.85)';
@@ -40,6 +42,15 @@ interface SpaceBackgroundProps {
    * element, falling back to a luminance-matched neutral.
    */
   particleColor?: string;
+  /**
+   * Boxes the field paints around — host-local CSS px, origin top-left. Used to
+   * keep the orbit off the text sitting inside it: the dots fade out as they
+   * approach a hole instead of being clipped, so the edge reads as density
+   * rather than as a cut-out.
+   */
+  holes?: readonly HoleRect[];
+  /** How far a hole's fade reaches, in px. */
+  holeFeather?: number;
   className?: string;
 }
 
@@ -100,9 +111,21 @@ export function SpaceBackground({
   particleCount = 420,
   ringRadius = 150,
   particleColor,
+  holes,
+  holeFeather = DEFAULT_HOLE_FEATHER,
   className,
 }: SpaceBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Read through a ref, never a dependency: the holes are re-measured on every
+  // text change, and a new array identity in the effect's deps would re-seed
+  // the whole field — the orbit would restart every time a status line lands.
+  const holesRef = useRef<readonly HoleRect[]>(holes ?? []);
+  holesRef.current = holes ?? [];
+  const featherRef = useRef(holeFeather);
+  featherRef.current = holeFeather;
+  // The last committed paint, so a hole measurement can refresh the settled
+  // reduced-motion frame (which is painted once and never again).
+  const repaintRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -180,18 +203,49 @@ export function SpaceBackground({
       return Math.max(0, particle.radius * (1 - (1 - OUTER_SCALE) * outward));
     }
 
+    /* Holes arrive in host-local, Y-down CSS px; the canvas draws from the
+       host's CENTER with Y up. Convert once per frame rather than per particle,
+       and hand the particle loop coordinates in its own space. */
+    function holesInCanvasSpace(): HoleRect[] {
+      const source = holesRef.current;
+      if (source.length === 0) return [];
+      const out: HoleRect[] = [];
+      for (const hole of source) {
+        out.push({
+          x: hole.x - width / 2,
+          y: height / 2 - (hole.y + hole.height),
+          width: hole.width,
+          height: hole.height,
+          ...(hole.radius === undefined ? {} : { radius: hole.radius }),
+        });
+      }
+      return out;
+    }
+
     function paint(): void {
       if (!ctx) return;
       ctx.clearRect(-width, -height, width * 2, height * 2);
       ctx.fillStyle = color;
+      const holeRects = holesInCanvasSpace();
+      const feather = featherRef.current;
       for (let i = 0; i < lit; i++) {
         const particle = particles[i];
         if (!particle) continue;
+        // A density fade, not a clip: a dot that would land on the text simply
+        // does not get drawn, and its neighbours dim on the way in, which is
+        // what makes the edge soft without a blur pass.
+        const alpha = holeRects.length === 0
+          ? 1
+          : holeAlphaAt(particle.x, particle.y, holeRects, feather);
+        if (alpha <= 0) continue;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(particle.x, particle.y, drawnRadius(particle), 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
+    repaintRef.current = paint;
 
     resize();
 
@@ -239,6 +293,12 @@ export function SpaceBackground({
       themeObserver.disconnect();
     };
   }, [particleCount, ringRadius, particleColor]);
+
+  // The animated field picks new holes up on its next frame; the reduced-motion
+  // field has already painted its only frame, so it needs telling.
+  useEffect(() => {
+    repaintRef.current?.();
+  }, [holes, holeFeather]);
 
   return (
     <canvas

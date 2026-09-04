@@ -167,11 +167,11 @@ describe("DesignFilesPanel sections", () => {
     expect(screen.queryByTestId("design-files-empty-new-document")).toBeNull();
   });
 
-  it("echoes the chat's latest prompt in the empty state instead of starter CTAs", () => {
-    renderPanel([], { latestUserPrompt: "Build me a design studio portfolio" });
+  it("shows the agent's state in the empty state instead of starter CTAs", () => {
+    renderPanel([], { running: true });
 
     const center = screen.getByTestId("design-files-empty-chat");
-    expect(center.textContent).toContain("Build me a design studio portfolio");
+    expect(center.textContent).toContain("Thinking");
     // Creating things now happens through the tab strip's "+" launcher.
     expect(screen.queryByTestId("design-files-empty-new-sketch")).toBeNull();
     expect(screen.queryByTestId("design-files-empty-new-document")).toBeNull();
@@ -180,16 +180,16 @@ describe("DesignFilesPanel sections", () => {
     expect(screen.queryByTestId("design-files-empty-create-design-system")).toBeNull();
   });
 
-  it("swaps the empty state's status line while the agent is running", () => {
-    renderPanel([], { latestUserPrompt: "Build me a portfolio", running: true });
+  it("carries the agent's state while it runs, and nothing at rest", () => {
+    renderPanel([], { running: true });
     expect(screen.getByTestId("design-files-empty-chat").textContent).toContain("Thinking");
 
     cleanup();
 
-    renderPanel([], { latestUserPrompt: "Build me a portfolio", running: false });
-    expect(screen.getByTestId("design-files-empty-chat").textContent).toContain(
-      "Creations will appear here",
-    );
+    // At rest the ring is just the particle field: a line of copy inside the
+    // circle reads as a caption on the animation, not as the pane's state.
+    renderPanel([], { running: false });
+    expect(screen.getByTestId("design-files-empty-chat").textContent).toBe("");
   });
 
   it("groups files into category tabs and shows one group at a time", () => {
@@ -1030,5 +1030,84 @@ describe("DesignFilesPanel pending sync (downloadPending)", () => {
     expect(screen.queryByText("version-one.txt")).toBeNull();
     expect(screen.getByText("version-two.txt")).toBeTruthy();
     expect(document.querySelector(".skeleton-block")).toBeNull();
+  });
+});
+
+// The middle state: a page exists, the run is still writing it. Before this,
+// the pane jumped from the particle field straight to a grid of file cards, so
+// the artifact was never shown taking shape.
+describe("building preview", () => {
+  // The suite's other cleanup hook is scoped to its own describe block.
+  afterEach(() => {
+    cleanup();
+  });
+
+  const page = () => file({ name: "index.html", kind: "html" });
+
+  it("watches the page while the run is still writing it", () => {
+    renderPanel([page()], { running: true });
+
+    expect(screen.getByTestId("design-files-building")).toBeTruthy();
+    // The grid is what it replaces, not something it sits on top of.
+    expect(screen.queryByTestId("design-file-row-index.html")).toBeNull();
+  });
+
+  it("hands the pane back to the file grid when the run ends", () => {
+    const { rerender } = renderPanel([page()], { running: true });
+    expect(screen.getByTestId("design-files-building")).toBeTruthy();
+
+    rerender(
+      <DesignFilesPanel
+        projectId="test-project"
+        files={[page()]}
+        liveArtifacts={[]}
+        running={false}
+        onRefreshFiles={vi.fn()}
+        onOpenFile={vi.fn()}
+        onOpenLiveArtifact={vi.fn()}
+        onRenameFile={vi.fn()}
+        onDeleteFile={vi.fn()}
+        onDeleteFiles={vi.fn()}
+        onUploadFiles={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("design-files-building")).toBeNull();
+    expect(screen.getByTestId("design-file-row-index.html")).toBeTruthy();
+  });
+
+  it("stays out of the way for a run that has produced no page", () => {
+    renderPanel([file({ name: "notes.md", kind: "text", mime: "text/markdown" })], {
+      running: true,
+    });
+
+    expect(screen.queryByTestId("design-files-building")).toBeNull();
+    expect(screen.getByTestId("design-file-row-notes.md")).toBeTruthy();
+  });
+
+  // One switch, both directions. The button it replaced only went one way:
+  // once the preview was dismissed, the run had no route back to it.
+  it("lets the user leave the preview for the files, and come back", () => {
+    renderPanel([page()], { running: true });
+
+    const toggle = screen.getByTestId("design-files-preview-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByTestId("design-files-building")).toBeNull();
+    expect(screen.getByTestId("design-file-row-index.html")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("design-files-building")).toBeTruthy();
+  });
+
+  // A switch with nothing on its other side would be a control that does
+  // nothing: outside a run that has written a page, the pane has one view.
+  it("shows no preview switch when no run is writing a page", () => {
+    renderPanel([page()], { running: false });
+
+    expect(screen.queryByTestId("design-files-preview-toggle")).toBeNull();
   });
 });

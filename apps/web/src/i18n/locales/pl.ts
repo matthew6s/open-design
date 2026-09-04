@@ -2820,6 +2820,7 @@ export const pl: Dict = {
   'designFiles.newDocument': 'Nowy dokument',
   'designFiles.newDocumentTitle': 'Utwórz nowy dokument Markdown',
   'designFiles.empty': 'Twoje kreacje pojawią się tutaj',
+  'designFiles.buildingPreview': 'Podgląd pełnoekranowy',
   'designFiles.syncing': 'Synchronizowanie plików udostępnionych przez zespół…',
   'designFiles.refresh': 'Odśwież',
   'designFiles.delete': 'Usuń',

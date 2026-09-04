@@ -2820,6 +2820,7 @@ export const id: Dict = {
   'designFiles.newDocument': 'Dokumen baru',
   'designFiles.newDocumentTitle': 'Buat dokumen Markdown baru',
   'designFiles.empty': 'Belum ada file desain.',
+  'designFiles.buildingPreview': 'Pratinjau layar penuh',
   'designFiles.syncing': 'Menyinkronkan file yang dibagikan tim…',
   'designFiles.refresh': 'Refresh',
   'designFiles.delete': 'Hapus',

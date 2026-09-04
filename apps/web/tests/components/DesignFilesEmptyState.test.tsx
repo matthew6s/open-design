@@ -19,7 +19,7 @@ function step(
   target: string | null,
   toolName = 'Tool',
 ): RunProgressStep {
-  return { id, category, toolName, target };
+  return { id, category, toolName, target, anchor: null };
 }
 
 function renderState(props: Parameters<typeof DesignFilesEmptyState>[0]) {
@@ -37,7 +37,6 @@ afterEach(() => {
 describe('DesignFilesEmptyState', () => {
   it('names the current step instead of a static "thinking"', () => {
     renderState({
-      latestUserPrompt: '做个作品集',
       running: true,
       steps: [step('2', 'edit', 'index.html'), step('1', 'read', 'site.css')],
     });
@@ -46,7 +45,10 @@ describe('DesignFilesEmptyState', () => {
     expect(screen.queryByText('思考中')).toBeNull();
   });
 
-  it('stacks the earlier steps under the current one, newest first', () => {
+  // The steps read as a log now: oldest at the top, the step happening RIGHT
+  // NOW on the bottom line. `runProgressSteps` still hands them over
+  // newest-first — the ordering is presentation, and lives in the component.
+  it('reads as a log: oldest first, the current step on the last line', () => {
     renderState({
       running: true,
       steps: [
@@ -56,33 +58,54 @@ describe('DesignFilesEmptyState', () => {
       ],
     });
 
-    const trail = screen.getByTestId('design-files-empty-trail');
-    expect([...trail.children].map((li) => li.textContent)).toEqual([
-      '编辑 index.html',
+    const feed = screen.getByTestId('run-step-feed');
+    expect([...feed.children].map((li) => li.textContent)).toEqual([
       '读取 site.css',
+      '编辑 index.html',
+      'Bash pnpm build',
     ]);
+    const current = [...feed.children].filter(
+      (li) => li.getAttribute('data-current') === 'true',
+    );
+    expect(current.map((li) => li.textContent)).toEqual(['Bash pnpm build']);
   });
 
   it('falls back to "thinking" while the turn has called nothing yet', () => {
-    renderState({ latestUserPrompt: '做个作品集', running: true, steps: [] });
+    renderState({ running: true, steps: [] });
 
     expect(screen.getByText('思考中')).toBeTruthy();
     expect(screen.queryByTestId('design-files-empty-trail')).toBeNull();
   });
 
-  it('drops the trail when the run is over, and keeps the idle copy', () => {
+  // The ring reports the agent's work. The prompt the user just typed is
+  // already in the chat column, and echoing it here both put user input inside
+  // the circle and pushed the status line down a row.
+  it('keeps the user\'s own prompt out of the ring, status on the first line', () => {
+    renderState({ running: true, steps: [] });
+
+    const center = screen.getByTestId('design-files-empty-chat');
+    expect(center.textContent).toBe('思考中');
+  });
+
+  // With no run in flight the ring is just the field turning. The copy that
+  // used to rest in it ("designs will appear here") is not the agent doing
+  // something, and inside the circle it read as a caption on the animation.
+  it('says nothing at all once the run is over', () => {
     renderState({
       running: false,
       steps: [step('2', 'edit', 'index.html'), step('1', 'read', 'site.css')],
     });
 
     expect(screen.queryByTestId('design-files-empty-trail')).toBeNull();
-    expect(screen.getByText('生成的设计会出现在这里')).toBeTruthy();
+    expect(screen.queryByText('生成的设计会出现在这里')).toBeNull();
+    expect(screen.getByTestId('design-files-empty-chat').textContent).toBe('');
   });
 
-  it('names an unclassified tool by its own name', () => {
+  // Chat heads a tool it has no card for with the raw name (GenericCard), so
+  // the ring does too — the two surfaces title one call the same way.
+  it('names an unclassified tool by its own name, as Chat does', () => {
     renderState({ running: true, steps: [step('1', 'other', null, 'mcp__figma__export')] });
 
-    expect(screen.getByText('调用 mcp__figma__export')).toBeTruthy();
+    expect(screen.getByText('mcp__figma__export')).toBeTruthy();
   });
 });

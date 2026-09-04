@@ -1,89 +1,61 @@
-import { useT } from '../../i18n';
-import type { Dict } from '../../i18n/types';
+import { useRef } from 'react';
+
 import type { RunProgressStep } from '../../runtime/run-progress';
 import { SpaceBackground } from '../workspace/SpaceBackground';
+import { RunStepFeed } from './RunStepFeed';
+import { useTextHoleRects } from './useTextHoleRects';
 import styles from './DesignFilesEmptyState.module.css';
 
 interface Props {
-  /** The user's most recent chat prompt, echoed back while the agent works. */
-  latestUserPrompt?: string | null;
   /** True while the chat agent is generating. */
   running?: boolean;
   /** The running turn's tool calls, newest first (see `runtime/run-progress`). */
   steps?: RunProgressStep[];
 }
 
-/** The verb naming each tool family. Categories the map does not name fall
- *  back to "Calling <tool>", which is the only honest line for a tool this
- *  build has never seen. */
-const VERB_KEY: Partial<Record<RunProgressStep['category'], keyof Dict>> = {
-  write: 'assistant.verbWriting',
-  edit: 'assistant.verbEditing',
-  read: 'assistant.verbReading',
-  run: 'assistant.verbRunning',
-  search: 'assistant.verbSearching',
-  fetch: 'assistant.verbFetching',
-};
-
-function stepLabel(step: RunProgressStep, t: ReturnType<typeof useT>): string {
-  const verbKey = VERB_KEY[step.category];
-  if (!verbKey) return `${t('assistant.verbCalling')} ${step.toolName}`;
-  return step.target ? `${t(verbKey)} ${step.target}` : t(verbKey);
-}
-
 /**
  * Design Files with nothing in it yet. Instead of a card of creation CTAs
  * (those all live in the tab strip's "+" launcher), the pane shows the
- * orbiting particle field with the conversation's current state at its center:
- * what the user asked for, and whether the agent is working on it. An empty
- * project generating its first file therefore gets feedback on both sides of
- * the split, not just in the chat column.
+ * orbiting particle field with the AGENT's state at its center: whether it is
+ * thinking, and which tool call it is on.
  *
- * While a run streams, the status line under the prompt names the CURRENT step
- * ("Editing index.html") rather than a static "Thinking", and the steps behind
- * it stack underneath — newest first, fading out — so the pane reads as
- * progress instead of a spinner with words.
+ * Only the agent's own lines go inside the ring, and only while it is working.
+ * Two things used to sit in there that were not the work: the user's latest
+ * prompt (a sentence they had just typed and can still read in the chat
+ * column, which also pushed the state line down a row) and, at rest, the copy
+ * "designs will appear here". Neither is the agent doing something, so with no
+ * run in flight the ring is just the field turning.
+ *
+ * The field paints AROUND the words. Every particle collapses onto one 105px
+ * ring centered in the pane — exactly where this text sits — so the orbit used
+ * to run straight through the sentences. The text's own line boxes are measured
+ * and handed to `SpaceBackground` as holes, which fades the dots out as they
+ * approach instead of clipping them. The block that holds them is sized to the
+ * box inscribed in that ring (see the module CSS), so no line can cross it.
+ *
+ * The steps read as a log (see `RunStepFeed`): oldest at the top, the current
+ * step on the bottom line, the feed following the tail.
  */
-export function DesignFilesEmptyState({
-  latestUserPrompt,
-  running = false,
-  steps = [],
-}: Props) {
-  const t = useT();
-  // The trail belongs to the run: an idle pane showing the last turn's tool
-  // calls would be claiming work that already finished.
-  const [current, ...trail] = running ? steps : [];
-  const status = running
-    ? current
-      ? stepLabel(current, t)
-      : // Nothing has been called yet — the turn really is just thinking.
-        t('assistant.thinking')
-    : t('designFiles.empty');
+export function DesignFilesEmptyState({ running = false, steps = [] }: Props) {
+  const centerRef = useRef<HTMLDivElement | null>(null);
+  // Re-measured whenever the text can have moved: a new step, the run ending,
+  // or the feed scrolling its own content down by one line.
+  const holes = useTextHoleRects(centerRef, `${running}|${steps.length}`);
+
   return (
     <>
       {/* A smaller field than the component's default (per product): the ring
           and the spread around it are both driven by `ringRadius`, and the
           count follows its area so the field keeps its density instead of
           reading as the same orbit with holes in it. */}
-      <SpaceBackground className={styles.field} ringRadius={105} particleCount={210} />
-      <div className={styles.center} data-testid="design-files-empty-chat">
-        {latestUserPrompt ? <p className={styles.prompt}>{latestUserPrompt}</p> : null}
-        <p className={styles.status} data-running={running ? 'true' : 'false'}>
-          {status}
-        </p>
-        {trail.length > 0 ? (
-          // Newest first, so the line under the status is always the step just
-          // before it and the list needs no scrolling of its own — which it
-          // could not do anyway: the center block stays click-through so the
-          // drop target underneath keeps working (see `.center`).
-          <ul className={styles.trail} data-testid="design-files-empty-trail">
-            {trail.map((step) => (
-              <li key={step.id} className={styles.trailItem}>
-                {stepLabel(step, t)}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+      <SpaceBackground
+        className={styles.field}
+        ringRadius={105}
+        particleCount={210}
+        holes={holes}
+      />
+      <div className={styles.center} data-testid="design-files-empty-chat" ref={centerRef}>
+        <RunStepFeed running={running} steps={steps} className={styles.centerFeed} />
       </div>
     </>
   );

@@ -162,6 +162,11 @@
   height: 30px;
   justify-content: center;
   padding: 0;
+  /* A circle (per product: 这个三个点的是圆形的). The button primitive's
+     `--radius-sm` drew a rounded square around a box that is already 30×30, so
+     the pill radius is the only thing standing between it and a disc — the
+     focus ring follows the same curve. */
+  border-radius: var(--radius-pill, 999px);
 }
 .df-project-menu {
   position: absolute;

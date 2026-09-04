@@ -168,7 +168,6 @@ import {
 } from './sketch-model';
 import { AnimatePresence } from 'motion/react';
 import type { ChatMessage } from '../types';
-import { latestUserPromptText } from '../runtime/latest-user-prompt';
 import { runProgressSteps } from '../runtime/run-progress';
 import type { CommentSendResult } from './comment-send-result';
 
@@ -1614,13 +1613,10 @@ export function FileWorkspace({
     [files],
   );
 
-  // Echoed by the Design Files empty state while a run is in flight, so the
-  // right pane names the request it is working on. Memoized to a plain string
-  // so streamed tokens do not push a new object through the panel every frame.
-  const latestUserPrompt = useMemo(() => latestUserPromptText(messages), [messages]);
-  // The other half of that empty state: what the run is doing right now, and
-  // the steps behind it. Recomputed per streamed event by design — a tool call
-  // landing IS the update the pane is there to show.
+  // What the Design Files empty state shows while a run is in flight: what the
+  // run is doing right now, and the steps behind it. Recomputed per streamed
+  // event by design — a tool call landing IS the update the pane is there to
+  // show.
   const runSteps = useMemo(() => runProgressSteps(messages), [messages]);
 
   // Known-file set for the side chat's file-link routing — same shape
@@ -4255,7 +4251,6 @@ export function FileWorkspace({
             rootDirName={rootDirName}
             reloading={reloading}
             running={Boolean(streaming)}
-            latestUserPrompt={latestUserPrompt}
             runSteps={runSteps}
             files={visibleFiles}
             folders={projectFolders}

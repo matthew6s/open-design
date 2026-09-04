@@ -11,61 +11,29 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 48px 24px;
-  max-width: min(460px, 92%);
+  justify-content: center;
+  /* The words live INSIDE the ring, never across it. This is the box
+     inscribed in the field's 105px ring (`ringRadius` in the component):
+     168 x 112 has a half-diagonal of hypot(84, 56) ~= 101px, so even a
+     full-width line at the very top or bottom of the stack stays a few px
+     clear of the orbit. `overflow: hidden` is the guarantee — a line longer
+     or a stack taller than this is clipped by the box, not spilled over the
+     circle. Ellipsis and the log's own top fade make the clip read as
+     deliberate; see RunStepFeed.module.css. */
+  width: 168px;
+  max-width: 92%;
+  max-height: 112px;
+  overflow: hidden;
   text-align: center;
-  /* The field orbits the pane's center; the text sits inside that ring and
-     must not swallow clicks meant for the drop target underneath. */
+  /* The field orbits the pane's center and now paints around these words (the
+     line boxes are measured and handed over as holes). The block must not
+     swallow clicks meant for the drop target underneath — which is also why the
+     step feed inside scrolls itself instead of offering a scrollbar. */
   pointer-events: none;
 }
 
-.prompt {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.005em;
-  color: var(--text-strong);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-}
-
-.status {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-
-/* The steps behind the current one. Newest first and clipped to a few lines:
-   this is peripheral context under the status line, not a log to read. The
-   mask does the fading — the block is click-through (see `.center`), so it
-   cannot scroll and must never look like it has more below a hard edge. */
-.trail {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-width: 100%;
-  /* Five lines at this size; the last two are already inside the fade. */
-  max-height: 82px;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 30%, transparent 100%);
-}
-
-.trailItem {
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--text-soft);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* The feed owns its own type and fade (RunStepFeed.module.css); here it only
+   needs to stay inside the centered column. */
+.centerFeed {
+  align-self: stretch;
 }

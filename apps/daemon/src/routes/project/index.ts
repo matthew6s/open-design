@@ -7,6 +7,10 @@ import {
   buildPreviewObservabilityBridge,
 } from '@open-design/contracts/runtime/preview-observability';
 import {
+  PREVIEW_BUILD_FOCUS_BRIDGE_MARKER,
+  buildPreviewBuildFocusBridge,
+} from '@open-design/contracts/runtime/preview-build-focus';
+import {
   defaultScenarioPluginIdForProjectMetadata,
   type ChatSessionMode,
   type LocalCatalogScope,
@@ -1394,6 +1398,12 @@ function wantsUrlPreviewObservabilityBridge(value: unknown): boolean {
   return previewBridgeTokens(value).some((token) => token === 'observability' || token === 'errors' || token === 'diagnostics');
 }
 
+/** The build-focus bridge: lets the host park a cursor on the part of the page
+ *  the agent is writing right now (see the contracts module for the protocol). */
+function wantsUrlPreviewBuildFocusBridge(value: unknown): boolean {
+  return previewBridgeTokens(value).some((token) => token === 'buildfocus' || token === 'build-focus');
+}
+
 function injectBeforeBodyClose(html: string, marker: string, injection: string): string {
   if (html.includes(marker)) return html;
   const bodyCloseIndex = html.search(/<\/body\s*>/i);
@@ -1414,12 +1424,24 @@ function injectAfterHeadOpen(html: string, marker: string, injection: string): s
   return `${injection}${html}`;
 }
 
-function injectUrlPreviewBridge(html: string, bridge: 'scroll' | 'selection' | 'snapshot' | 'observability'): string {
+function injectUrlPreviewBridge(
+  html: string,
+  bridge: 'scroll' | 'selection' | 'snapshot' | 'observability' | 'buildfocus',
+): string {
   if (bridge === 'observability') {
     return injectAfterHeadOpen(
       html,
       PREVIEW_OBSERVABILITY_BRIDGE_MARKER,
       buildPreviewObservabilityBridge(),
+    );
+  }
+  if (bridge === 'buildfocus') {
+    // Before </body>, like the scroll bridge: it walks the rendered DOM, so it
+    // must not run before the document it measures exists.
+    return injectBeforeBodyClose(
+      html,
+      PREVIEW_BUILD_FOCUS_BRIDGE_MARKER,
+      buildPreviewBuildFocusBridge(),
     );
   }
   if (bridge === 'scroll') {
@@ -1441,7 +1463,8 @@ function applyUrlPreviewBridgesToHtml(
       wantsUrlPreviewScrollBridge(requestedBridge) ||
       wantsUrlPreviewSelectionBridge(requestedBridge) ||
       wantsUrlPreviewSnapshotBridge(requestedBridge) ||
-      wantsUrlPreviewObservabilityBridge(requestedBridge)
+      wantsUrlPreviewObservabilityBridge(requestedBridge) ||
+      wantsUrlPreviewBuildFocusBridge(requestedBridge)
     ) ||
     !/^text\/html(?:;|$)/i.test(mime)
   ) {
@@ -1455,6 +1478,9 @@ function applyUrlPreviewBridgesToHtml(
   html = daemonSanitizeTitleInDoc(html);
   if (wantsUrlPreviewObservabilityBridge(requestedBridge)) {
     html = injectUrlPreviewBridge(html, 'observability');
+  }
+  if (wantsUrlPreviewBuildFocusBridge(requestedBridge)) {
+    html = injectUrlPreviewBridge(html, 'buildfocus');
   }
   if (wantsUrlPreviewScrollBridge(requestedBridge)) {
     html = injectUrlPreviewBridge(html, 'scroll');
