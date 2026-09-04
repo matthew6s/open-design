@@ -252,12 +252,27 @@ export type DaemonAgentPayload =
    *    tools (`Bash`, `Grep`, …) are never scanned at all.
    *  - **Stable.** `path` equals the `file_path` of the `tool_use` that follows
    *    for the same `id`, so a row built from this never renames itself.
+   *  - **`startedAt` is when the daemon first saw this call** — the
+   *    `content_block_start` of its `tool_use` block, NOT the moment the path
+   *    finished scanning (measured 0.2s apart on a real 2.1.260 run) and NOT
+   *    the moment the arguments closed (94.1s later on that same run). It is
+   *    the same immovable origin `tool_input_progress` reports for this `id`,
+   *    so the two events never disagree and the row's seconds never jump back.
+   *
+   * Why the origin has to ride on THIS event and not only on
+   * `tool_input_progress`: `Edit` / `MultiEdit` / `NotebookEdit` / `replace`
+   * emit no progress at all (their `−M` is unknowable mid-stream), so this is
+   * the only thing those calls ever send early. Without it their row shows a
+   * file name and a dead stopwatch, and — because
+   * `dropSupersededInFlightToolUses` carries this origin onto the settled row —
+   * the finished row falls back to the emit-time stamp and reports only the
+   * disk write, hiding the whole argument stream behind a "0.1s".
    *
    * NOT persisted — see `runSseEventToPersistedAgentEvent`. After the run the
    * finished `tool_use` carries the same path, and a reloaded conversation must
    * show one row per call, not two.
    */
-  | { type: 'tool_input_target'; id: string; name: string; path: string }
+  | { type: 'tool_input_target'; id: string; name: string; path: string; startedAt: number }
   /**
    * How much of that file has been written **so far**, while the arguments are
    * still streaming.

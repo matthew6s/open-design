@@ -2493,6 +2493,18 @@ function translateAgentEvent(data: DaemonAgentPayload): AgentEvent | null {
       // The early form of this very call — same id, same path, no arguments.
       // `dropSupersededInFlightToolUses` retires it when the real one lands.
       input: { file_path: data.path, [IN_FLIGHT_TOOL_INPUT_MARKER]: true },
+      /*
+       * 这次调用的**不动的计时起点**(daemon 那边是 `content_block_start` 那一刻)。
+       *
+       * 少了它,`build-turn-blocks` 的 `spanElapsed(undefined, liveEndMs)` 返回
+       * null,行上那一格秒数是空的 —— 文件名在,秒表不走。`Edit` / `MultiEdit` /
+       * `NotebookEdit` / `replace` **只有**这一条早期事件(在途算不出 `−M`,所以
+       * `tool_input_progress` 一条都不发),它们没有第二次机会补上起点。
+       *
+       * 不是数字就当没有:宁可这一行没有秒表,也不能因为一个脏字段整行不上屏 ——
+       * 「调用开始就上屏」是红线,秒表是红线的一半。
+       */
+      ...(typeof data.startedAt === 'number' ? { startedAt: data.startedAt } : {}),
     };
   }
   /*

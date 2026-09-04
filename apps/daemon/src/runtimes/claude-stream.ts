@@ -1036,6 +1036,23 @@ export function createClaudeStreamHandler(
                 id: state.id,
                 name: state.name,
                 path: update.path,
+                /*
+                 * 起点必须跟着这一条一起走,因为 `Edit` / `MultiEdit` /
+                 * `NotebookEdit` / `replace` **只有**这一条 —— 行数在途算不出来
+                 * (`−M` 要等 `old_string` 数完),`tool_input_progress` 一条都不
+                 * 发。少了它,行上有文件名而秒表不走(`build-turn-blocks` 的
+                 * `spanElapsed(undefined, live)` 返回 null),而且落定之后
+                 * `dropSupersededInFlightToolUses` 没有可搬的起点,结算行退回
+                 * `emitAgentEvent` 出口盖的时刻 —— 那是**入参传完**的一刻,
+                 * 整段流式传输被排除在外。真机 2026-09-04 实测(claude 2.1.260,
+                 * 27458 字节入参)这一段是 **94.1 秒**,行上却只剩落盘的 0.1 秒。
+                 *
+                 * 用 `state.startedAt`(块开始那一刻)而不是此刻:此刻是**路径
+                 * 扫出来**的时刻,真机那次比块开始晚 0.2 秒。同一次调用的
+                 * `tool_input_progress` 用的也是它,所以两条报的是同一个起点 ——
+                 * 起点在一次调用里必须不动,否则行上的秒数会被一路按回去。
+                 */
+                startedAt: state.startedAt ?? now(),
               });
             }
             /*

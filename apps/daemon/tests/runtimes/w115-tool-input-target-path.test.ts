@@ -151,8 +151,14 @@ describe('W115 · 在途写文件行的文件名', () => {
   /**
    * ⚠️ 最重要的一条反向对照:**原始 JSON 没有进事件流。**
    *
-   * `tool_input_target` 的 payload 只有 id / name / path。那 20KB 的 `content`
-   * 一个字节都不许出现在它身上。
+   * `tool_input_target` 的 payload 只有 id / name / path / startedAt。那 20KB 的
+   * `content` 一个字节都不许出现在它身上。
+   *
+   * ⚠️ `startedAt` 是 W136 有意加的第四个字段,**一个数字**,不是入参的任何一部分:
+   * `Edit` / `MultiEdit` / `NotebookEdit` / `replace` 在途算不出 `−M`,所以
+   * `tool_input_progress` 一条都不发 —— 这一条是它们**唯一**的早期事件,起点不搭在
+   * 它身上就没有第二次机会,行上会只有文件名而秒表不走。名单是白名单不是计数:
+   * 再多任何一个字段都必须先回答「它是不是从入参里抄出来的」。
    */
   it('反向:target 事件里没有一个字节的 content', () => {
     const events = replayWithLineNumbers(readRecording(SINGLE_TURN));
@@ -161,8 +167,10 @@ describe('W115 · 在途写文件行的文件名', () => {
 
     for (const target of targets) {
       const { __line: _line, ...payload } = target;
-      // 只有这三个字段,多一个都不行
-      expect(Object.keys(payload).sort()).toEqual(['id', 'name', 'path', 'type'].sort());
+      // 只有这四个字段,多一个都不行
+      expect(Object.keys(payload).sort()).toEqual(['id', 'name', 'path', 'startedAt', 'type'].sort());
+      // 而且新加的那个必须是数字 —— 白名单挡不住「换了个名字的正文」
+      expect(typeof payload.startedAt, 'startedAt 不是数字 —— 白名单被塞了别的东西').toBe('number');
       const serialized = JSON.stringify(payload);
       expect(serialized, '文件正文漏进 target 事件了').not.toContain('doctype');
       expect(serialized).not.toContain('<h1>');
