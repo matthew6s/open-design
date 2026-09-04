@@ -175,6 +175,8 @@ export function createCodexAppServerNormalizer(
   let unknownItems = 0;
   let planFrameSeq = 0;
   let warningSeq = 0;
+  // High-water mark for the live thinking-token reading; see emitThinkingTokens.
+  let highestReasoningTokens = 0;
 
   // Assistant-message continuity, mirroring the `exec --json` rule: two
   // consecutive assistant messages are separated by a newline, but a tool call
@@ -356,6 +358,36 @@ export function createCodexAppServerNormalizer(
     if (totalTokens !== undefined) usage.total_tokens = totalTokens;
     if (Object.keys(usage).length === 0) return;
     emit({ type: 'usage', usage });
+    emitThinkingTokens(reasoning);
+  }
+
+  /**
+   * The live 「思考中」 reading, from the same notification the billing counters
+   * ride on.
+   *
+   * codex encrypts its reasoning content, so the shell can never show the words
+   * — but the COUNT is in the clear and arrives throughout the turn, which is
+   * exactly the progress signal claude's `thinking_tokens` frame supplies on
+   * its own wire. Emitting the same event here is what puts codex on the slot
+   * `ExecutionShell` already renders; nothing downstream needed a new shape.
+   *
+   * `total.reasoningOutputTokens` is the thread-cumulative counter and the only
+   * honest source. Its sibling `last` is per upstream CALL, not per turn: in one
+   * recorded turn (codex-cli 0.153.0, 2026-09-04) it read
+   * 28, 15, 0, 14, 8, 62, 0, 0 while `total` read 28, 43, 43, 57, 65, 127, 127,
+   * 127. A slot fed from `last` would count down mid-thought.
+   *
+   * The high-water clamp below is belt-and-braces on top of that: codex's own
+   * counter has never been observed to retreat, but this reading is a number
+   * the user watches climb, and a single rewind reads as a bug in the software
+   * rather than in the wire. Zero is withheld rather than emitted — it is the
+   * absence of a progress signal, not a progress signal worth a row.
+   */
+  function emitThinkingTokens(reasoningTokens: number | undefined): void {
+    if (reasoningTokens === undefined || reasoningTokens <= 0) return;
+    if (reasoningTokens <= highestReasoningTokens) return;
+    highestReasoningTokens = reasoningTokens;
+    emit({ type: 'thinking_tokens', tokens: reasoningTokens });
   }
 
   function handleTurnPlan(params: JsonObject): void {

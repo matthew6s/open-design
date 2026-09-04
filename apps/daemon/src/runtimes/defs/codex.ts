@@ -215,6 +215,38 @@ export function codexReasoningSummaryArgs(): string[] {
   return ['-c', 'model_reasoning_summary="detailed"'];
 }
 
+// Codex registers its `update_plan` tool only when `tools.update_plan.enabled`
+// resolves true, and on codex-cli 0.153.0 the default is OFF. The daemon
+// therefore has to ask for it, or no codex turn can ever produce a Todos card
+// however plainly the system prompt names the tool (OPEND-2410).
+//
+// Measured on codex-cli 0.153.0 against the real CLI, driving `codex
+// app-server` with byte-identical argv to this file's and the same JSON-RPC
+// handshake, on one prompt that says 「用你的计划工具记录三步计划」:
+//
+//   without → 0 × `turn/plan/updated`, and the plan arrives as reply prose
+//   with    → 4 × `turn/plan/updated`, each `plan: [{ step, status }, …]`
+//
+// `handleTurnPlan` in agent-protocol/codex-app-server/normalize.ts already
+// turns exactly that notification into a `todo_list` frame, so asking for the
+// tool is the whole fix — no parser change is involved.
+//
+// Two supporting facts, both read out of the 0.153.0 binary rather than
+// guessed, explain why this stopped working without anyone touching OD:
+// codex's embedded model catalog carries the `update_plan` briefing in the
+// `gpt-5.2` entry ONLY — `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, and the whole
+// `gpt-5.6-*` family mention it zero times — and those newer models run
+// `"tool_mode": "code_mode_only"`. So on a current model the tool is both
+// unbriefed and unregistered by default.
+//
+// Unconditional for the same reason `codexReasoningSummaryArgs` is: codex
+// hashes the per-turn `turn_context`, so an override present on some turns and
+// absent on others would break the prefix cache `exec resume` exists to reuse,
+// and would make the Todos card blink out on the second turn of a thread.
+export function codexUpdatePlanToolArgs(): string[] {
+  return ['-c', 'tools.update_plan.enabled=true'];
+}
+
 export function codexNeedsDangerFullAccessSandbox(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
@@ -338,6 +370,7 @@ export const codexAgentDef = {
       }
       args.push(...codexOpenDesignShellEnvironmentArgs());
       args.push(...codexReasoningSummaryArgs());
+      args.push(...codexUpdatePlanToolArgs());
       // `-C <cwd>` and `--add-dir <dir>` are CREATE-only flags: `codex exec
       // resume` rejects both (`error: unexpected argument '-C' found`), so
       // appending them on a resume turn would make the follow-up turn die
@@ -547,6 +580,9 @@ function buildCodexAppServerArgs(
     args.push('--disable', 'plugins');
   }
   args.push(...codexOpenDesignShellEnvironmentArgs());
+  // The plan tool has no `thread/start` or `turn/start` parameter, so unlike
+  // the model / effort / summary knobs it stays on argv on this transport too.
+  args.push(...codexUpdatePlanToolArgs());
   if (codexResolvedSandboxMode() === 'workspace-write') {
     args.push('-c', 'sandbox_workspace_write.network_access=true');
     const dirs = (extraAllowedDirs || []).filter(

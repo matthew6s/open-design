@@ -53,6 +53,10 @@ import {
   toolTitle,
 } from './tool-kind';
 import { IN_FLIGHT_TOOL_OUTPUT_KEY } from '../tool-events';
+import {
+  THINKING_TOKENS_STALL_ENTER_MS,
+  thinkingTokenReadingIsStale,
+} from './thinking-slot';
 
 /**
  * done 标记 —— **每轮一次性密钥**。
@@ -292,18 +296,19 @@ function scanTurnMarkers(raw: string, runKey: string | null): MarkerScan {
  * 导出是**故意**的:判据钉在
  * `tests/runtime/chat/thinking-token-count.test.ts`,改这个数会当场红。
  */
-export const THINKING_TOKENS_STALL_MS = 8_000;
-
 /**
- * 这个读数还新不新。
+ * 「很久没变」里的「很久」,现在是**进**的那一个门槛。
  *
- * 拿不到到达时刻(`at` 是可选的)就一律当**还新** —— 「不知道多久没变」和
- * 「很久没变」是两回事,把前者当后者会在一条完全健康的流上把 token 换成秒数。
+ * ⚠️ 这个 8 秒已经不成立了,值和判据都搬到了 `./thinking-slot`。原因:8s 是拿
+ * claude 的密流量出来的(帧距 p50 1.4s、最大观测 4.88s),而 codex 的进度读数走
+ * `thread/tokenUsage/updated`,真实间隔中位数 ~14s —— **每一条**都越过 8s,于是
+ * 一轮里这个槽在 token 和秒数之间翻了 38 次面。用户 2026-09-04 对此划了红线:
+ * 「不能高频的来回闪动…这样会让人感觉到软件疯了」。
+ *
+ * 单门槛不可能同时伺候两种密度,所以那里改成了进出两个门槛的迟滞。这里保留这个
+ * 名字只是为了不动既有引用;新代码请直接用 `./thinking-slot` 的常量。
  */
-function isThinkingTokenCountStale(at: number | null, nowMs: number | null): boolean {
-  if (at == null || nowMs == null) return false;
-  return nowMs - at > THINKING_TOKENS_STALL_MS;
-}
+export const THINKING_TOKENS_STALL_MS = THINKING_TOKENS_STALL_ENTER_MS;
 
 function makeShell(seq: number): ExecutionShell {
   return {
@@ -448,7 +453,15 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
    * 落定的数,不会从零涨上来。
    */
   let thinkingTokenCount: number | null = null;
-  let thinkingTokenAt: number | null = null;
+  /**
+   * 本块里**每一条**读数的到达时刻,升序。
+   *
+   * 只留最后一条不够:形态(写 token 还是写秒数)要迟滞才不闪,而迟滞得看这条流
+   * 的**节奏**,不是最后一帧的年龄 —— 判据和理由都在 `./thinking-slot`。
+   * 这一层是每帧从事件流重算的纯函数,没地方挂上一帧的形态,所以把整串时刻交给
+   * 那个纯函数去折,结果只依赖输入。
+   */
+  const thinkingTokenAts: number[] = [];
   /**
    * 一开口 / 一动手就不再是「思考中」—— 计数跟着一起收。
    *
@@ -462,7 +475,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
   const stopThinking = (shell: ExecutionShell | null): void => {
     if (shell) shell.thinking = false;
     thinkingTokenCount = null;
-    thinkingTokenAt = null;
+    thinkingTokenAts.length = 0;
   };
   const blocks: TurnBlock[] = [];
   const previous = recalledContents(input.previousTodos);
@@ -782,7 +795,9 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     if (event.kind === 'thinking_tokens') {
       if (Number.isFinite(event.tokens) && event.tokens > 0) {
         thinkingTokenCount = event.tokens;
-        thinkingTokenAt = typeof event.at === 'number' ? event.at : null;
+        // 拿不到到达时刻(`at` 是可选的)就不记 —— 「不知道多久没变」和「很久没变」
+        // 是两回事,把前者混进节奏里会在一条完全健康的流上把 token 换成秒数。
+        if (typeof event.at === 'number') thinkingTokenAts.push(event.at);
       }
       continue;
     }
@@ -1312,7 +1327,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
         if (block.kind !== 'shell' || !block.thinking) continue;
         block.thinkingTokens = {
           count: thinkingTokenCount,
-          stale: isThinkingTokenCountStale(thinkingTokenAt, liveEndMs),
+          stale: thinkingTokenReadingIsStale(thinkingTokenAts, liveEndMs),
         };
       }
     }

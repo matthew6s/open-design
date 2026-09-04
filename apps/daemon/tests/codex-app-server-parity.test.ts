@@ -385,11 +385,27 @@ describe('codex transport parity — paired transcript of one turn', () => {
     // Usage is compared separately: app-server is a strict superset (it reports
     // cache-write tokens that the exec-json parser has never read, and file
     // change line counts that the exec-json wire never sends at all).
+    //
+    // `thinking_tokens` joins that list for a structural reason, not a
+    // convenient one: it is a LIVE reading, and `exec --json` has no live
+    // reading to give. That wire reports token counts once, at
+    // `turn.completed`, so a mid-turn progress signal cannot exist on it at
+    // any fidelity. The one-directional assertion below pins the superset.
     const strip = (events: Ev[]) =>
       canonicalize(events)
-        .filter((e) => e.type !== 'usage')
+        .filter((e) => e.type !== 'usage' && e.type !== 'thinking_tokens')
         .map((e) => (e.type === 'tool_use' ? { ...e, input: stripDiffStat(e.input) } : e));
     expect(strip(appEvents)).toEqual(strip(execEvents));
+  });
+
+  it('reports a live thinking-token reading on app-server only', () => {
+    // The superset asserted in both directions, the same way the file-change
+    // line counts are. `exec --json` reports tokens once at `turn.completed`,
+    // so there is nothing there to render while the model is still thinking.
+    const thinking = (events: Ev[]) =>
+      events.filter((e) => e.type === 'thinking_tokens').map((e) => e.tokens);
+    expect(thinking(appEvents).length).toBeGreaterThan(0);
+    expect(thinking(execEvents)).toEqual([]);
   });
 
   it('reports file change line counts on app-server only, and no counts on exec-json', () => {
