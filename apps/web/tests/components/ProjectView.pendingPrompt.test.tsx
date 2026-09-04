@@ -27,6 +27,12 @@ import { fetchPreviewComments, fetchProjectFiles } from '../../src/providers/reg
 import { useProjectFileEvents } from '../../src/providers/project-events';
 import { resetSharedCancellableGet } from '../../src/lib/shared-cancellable-get';
 import {
+  beginHomeAttachmentUploads,
+  endHomeAttachmentUploads,
+  resetHomeAttachmentUploads,
+  settleHomeAttachmentUpload,
+} from '../../src/state/home-attachment-handoff';
+import {
   cancelBrandExtraction,
   continueBrandExtraction,
   extractBrandFromHtml,
@@ -53,6 +59,7 @@ const chatPaneSpy = vi.hoisted(() => vi.fn());
 
 type MockChatPaneProps = {
   messages?: ChatMessage[];
+  sendDisabled?: boolean;
   activeConversationId?: string | null;
   initialDraft?: string;
   onBrandBrowserAssistConfirm?: (card: {
@@ -358,6 +365,7 @@ describe('ProjectView pending prompt seeding', () => {
 
   afterEach(() => {
     cleanup();
+    resetHomeAttachmentUploads();
     resetSharedCancellableGet();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -797,6 +805,63 @@ describe('ProjectView pending prompt seeding', () => {
       expect(mockedSaveMessage).toHaveBeenCalled();
     });
     expect(window.sessionStorage.getItem(`od:auto-send-first:${projectId}`)).toBeNull();
+  });
+
+  it('holds the Home auto-send until the picked batch finishes uploading', async () => {
+    // OPEND-2585. The project frame now opens while the Home batch is still
+    // going up, so the auto-send is the only thing left waiting on it. If it
+    // fired on the first frame the user's prompt would go out with none of the
+    // files they attached to it.
+    const projectId = 'auto-send-uploading-batch';
+    const prompt = '我上传了多少个文件';
+    window.sessionStorage.setItem(`od:auto-send-first:${projectId}`, '1');
+    window.sessionStorage.setItem(`od:auto-send-prompt:${projectId}`, prompt);
+    beginHomeAttachmentUploads(projectId, [
+      new File(['a'], 'shot-0.png', { type: 'image/png' }),
+      new File(['b'], 'shot-1.png', { type: 'image/png' }),
+    ]);
+
+    renderProjectView(project(projectId));
+
+    // The conversation has resolved and messages have loaded — everything the
+    // auto-send waits on EXCEPT the uploads. It must still not have fired.
+    await screen.findByText(`conv-${projectId}`);
+    await waitFor(() => expect(chatPaneSpy).toHaveBeenCalled());
+    expect(mockedSaveMessage).not.toHaveBeenCalled();
+    // The composer is reachable now, which it never was behind the old
+    // hand-off screen. A second prompt sent here would consume the turn the
+    // Home prompt is queued for, so the send waits with it.
+    expect(chatPaneSpy.mock.calls.at(-1)?.[0]?.sendDisabled).toBe(true);
+
+    // The uploads answer, in the order the user picked the files.
+    window.sessionStorage.setItem(
+      `od:auto-send-attachments:${projectId}`,
+      JSON.stringify([
+        { path: 'attachments/shot-0.png', name: 'shot-0.png', kind: 'image', size: 1 },
+        { path: 'attachments/shot-1.png', name: 'shot-1.png', kind: 'image', size: 1 },
+      ]),
+    );
+    await act(async () => {
+      settleHomeAttachmentUpload(projectId, 0);
+      settleHomeAttachmentUpload(projectId, 1);
+      endHomeAttachmentUploads(projectId);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mockedSaveMessage).toHaveBeenCalled());
+    expect(chatPaneSpy.mock.calls.at(-1)?.[0]?.sendDisabled).toBe(false);
+    const userMessageCall = mockedSaveMessage.mock.calls.find(
+      ([, , message]) => message.role === 'user',
+    );
+    expect(userMessageCall?.[2]).toEqual(expect.objectContaining({
+      role: 'user',
+      content: prompt,
+      // The paths the server gave back, not the local names the frame drew.
+      attachments: [
+        expect.objectContaining({ path: 'attachments/shot-0.png' }),
+        expect.objectContaining({ path: 'attachments/shot-1.png' }),
+      ],
+    }));
   });
 
   it('does not prefill when re-entering a project after the pending prompt was cleared', async () => {

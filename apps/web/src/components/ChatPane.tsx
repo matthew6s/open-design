@@ -151,6 +151,7 @@ import {
   type ChatSendOutcome,
   type ChatSendMeta,
 } from './ChatComposer';
+import type { PendingUpload } from '../runtime/chat/staged-attachment';
 import type { PlaceholderScenario } from './home-hero/placeholderScenarios';
 import { listDesignArtifactCandidates } from './design-files/designArtifacts';
 import type { PluginFolderAgentAction } from './design-files/pluginFolderActions';
@@ -861,6 +862,15 @@ interface Props {
   // composer instead of guessing a bottom offset from outside ChatPane.
   chatLogTray?: ReactNode;
   /**
+   * The Home-picked batch that is still uploading into this project.
+   *
+   * Pure pass-through to the composer's staged tray: these cards belong to the
+   * hand-off, not to the composer, so the composer owns neither their bytes
+   * nor their object URLs — it only draws them next to its own.
+   */
+  homeAttachmentUploads?: readonly PendingUpload[];
+  onDismissHomeAttachmentUpload?: (cardId: string) => void;
+  /**
    * 组件 22 · 重连(第 82–84 格)· S29。掉线期间流水的**最后一行**,`null` = 没掉线。
    *
    * 状态由 `runtime/chat/reconnect-state.ts` 推,信号来自传输层的 `onReconnect`;
@@ -1318,6 +1328,8 @@ export function ChatPane({
   onActiveDesignSystemChange,
   onShowToast,
   chatLogTray,
+  homeAttachmentUploads,
+  onDismissHomeAttachmentUpload,
   reconnect = null,
   onManualReconnect,
   onBack,
@@ -3528,6 +3540,8 @@ export function ChatPane({
       sendDisabled={sendDisabled}
       inputDisabled={viewerOnly}
       initialDraft={initialDraft}
+      externalPendingUploads={homeAttachmentUploads}
+      onRemoveExternalPendingUpload={onDismissHomeAttachmentUpload}
       composerPlaceholder={composerPlaceholder}
       placeholderScenarios={composerPlaceholderScenarios}
       draftStorageKey={composerDraftStorageKey}

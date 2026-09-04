@@ -193,6 +193,12 @@ import {
   STAGED_UPLOAD_CONCURRENCY,
 } from './runtime/chat/staged-attachment';
 import {
+  beginHomeAttachmentUploads,
+  dismissedHomeAttachmentOrders,
+  endHomeAttachmentUploads,
+  settleHomeAttachmentUpload,
+} from './state/home-attachment-handoff';
+import {
   bootstrapFirstOpenTeamProjectRoute,
   bootstrapProjectRoute,
   createDesignSystemProjectFromProject,
@@ -3156,6 +3162,18 @@ function AppInner() {
             );
           }
         }
+        // The project row exists and its working directory is final, so the
+        // real project frame is allowed to open — and it must open NOW, not
+        // when the last attachment finishes. Park the picked files first so
+        // ProjectView's very first render already has cards to draw for them,
+        // then drop the gate. Everything below this line happens behind an
+        // interactive project instead of behind a frozen hand-off screen.
+        if (!workingDirHandoffFailed) {
+          beginHomeAttachmentUploads(result.project.id, pendingFiles);
+        }
+        setPendingProjectCreation((current) =>
+          current?.projectId === optimisticProjectId ? null : current,
+        );
         let firstMessageAttachments: ChatAttachment[] = [];
         if (!workingDirHandoffFailed && pendingFiles.length > 0) {
           // Home composer attaches stay client-side until submit lands a
@@ -3172,12 +3190,28 @@ function AppInner() {
           const outcomes = await runWithConcurrency(
             pendingFiles,
             STAGED_UPLOAD_CONCURRENCY,
-            (file) =>
-              uploadProjectFiles(result.project.id, [file], undefined, createWorkspaceContext),
+            async (file, index) => {
+              try {
+                return await uploadProjectFiles(
+                  result.project.id,
+                  [file],
+                  undefined,
+                  createWorkspaceContext,
+                );
+              } finally {
+                // This file's card leaves the tray the moment it answers, so
+                // the batch drains in front of the user instead of vanishing
+                // all at once at the end. Also where its object URL is
+                // revoked — see `settleHomeAttachmentUpload`.
+                settleHomeAttachmentUpload(result.project.id, index);
+              }
+            },
           );
           // `runWithConcurrency` answers in input order, so the first message
           // keeps the order the user picked, not the order the uploads landed.
-          firstMessageAttachments = outcomes.flatMap((outcome) => outcome.uploaded);
+          const dismissedOrders = dismissedHomeAttachmentOrders(result.project.id);
+          firstMessageAttachments = outcomes.flatMap((outcome, index) =>
+            dismissedOrders.has(index) ? [] : outcome.uploaded);
           const failedUploads = outcomes.flatMap((outcome) => outcome.failed);
           const firstUploadError = outcomes.find((outcome) => outcome.error)?.error;
           const partial = failedUploads.length > 0;
@@ -3306,6 +3340,11 @@ function AppInner() {
         console.warn('Failed to finish setting up new project', project.id, err);
         setProjectCreateError(errorCode);
       } finally {
+        // Whatever happened to the uploads — answered, failed, or threw before
+        // they started — nothing may be left holding an object URL for the
+        // rest of the session, and no card may sit in the tray for a file that
+        // is never coming.
+        endHomeAttachmentUploads(project.id);
         setPendingProjectCreation((current) =>
           current?.projectId === optimisticProjectId ? null : current,
         );

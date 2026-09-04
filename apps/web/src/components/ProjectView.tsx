@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useLayoutEffect,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -295,7 +296,9 @@ import {
 } from '../collab/useTeamMembers';
 import { workspaceIdentityCacheKey } from '../collab/workspace-identity';
 import {
+  useWorkspaceBillingResponse,
   useWorkspaceContext,
+  workspaceBillingSummaryForContext,
   workspaceIdentityCanBillAmr,
 } from '../collab/useWorkspaceContext';
 import {
@@ -328,6 +331,7 @@ import {
   decideAutoOpenAfterWrite,
   selectAutoOpenProducedArtifact,
   selectAutoOpenTurnArtifact,
+  selectAutoOpenTurnArtifacts,
 } from './auto-open-file';
 import { buildRepoImportPrompt, designSystemNeedsRepoConnect } from './design-system-github-evidence';
 import { isDesignSystemProject, resolveProjectDesignSystemId } from './design-system-project';
@@ -370,6 +374,11 @@ import { buildContinueInCliToast } from '../lib/build-continue-in-cli-toast';
 import { buildClipboardPrompt } from '../lib/build-clipboard-prompt';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { effectiveMaxTokens } from '../state/maxTokens';
+import {
+  dismissHomeAttachmentUpload,
+  homeAttachmentUploadsFor,
+  subscribeHomeAttachmentUploads,
+} from '../state/home-attachment-handoff';
 import { effectiveAgentModelChoice, effectiveAgentModelId } from './agentModelSelection';
 import { mediaExecutionPolicyForProjectMetadata } from '../media/execution-policy';
 import { mediaModelProviderId } from '../media/models';
@@ -2052,11 +2061,25 @@ export function ProjectView({
     amrAuthRetryMountIdRef.current = randomUUID();
   }
   const activeAuthorizationLifetimeRef = useRef<string | null>(projectAuthorizationKey);
+  /**
+   * The Home-carried attachments, by every name the workspace might list them
+   * under. `selectPrimaryProjectFile` uses it to NOT auto-open a file the user
+   * merely attached to their prompt.
+   *
+   * This can no longer be a first-render snapshot. The project frame now opens
+   * while those files are still uploading, so at mount the only names we have
+   * are the local ones the picker gave us; the server paths arrive later. Both
+   * sources are folded in, and the set keeps refreshing until the uploads are
+   * done — a snapshot taken mid-upload would let a just-uploaded attachment
+   * win the initial-open race it is supposed to be excluded from.
+   */
   const initialHomeAttachmentFileNamesRef = useRef<{
     projectId: string;
     fileNames: Set<string>;
   } | null>(null);
-  if (initialHomeAttachmentFileNamesRef.current?.projectId !== project.id) {
+  const refreshInitialHomeAttachmentFileNames = useCallback(() => {
+    const current = initialHomeAttachmentFileNamesRef.current;
+    const fileNames = current?.projectId === project.id ? current.fileNames : new Set<string>();
     let isHomeAutoSend = false;
     try {
       isHomeAutoSend = Boolean(
@@ -2065,8 +2088,8 @@ export function ProjectView({
     } catch {
       /* sessionStorage may be unavailable; use ordinary initial selection. */
     }
-    const fileNames = new Set<string>();
     if (isHomeAutoSend) {
+      for (const upload of homeAttachmentUploadsFor(project.id)) fileNames.add(upload.name);
       for (const attachment of readAutoSendAttachments(project.id)) {
         fileNames.add(attachment.path);
         const baseName = attachment.path.split('/').pop();
@@ -2075,6 +2098,10 @@ export function ProjectView({
       }
     }
     initialHomeAttachmentFileNamesRef.current = { projectId: project.id, fileNames };
+    return fileNames;
+  }, [project.id]);
+  if (initialHomeAttachmentFileNamesRef.current?.projectId !== project.id) {
+    refreshInitialHomeAttachmentFileNames();
   }
 
   useEffect(() => {
@@ -2783,9 +2810,39 @@ export function ProjectView({
    * 用的是 `projectRunPreflightContext` —— 余额门查的是同一个工作区,不是环境里
    * 恰好选中的那个;两处不同源就会出现「查 A 的钱、按 B 的身份呈现」。
    */
+  /**
+   * 这个工作区的**套餐**,投影到要付这笔钱的那个工作区上。
+   *
+   * 不能只靠 `context.planId`:走到客户端的 collab context 是用 vela 的
+   * `/api/v1/workspaces` 目录行拼出来的,而目录行不带套餐字段 —— daemon 和 web
+   * 两侧的 `workspaceContextFromDirectoryItem` 都把 `planId` 写死成 null
+   * (`daemon/src/collab/vela-workspace-context.ts` / `collab/useWorkspaceContext.ts`)。
+   * 2026-09-04 用真账号打后端实测过:一个 `team_max` 的团队工作区,vela 自己报
+   * `planId: "team_max"`,而 `GET /api/workspace/context` 报 null。只认 context
+   * 就会把每一个团队 Max 所有者都判成非 Max,把他送去 Pricing 买他已经买过的套餐。
+   *
+   * 工作区套餐唯一的真实来源是账单快照,所以这里跟 Home(`EntryShell`)用同一个
+   * 投影函数。scope 钉在 `projectRunPreflightContext` 上,而不是环境里恰好选中的
+   * 那个工作区 —— 否则又会变成「查 A 的钱、按 B 的套餐呈现」。
+   */
+  const projectRunPreflightBillingResponse = useWorkspaceBillingResponse({
+    context: projectRunPreflightContext,
+  });
+  const projectRunPreflightBilling = useMemo(
+    () =>
+      workspaceBillingSummaryForContext(
+        projectRunPreflightBillingResponse,
+        projectRunPreflightContext,
+      ),
+    [projectRunPreflightBillingResponse, projectRunPreflightContext],
+  );
   const amrBalanceBranch = useMemo(
-    () => resolveAmrBalanceBranch({ context: projectRunPreflightContext }),
-    [projectRunPreflightContext],
+    () =>
+      resolveAmrBalanceBranch({
+        context: projectRunPreflightContext,
+        billing: projectRunPreflightBilling,
+      }),
+    [projectRunPreflightBilling, projectRunPreflightContext],
   );
   const amrBalanceBranchRef = useRef(amrBalanceBranch);
   amrBalanceBranchRef.current = amrBalanceBranch;
@@ -2916,7 +2973,12 @@ export function ProjectView({
   // tool card, an attachment chip, or a produced-file chip in chat. We
   // include a nonce so re-clicking the same name after the user closed the
   // tab still focuses it.
-  const [openRequest, setOpenRequest] = useState<{ name: string; nonce: number } | null>(null);
+  // `openBatch` carries a whole finished turn's artifacts (OPEND-2588) in one
+  // request. It has to be one request: this is a single state slot, so N
+  // synchronous `requestOpenFile` calls would collapse into the last one.
+  const [openRequest, setOpenRequest] = useState<
+    { name: string; nonce: number; openBatch?: readonly string[] } | null
+  >(null);
   const [browserOpenRequest, setBrowserOpenRequest] = useState<BrowserOpenRequest | null>(null);
   // Like `openRequest`, but additionally asks the preview workspace to open the
   // file's Share/Export menu. Drives the "Share" next-step action: it reuses the
@@ -4127,12 +4189,19 @@ export function ProjectView({
     }
     const primaryFile = selectPrimaryProjectFile(
       projectFiles,
-      initialHomeAttachmentFileNamesRef.current?.fileNames,
+      refreshInitialHomeAttachmentFileNames(),
     );
     if (!primaryFile) return;
     hasAppliedInitialPrimaryOpenRef.current = true;
     persistTabsState({ tabs: [primaryFile.name], active: primaryFile.name });
-  }, [openTabsState.active, openTabsState.tabs.length, persistTabsState, projectFiles, routeFileName]);
+  }, [
+    openTabsState.active,
+    openTabsState.tabs.length,
+    persistTabsState,
+    projectFiles,
+    refreshInitialHomeAttachmentFileNames,
+    routeFileName,
+  ]);
 
   /**
    * The last file the HOST asked to open. Everything the host opens — an
@@ -4161,6 +4230,37 @@ export function ProjectView({
     lastHostRequestedOpenRef.current = name;
     setOpenRequest({ name, nonce: Date.now() });
   }, []);
+
+  /**
+   * Open a finished turn's artifacts together, with `focused` selected.
+   *
+   * Product ruling 2026-09-04 (OPEND-2588): 「就让 agent 生成完,把那些产物在右侧
+   * 全打开呗」—— 「是全部的**主要**产物」. Auto-open used to open exactly ONE file
+   * per turn, so a batch that generated four images left two of them with no
+   * tab. Which artifacts qualify is still `auto-open-file.ts`'s call; this only
+   * stops throwing the rest away.
+   *
+   * Deliberately ONE request rather than a `requestOpenFile` loop: `openRequest`
+   * is a single state slot, so successive calls in the same tick collapse to the
+   * last name, and even spread across ticks each open would steal the focus that
+   * the selection heuristic deliberately assigned to `focused`.
+   */
+  const requestOpenTurnArtifacts = useCallback(
+    (names: readonly string[], focused: string) => {
+      if (!focused) return;
+      lastHostRequestedOpenRef.current = focused;
+      // The batch is the complete, ordered tab list — `focused` included, so
+      // the tab strip keeps file-list order instead of pushing the selected
+      // artifact to the end.
+      const openBatch = names.filter((name) => Boolean(name));
+      setOpenRequest({
+        name: focused,
+        nonce: Date.now(),
+        ...(openBatch.length > 1 ? { openBatch } : {}),
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const designSystemId = brandReady?.designSystemId;
@@ -6170,7 +6270,10 @@ export function ProjectView({
               ) ?? [],
               recoveredExistingArtifact,
             );
-            const producedArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
+            // OPEND-2588 (2026-09-04): a turn that finishes while we are
+            // replaying it opens ALL of its primary artifacts, same as a live
+            // completion — the user cannot tell the two apart.
+            const turnArtifacts = selectAutoOpenTurnArtifacts(produced, nextFiles, {
               ...autoOpenArtifactOptions,
               preTurnFileNames: beforeFileNames,
               turnStartedAt: status.createdAt || message.startedAt || message.createdAt || null,
@@ -6182,7 +6285,9 @@ export function ProjectView({
                 projectDetail.resolvedDir,
               ),
             });
-            if (producedArtifactToOpen) requestOpenFile(producedArtifactToOpen);
+            if (turnArtifacts.focused) {
+              requestOpenTurnArtifacts(turnArtifacts.open, turnArtifacts.focused);
+            }
             const deliveryOutcome = resolveDesignDeliveryOutcome({
               sessionMode: message.sessionMode,
               runStatus: 'succeeded',
@@ -6670,7 +6775,9 @@ export function ProjectView({
                   ) ?? [],
                   recoveredExistingArtifact,
                 );
-                const producedArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
+                // OPEND-2588 (2026-09-04): see the replay path above — a run
+                // that lands while reattached is still a turn finishing.
+                const turnArtifacts = selectAutoOpenTurnArtifacts(produced, nextFiles, {
                   ...autoOpenArtifactOptions,
                   preTurnFileNames: beforeFileNames,
                   turnStartedAt: status.createdAt || message.startedAt || message.createdAt || null,
@@ -6685,7 +6792,9 @@ export function ProjectView({
                     projectDetail.resolvedDir,
                   ),
                 });
-                if (producedArtifactToOpen) requestOpenFile(producedArtifactToOpen);
+                if (turnArtifacts.focused) {
+                  requestOpenTurnArtifacts(turnArtifacts.open, turnArtifacts.focused);
+                }
                 const deliveryContent = needsFullReplay ? replayedContent : message.content;
                 const deliveryEvents = needsFullReplay ? replayedEvents : message.events;
                 const deliveryOutcome = resolveDesignDeliveryOutcome({
@@ -7178,6 +7287,7 @@ export function ProjectView({
     readProjectHtml,
     persistArtifact,
     requestOpenFile,
+    requestOpenTurnArtifacts,
     onProjectsRefresh,
     scheduleProjectTimeout,
     scheduleConversationMessageRefresh,
@@ -8624,7 +8734,12 @@ export function ProjectView({
                 project.id,
                 projectDetail.resolvedDir,
               ) ?? [];
-              const turnArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
+              // OPEND-2588 (product ruling 2026-09-04): the turn is over —
+              // open ALL of its primary artifacts, not just the best one.
+              // `turnArtifacts.focused` is byte-for-byte the old
+              // `selectAutoOpenTurnArtifact` answer, so the focused tab below
+              // is decided exactly as it was before; only `.open` is new.
+              const turnArtifacts = selectAutoOpenTurnArtifacts(produced, nextFiles, {
                 ...autoOpenArtifactOptions,
                 preTurnFileNames: beforeFileNames,
                 turnStartedAt: startedAt,
@@ -8639,6 +8754,7 @@ export function ProjectView({
                   projectDetail.resolvedDir,
                 ),
               });
+              const turnArtifactToOpen = turnArtifacts.focused;
               const producedArtifactToOpen = selectAutoOpenProducedArtifact(
                 [
                   ...provenTraceTouchedFiles(),
@@ -8653,7 +8769,7 @@ export function ProjectView({
               );
               if (producedArtifactToOpen) {
                 completionSelectedAutoOpen = true;
-                requestOpenFile(producedArtifactToOpen);
+                requestOpenTurnArtifacts(turnArtifacts.open, producedArtifactToOpen);
               }
               const deliveryCandidate: ChatMessage = {
                 ...latestAssistantMsg,
@@ -9481,6 +9597,7 @@ export function ProjectView({
       refreshLiveArtifacts,
       readProjectHtml,
       requestOpenFile,
+      requestOpenTurnArtifacts,
       persistMessage,
       persistMessageById,
       auditDesignSystemWorkspaceAfterRun,
@@ -11611,6 +11728,22 @@ export function ProjectView({
     autoSendAttachmentsRef.current = isAutoSend ? readAutoSendAttachments(project.id) : [];
     autoSendContextRef.current = isAutoSend ? readAutoSendContext(project.id) : null;
   }
+  /**
+   * The Home batch that is still going up for this project.
+   *
+   * This is what un-blocks the first paint. The server paths the auto-send
+   * needs are written only after the last upload answers, and reading them at
+   * mount is what used to keep the whole project frame behind the uploads.
+   * They are needed by the SEND, not by the paint: the frame opens now, draws
+   * these cards from the local bytes the picker already handed us, and the
+   * auto-send below waits for this list to empty out before it reads the real
+   * paths — see `readAutoSendAttachments` at the dispatch site.
+   */
+  const homeAttachmentUploads = useSyncExternalStore(
+    subscribeHomeAttachmentUploads,
+    () => homeAttachmentUploadsFor(project.id),
+    () => homeAttachmentUploadsFor(project.id),
+  );
   const initialWorkspaceContexts = autoSendContextRef.current?.workspaceItems ?? [];
   const brandEnrichmentEligibleForProject =
     config.mode === 'daemon' &&
@@ -12244,6 +12377,13 @@ export function ProjectView({
       return;
     }
     if (messages.length > 0) return;
+    // The picked files are still going up. Sending now would ship the prompt
+    // with whichever attachments happened to have landed — which, at the
+    // moment this frame opens, is none of them. This effect re-runs when the
+    // batch drains (`homeAttachmentUploads` is a dependency), so waiting here
+    // costs the send exactly the upload time it always cost, and costs the
+    // first paint nothing.
+    if (homeAttachmentUploads.length > 0) return;
     let flag: string | null = null;
     try {
       flag = window.sessionStorage.getItem(autoSendFirstMessageKey(project.id));
@@ -12261,7 +12401,16 @@ export function ProjectView({
       project.pendingPrompt ||
       ''
     ).trim();
-    const attachments = autoSendAttachmentsRef.current ?? [];
+    // Read the server paths HERE, not at mount. The mount snapshot is taken
+    // while the batch may still be uploading, so it can legitimately be empty
+    // for a project that does have attachments; the session values are only
+    // cleared once a send is accepted, so a fresh read is the newer of the two
+    // whenever it has anything, and the snapshot still covers the case where
+    // sessionStorage stopped answering after mount.
+    const freshAttachments = readAutoSendAttachments(project.id);
+    const attachments = freshAttachments.length > 0
+      ? freshAttachments
+      : autoSendAttachmentsRef.current ?? [];
     const context = autoSendContextRef.current ?? readAutoSendContext(project.id);
     if (!seed && attachments.length === 0) {
       return;
@@ -12306,6 +12455,7 @@ export function ProjectView({
       });
   }, [
     activeConversationId,
+    homeAttachmentUploads,
     messagesInitialized,
     streaming,
     messages.length,
@@ -12468,7 +12618,23 @@ export function ProjectView({
               loading={currentConversationLoading}
               // A read-only viewer of a team-shared project cannot drive artifact
               // changes through chat (comments go through the separate overlay).
-              sendDisabled={currentConversationSendDisabled || projectMutationReadOnly}
+              // Home's own prompt has not gone out yet — it is waiting for this
+              // same batch. Letting a second prompt overtake it would consume
+              // the turn the Home prompt was going to use, and go out without
+              // the attachments the user picked for it. Typing stays open;
+              // only the send waits, and it waits exactly as long as the
+              // uploads do.
+              // Home's own prompt has not gone out yet — it is waiting for this
+              // same batch. Letting a second prompt overtake it would consume
+              // the turn the Home prompt was going to use, and go out without
+              // the attachments the user picked for it. Typing stays open;
+              // only the send waits, and it waits exactly as long as the
+              // uploads do.
+              sendDisabled={
+                currentConversationSendDisabled
+                || projectMutationReadOnly
+                || homeAttachmentUploads.length > 0
+              }
               viewerOnly={projectMutationReadOnly}
               composerPlaceholder={
                 projectCollab.materializationPending
@@ -12656,6 +12822,12 @@ export function ProjectView({
               }
               createDesignSystemFromProjectBusy={projectDesignSystemCreateStarting}
               onBrandBrowserAssistConfirm={handleBrandBrowserAssistConfirm}
+              // The Home batch, drawn from the local bytes while it uploads.
+              // Same tray, same cards, same "uploading" treatment the composer
+              // already gives files picked from inside the project.
+              homeAttachmentUploads={homeAttachmentUploads}
+              onDismissHomeAttachmentUpload={(cardId) =>
+                dismissHomeAttachmentUpload(project.id, cardId)}
               chatLogTray={
                 projectActionsToastInChatPane ? (
                   <div className="project-actions-toast-anchor">

@@ -93,6 +93,7 @@ const CALLER_CONTEXT = callerContext('owner', 'team_pro');
 const workspaceScopeMocks = vi.hoisted(() => ({
   projectScope: { loading: true, scope: null } as ProjectWorkspaceScopeState,
   ambientContext: null as WorkspaceCollabContext | null,
+  billingResponse: null as unknown,
 }));
 const chatPaneSpy = vi.hoisted(() => vi.fn());
 const resourceContextObservations = vi.hoisted(
@@ -118,6 +119,7 @@ vi.mock('../../src/collab/useWorkspaceContext', async (importOriginal) => ({
     context: workspaceScopeMocks.ambientContext,
     loading: false,
   }),
+  useWorkspaceBillingResponse: () => workspaceScopeMocks.billingResponse,
 }));
 
 vi.mock('../../src/collab/useProjectWorkspaceScope', async (importOriginal) => ({
@@ -495,6 +497,7 @@ describe('余额不足:身份 × 订阅的四种分支', () => {
     mockedCheckAmrBalanceGate.mockResolvedValue({ kind: 'allow' });
     workspaceScopeMocks.projectScope = { loading: true, scope: null };
     workspaceScopeMocks.ambientContext = CALLER_CONTEXT;
+    workspaceScopeMocks.billingResponse = null;
     projectCollabMocks.writerAuthority = 'allowed';
     projectCollabMocks.viewerOnly = false;
     mockedLoadTabs.mockResolvedValue({ tabs: [], active: null });
@@ -566,6 +569,66 @@ describe('余额不足:身份 × 订阅的四种分支', () => {
     fireEvent.click(screen.getByTestId('upgrade-card-click'));
     expect(mockedWindowOpen).toHaveBeenCalledTimes(1);
     expect(String(mockedWindowOpen.mock.calls[0]?.[0])).toContain('billing=auto-recharge');
+  });
+
+  // 上面那条 Max·owner 是把 `planId` 直接写在 context 上的。**真实后端不会这样报。**
+  //
+  // 2026-09-04 用四个真账号打本地 vela 实测(od-team-max-owner@local.test,
+  // 团队工作区 team_max / owner):
+  //
+  //   vela  `PUT /api/v1/workspaces/current` → planId: "team_max"、role owner、
+  //         permissions.canManageBilling: true
+  //   OD    `GET /api/workspace/context`     → role owner ✓、canManageBilling ✓、
+  //         **planId: null** ✗
+  //
+  // 不是掉数据,是结构使然:context 只由 vela 的 `/api/v1/workspaces` 目录行拼出来
+  // (`daemon/src/collab/vela-workspace-context.ts:385` 把 planId 写死成 null),
+  // 而目录行根本不带套餐字段。工作区的套餐只在账单快照里
+  // (`vela billing workspace-snapshot` → `workspaceSnapshot.billing.planId`)。
+  //
+  // 于是这一格钉的是**生产形状**:context 不带 planId,套餐只从账单来。
+  // ProjectView 必须仍然认出这是 Max·owner,跳自动充值 —— 否则一个团队 Max
+  // 所有者会被送去 Pricing 页买他已经买过的东西,而上面那条测试照样是绿的。
+  // Home 那条链路(EntryShell)本来就把投影后的账单传进去了,这里没传。
+  it('生产形状:context 不带 planId,团队 Max 所有者仍要跳自动充值', async () => {
+    workspaceScopeMocks.billingResponse = {
+      // 账号档是 max(个人梯子),**不是**团队命名空间,按投影规则不许给团队工作区当替身。
+      summary: {
+        workspaceId: null,
+        membershipTier: 'max',
+        totalAvailableCredits: 0,
+        subscriptionCredits: 0,
+        rechargeCredits: 0,
+        balanceUsd: '0.0000',
+        subscriptionStatus: 'active',
+        availableActions: [],
+      },
+      workspaceBalance: null,
+      // 工作区套餐唯一的真实来源。
+      workspaceSnapshot: {
+        schemaVersion: 1,
+        workspaceId: TEAM_WORKSPACE,
+        workspaceMemberId: TEAM_MEMBER,
+        billingScopeVersion: 2,
+        billing: { billingState: 'active', planId: 'team_max' },
+        wallet: { balanceUsd: '0.0000', expiresAt: null, updatedAt: null },
+        revisions: { billing: 'b1', wallet: 'w1' },
+      },
+    };
+
+    await sendAs(callerContext('owner', null), EMPTY_WALLET);
+
+    await waitFor(() => expect(cardBalance()).toBe('0'));
+    // Max·owner 那一格:卡片自己把话说完,不再多插一个弹窗。
+    expect(screen.queryByTestId('amr-balance-dialog')).toBeNull();
+    expect(screen.queryByTestId('amr-balance-owner-dialog')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('upgrade-card-click'));
+    expect(mockedWindowOpen).toHaveBeenCalledTimes(1);
+    const url = String(mockedWindowOpen.mock.calls[0]?.[0]);
+    expect(url).toContain('billing=auto-recharge');
+    // 反向对照:确认他没有被送去买一个他已经在用的套餐。
+    expect(url).not.toContain('open-design.ai/pricing');
   });
 
   // 「Max」= 个人 Max 和团队 Max 都算(用户修正)。个人档走的是另一条链路

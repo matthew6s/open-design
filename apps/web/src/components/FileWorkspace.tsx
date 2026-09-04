@@ -227,7 +227,11 @@ interface Props {
   streaming?: boolean;
   commentQueueOnSend?: boolean;
   commentSendDisabled?: boolean;
-  openRequest?: { name: string; nonce: number } | null;
+  // `openBatch`, when present, is the complete ordered list of files to open as
+  // tabs in one commit — a finished turn's artifacts (OPEND-2588). `name` is
+  // still the one that ends up active, and is opened whether or not the batch
+  // names it.
+  openRequest?: { name: string; nonce: number; openBatch?: readonly string[] } | null;
   browserOpenRequest?: BrowserOpenRequest | null;
   // Browser tab whose <webview> must stay mounted even while another workspace
   // tab is active. Set for programmatic brand extraction: the chat "Continue
@@ -2054,6 +2058,11 @@ export function FileWorkspace({
       setPersistedActive(name);
       return;
     }
+    const batch = openRequest.openBatch;
+    if (batch && batch.length > 0) {
+      openFiles(batch, name);
+      return;
+    }
     openFile(name, { forcePersist: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest]);
@@ -2138,6 +2147,33 @@ export function FileWorkspace({
       setActiveTab(name);
     });
   }
+  // Open several files as tabs in ONE commit and activate `focusName`.
+  //
+  // A loop over openFile() cannot express this: each call activates what it
+  // opens, so the last file would take the focus that auto-open deliberately
+  // assigned (OPEND-2588), and every call after the first would be dropped
+  // whenever `afterActiveManualEditSettles` defers them — it keeps only the
+  // newest deferred activation. Files already open are left alone rather than
+  // duplicated, which is what makes a re-open of something the turn already
+  // surfaced mid-stream a no-op.
+  function openFiles(names: readonly string[], focusName: string) {
+    afterActiveManualEditSettles(() => {
+      setUploadError(null);
+      const currentTabs = tabsStateRef.current.tabs;
+      const nextTabs = [...currentTabs];
+      for (const name of [...names, focusName]) {
+        if (name && !nextTabs.includes(name)) nextTabs.push(name);
+      }
+      const openedNewTab = nextTabs.length !== currentTabs.length;
+      const nextBrowserTabs = openedNewTab
+        ? reanchorBrowserTabsToCurrentOrder(orderedWorkspaceTabs, browserTabs)
+        : browserTabs;
+      if (nextBrowserTabs !== browserTabs) setBrowserTabs(nextBrowserTabs);
+      commitTabsState(workspaceTabsState(nextTabs, focusName, nextBrowserTabs));
+      setActiveTab(focusName);
+    });
+  }
+
   openFileRef.current = openFile;
 
   const handleBrowserPageSnapshotToast = useCallback((event: BrowserPageSnapshotToastEvent) => {

@@ -143,8 +143,20 @@ vi.mock('../../src/components/ChatPane', () => ({
 
 vi.mock('../../src/components/FileWorkspace', () => ({
   DESIGN_SYSTEM_TAB: '__design_system__',
-  FileWorkspace: ({ openRequest }: { openRequest?: { name?: string } | null }) => {
+  FileWorkspace: ({
+    openRequest,
+  }: {
+    openRequest?: { name?: string; openBatch?: readonly string[] } | null;
+  }) => {
     const name = openRequest?.name;
+    // A finished turn's other artifacts ride in `openBatch` (OPEND-2588).
+    // Recording only `.name` would quietly make the "never opened ghost.html"
+    // assertion below vacuous for anything opened through a batch.
+    for (const batched of openRequest?.openBatch ?? []) {
+      if (batched !== name && chatPaneHarness.openRequestNames.at(-1) !== batched) {
+        chatPaneHarness.openRequestNames.push(batched);
+      }
+    }
     if (name && chatPaneHarness.openRequestNames.at(-1) !== name) {
       chatPaneHarness.openRequestNames.push(name);
     }

@@ -310,6 +310,18 @@ interface Props {
   // the user cannot type into the composer at all.
   inputDisabled?: boolean;
   initialDraft?: string;
+  /**
+   * 别人家的「在传中」卡片,借这个托盘画一下。
+   *
+   * 目前只有一个来源:首页挑好文件按下发送,项目页已经开出来了、文件还在传的
+   * 那几秒(`state/home-attachment-handoff.ts`)。这些卡的**字节、object URL、
+   * 生命周期都不归 composer 管** —— composer 只是把它们和自己的那几张排在同一
+   * 排里,顺序仍按 `order`。它们不进 `staged`,所以也不影响「这一发有没有东西
+   * 可发」的判断。
+   */
+  externalPendingUploads?: readonly PendingUpload[];
+  /** 人把上面那种卡「×」掉了。谁给的卡谁负责撤。 */
+  onRemoveExternalPendingUpload?: (pendingId: string) => void;
   composerPlaceholder?: string;
   placeholderScenarios?: ReadonlyArray<PlaceholderScenario>;
   draftStorageKey?: string;
@@ -554,6 +566,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       sendDisabled = false,
       inputDisabled = false,
       initialDraft,
+      externalPendingUploads,
+      onRemoveExternalPendingUpload,
       composerPlaceholder,
       placeholderScenarios = [],
       draftStorageKey,
@@ -3266,9 +3280,22 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
        判断读的是 `staged`,没读这里,所以「在传的文件算不算 payload」的语义没被这次
        改动动过(那条已知 bug 属于另一个 PR,见规格 §4-A 末尾)。 */
     const stagedAttachmentCards = useMemo(
-      () => buildStagedAttachmentCards(staged, pendingUploads),
-      [staged, pendingUploads],
+      () => buildStagedAttachmentCards(
+        staged,
+        externalPendingUploads && externalPendingUploads.length > 0
+          ? [...externalPendingUploads, ...pendingUploads]
+          : pendingUploads,
+      ),
+      [staged, pendingUploads, externalPendingUploads],
     );
+    /** 「×」按卡的归属分流:自己的走本地,别人寄放的还给它的主人。 */
+    const removePendingCard = (pendingId: string) => {
+      if (pendingFilesRef.current.has(pendingId)) {
+        dropPendingUpload(pendingId);
+        return;
+      }
+      onRemoveExternalPendingUpload?.(pendingId);
+    };
 
     const openDesignSystemPicker = () => {
       const trigger = composerRootRef.current?.querySelector<HTMLButtonElement>(
@@ -3494,7 +3521,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
               cards={stagedAttachmentCards}
               projectId={projectId}
               onRemoveStaged={removeStaged}
-              onRemovePending={dropPendingUpload}
+              onRemovePending={removePendingCard}
               onRetryPending={(id) => void retryPendingUpload(id)}
               t={t}
             />

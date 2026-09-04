@@ -219,9 +219,40 @@ export function selectAutoOpenTurnArtifact(
   allFiles: ReadonlyArray<CandidateFile>,
   options: SelectAutoOpenTurnOptions = {},
 ): string | null {
+  return selectAutoOpenProducedArtifact(
+    collectTurnCandidates(producedFiles, allFiles, options),
+    options,
+  );
+}
+
+/**
+ * Every artifact a finished turn should open, and which of them takes focus.
+ *
+ * Same candidate set and same criterion as `selectAutoOpenTurnArtifact` — this
+ * only removes that function's last step. See `selectAutoOpenProducedArtifacts`
+ * for the ruling and for what "primary" means here.
+ */
+export function selectAutoOpenTurnArtifacts(
+  producedFiles: ReadonlyArray<CandidateFile>,
+  allFiles: ReadonlyArray<CandidateFile>,
+  options: SelectAutoOpenTurnOptions = {},
+): TurnAutoOpenSelection {
+  return selectAutoOpenProducedArtifacts(
+    collectTurnCandidates(producedFiles, allFiles, options),
+    options,
+  );
+}
+
+// The files a turn is allowed to auto-open from: everything it produced, plus
+// any pre-existing project file it rewrote inside the turn's mtime window.
+function collectTurnCandidates(
+  producedFiles: ReadonlyArray<CandidateFile>,
+  allFiles: ReadonlyArray<CandidateFile>,
+  options: SelectAutoOpenTurnOptions,
+): CandidateFile[] {
   const startedAt = options.turnStartedAt;
   if (typeof startedAt !== 'number' || !Number.isFinite(startedAt) || startedAt <= 0) {
-    return selectAutoOpenProducedArtifact(producedFiles, options);
+    return [...producedFiles];
   }
   const endedAt = options.turnEndedAt;
   const windowEnd =
@@ -243,7 +274,7 @@ export function selectAutoOpenTurnArtifact(
     if (windowEnd !== null && mtime > windowEnd) continue;
     candidates.push(file);
   }
-  return selectAutoOpenProducedArtifact(candidates, options);
+  return candidates;
 }
 
 export interface AgentFocusOpenInput {
@@ -340,30 +371,120 @@ export function selectAutoOpenProducedArtifact(
   options: SelectAutoOpenOptions = {},
 ): string | null {
   if (options.preferSiteEntry) {
-    let entry: CandidateFile | null = null;
-    let entryDepth = Number.POSITIVE_INFINITY;
-    for (const file of producedFiles) {
-      if (!isHtmlPreviewFile(file)) continue;
-      const depth = siteEntryDepth(file);
-      if (depth === null) continue;
-      if (depth < entryDepth) {
-        entry = file;
-        entryDepth = depth;
-        continue;
-      }
-      if (depth > entryDepth || !entry) continue;
-      const createdThisTurnOrder = compareCreatedThisTurn(file, entry, options.preTurnFileNames);
-      if (createdThisTurnOrder !== 0) {
-        if (createdThisTurnOrder > 0) entry = file;
-        continue;
-      }
-      const nextMtime = typeof file.mtime === 'number' && Number.isFinite(file.mtime) ? file.mtime : 0;
-      const entryMtime =
-        typeof entry.mtime === 'number' && Number.isFinite(entry.mtime) ? entry.mtime : 0;
-      if (nextMtime >= entryMtime) entry = file;
-    }
+    const entry = selectSiteEntryFile(producedFiles, options);
     if (entry) return entry.name;
   }
+  return selectBestRankedFile(producedFiles, options)?.name ?? null;
+}
+
+export interface TurnAutoOpenSelection {
+  // The tab that ends up SELECTED. Identical to what
+  // `selectAutoOpenProducedArtifact` returns for the same input: the ruling
+  // below changed how many tabs open, not which one the user lands on.
+  readonly focused: string | null;
+  // Every artifact to open, in file-list order, `focused` included. Deduped by
+  // name, so a file already opened mid-turn through `<od-focus open="…">` is
+  // named once and the workspace's tab list stays idempotent.
+  readonly open: readonly string[];
+}
+
+const NOTHING_TO_OPEN: TurnAutoOpenSelection = { focused: null, open: [] };
+
+/**
+ * Every PRIMARY artifact of a turn, plus which one takes focus.
+ *
+ * Product ruling 2026-09-04 (OPEND-2588), verbatim:
+ * 「就让 agent 生成完,把那些产物在右侧全打开呗」, clarified the same day as
+ * 「是全部的**主要**产物,记得」. A batch that generated four images opened four
+ * artifact cards in the chat and two tabs on the right; the turn's deliverables
+ * should all be on screen.
+ *
+ * This overturns exactly one of `selectAutoOpenProducedArtifact`'s three jobs.
+ * Its `autoOpenPreviewRank` does:
+ *
+ *   1. **Is this an artifact at all?** rank 0 (decks, raw text, `.txt`,
+ *      `sketch-*`, user sketches) never opens. UNCHANGED — the ruling is about
+ *      the count, not the criterion, so scripts, configs and intermediate
+ *      outputs stay out exactly as before.
+ *   2. **Which KIND is this turn's deliverable?** HTML outranks markdown
+ *      outranks media, because "image, video and audio are the fallback for
+ *      media-ONLY turns" — a page's screenshots are incidental to the page.
+ *      UNCHANGED, and it is what keeps "all the primary artifacts" from
+ *      quietly becoming "every previewable file the turn wrote".
+ *   3. **Which ONE of the equally-ranked winners?** newest mtime. OVERTURNED:
+ *      that tie-break was arbitrary, and picking one of four sibling images is
+ *      precisely the bug. All of them open; the tie-break now only decides
+ *      which is focused.
+ *
+ * The `preferSiteEntry` carve-out survives for the same reason rank 2 does: a
+ * website clone's deliverable is the SITE, and its entry is the door. Opening
+ * every produced page would be one tab per route.
+ *
+ * No cap is applied here. A turn that legitimately produces N primary artifacts
+ * opens N tabs (see OPEND-2571, where a 16-image turn is already reported as
+ * flooding the conversation) — capping that is a product decision, not one to
+ * take in a selection helper.
+ */
+export function selectAutoOpenProducedArtifacts(
+  producedFiles: ReadonlyArray<CandidateFile>,
+  options: SelectAutoOpenOptions = {},
+): TurnAutoOpenSelection {
+  if (options.preferSiteEntry) {
+    const entry = selectSiteEntryFile(producedFiles, options);
+    if (entry) return { focused: entry.name, open: [entry.name] };
+  }
+  const best = selectBestRankedFile(producedFiles, options);
+  if (!best) return NOTHING_TO_OPEN;
+  const primaryRank = autoOpenPreviewRank(best);
+  const open: string[] = [];
+  const seen = new Set<string>();
+  for (const file of producedFiles) {
+    if (!file.name || seen.has(file.name)) continue;
+    if (autoOpenPreviewRank(file) !== primaryRank) continue;
+    seen.add(file.name);
+    open.push(file.name);
+  }
+  return { focused: best.name, open };
+}
+
+// The shallowest produced `index.html`, ties to newest. Extracted verbatim from
+// selectAutoOpenProducedArtifact so the single-open and open-all paths cannot
+// drift into different answers.
+function selectSiteEntryFile(
+  producedFiles: ReadonlyArray<CandidateFile>,
+  options: SelectAutoOpenOptions,
+): CandidateFile | null {
+  let entry: CandidateFile | null = null;
+  let entryDepth = Number.POSITIVE_INFINITY;
+  for (const file of producedFiles) {
+    if (!isHtmlPreviewFile(file)) continue;
+    const depth = siteEntryDepth(file);
+    if (depth === null) continue;
+    if (depth < entryDepth) {
+      entry = file;
+      entryDepth = depth;
+      continue;
+    }
+    if (depth > entryDepth || !entry) continue;
+    const createdThisTurnOrder = compareCreatedThisTurn(file, entry, options.preTurnFileNames);
+    if (createdThisTurnOrder !== 0) {
+      if (createdThisTurnOrder > 0) entry = file;
+      continue;
+    }
+    const nextMtime = typeof file.mtime === 'number' && Number.isFinite(file.mtime) ? file.mtime : 0;
+    const entryMtime =
+      typeof entry.mtime === 'number' && Number.isFinite(entry.mtime) ? entry.mtime : 0;
+    if (nextMtime >= entryMtime) entry = file;
+  }
+  return entry;
+}
+
+// Highest preview rank wins; ties to created-this-turn, then newest mtime.
+// Extracted verbatim from selectAutoOpenProducedArtifact.
+function selectBestRankedFile(
+  producedFiles: ReadonlyArray<CandidateFile>,
+  options: SelectAutoOpenOptions,
+): CandidateFile | null {
   let selected: CandidateFile | null = null;
   let selectedRank = 0;
   for (const file of producedFiles) {
@@ -385,7 +506,7 @@ export function selectAutoOpenProducedArtifact(
       typeof selected.mtime === 'number' && Number.isFinite(selected.mtime) ? selected.mtime : 0;
     if (nextMtime >= selectedMtime) selected = file;
   }
-  return selected?.name ?? null;
+  return selected;
 }
 
 function compareCreatedThisTurn(
