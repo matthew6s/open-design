@@ -163,15 +163,19 @@ var documentEpoch='';
 try{documentEpoch=new URLSearchParams(window.location.search).get('odPreviewEpoch')||'';}catch(_){}
 function numberValue(value){var next=Number(value||0);return Number.isFinite(next)?next:0;}
 function scrollElement(){return document.querySelector('.design-canvas')||document.scrollingElement||document.documentElement;}
-function postScroll(){
+function postScroll(requestId){
   if(!scrollEnabled)return;
   var canvas=scrollElement();
   if(!canvas)return;
   var frame=document.scrollingElement||document.documentElement;
-  send('od:preview-scroll',{
+  var payload={
     canvasLeft:Math.round(canvas.scrollLeft||0),canvasTop:Math.round(canvas.scrollTop||0),
     frameLeft:Math.round(frame.scrollLeft||0),frameTop:Math.round(frame.scrollTop||0)
-  });
+  };
+  // An answered capture must carry the id the host is waiting on. Unsolicited
+  // reports carry none, and the host treats those two very differently.
+  if(requestId)payload.requestId=requestId;
+  send('od:preview-scroll',payload);
 }
 
 function scheduleScroll(){
@@ -224,6 +228,14 @@ window.addEventListener('message',function(event){
   if(event.source!==parent)return;
   var data=event.data;
   if(!data||!data.type)return;
+  // The host cannot read scroll out of an opaque-origin document, so it asks
+  // and waits on a 120ms budget. Only the legacy srcDoc bridge answered this;
+  // on the converged transport every capture timed out and silently degraded
+  // to the last unsolicited report.
+  if(data.type==='od:preview-scroll-capture'&&scrollEnabled){
+    postScroll(typeof data.requestId==='string'?data.requestId:undefined);
+    return;
+  }
   if(data.type==='od:preview-scroll-restore'&&scrollEnabled){
     setScroll(document.scrollingElement||document.documentElement,data.frameLeft,data.frameTop);
     setScroll(scrollElement(),data.canvasLeft,data.canvasTop);

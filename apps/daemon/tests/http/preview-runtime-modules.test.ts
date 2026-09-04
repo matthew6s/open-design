@@ -486,4 +486,82 @@ describe('preview runtime modules', () => {
     dispatch({ type: 'od:preview-scroll-by', left: 10, top: 20 });
     expect(frame.scrollLeft).toBe(14);
   });
+
+  // The host cannot read scroll out of an opaque-origin document, so before a
+  // mode change it asks the document for its exact position and waits, keyed by
+  // `requestId`, with a 120 ms budget. Only the legacy srcDoc bridge ever
+  // answered that request; the converged transport never did, so every capture
+  // burned the full budget and silently degraded to whatever unsolicited
+  // scroll report happened to be the most recent one.
+  it('answers the host exact-scroll capture request with its requestId', () => {
+    const source = buildPreviewRuntimeBootstrap({
+      sessionId: 'session-1',
+      documentVersion: 'version-1',
+      availableCapabilities: ['scroll'],
+      modules: [buildScrollAndMeasurementRuntimeModule()],
+    }).replace(/^<script[^>]*>/u, '').replace(/<\/script>$/u, '');
+    const posted: any[] = [];
+    const listeners = new Map<string, Array<(event: any) => void>>();
+    const frame = {
+      scrollLeft: 11,
+      scrollTop: 23,
+      scrollWidth: 640,
+      clientWidth: 320,
+      scrollTo(left: number, top: number) { this.scrollLeft = left; this.scrollTop = top; },
+      scrollBy({ left, top }: { left: number; top: number }) {
+        this.scrollLeft += left;
+        this.scrollTop += top;
+      },
+    };
+    const parent = { postMessage: (message: unknown) => posted.push(message) };
+    const addListener = (type: string, listener: (event: any) => void) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    };
+    const document = {
+      readyState: 'complete',
+      documentElement: frame,
+      scrollingElement: frame,
+      body: frame,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: addListener,
+      createElement: () => ({ setAttribute() {}, appendChild() {}, style: {} }),
+    };
+    const context: any = {
+      parent,
+      document,
+      JSON,
+      Math,
+      Set,
+      setTimeout: (callback: () => void) => callback(),
+      queueMicrotask: (callback: () => void) => callback(),
+      requestAnimationFrame: (callback: () => void) => callback(),
+      addEventListener: addListener,
+    };
+    context.window = context;
+    vm.runInNewContext(source, context);
+
+    const dispatch = (data: Record<string, unknown>) => {
+      for (const listener of listeners.get('message') ?? []) listener({ source: parent, data });
+    };
+    dispatch({
+      type: 'od:preview:set-capabilities',
+      protocolVersion: 1,
+      sessionId: 'session-1',
+      documentVersion: 'version-1',
+      enabledCapabilities: ['scroll'],
+    });
+
+    posted.length = 0;
+    dispatch({ type: 'od:preview-scroll-capture', requestId: 'preview-scroll-7' });
+
+    // The reply must carry the requestId, or the host cannot match it to the
+    // pending capture and lets the request time out instead.
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'od:preview-scroll',
+      requestId: 'preview-scroll-7',
+      frameLeft: 11,
+      frameTop: 23,
+    }));
+  });
 });
