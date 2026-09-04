@@ -367,8 +367,14 @@ export function expand(prop: string, value: string): Array<[string, string]> {
      * 长得一模一样,于是「两边都读回 `<unset>`」的相等断言看起来是绿的,实际一格都没量。
      * 名单是加法:`resolved()` 只吐调用方点名的 `targets`,没点名这两项的文件读数不变。
      *
+     * `white-space` / `overflow-wrap` 是 OPEND-2612(选项说明文案被右边距裁掉)
+     * 加进来的。那条缺陷的病根就是层叠:`primitives.css` 的裸 `button
+     * { white-space: nowrap }` 和 `.qf-chip { white-space: normal }` 规则文本两边
+     * 都没写错,只有谁赢决定文案换不换行 —— 正是这把尺子该照的形态。加进来之前
+     * 它们读回 `<unset>`,任何「断言它是 normal」都会假绿。
+     *
      * ⚠️ 仍然不在名单里的:`letter-spacing` / `-webkit-line-clamp` / `display` /
-     * `overflow-wrap` / `animation-*` / `transform`。要量它们得先照这里再加一格。
+     * `animation-*` / `transform`。要量它们得先照这里再加一格。
      * ⚠️ `font` 简写不展开(`expand('font', …)` 返回空),所以「同一条规则里
      * `font: inherit` 在长手之前」这种写法量出来的是长手值 —— 和浏览器一致;
      * 但「只写 `font:` 简写、指望它带出 line-height」的规则,这把尺子看不见。
@@ -383,6 +389,8 @@ export function expand(prop: string, value: string): Array<[string, string]> {
     case 'min-width':
     case 'min-height':
     case 'box-shadow':
+    case 'white-space':
+    case 'overflow-wrap':
       return [[prop, v]];
     default:
       return [];
