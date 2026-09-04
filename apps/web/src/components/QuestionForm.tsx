@@ -418,10 +418,9 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
       for (const q of form.questions) {
         if (next[q.id] !== undefined) {
           if (shouldAdoptStreamedDefault(q, next[q.id]!, touched)) {
-            next[q.id] = canonicalizeQuestionValue(
+            next[q.id] = recommendedValueWithinDeclaredRange(
               q,
-              q.defaultValue!,
-              visualStyleContext,
+              canonicalizeQuestionValue(q, q.defaultValue!, visualStyleContext),
             );
             changed = true;
           }
@@ -435,7 +434,10 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
             visualStyleContext,
           );
         } else if (q.defaultValue !== undefined) {
-          next[q.id] = canonicalizeQuestionValue(q, q.defaultValue, visualStyleContext);
+          next[q.id] = recommendedValueWithinDeclaredRange(
+            q,
+            canonicalizeQuestionValue(q, q.defaultValue, visualStyleContext),
+          );
         } else {
           next[q.id] = emptyQuestionValue(q);
         }
@@ -2180,12 +2182,36 @@ function buildInitialState(
       continue;
     }
     if (q.defaultValue !== undefined) {
-      out[q.id] = canonicalizeQuestionValue(q, q.defaultValue, visualStyleContext);
+      out[q.id] = recommendedValueWithinDeclaredRange(
+        q,
+        canonicalizeQuestionValue(q, q.defaultValue, visualStyleContext),
+      );
       continue;
     }
     out[q.id] = emptyQuestionValue(q);
   }
   return out;
+}
+
+/**
+ * 模型给的推荐值必须服从**模型自己在同一道题上声明的**范围(OPEND-2622)。
+ *
+ * 协议允许一道题同时写 `min: 1, max: 5` 和 `defaultValue: 0` —— 这两句话互相
+ * 矛盾,而我们原来照单全收:数字框念模型给的 0、滑杆按物理范围停在 1,
+ * 同一道题在屏幕上摆出两份真相;用户一次都没碰过它,提交出去的答案就是越界的 0。
+ * 拖滑杆和敲数字两条路本来都过 `clampRangeValue`,只有「默认值进状态」这条没过。
+ *
+ * 收的只有**推荐值**这一份。用户自己写下的东西(提交历史、恢复的草稿)不在此列 ——
+ * 「不为了拿到新样子去动已经写下的旧内容」是既有的兼容性底线,那条路仍旧原样保留。
+ */
+function recommendedValueWithinDeclaredRange(
+  q: QuestionForm['questions'][number],
+  value: string | string[],
+): string | string[] {
+  if (q.type !== 'range' || typeof value !== 'string') return value;
+  const parsed = Number(value);
+  if (value.trim().length === 0 || !Number.isFinite(parsed)) return value;
+  return String(clampRangeValue(parsed, q));
 }
 
 /**

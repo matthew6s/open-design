@@ -2186,29 +2186,35 @@ legend.qf-color-legend {
 .qf-visual-picker[data-view='fan'] .qf-visual-card-preview {
   aspect-ratio: 4 / 3;
 }
-/* 左右两枚翻页箭头压在这一沓的垂直中线上；整条不吃指针事件，
-   只有两枚按钮自己吃，免得它挡住中间那张卡的点击和拖拽。 */
 /*
- * 左右箭头**距两侧各 11px**,不是贴边(稿子 `.opts.mod-visual .vnav` 就是
- * `inset-inline: 11px`)。
+ * 左右箭头**距卡的内容边各 11px**,不是贴边(稿子 `.opts.mod-visual .vnav`
+ * 就是 `inset-inline: 11px`)。11px 和「换一批 / 随机」那一行的左右内距是
+ * 同一个数,三者的竖向边界因此对齐;贴边之后这条对齐就没了。
  *
- * 原来写的是 `inset: 0` —— 箭头因此压在这一沓的左右边缘上,和卡片描边叠在一起,
- * 用户真机截图圈出来过。11px 和「换一批 / 随机」那一行的左右内距是同一个数,
- * 三者的竖向边界因此对齐;贴边之后这条对齐就没了。
+ * ⚠️ **这 11px 只能数一遍**(OPEND-2633)。稿子里 `.vnav` 的定位祖先是
+ * `.opts.mod-visual` —— 那是**整张卡宽**的盒子,所以它写 `inset-inline: 11px`
+ * 才正好落在内容边上。我们的定位祖先是 `.qf-visual-stage`,而它上面那条
+ * `margin-inline: 11px` **已经把这条 gutter 吃掉了**;在它里面再写一次 11px,
+ * 同一条 gutter 就被数了两遍,箭头比稿子往里挪 11px,一头扎进卡片区。
+ * 所以这里写 0:相对卡的内容边,总量仍然是稿子的那 11px。
  *
- * 竖向仍由 `.qf-visual-stage` 承担(它的高度就是这一沓的高度 `--qf-fan-h`),
- * 所以这里只写横向,不照搬稿子的 `bottom: 10px; height: var(--fan-h)` ——
- * 稿子那两条是因为它把 `.vnav` 挂在更高的 `.opts` 上、要自己把盒子压回这一沓,
- * 我们的定位祖先已经正好是这一沓了,再写一遍反而会错开 10px。
+ * 竖向同样由 `.qf-visual-stage` 承担(它的高度就是这一沓的高度 `--qf-fan-h`),
+ * 不照搬稿子的 `bottom: 10px; height: var(--fan-h)` —— 那两条是因为稿子把
+ * `.vnav` 挂在更高的 `.opts` 上、要自己把盒子压回这一沓,我们的祖先已经正好
+ * 是这一沓了,再写一遍反而会错开 10px。同一个道理,同一处地方错过两次。
+ *
+ * **不给 z-index**:稿子的 `.vnav` 一条层叠都没写,而 `.vopt` 带 4/3/2/1,
+ * 所以稿子里是**卡片盖在箭头上**。原来这里写 `z-index: 6`,比最前面那张(4)
+ * 和 hover 放大那张(5)都高,反过来成了箭头盖卡片 —— 工单里「卡片看起来被
+ * 裁掉一块」就是这一下。整条不吃指针事件,只有两枚按钮自己吃。
  */
 .qf-visual-nav {
   position: absolute;
-  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
   inset-block: 0;
-  inset-inline: 11px;
+  inset-inline: 0;
   pointer-events: none;
 }
 /* 稿子 `.vnav-b { display:grid; place-items:center; width:26px; height:26px;
