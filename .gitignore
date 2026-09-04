@@ -36,6 +36,7 @@ apps/web/playwright/
 # Written ad-hoc during local visual checks; never commit — these hold local
 # UI/session state and are not a maintained test fixture.
 .playwright-mcp/
+.playwright-cli/
 
 # Legacy folder name from before the rename; keep ignored so existing
 # clones don't accidentally stage stale runtime data.
