@@ -323,6 +323,10 @@ import {
 import { MANUAL_EDIT_STYLE_PROPS, type ManualEditBridgeMessage, type ManualEditHistoryEntry, type ManualEditPatch, type ManualEditStyles, type ManualEditTarget } from '../edit-mode/types';
 import { isRenderableSketchJson, SketchPreview } from './SketchPreview';
 import {
+  decideDeckSlideReport,
+  type DeckSlideIntent,
+} from '../runtime/deck-slide-intent';
+import {
   getHtmlSourceSnapshot,
   htmlSourceSnapshotRefreshKey,
   invalidateHtmlSourceSnapshotFile,
@@ -8513,6 +8517,8 @@ function HtmlViewer({
   // document.open/write/close inside the shell). See onLoad below for
   // the infinite-loop story (issue #2361).
   const srcDocFrameDedupeResetForRef = useRef<HTMLIFrameElement | null>(null);
+  // The slide the host last asked the deck for, until the deck confirms it.
+  const pendingDeckSlideIntentRef = useRef<DeckSlideIntent | null>(null);
   const isActivePreviewIframeSource = useCallback((source: MessageEventSource | null) => {
     return workspaceActive && !!source && source === iframeRef.current?.contentWindow;
   }, [workspaceActive]);
@@ -12447,6 +12453,13 @@ function HtmlViewer({
         const generation = expectedSrcDocTransportGenerationRef.current;
         srcDocContentReadyRef.current = { frame: srcDocFrame, generation };
       }
+      const decision = decideDeckSlideReport(
+        pendingDeckSlideIntentRef.current,
+        data.active,
+        Date.now(),
+      );
+      if (decision === 'ignore') return;
+      if (decision === 'adopt-and-settle') pendingDeckSlideIntentRef.current = null;
       const next = { active: data.active, count: data.count };
       setSlideStateCached(previewStateKey, next);
       setSlideState(next);
@@ -13953,6 +13966,9 @@ function HtmlViewer({
   function goToSlide(index: number) {
     if (!Number.isFinite(index) || index < 0) return;
     const target = Math.floor(index);
+    // Until the deck confirms this, a report that says otherwise is a stale
+    // voice from the document's other reporter, not news.
+    pendingDeckSlideIntentRef.current = { index: target, atMs: Date.now() };
     const count = Math.max(deckSlideCount, target + 1);
     setSlideStateCached(previewStateKey, { active: target, count });
     setSlideState({ active: target, count });
