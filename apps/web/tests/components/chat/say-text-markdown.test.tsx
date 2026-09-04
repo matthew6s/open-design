@@ -73,9 +73,14 @@ describe('流的过程中:markdown 变形不许重放已经看过的字', () => 
   it('逐帧:每一帧只化开新到的字,markdown 闭合与块型变化都不重来', () => {
     const { container, rerender } = render(<SayText text="先看一下" live />);
 
-    // 第一帧:整段都是新的
+    /*
+     * 第一帧:**挂载即落定**(用户 2026-09-04「已经输出过的,刷新页面或者从设置页面
+     * 返回,还是会有流式的效果」;不变式与两条路径的判据在 `reveal-mount-settled.test.tsx`)。
+     * host 挂上来时已经在里头的字一律算历史 —— 这一格是重挂回来的历史,还是这一段
+     * 叙述的第一帧,渲染层分不出来,按较晚那条裁决一律落定。
+     */
     expect(seen(container)).toBe('先看一下');
-    expect(revealed()).toBe('先看一下');
+    expect(revealed()).toBe('');
 
     // 语法还没闭合 —— 这一刻用户确实会看到 `**`,这是取舍,不是缺陷(见组件注释)
     rerender(<SayText text="先看一下**规" live />);

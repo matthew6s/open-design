@@ -17,6 +17,22 @@
  *   一次性到达 2000 字 → `.rv` span **0 个**(整段瞬间刷出来,就是用户说的那一下)
  *   每帧 10 字增量     → `.rv` span 10 个(这一路本来就是好的)
  *   思考流            → `.rv` span **0 个**(从来没接过)
+ *
+ * ── 2026-09-04:「一次性到达」的夹具形态改了,量的东西没改 ─────────────────
+ *
+ * 同日立了另一条不变式:**逐字化开只属于「本次挂载中正在到达的字」;host 挂上来时
+ * 已经在里头的字是历史,首帧就是落定态**(用户:「已经输出过的,刷新页面或者从设置
+ * 页面返回,还是会有流式的效果」;判据在 `reveal-mount-settled.test.tsx`)。
+ *
+ * 于是 `render(<Prose text={一大段} streaming />)` 这种**带着正文直接挂载**的写法
+ * 不再代表「一次性到达」—— 它现在正好是那条 bug 的形状。下面凡是量「一次性到达」的
+ * 用例都改成**先挂上来、再一次长满**:`render(text="")` → `rerender(text=一大段)`。
+ * 这既是真实直播路径(消息行早就在屏幕上,daemon 的整包正文才落进来),也让每一条
+ * 断言量的还是原来那件事(预算、单位加粗、span 数封顶、字符不丢)。
+ *
+ * ⚠️ **待产品拍板**:「历史带着完整正文进场」和「非流式 agent 一次性吐出整段、正文
+ * 随 host 一起进场」在 DOM 上一模一样,渲染层分不出来。按较晚的裁决执行之后,后者
+ * 不再化开。要两条都保住,得由数据侧告诉渲染层「这一段是刚到的」(`ProjectView` 的活)。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
@@ -38,6 +54,18 @@ function Prose({ text, streaming }: { text: string; streaming: boolean }): React
 const spans = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.rv')];
 const visible = (sel = '[data-testid="prose"]'): string => document.querySelector(sel)?.textContent ?? '';
 const delayOf = (el: HTMLElement): number => Number.parseFloat(el.style.animationDelay || '0');
+
+/**
+ * 「一次性到达」的夹具:host 先空着挂上来(消息行早就在屏幕上),再一帧长满。
+ *
+ * **不能**写成 `render(<Prose text={一大段} streaming />)` —— 带着正文直接挂载是
+ * 「历史重挂」那条 bug 的形状,首帧按不变式就该是落定的(见文件头)。
+ */
+function arrivesAtOnce(text: string): ReturnType<typeof render> {
+  const view = render(<Prose text="" streaming />);
+  view.rerender(<Prose text={text} streaming />);
+  return view;
+}
 
 /* ── 1. 排期是纯函数,可以直接量 ───────────────────────────────── */
 
@@ -74,30 +102,37 @@ describe('planReveal:一段字怎么排进时间里', () => {
 /* ── 2. 一次性到达也要化开(用户那句「不能直接刷一下子整个出来」)──── */
 
 describe('后端一次性给的一大段', () => {
-  it('第一次见到就有字在化开 —— 修前这里是 0 个 span', () => {
-    render(<Prose text={'龘'.repeat(400)} streaming />);
+  it('整段一帧到货就有字在化开 —— 修前这里是 0 个 span', () => {
+    arrivesAtOnce('龘'.repeat(400));
     expect(spans().length).toBeGreaterThan(0);
     expect(visible()).toBe('龘'.repeat(400));
   });
 
   it('34,731 字不会拆出 34,731 个 span:节点数被预算封住', () => {
-    render(<Prose text={'龘'.repeat(34_731)} streaming />);
+    arrivesAtOnce('龘'.repeat(34_731));
+    expect(spans().length).toBeGreaterThan(0);      // 0 个的话下面那条上界会**空过**
     expect(spans().length).toBeLessThanOrEqual(REVEAL_BUDGET_MS / STAGGER_MS);
     expect(visible().length).toBe(34_731);          // 一个字都没丢
   });
 
   it('最后一个单位在 2s 预算内起跑', () => {
-    render(<Prose text={'龘'.repeat(34_731)} streaming />);
+    arrivesAtOnce('龘'.repeat(34_731));
     expect(spans().length).toBeGreaterThan(0);      // 没有 span 时 Math.max 会给 -Infinity,断言会**空过**
     const last = Math.max(...spans().map(delayOf));
     expect(last).toBeLessThanOrEqual(REVEAL_BUDGET_MS - CHAR_MS);
   });
 
   it('反向对照:短句不会被拉长到 2s —— 它按 10ms 错开,几十毫秒就排完', () => {
-    render(<Prose text="想好了,开始做" streaming />);
+    arrivesAtOnce('想好了,开始做');
     expect(spans().length).toBeGreaterThan(0);      // 同上:空数组会让下面这条空过
     const last = Math.max(...spans().map(delayOf));
     expect(last).toBeLessThan(200);
+  });
+
+  it('反向对照:同一段字**带着 host 一起挂上来**时不化开(那是历史,不是到货)', () => {
+    render(<Prose text={'龘'.repeat(400)} streaming />);
+    expect(visible()).toBe('龘'.repeat(400));       // 正向对照:字真的在,不是没渲染
+    expect(spans()).toHaveLength(0);
   });
 });
 
@@ -153,7 +188,7 @@ describe('开完的字要落定', () => {
   it('预算走完之后再渲染一次,span 全部收回,文字完好', () => {
     let now = 1_000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
-    const { rerender } = render(<Prose text="一二三四五" streaming />);
+    const { rerender } = arrivesAtOnce('一二三四五');
     expect(spans().length).toBeGreaterThan(0);
 
     now += REVEAL_BUDGET_MS + CHAR_MS + 50;
@@ -165,7 +200,7 @@ describe('开完的字要落定', () => {
   it('反向对照:预算没走完时,重渲染不会把还在开的字提前收掉', () => {
     let now = 1_000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
-    const { rerender } = render(<Prose text={'龘'.repeat(400)} streaming />);
+    const { rerender } = arrivesAtOnce('龘'.repeat(400));
     now += 20;
     rerender(<Prose text={'龘'.repeat(400)} streaming />);
     expect(spans().length).toBeGreaterThan(0);
@@ -187,7 +222,7 @@ describe('开完之后 span 自己收回去', () => {
   it('一次渲染都没有,预算到点后 span 也归零', async () => {
     vi.useFakeTimers();
     try {
-      render(<Prose text={'龘'.repeat(34_731)} streaming />);
+      arrivesAtOnce('龘'.repeat(34_731));
       expect(spans().length).toBeGreaterThan(0);
       /* 正向对照:收之前它们真的带着 filter 那条动画(class 是 CSS 里 `.rv` 的钩子) */
       expect(spans()[0]?.className).toBe('rv');
@@ -203,7 +238,7 @@ describe('开完之后 span 自己收回去', () => {
   it('反向对照:预算没到点时定时器**不**提前收', async () => {
     vi.useFakeTimers();
     try {
-      render(<Prose text={'龘'.repeat(34_731)} streaming />);
+      arrivesAtOnce('龘'.repeat(34_731));
       await vi.advanceTimersByTimeAsync(200);
       expect(spans().length).toBeGreaterThan(0);
     } finally {
@@ -223,7 +258,10 @@ const readTool = (id: string): ShellItem => ({
 
 describe('壳内的过程叙述', () => {
   it('还在跑、且排在最后的那一段会化开', () => {
-    const { container } = render(showShell(shellOf([readTool('a.png'), say('先把列表页搭起来。')], { status: 'running' })));
+    // 先让这一格挂上来(消息行早就在屏幕上),再让正文长进去 —— 带着正文直接挂载
+    // 是「历史重挂」那条 bug 的形状,首帧按不变式就该落定(见文件头)
+    const { container, rerender } = render(showShell(shellOf([readTool('a.png'), say('先')], { status: 'running' })));
+    rerender(showShell(shellOf([readTool('a.png'), say('先把列表页搭起来。')], { status: 'running' })));
     expect(container.textContent).toContain('先把列表页搭起来');
     expect(container.querySelectorAll('.rv').length).toBeGreaterThan(0);
   });
@@ -252,7 +290,7 @@ const EN = 'The reveal has to keep every line break opportunity intact. ';
 describe('带空格的正文', () => {
   it('化开再收回之后,文字**一个字符都不多** —— 空白不会被复制一份', () => {
     const text = EN.repeat(40);
-    const { rerender } = render(<Prose text={text} streaming />);
+    const { rerender } = arrivesAtOnce(text);
     expect(spans().length).toBeGreaterThan(0);          // 正向对照:确实化开了才谈得上收回
     rerender(<Prose text={text} streaming={false} />);
     expect(spans()).toHaveLength(0);
@@ -267,7 +305,7 @@ describe('带空格的正文', () => {
   });
 
   it('span 数照样被预算封住 —— 不会按「词」爆成几千个', () => {
-    render(<Prose text={EN.repeat(600)} streaming />);   // ≈36,000 字,近似那次真实录制的量级
+    arrivesAtOnce(EN.repeat(600));                       // ≈36,000 字,近似那次真实录制的量级
     expect(spans().length).toBeGreaterThan(0);
     expect(spans().length).toBeLessThanOrEqual(MAX_UNITS);
   });

@@ -78,6 +78,31 @@
  *     → 判据换成**观察**:挂一只 `MutationObserver` 专门看文本节点的值被谁改过。
  *       我们自己写完就把记录抽干,于是下一帧抽出来的就只剩 React 的那些写入;
  *       名单里的节点一律**不还原**,它现在的值是 React 的新意图。
+ *
+ * ## 挂载即落定(用户 2026-09-04)
+ *
+ * 用户:「然后这个**已经输出过的**,**刷新页面**或者**从设置页面返回**,还是会有流式的效果」。
+ * 说的是一张已经答完的问题表单摘要卡(绿色「已确认」+ 三行问答)重挂之后又化开了一遍。
+ *
+ * 立成不变式:**逐字化开只属于「本次挂载中正在到达的字」。一只 host 挂上来时已经在
+ * 里头的字是历史,首帧就是落定态 —— 一个 span 都不拆,一只定时器都不排。**
+ *
+ * 两条用户路径落到 DOM 上是同一件事,所以一条判据就够:
+ *   · 刷新页面 —— 整个应用重挂,历史从 GET 拉回来后一次性渲染;
+ *   · 从设置页返回 —— 应用没重载,但 `ChatPane` 的 React `key` 含 `chatSeed`,清它就是强制重挂。
+ * 判据钉在 `reveal-mount-settled.test.tsx`(两条路径各一组,每组都带反向对照)。
+ *
+ * 光靠 `streaming=false` 挡不住:刷新时 run 往往还活着(`runStatus: 'running'`),
+ * `isAssistantMessageStreaming` 于是照旧给 `streaming: true`,而正文早已经是完整的历史。
+ * `markHistoryReplayLanded` 也挡不住:它只认 daemon 从缓冲重推的**增量**,
+ * 挂载时就已经在 DOM 里的那一段根本不经过那条路。
+ *
+ * ⚠️ **待产品拍板**:这条和 2026-08-27 那条(「后端一次性给的一大段,展示时也要走完
+ * 流式效果」)在**唯一能观察到的那个形态上是冲突的** —— 「历史带着完整正文进场」和
+ * 「非流式 agent 一次性吐出整段」在 DOM 上一模一样,渲染层分不出来。这里按**较晚的
+ * 那条裁决**执行:挂载即落定。代价是非流式 agent 整段一次到货时不再化开(它的正文
+ * 是随着 host 一起进场的)。要两条都要,得由数据侧告诉渲染层「这一段是刚到的」——
+ * 那是 `ProjectView` 的活,不在这只 hook 里。
  */
 import { useLayoutEffect, type RefObject } from 'react';
 
@@ -240,10 +265,29 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
     const now = performance.now();
     const prev = states.get(host);
 
-    // ④ 没有新字 + 上一批还没开完 ⇒ 原地不动,让正在开的那几个字自己开完
-    if (prev && prev.until > now && measure(host) === prev.len) return;
+    /*
+     * ⑥ **挂载即落定**(用户 2026-09-04,详见文件头)。
+     *
+     * 没有上一帧的状态 = 这只 host 是刚进 DOM 的。它此刻装着的字**不是新到的字**,
+     * 是历史 —— 刷新页面、从设置页返回、切会话,都会带着完整正文重挂一次。
+     * 直接记成「已经显示过」,`return` 得比 `restore()` / `collect()` 还早:
+     * 挂载那一帧连一次 DOM 改写都没有,更不会排收尾定时器。
+     *
+     * 重放标记顺手认领掉:这一次落地本来就是历史,别把它留给后面某一段真正的直播。
+     */
+    if (!prev) {
+      claimHistoryReplayLanded(now);
+      const landed = measure(host);
+      host.removeAttribute('data-reveal');
+      states.set(host, { shown: landed, len: landed, until: 0, touched: [], timer: 0 });
+      forgetOwnWrites(host);
+      return;
+    }
 
-    if (prev?.timer) clearTimeout(prev.timer);
+    // ④ 没有新字 + 上一批还没开完 ⇒ 原地不动,让正在开的那几个字自己开完
+    if (prev.until > now && measure(host) === prev.len) return;
+
+    if (prev.timer) clearTimeout(prev.timer);
 
     restore(host);                                    // ② 先把上一帧加的 span 收走
     const nodes = collect(host);
@@ -266,7 +310,7 @@ export function useCharReveal(ref: RefObject<HTMLElement | null>, streaming: boo
     }
 
     // ③ 只认长度增量。markdown 闭合会让可见文字变短,那时把「已显示」压到新长度即可
-    const shown = Math.min(prev?.shown ?? 0, len);
+    const shown = Math.min(prev.shown, len);
     const grew = len - shown;
     if (grew <= 0) {
       host.removeAttribute('data-reveal');
