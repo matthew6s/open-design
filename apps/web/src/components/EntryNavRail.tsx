@@ -1603,11 +1603,9 @@ export function WorkspaceTopRightAccountCluster({
 }) {
   const ambient = useWorkspaceContext();
   const hasExplicitWorkspaceContext = workspaceContextOverride !== undefined;
-  // TEMP(preview only — REVERT): pin the rail to the signed-out shell so the
-  // logged-out footer can be looked at without actually signing the dev copy
-  // out. Restore the two lines below this one to go back.
-  const context: WorkspaceCollabContext | null = null;
-  void (hasExplicitWorkspaceContext ? workspaceContextOverride : ambient.context);
+  const context = hasExplicitWorkspaceContext
+    ? workspaceContextOverride
+    : ambient.context;
   const billingResponse = useWorkspaceBillingResponse({
     context,
     loading: hasExplicitWorkspaceContext
