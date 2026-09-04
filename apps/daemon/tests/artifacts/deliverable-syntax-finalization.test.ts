@@ -33,12 +33,31 @@ describe('deliverable syntax finalization', () => {
       entryFile: 'index.html',
       processTreeQuiescent: true,
       checkedAt: 123,
+      previousMetrics: {
+        schema: 'open-design.deliverable-syntax-metrics/v1',
+        checkCount: 2,
+        checkerDurationMs: 9,
+        repairableCheckCount: 1,
+        initialDiagnosticCount: 1,
+        latestDiagnosticCount: 1,
+      },
+      monotonicNow: (() => {
+        const values = [100, 107];
+        return () => values.shift() ?? 107;
+      })(),
     })).resolves.toMatchObject({
       action: 'allow',
       validation: {
         status: 'pass',
         source: 'run_finalizer',
         checkedAt: 123,
+        metrics: {
+          checkCount: 3,
+          checkerDurationMs: 16,
+          repairableCheckCount: 1,
+          initialDiagnosticCount: 1,
+          latestDiagnosticCount: 0,
+        },
       },
     });
   });

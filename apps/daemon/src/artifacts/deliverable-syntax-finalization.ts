@@ -1,10 +1,13 @@
 import {
   DELIVERABLE_SYNTAX_TOOL_SCHEMA,
+  type DeliverableSyntaxMetrics,
   type DeliverableSyntaxRepairState,
   type DeliverableSyntaxValidationEvidence,
 } from '@open-design/contracts';
+import { performance } from 'node:perf_hooks';
 
 import { checkDeliverableSyntax } from './deliverable-syntax.js';
+import { recordDeliverableSyntaxCheck } from './deliverable-syntax-metrics.js';
 
 export type DeliverableSyntaxFinalizationOutcome =
   | { action: 'skip' }
@@ -30,7 +33,10 @@ export async function finalizeDeliverableSyntax(input: {
   relatedPaths?: readonly string[];
   processTreeQuiescent: boolean;
   repairState?: DeliverableSyntaxRepairState;
+  previousMetrics?: DeliverableSyntaxMetrics;
   checkedAt?: number;
+  /** Test seam for measuring parser wall time without changing checkedAt. */
+  monotonicNow?: () => number;
 }): Promise<DeliverableSyntaxFinalizationOutcome> {
   if (input.artifactKind !== 'html' || !input.entryFile) {
     return { action: 'skip' };
@@ -47,21 +53,32 @@ export async function finalizeDeliverableSyntax(input: {
         source: 'run_finalizer',
         checkedAt,
         ...(input.repairState ? { repairState: input.repairState } : {}),
+        ...(input.previousMetrics ? { metrics: input.previousMetrics } : {}),
       },
     };
   }
 
+  const checkerStartedAt = input.monotonicNow?.() ?? performance.now();
   const syntax = await checkDeliverableSyntax({
     projectRoot: input.projectRoot,
     entryFile: input.entryFile,
     relatedPaths: input.relatedPaths ?? [],
   });
+  const checkerDurationMs = Math.max(
+    0,
+    (input.monotonicNow?.() ?? performance.now()) - checkerStartedAt,
+  );
   const validation: DeliverableSyntaxValidationEvidence = {
     schema: DELIVERABLE_SYNTAX_TOOL_SCHEMA,
     ...syntax,
     source: 'run_finalizer',
     checkedAt,
     ...(input.repairState ? { repairState: input.repairState } : {}),
+    metrics: recordDeliverableSyntaxCheck({
+      ...(input.previousMetrics ? { previous: input.previousMetrics } : {}),
+      result: syntax,
+      durationMs: checkerDurationMs,
+    }),
   };
   if (syntax.status !== 'repairable') {
     return { action: 'allow', validation };

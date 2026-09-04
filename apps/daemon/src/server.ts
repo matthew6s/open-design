@@ -15726,6 +15726,9 @@ export async function startServer({
               ...(run.deliverableSyntaxRepair
                 ? { repairState: run.deliverableSyntaxRepair }
                 : {}),
+              ...(run.deliverableSyntaxValidation?.metrics
+                ? { previousMetrics: run.deliverableSyntaxValidation.metrics }
+                : {}),
             });
             if (syntaxFinalization.action !== 'skip') {
               run.deliverableSyntaxValidation = syntaxFinalization.validation;
@@ -15740,6 +15743,12 @@ export async function startServer({
                     syntaxFinalization.validation.candidateHash ?? null,
                   checkedFileCount:
                     syntaxFinalization.validation.checkedFiles?.length ?? 0,
+                  checkCount:
+                    syntaxFinalization.validation.metrics?.checkCount ?? null,
+                  checkerDurationMs:
+                    syntaxFinalization.validation.metrics?.checkerDurationMs ?? null,
+                  repairableCheckCount:
+                    syntaxFinalization.validation.metrics?.repairableCheckCount ?? null,
                 });
               }
               if (syntaxFinalization.action === 'fail') {

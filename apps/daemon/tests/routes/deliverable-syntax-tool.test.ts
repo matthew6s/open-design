@@ -26,6 +26,7 @@ async function fixture(input: {
   await fs.writeFile(path.join(projectRoot, input.entryFile), input.content, 'utf8');
   const run: { id: string; [key: string]: any } = { id: 'run-1' };
   let persistCount = 0;
+  let monotonicNow = 0;
   let routeHandler: RequestHandler | undefined;
   const app = {
     post(route: string, handler: RequestHandler) {
@@ -47,6 +48,11 @@ async function fixture(input: {
     getRun: () => run,
     persistRunState: () => { persistCount += 1; },
     relatedPathsForRun: async () => input.relatedPaths ?? [],
+    monotonicNow: () => {
+      const current = monotonicNow;
+      monotonicNow += 5;
+      return current;
+    },
   });
   if (!routeHandler) throw new Error('syntax tool route was not registered');
   return {
@@ -118,6 +124,14 @@ describe('deliverable syntax tool route', () => {
       repair: { action: 'none', attempt: 1, maxAttempts: 3 },
     });
     expect(passed.body.agentMessage).toBeUndefined();
+    expect(test.run.deliverableSyntaxValidation.metrics).toEqual({
+      schema: 'open-design.deliverable-syntax-metrics/v1',
+      checkCount: 2,
+      checkerDurationMs: 10,
+      repairableCheckCount: 1,
+      initialDiagnosticCount: 1,
+      latestDiagnosticCount: 0,
+    });
     expect(test.persistCount()).toBe(2);
   });
 
@@ -133,6 +147,25 @@ describe('deliverable syntax tool route', () => {
       status: 'repairable',
       diagnostics: [expect.objectContaining({ file: 'app.js', source: 'file' })],
       repair: { action: 'repair', attempt: 1 },
+    });
+  });
+
+  it('captures the first repairable diagnostic count even after an earlier pass', async () => {
+    const test = await fixture({
+      entryFile: 'index.html',
+      content: '<!doctype html><script>const initiallyValid = true;</script>',
+    });
+    expect((await test.check()).body.status).toBe('pass');
+    await fs.writeFile(
+      path.join(test.projectRoot, 'index.html'),
+      '<!doctype html><script>const brokenLate = ;</script>',
+      'utf8',
+    );
+    expect((await test.check()).body.status).toBe('repairable');
+    expect(test.run.deliverableSyntaxValidation.metrics).toMatchObject({
+      checkCount: 2,
+      repairableCheckCount: 1,
+      initialDiagnosticCount: 1,
     });
   });
 
@@ -167,6 +200,13 @@ describe('deliverable syntax tool route', () => {
     expect((await test.check()).body).toMatchObject({
       status: 'exhausted',
       repair: { action: 'stop', attempt: 3, reason: 'attempt_limit_reached' },
+    });
+    expect(test.run.deliverableSyntaxValidation.metrics).toMatchObject({
+      checkCount: 4,
+      checkerDurationMs: 20,
+      repairableCheckCount: 4,
+      initialDiagnosticCount: 1,
+      latestDiagnosticCount: 1,
     });
   });
 });

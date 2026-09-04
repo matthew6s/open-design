@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { performance } from 'node:perf_hooks';
 import {
   DELIVERABLE_SYNTAX_CHECKER,
   DELIVERABLE_SYNTAX_REPAIR_SCHEMA,
@@ -13,6 +14,7 @@ import {
   checkDeliverableSyntax,
   type DeliverableSyntaxResult,
 } from '../artifacts/deliverable-syntax.js';
+import { recordDeliverableSyntaxCheck } from '../artifacts/deliverable-syntax-metrics.js';
 import {
   DEFAULT_DELIVERABLE_SYNTAX_REPAIR_MAX_ATTEMPTS,
   decideDeliverableSyntaxRepair,
@@ -57,6 +59,8 @@ export interface RegisterDeliverableSyntaxToolRoutesDeps {
     runId: string;
     projectRoot: string;
   }): Promise<readonly string[]>;
+  /** Test seam for measuring parser wall time without changing checkedAt. */
+  monotonicNow?: () => number;
 }
 
 function storedRepairState(value: unknown): DeliverableSyntaxRepairState | undefined {
@@ -204,11 +208,16 @@ export function registerDeliverableSyntaxToolRoutes(
       const relatedPaths = deliverable.artifactKind === 'html'
         ? await ctx.relatedPathsForRun({ runId: grant.runId, projectRoot })
         : [];
+      const checkerStartedAt = ctx.monotonicNow?.() ?? performance.now();
       const result = await checkDeliverableSyntax({
         projectRoot,
         entryFile: deliverable.artifactKind === 'html' ? deliverable.entryFile : null,
         relatedPaths,
       });
+      const checkerDurationMs = Math.max(
+        0,
+        (ctx.monotonicNow?.() ?? performance.now()) - checkerStartedAt,
+      );
       const previous = storedRepairState(run.deliverableSyntaxRepair);
       const response = toolResponse(result, previous);
       const decision = decideDeliverableSyntaxRepair({
@@ -221,6 +230,13 @@ export function registerDeliverableSyntaxToolRoutes(
         ...response,
         source: 'agent_tool',
         checkedAt: Date.now(),
+        metrics: recordDeliverableSyntaxCheck({
+          ...(run.deliverableSyntaxValidation?.metrics
+            ? { previous: run.deliverableSyntaxValidation.metrics }
+            : {}),
+          result,
+          durationMs: checkerDurationMs,
+        }),
       };
       ctx.persistRunState(run);
       res.json(response);

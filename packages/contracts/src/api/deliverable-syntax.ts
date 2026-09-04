@@ -6,9 +6,25 @@ export const DELIVERABLE_SYNTAX_TOOL_SCHEMA =
   'open-design.deliverable-syntax-tool/v1' as const;
 export const DELIVERABLE_SYNTAX_REPAIR_SCHEMA =
   'open-design.deliverable-syntax-repair/v1' as const;
+export const DELIVERABLE_SYNTAX_METRICS_SCHEMA =
+  'open-design.deliverable-syntax-metrics/v1' as const;
 export const DELIVERABLE_SYNTAX_CHECKER = 'web-syntax@1' as const;
 
 export type DeliverableSyntaxChecker = typeof DELIVERABLE_SYNTAX_CHECKER;
+
+/**
+ * Low-cardinality, content-free measurements accumulated across checker calls
+ * in one physical Run. Diagnostic text and file paths deliberately stay out
+ * of this projection so it is safe to export as telemetry.
+ */
+export interface DeliverableSyntaxMetrics {
+  schema: typeof DELIVERABLE_SYNTAX_METRICS_SCHEMA;
+  checkCount: number;
+  checkerDurationMs: number;
+  repairableCheckCount: number;
+  initialDiagnosticCount: number;
+  latestDiagnosticCount: number;
+}
 
 export interface DeliverableSyntaxDiagnostic {
   code: string;
@@ -127,11 +143,13 @@ export type DeliverableSyntaxValidationEvidence =
   | (DeliverableSyntaxToolResponse & {
       source: 'agent_tool';
       checkedAt: number;
+      metrics?: DeliverableSyntaxMetrics;
     })
   | (DeliverableSyntaxToolEnvelope & DeliverableSyntaxCheckResult & {
       source: 'run_finalizer';
       checkedAt: number;
       repairState?: DeliverableSyntaxRepairState;
+      metrics?: DeliverableSyntaxMetrics;
     })
   | (DeliverableSyntaxToolEnvelope & {
       status: 'incomplete';
@@ -139,6 +157,7 @@ export type DeliverableSyntaxValidationEvidence =
       source: 'run_finalizer';
       checkedAt: number;
       repairState?: DeliverableSyntaxRepairState;
+      metrics?: DeliverableSyntaxMetrics;
     });
 
 export type DeliverableSyntaxToolCliSuccess = {
