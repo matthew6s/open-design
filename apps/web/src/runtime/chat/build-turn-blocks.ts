@@ -415,12 +415,23 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
    * 从事件流里读,不从消息字段读:事件流既走 SSE 也落库,一条通路同时管住
    * 「流式中途」和「历史会话重新打开」两种场景,不用为后者再加一个数据库列。
    */
-  const runKey = readRunDoneKey(events);
+  let runKey = readRunDoneKey(events);
 
   let shellSeq = 0;
+  /**
+   * 这一轮开过的**每一张**壳,按开壳先后 —— 也就是它们在 `blocks` 里的先后。
+   *
+   * 收尾原来是 `for (const shell of [top, todoCard])`,写死了「一轮最多两张壳」。
+   * 折叠轮次(`foldStrategyTaskTurns`)把 N 个物理 run 接成一条事件流之后这不再成立:
+   * 每个 run 开自己的壳,先跑完的那几张也得各自定住状态与秒数,否则它们会永远
+   * 停在「进行中」并跟着当前这一轮一起转圈。
+   */
+  const allShells: ExecutionShell[] = [];
   const nextShell = (): ExecutionShell => {
     shellSeq += 1;
-    return makeShell(shellSeq);
+    const shell = makeShell(shellSeq);
+    allShells.push(shell);
+    return shell;
   };
 
   let top: ExecutionShell | null = null;
@@ -652,6 +663,34 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
   for (const event of events) {
     if (event.kind === 'tool_result' || event.kind === 'raw' || event.kind === 'diagnostic') continue;
     if (event.kind === 'conversation_title' || event.kind === 'plugin_candidate') continue;
+    /*
+     * **一枚 done 密钥 = 一个物理 run 的开头**,所以第二枚往后每一枚都是一道边界。
+     *
+     * daemon 每个 run 现铸一枚 key,在**任何模型输出之前**作为 `done_key` 事件发出
+     * (`server.ts` 的 `send('agent', { type: 'done_key', … })`,理由见 `api/done-marker`)。
+     * 一条事件流里因此至多一枚 —— 除非它是被 `foldStrategyTaskTurns` 折起来的:
+     * 一个 OD Next 逻辑任务跑成几个物理 run(发问 → 澄清 → 生产),视图把它们接成
+     * 一条流,于是 key 有几枚就有几个 run。
+     *
+     * 不加这道边界的话,整条流共用一个 done 闩、一枚 key、一张壳:run 0 末尾那张
+     * `<question-form>` 一触发隐式 done,后面每个 run 的正文都被 `pushProse` 续写进
+     * **同一段**结论(上一轮的「已确认」于是长在当前轮的回答里),而后面每个 run 的
+     * 工具与推理都堆进 run 0 开的**那一张**壳。用户 2026-09-04 在打包 beta 上看到的
+     * 「去设置页再回来整个轮次就乱了」正是这个 —— live 拿不到 `strategyTaskRunIndex`
+     * 不折叠,重新拉历史才折。
+     *
+     * 折叠是**视图层的拼接**,不是重新分组:折起来那一条算出的块序必须等于几个 run
+     * 各自算出的块序首尾相接(`odnext-reload-run-boundaries.test.tsx` 钉住这条等式)。
+     */
+    if (event.kind === 'done_key') {
+      const key = typeof event.key === 'string' ? event.key.trim() : '';
+      if (key && key !== runKey) {
+        // 前一个 run 一个字都没产出时没有壳可收,但密钥仍要换 —— 不换的话
+        // 后面那个 run 的 `<od-done key="…"/>` 会对不上,整段结论留在壳里
+        if (started) closeRun();
+        runKey = key;
+      }
+    }
     // `done_key` 是协议元数据,不是这一轮的内容 —— 在 ensureShell 之前跳掉,
     // 免得「本轮第一条事件」被一条纯协议帧顶掉(D10 的开壳时机由真实事件决定)
     // `next_steps` 同理:它是回合末尾的引导,不是回合的内容,更不该把开壳时机
@@ -1134,6 +1173,46 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     blocks.push({ kind: 'prose', text: last.text });
   }
 
+  /**
+   * 一个物理 run 到此为止 —— 下一枚 done 密钥宣告了后继 run 的开头。
+   *
+   * 折叠轮次里,每个 run 都是一段**自成一体的执行**:它自己的 done 闩、自己的密钥、
+   * 自己的壳、自己的结论。所以这里做的事和 `finishTurn` 对一个普通轮次做的一样,
+   * 只是范围缩到刚结束的这一个 run:
+   *
+   *  · 兜底(c)照跑 —— 这个 run 从头到尾没发 done 的话(澄清轮很常见:它只说一段
+   *    话,不调工具、不发标记),它那段回答得从壳里提出来,否则会被埋在收起的抽屉里;
+   *  · 它的壳就地定死 —— 秒数按它自己的跨度算完、状态转「已完成」、还顶着进行中的
+   *    todo 收掉。不定死的话,后继 run 还在跑时,它会跟着一起转圈;
+   *  · 其余状态清零,让下一条真事件重新开壳。
+   *
+   * 它**永远不是**最后一张壳(定义上后面还有一个 run),所以不吃轮次收尾时刻;
+   * 是不是第一张壳仍要认 —— 第一张壳的表从轮次开头就开始走。
+   */
+  function closeRun(): void {
+    liftConclusion();
+    // 这个 run 的最后一段推理走到它自己最后一件带时刻的事为止,不跨到下一个 run
+    if (lastEndedAt != null) closeThink(lastEndedAt);
+    openThink = null;
+    // `todoCard` 常常就是 `top` 本人(D50 之后清单不另起卡),去重再收
+    for (const shell of new Set([top, todoCard])) {
+      if (!shell) continue;
+      shell.elapsedMs = shellElapsed(false, shell, shell === allShells[0], false);
+      shell.quietMs = null;
+      if (shell.status === 'running') shell.status = 'done';
+      closeRunningSegments(shell);
+    }
+    doneSeen = false;
+    openText = null;
+    openProse = null;
+    markerBuf = '';
+    current = null;
+    todoCard = null;
+    top = null;
+    started = false;
+    gapLanded = [];
+  }
+
   function finishTurn(): void {
     const status = input.runStatus ?? 'running';
     const running = status === 'running' || status === 'queued';
@@ -1172,7 +1251,12 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      * 壳与轮次的边界 —— 哪张壳开了这一轮、哪张壳收了这一轮(见 `shellElapsed`)。
      * `todoCard` 常常就是 `top` 本人(D50 之后清单不另起卡),所以要去重再数。
      */
-    const firstShell = top;
+    /*
+     * 「开这一轮的那张壳」是**整轮**的第一张,不是当前这个 run 的第一张 ——
+     * 折叠轮次里 `top` 已经换过好几茬了(见 `closeRun`),拿它当第一张的话,
+     * 最后那个 run 的壳会把表拨回轮次开头,把前面几个 run 的时间也算进自己名下。
+     */
+    const firstShell = allShells[0] ?? null;
     const lastShell = todoCard ?? top;
 
     for (const shell of [top, todoCard]) {

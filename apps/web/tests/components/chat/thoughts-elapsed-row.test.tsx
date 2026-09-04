@@ -20,6 +20,10 @@
  *
  * ⚠️ 两个用例的**数据完全一样**,只有「在不在想」这一位不同 ——
  * 否则「显示了」这条断言可以靠挂一个常量蒙混过去。
+ *
+ * ⚠️ **2026-09-04 起夹具都往前垫了 `LEAD`**(理由在 `LEAD` 自己的注释):产品把
+ * 「整轮头一格推理」这一个位置的耗时收了回去,而这个文件测的是「推理那一格该不该有
+ * 自己的耗时」,不是那一个位置。断言一条没改,只把被测的那一格挪出头一格。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -33,6 +37,29 @@ afterEach(cleanup);
 const thought = (text: string, elapsedMs: number): ShellItem => ({
   kind: 'text', text, thinking: true, elapsedMs,
 });
+
+const readRow = (id: string, elapsedMs: number): ShellItem => ({
+  kind: 'tool', id, tool: 'read', name: 'Read', title: 'Read', rawTitle: false,
+  file: { path: 'index.html', label: 'index.html' },
+  pattern: null, hits: null, delta: null, elapsedMs,
+  failed: false, failReason: null, command: null, terminal: null,
+} as ShellItem);
+
+/**
+ * 每个夹具前面都垫这两条 —— **让被测的那一格不是整轮头一格**。
+ *
+ * 产品 2026-09-04 把「整轮头一格推理」这一个位置的耗时收了回去(原话:「这里首次
+ * thinking 我看是有一个计时的, 能不能不要计时, 不然跟上面一行的进行中的计时有点重复」)。
+ * 头一格填的空白起点就是轮次开头,和壳头那个数同起同终,两行贴着写同一个数。
+ * 这个文件测的是**推理那一格该不该有自己的耗时**这件事,不是「头一格」那一个位置,
+ * 所以夹具往前垫一格推理 + 一次调用,把被测的那一格挪到第二格 ——
+ * 它填的是两次调用之间的空白,是新信息,照旧要报。
+ * (中间那次调用是必须的:`groupThinking` 的硬判据是「连续的推理收成一格」,
+ * 不隔开的话两段会并进同一格,读出来是它们的和。)
+ *
+ * 头一格那半边的守卫在 `first-thoughts-no-elapsed.test.tsx`。
+ */
+const LEAD: ShellItem[] = [thought('开场那一段推理。', 62_000), readRow('t0', 300)];
 
 function show(over: Partial<Shell>): HTMLElement {
   const shell = {
@@ -49,7 +76,7 @@ function show(over: Partial<Shell>): HTMLElement {
 
 describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决)', () => {
   it('想完了:右边写着这一格自己的耗时', () => {
-    const root = show({ items: [thought('先想清楚要动哪几个文件。', 154_000)] });
+    const root = show({ items: [...LEAD, thought('先想清楚要动哪几个文件。', 154_000)] });
     expect(root.textContent).toContain('2m 34s');
   });
 
@@ -57,7 +84,7 @@ describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决
     const root = show({
       status: 'running',
       thinking: true,
-      items: [thought('先想清楚要动哪几个文件。', 154_000)],
+      items: [...LEAD, thought('先想清楚要动哪几个文件。', 154_000)],
     });
     expect(root.textContent).toContain('思考中');
     expect(root.textContent).toContain('2m 34s');
@@ -68,14 +95,9 @@ describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决
       status: 'running',
       thinking: true,
       items: [
+        ...LEAD,
         thought('第一段想完了。', 5_400),
-        {
-          kind: 'tool', id: 't1', tool: 'read', name: 'Read',
-          title: 'Read', rawTitle: false,
-          file: { path: 'index.html', label: 'index.html' },
-          pattern: null, hits: null, delta: null, elapsedMs: 300,
-          failed: false, failReason: null, command: null, terminal: null,
-        } as ShellItem,
+        readRow('t1', 300),
         thought('第二段还在想。', 8_900),
       ],
     });
@@ -85,7 +107,7 @@ describe('思考那一格的耗时(设计稿组件 3 · 用户 2026-08-27 裁决
 
   it('拿不到耗时的那一格什么都不写 —— 不用 `0.0s` 顶上', () => {
     const root = show({
-      items: [{ kind: 'text', text: '这一段算不出耗时。', thinking: true } as ShellItem],
+      items: [...LEAD, { kind: 'text', text: '这一段算不出耗时。', thinking: true } as ShellItem],
     });
     expect(root.textContent).toContain('这一段算不出耗时。');
     expect(root.textContent).not.toContain('0.0s');

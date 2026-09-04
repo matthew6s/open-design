@@ -50,7 +50,14 @@ export interface ThoughtsGroup {
 
 export type GroupedShellItem = ShellItem | ThoughtsGroup;
 
-const isThinking = (item: ShellItem): boolean =>
+/**
+ * 这一条**会不会成为一格「思考」** —— 空串不成段(claude 的 thinking 全是空串)。
+ *
+ * 导出是**故意**的:`ExecutionShell` 要按同一条判据找出整轮头一格推理落在哪一摞里
+ * (那一格不报时长,理由见它那边的 `stackOwningFirstThoughts`)。
+ * 两边各写一份的话,判据一旦改动就会指到不同的那一格 —— 压错行比不压更难查。
+ */
+export const isThinking = (item: ShellItem): boolean =>
   item.kind === 'text' && item.thinking === true && item.text.trim().length > 0;
 
 /**

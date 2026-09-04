@@ -19,7 +19,7 @@ import { Icon } from '../Icon';
 import type { ExecutionShell as ShellData, ImageRow as ImageRowData, ShellItem, TodoSegment } from '../../runtime/chat/contract';
 import { isExpandable, isStruck } from '../../runtime/chat/contract';
 import { formatElapsed, formatShellElapsed } from '../../runtime/chat/format';
-import { groupThinking, type GroupedShellItem } from '../../runtime/chat/group-thinking';
+import { groupThinking, isThinking, type GroupedShellItem } from '../../runtime/chat/group-thinking';
 import type { RecordFileScope } from '../../runtime/chat/record-file-open';
 import { Foldable } from './primitives/Foldable';
 import { ImageRow } from './primitives/ImageRow';
@@ -43,6 +43,20 @@ import styles from './primitives/record.module.css';
  * `tests/components/chat/s12-copy-revert.test.tsx` 会当场红。
  */
 export const SLOW_UPSTREAM_AFTER_MS = 60_000;
+
+/**
+ * 等到多久才说「还在等首批输出」。同样来自 `error-ux-design.md:21`
+ * (「超过 60 秒没动静,转圈旁边要说『在等什么、等了多久』;**不到超时不报错**」),
+ * 稿子第 44 行把真正的失败门槛定在 10 分钟静默 —— 这一行只是等待期间的回音。
+ *
+ * ⚠️ **和上面那个常量数值相同,但量的不是同一件事,别合并。**
+ *   · `SLOW_UPSTREAM_AFTER_MS` 配的是 `shell.quietMs` —— **上游最近一帧什么时候到的**。
+ *     claude 每 1.4 秒一帧空 `thinking_delta`,这个数永远长不到 60 秒。
+ *   · 这一个配的是「壳里**一件事都还没落下来**已经多久」,判据是 `shell.items` 为空
+ *     加上壳头那个总耗时,心跳一概不清零。用户报的正是后者:帧一直在到,屏幕一直是空的。
+ * 合成一个常量,下一次谁调其中一个门槛就会顺手改坏另一个场景。
+ */
+export const WAITING_FIRST_OUTPUT_AFTER_MS = 60_000;
 
 export interface ExecutionShellProps {
   shell: ShellData;
@@ -191,10 +205,49 @@ export function ExecutionShell({
   })();
 
   /**
+   * 还卡在**首个输出之前** —— 这一轮还在跑,壳里却一件会落行的事都没有。
+   *
+   * ── 补的是哪个画面(真机,打包版 beta 2026-09-03)────────────────────
+   *
+   * ACP 那一家(`vela` / `devin` / `hermes` / `kilo` / `kimi` / `kiro` / `vibe`)在首个
+   * token 之前一条会落行的事件都不发,壳身子是**全空的**,屏幕上只剩壳头「进行中 1m 7s」。
+   * 而 daemon 这一刻正逐字发着
+   * `{"type":"status","label":"waiting_for_first_output","elapsedMs":27217}`
+   * (`apps/daemon/src/agent-protocol/acp/session.ts:849`)—— 它知道在等什么,屏幕不说。
+   * 稿子 `docs/design/run-errors/error-ux-design.md:21` 要的就是这一句:
+   * 「超过 60 秒没动静,**转圈旁边**要说『在等什么、等了多久』;**不到超时不报错**」。
+   *
+   * ── 三条边界 ─────────────────────────────────────────────────────────
+   *
+   *  · **不读 daemon 那个 label。** 判据是壳自己的形状,所以对**不发**这个 label 的
+   *    agent 同样成立(claude 走 `claude-stream-json`,全仓只有 ACP 发它);而且
+   *    daemon 在落库时就把这个 label 丢掉了(`chat-run-messages.ts` 的
+   *    `TRANSIENT_ACP_PERSISTED_STATUS_LABELS`),照着它渲染会让实时和重放两条路分叉。
+   *  · **只管首个输出之前。** `items` 一旦有东西就不再是这回事 —— 那是 S12
+   *    「等太久没动静」,产品 2026-08-27 把它的展现撤了(见上面 `head` 里的裁决原文),
+   *    这一行不许换个名字替它回来。
+   *  · **不带秒数。** 壳头那句「进行中 1m 7s」说的就是同一段时间,产品 2026-09-04 刚
+   *    因为「重复」把头一格思考的计时收掉(`stackOwningFirstThoughts`)。
+   */
+  const waitingForFirstOutput =
+    running
+    && shell.items.length === 0
+    && (shell.elapsedMs ?? 0) >= WAITING_FIRST_OUTPUT_AFTER_MS;
+  /**
    * 连续的推理收成「思考过程」那一格(用户裁决,见 `groupThinking` 的注释)。
    * 壳里有进行中的 todo 时,还在写的那一格在**那条 todo 里**,不在这一层。
+   *
+   * 等首批输出那一档借的是同一格:壳里空着,`groupThinking` 会补出一格空的 live 思考
+   * (它本来就是为「claude 的 thinking 全是空串」准备的),下面只把词换掉。
+   * 一个球、一行字,不另起第二种形态。
    */
-  const items = groupThinking(shell.items, thinkingNow && !activeTodo);
+  const items = groupThinking(shell.items, (thinkingNow || waitingForFirstOutput) && !activeTodo);
+  /**
+   * 整轮头一格推理落在哪一摞里 —— 只有那一格不报时长(产品 2026-09-04)。
+   * 在这里算一次、往下传,而不是让每一摞各自猜:「头一格」是**整轮**的概念,
+   * 抽屉自己看不见外面还有没有更早的一段。
+   */
+  const firstThoughtsStack = stackOwningFirstThoughts(shell.items);
   /**
    * 这张壳有没有清单 —— 夹心正文对不对齐那条竖线全看它(用户裁决 2026-08-27)。
    * 有清单时顶层正文是清单上面的开场白,不在链上,贴左;没清单时正文和工具行交替
@@ -221,6 +274,10 @@ export function ExecutionShell({
             imageSrc, thinkingNow, running,
             deferCollapsedBodies,
             liveTextIndex: liveTextIndexOf(items, running),
+            firstThoughtsStack,
+            mutedThoughtsIndex: mutedThoughtsIndexOf(items, shell.items, firstThoughtsStack),
+            /* 模型没在想、壳里也还什么都没有 —— 那一格的词换成「等待首批输出中」 */
+            waitingForFirstOutput: waitingForFirstOutput && !thinkingNow,
           }))
         : null}
     </Foldable>
@@ -240,6 +297,61 @@ function liveTextIndexOf(items: GroupedShellItem[], running: boolean): number {
   return last >= 0 && items[last]?.kind === 'text' ? last : -1;
 }
 
+/**
+ * 整轮**头一格**推理落在哪一摞里 —— 只有那一摞的第一格「思考」不报时长。
+ *
+ * 产品 2026-09-04,看着一轮正在跑的执行记录:「这里首次 thinking 我看是有一个计时的,
+ * 能不能不要计时, 不然跟上面一行的进行中的计时有点重复」。
+ *
+ * **这不是样式偏好,是两个数说的同一件事。** thinking 事件一个时刻都不带
+ * (`contract.ts` 的 `ShellText.elapsedMs` 逐字记着:daemon 送出的 `thinking_delta`
+ * 载荷就是 `{ type, delta }`,落库形态是 `{ kind: 'thinking', text }`),它的时长只能
+ * 靠「填掉了哪一段空白」反推 —— 上一件带时刻的事结束到下一件带时刻的事开始。
+ * **头一格前面什么都没有**:`build-turn-blocks` 给它的起点是 `input.startedAtMs`
+ * (轮次开头),而壳头那句「进行中 1m 9s」的起点(`shellElapsed` 的 `isFirst` 分支)
+ * 是同一个时刻,跑着的时候终点也同是 `nowMs`。两行贴着,写的是同一个数。
+ * 别再「顺手把丢掉的数字补回来」—— 补回来的是壳头那个数的复读。
+ *
+ * 后面几格**不能跟着压**:它们填的是两次工具调用之间的空白,那个数是新信息
+ * (2026-09-02「进行中的行都得有计时」那条裁决在别的位置一格没动)。
+ *
+ * **「头一格」是整轮一格,不是每条 todo 抽屉各来一格。** 有清单时推理落进当前那条
+ * in_progress 的 todo(`build-turn-blocks` 的 `sink()`),所以整轮头一格完全可能在
+ * 抽屉里 —— 它仍然是整轮的头一格,压的就是它;而第二条抽屉里那一段填的是两次调用
+ * 之间的空白,照旧报。于是这里按**文档顺序**走:壳顶层从上往下,遇到 todo 先钻进
+ * 它的抽屉,找到第一段就停,返回**装着它的那个数组**。
+ *
+ * 只压**显示**,数据一个字不动:`ShellText.elapsedMs` 照旧算、照旧挂在条目上 ——
+ * 壳头和 todo 抽屉的耗时都要把这一段算进去
+ * (`tests/runtime/chat/shell-elapsed-includes-thinking.test.ts`)。
+ * 判据钉在 `tests/components/chat/first-thoughts-no-elapsed.test.tsx`。
+ */
+function stackOwningFirstThoughts(items: ShellItem[]): ShellItem[] | null {
+  for (const item of items) {
+    if (isThinking(item)) return items;
+    if (item.kind === 'todo') {
+      const nested = stackOwningFirstThoughts(item.segment.items);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+/**
+ * **这一摞**里被压住的那一格排第几;`-1` = 整轮头一格不在这一摞里。
+ *
+ * 摞的身份用**数组引用**认(顶层是 `shell.items`,抽屉是 `segment.items`)——
+ * 上面那个函数返回的就是这个引用。
+ */
+function mutedThoughtsIndexOf(
+  grouped: GroupedShellItem[],
+  stack: ShellItem[],
+  firstStack: ShellItem[] | null,
+): number {
+  if (firstStack !== stack) return -1;
+  return grouped.findIndex((item) => item.kind === 'thoughts');
+}
+
 interface RenderCtx {
   t: ReturnType<typeof useT>;
   onOpenFile?: (path: string) => void;
@@ -257,6 +369,16 @@ interface RenderCtx {
    * 不在跑的时候是 `-1`(历史消息重渲染时不能再化开一遍)。
    */
   liveTextIndex: number;
+  /** 整轮头一格推理落在哪一摞里 —— 抽屉要拿它认出自己是不是那一摞(`stackOwningFirstThoughts`) */
+  firstThoughtsStack: ShellItem[] | null;
+  /** **这一摞**里被压住时长的那一格排第几;`-1` = 不在这一摞 */
+  mutedThoughtsIndex: number;
+  /**
+   * 这一轮还卡在首个输出之前,而且模型也没在想 —— 那一格空思考的词换成
+   * 「等待首批输出中」。判据与三条边界在组件里 `waitingForFirstOutput` 那段。
+   * 只可能为真于**壳顶层**(抽屉里有 todo 就意味着壳里已经落过东西)。
+   */
+  waitingForFirstOutput: boolean;
 }
 
 function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): ReactElement | null {
@@ -271,6 +393,13 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
         key={`thoughts-${item.live ? 'live' : 'done'}-${index}`}
         texts={item.texts}
         elapsedMs={item.elapsedMs}
+        /* 整轮头一格:数照旧算得出,只是不写出来(理由在 `stackOwningFirstThoughts`) */
+        muted={index === ctx.mutedThoughtsIndex}
+        /*
+         * 一段推理都没落下来的那一格才可能是「在等首批输出」——
+         * 有正文就说明模型已经在想了,那时候「思考中」才是实话。
+         */
+        waiting={ctx.waitingForFirstOutput && item.live === true && item.texts.length === 0}
         live={item.live === true}
         t={ctx.t}
         deferBody={ctx.deferCollapsedBodies}
@@ -368,15 +497,33 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
  *
  * ⚠️ 这个 span **不许挂 `aria-live`** —— 挂了读屏会每秒念一遍秒数。
  */
-function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
+function ThoughtsRow({ texts, elapsedMs, muted, waiting, live, t, deferBody }: {
   texts: string[];
   elapsedMs: number | null;
+  /**
+   * 整轮**头一格** —— 它的数和壳头那个是同一个,写两遍就是复读(产品 2026-09-04)。
+   * 判据与完整理由在 `stackOwningFirstThoughts`。
+   */
+  muted: boolean;
+  /**
+   * 这一格不是「模型在想」,是「这一轮还没等到第一个输出」—— 只换那一行字,
+   * 球、扫光、三个点、右边不写数,一件不动。判据在组件里 `waitingForFirstOutput` 那段。
+   */
+  waiting: boolean;
   live: boolean;
   t: RenderCtx['t'];
   deferBody: boolean;
 }): ReactElement {
-  /* 两态同一句话:有数就画。「正在想的不报时长」那条已被产品推翻(见上面的注释) */
-  const elapsed = formatElapsed(elapsedMs);
+  /*
+   * 两态同一句话:有数就画。「正在想的不报时长」那条已被产品推翻(见上面的注释),
+   * 2026-09-04 只把**整轮头一格**这一个位置收了回去。
+   *
+   * 压住时给空串而不是 `undefined`:稿子给进行中的折叠行画的就是
+   * `<span class="ms"></span>` —— **槽在、值空**(`Foldable` 里 `!= null` 那一条)。
+   * 槽留着,思考行和它下面的工具行左右两栏对得上,箭头也不会因为少一个槽而挪位;
+   * 而真的**拿不到**数那一档仍然连槽都没有,两件事在 DOM 上分得开。
+   */
+  const elapsed = muted ? '' : formatElapsed(elapsedMs);
   /*
    * 还在写的时候贴底跟随(用户 2026-09-02)。判据复用 ChatPane 那一套
    * (`runtime/chat/stick-to-bottom.ts`),这里只负责把限高盒子交给它。
@@ -405,7 +552,13 @@ function ThoughtsRow({ texts, elapsedMs, live, t, deferBody }: {
         {/* 不给标签:紧跟着的就是「思考中」那行字 */}
         <span className={styles.icon}><Orb state="composing" box={20} className={styles.orb} /></span>
         <span className={styles.shimmer}>
-          {t('chat.record.thinking')}
+          {/*
+            * 「等待首批输出中」是**已有的文案**,19 个 locale 都在
+            * (`i18n/types.ts` 的 `assistant.waitingFirstOutput`),只是一直没人读 ——
+            * `docs/design/run-errors/implementation-audit.md` 把它记成死键。
+            * 这里是它第一个读者,不新造一句产品文案。
+            */}
+          {t(waiting ? 'assistant.waitingFirstOutput' : 'chat.record.thinking')}
           <span className={styles.dots} aria-hidden><i /><i /><i /></span>
         </span>
       </>
@@ -546,6 +699,8 @@ function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): Re
             ...ctx,
             /* 抽屉里那一摞有自己的顺序:还在写的那一段只可能在**进行中**那条 todo 的末尾 */
             liveTextIndex: liveTextIndexOf(items, ctx.running && segment.status === 'in_progress'),
+            /* 整轮头一格可能就落在这条抽屉里(有清单时推理进 in_progress 那条) */
+            mutedThoughtsIndex: mutedThoughtsIndexOf(items, segment.items, ctx.firstThoughtsStack),
           }))
         : null}
     </Foldable>
