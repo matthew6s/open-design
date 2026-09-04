@@ -51,7 +51,8 @@ describe('Agent-native Skill discovery project authority', () => {
   });
 
   it('has a process kill switch with explicit rollout modes', () => {
-    expect(readAgentNativeSkillDiscoveryMode({})).toBe('off');
+    expect(readAgentNativeSkillDiscoveryMode({})).toBe('active');
+    expect(readAgentNativeSkillDiscoveryMode({ OD_AGENT_NATIVE_SKILL_DISCOVERY: '  ' })).toBe('active');
     expect(readAgentNativeSkillDiscoveryMode({ OD_AGENT_NATIVE_SKILL_DISCOVERY: 'off' })).toBe('off');
     expect(readAgentNativeSkillDiscoveryMode({ OD_AGENT_NATIVE_SKILL_DISCOVERY: 'observe' })).toBe('observe');
     expect(readAgentNativeSkillDiscoveryMode({ OD_AGENT_NATIVE_SKILL_DISCOVERY: 'canary' })).toBe('canary');

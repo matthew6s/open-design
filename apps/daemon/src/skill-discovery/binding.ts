@@ -66,15 +66,15 @@ export function readVerifiedProjectSkillDiscoveryBinding(
 }
 
 /**
- * Process override for immediate rollback. Discovery stays dark until an
- * operator explicitly enables canary/active; unknown and missing values fail
- * closed to off.
+ * Process override for immediate rollback. Discovery is active by default;
+ * operators can still disable it explicitly, while unknown values fail closed
+ * to off.
  */
 export function readAgentNativeSkillDiscoveryMode(
   env: NodeJS.ProcessEnv,
 ): AgentNativeSkillDiscoveryMode {
   const raw = env.OD_AGENT_NATIVE_SKILL_DISCOVERY;
-  if (raw === undefined || raw.trim() === '') return 'off';
+  if (raw === undefined || raw.trim() === '') return 'active';
   const mode = raw.trim().toLowerCase();
   if (mode === 'off' || mode === 'observe' || mode === 'canary' || mode === 'active') {
     return mode;
