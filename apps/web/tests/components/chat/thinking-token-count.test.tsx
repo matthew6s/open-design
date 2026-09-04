@@ -236,11 +236,18 @@ describe('等宽数字 · 跳字不横移', () => {
 });
 
 /**
- * 「数字实时变化」这件事**没有任何补间动画**:帧到了就换数,这才是「实时」。
- * 于是刷新页面那一档天生不会从零涨上来 —— 但那是要守住的性质,不是碰巧,
- * 所以下面第二条把它钉死:谁哪天加了一个从 0 数上去的动画,它当场红。
+ * ⚠️ 这一节的抬头**改过**(产品 2026-09-04 当天推翻了自己更早那条)。
+ *
+ * 原来写的是「零新增 timer」:那时的裁决是「帧到了就换数,这才是实时」。
+ * 用户看完实物之后要的是**增长过程**:「token 最好也有个增长的过程,而不是直接从
+ * 100 跳到 200,而是逐渐从 100 数字滚动到 200…能让用户感受到这里好像有一个流式的感觉」。
+ * 于是读数现在**会自己数上去**(`CountingNumber`,一只 `setInterval`,400ms 预算)。
+ *
+ * **没被推翻的是「不从零涨上来」那一条** —— 挂载即落定,而且挂载那一帧一个 tick 都不排。
+ * 下面两条各钉一半:换数那条现在要把表推过去才读得到落点,刷新那条一个字没动。
+ * 自增本身的判据(不过冲 / 接着数 / 预算)在 `thinking-token-count-up.test.tsx`。
  */
-describe('接线 · 零新增 timer,数字不从零涨上来', () => {
+describe('接线 · 数会自己数上去,但不从零涨上来', () => {
   const eventsUpTo = (counts: number[]): PersistedAgentEvent[] => ([
     { kind: 'status', label: 'thinking' } as PersistedAgentEvent,
     { kind: 'thinking', text: '' } as PersistedAgentEvent,
@@ -268,14 +275,20 @@ describe('接线 · 零新增 timer,数字不从零涨上来', () => {
     vi.restoreAllMocks();
   });
 
-  it('整条真实链路:帧一批批到,同一个槽跟着换数', () => {
+  it('整条真实链路:帧一批批到,同一个槽跟着数到新读数', () => {
     const { container, rerender } = render(live(eventsUpTo([50])));
     expect(thoughtsSlot(container)).toEqual(['50 tokens']);
 
+    /*
+     * 每一帧之后要把表推过去才读得到落点 —— 数是**数上去**的,不是一帧换到位
+     * (产品 2026-09-04)。600ms 覆盖 400ms 的预算还富余,不是在等一个不确定的时长。
+     */
     rerender(live(eventsUpTo([50, 1_240])));
+    act(() => { vi.advanceTimersByTime(600); });
     expect(thoughtsSlot(container)).toEqual(['1.2k tokens']);
 
     rerender(live(eventsUpTo([50, 1_240, 3_278])));
+    act(() => { vi.advanceTimersByTime(600); });
     expect(thoughtsSlot(container)).toEqual(['3.3k tokens']);
   });
 
@@ -290,14 +303,21 @@ describe('接线 · 零新增 timer,数字不从零涨上来', () => {
     const { container } = render(live(eventsUpTo([50, 1_240, 3_278])));
     // 这一行**在任何 effect / timer 跑之前**执行
     expect(thoughtsSlot(container)).toEqual(['3.3k tokens']);
-    // 时间往前推也不会再涨 —— 没有补间在跑
+    // 时间往前推也不会再涨 —— 挂载没有一段可数的间,自增压根没启动
     act(() => { vi.advanceTimersByTime(2_000); });
     expect(thoughtsSlot(container)).toEqual(['3.3k tokens']);
   });
 
-  it('执行记录自己一个 timer 都不起 —— token 靠帧驱动,不靠秒表', () => {
+  /**
+   * 挂载那一帧**一个表都不排**。
+   *
+   * 这一条原来叫「执行记录自己一个 timer 都不起」,依据是当时「不许有补间」的裁决;
+   * 裁决改了之后它**没有作废,而是变窄了**:自增只发生在「已经在屏上的值 → 新值」
+   * 之间,挂载不算。谁哪天把这只闩去掉,一页几十轮的历史会话会同时从 0 数上来。
+   */
+  it('挂载那一帧不排表 —— 自增只发生在已经在屏上的值 → 新值之间', () => {
     const spy = vi.spyOn(globalThis, 'setInterval');
     render(show(shellOf([], { thinking: true, thinkingTokens: { count: 3_278, stale: false } })));
-    expect(spy, '数在跳,组件层仍然零定时器').not.toHaveBeenCalled();
+    expect(spy, '挂载即落定,没有需要数的间').not.toHaveBeenCalled();
   });
 });

@@ -19,8 +19,15 @@ export interface FoldableProps {
   summary: ReactNode;
   /** flat = 无外框(壳子层);boxed = 有框(抽屉层) */
   variant?: 'flat' | 'boxed';
-  /** 右侧等宽耗时,如 18.2s */
-  elapsed?: string;
+  /**
+   * 右侧那个等宽槽,如 `18.2s`。
+   *
+   * **不只是字符串**:思考行把 token 读数放在同一个槽里,而那个数要自己数上去
+   * (`CountingNumber`,用户 2026-09-04「太生硬了」),所以这里收 `ReactNode`。
+   * 传字符串的调用点行为一个字没变;空字符串仍然**占住槽**(见 `Foldable` 里
+   * `!= null` 那一条),`undefined` 仍然是「连槽都没有」。
+   */
+  elapsed?: ReactNode;
   defaultOpen?: boolean;
   /**
    * 折叠态跟着**外面那件事的生命周期**走(可选接入,不传 = 行为和从前完全一样)。

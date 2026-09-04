@@ -19,6 +19,7 @@ import { Icon } from '../Icon';
 import type { ExecutionShell as ShellData, ImageRow as ImageRowData, ShellItem, ThinkingTokens, TodoSegment } from '../../runtime/chat/contract';
 import { isExpandable, isStruck } from '../../runtime/chat/contract';
 import { formatElapsed, formatShellElapsed, formatThinkingTokens } from '../../runtime/chat/format';
+import { CountingNumber } from './CountingNumber';
 import { groupThinking, isThinking, type GroupedShellItem } from '../../runtime/chat/group-thinking';
 import type { RecordFileScope } from '../../runtime/chat/record-file-open';
 import { Foldable } from './primitives/Foldable';
@@ -77,6 +78,25 @@ export interface ExecutionShellProps {
    * can disable this so their non-hydrated HTML remains inspectable.
    */
   deferCollapsedBodies?: boolean;
+  /**
+   * **这一轮的结论已经开始落地了** —— done 标记到了(产品 2026-09-04)。
+   *
+   * 用户原话:「输出 done 标记之后,上面的**进行中展开收起卡片,就应该自动收起**,
+   * 而不是等到整个对话 run 完了再收起」。截图里两个做完的步骤连着工具行还全摊着,
+   * 而正文已经在下面写「已交付 …」了。
+   *
+   * 为什么不能只看 `shell.status`:done 到达时 run **还在跑**(结论本身还在一个字
+   * 一个字地写),壳仍是 `running`,`lifecycleOpen` 照旧为真 —— 卡要摊到流真正关闭
+   * 为止,而那可能是几十秒之后。判据在 `tests/components/chat/shell-collapse-on-done.tsx`。
+   *
+   * 只影响**自动**折叠;用户手点开过的那张仍然归用户(`userToggled` 闩)。
+   *
+   * ⚠️ 这个值由消息层给,因为 done 是**轮次**的事实,不是壳的字段:壳外出现结论段
+   * (`ProseBlock`)就等于这一轮的 done 已经判定。壳的契约里目前没有这枚闩 ——
+   * `buildTurnBlocks` 内部那只 `doneSeen` 没有出口,补一个字段要动
+   * `runtime/chat/contract.ts`,另有改动在飞,所以先由消息层推。
+   */
+  concluded?: boolean;
 }
 
 export function ExecutionShell({
@@ -87,6 +107,7 @@ export function ExecutionShell({
   runTerminal = false,
   imageSrc,
   deferCollapsedBodies = true,
+  concluded = false,
 }: ExecutionShellProps): ReactElement {
   const t = useT();
   const running = shell.status === 'running' && !shell.stopped;
@@ -120,7 +141,17 @@ export function ExecutionShell({
    * 壳会一直摊在那儿。也不能每次都把它写回去:用户中途手点收起/展开之后就该听用户的
    * (同一条约束在 `Foldable` 的注释里,老的执行记录卡也是这么做的)。
    */
-  const lifecycleOpen = running || shell.stopped;
+  /*
+   * **收起的时刻是 done,不是 run 结束**(产品 2026-09-04,见 `concluded` 的注释)。
+   *
+   * 这一行原来只有 `running || shell.stopped`,于是「摊开」一直摊到流关闭。
+   * `concluded` 一为真,这一轮的活就已经交代完了 —— 后面写的是结论,不是过程,
+   * 记录卡该让位给它。
+   *
+   * `shell.stopped` 仍然单独成条:被用户停住的那一档没有结论,收起来等于把
+   * 「停在哪一步」也藏了。
+   */
+  const lifecycleOpen = (running && !concluded) || shell.stopped;
   const [open, setOpen] = useState(lifecycleOpen);
   const [userToggled, setUserToggled] = useState(false);
   useEffect(() => {
@@ -564,13 +595,42 @@ function ThoughtsRow({ texts, elapsedMs, tokens, muted, waiting, live, t, deferB
    *   · 后面几格 —— `elapsed` 是一个真的秒数,token 停了就把槽让出去。
    * 「很久」定在 `THINKING_TOKENS_STALL_MS`(8 秒,量出来的,理由在那个常量上)。
    *
-   * 数字**没有任何补间动画**:帧到了就换数,这才是「实时」。于是刷新页面那一档
-   * 天生给出落定的数,不会从零涨上来(判据在 `thinking-token-count.test.tsx`)。
-   * 槽里的字走 `.meta` 的等宽字族,数字逐位等宽,跳字时不横移。
+   * ── 数字要**数上去**(用户 2026-09-04,推翻同日更早的一条)──────────────
+   *
+   * 这里原来写着「数字**没有任何补间动画**:帧到了就换数,这才是『实时』」。
+   * 用户看完实物:「token 数量怎么没有什么数字滚动的效果啊? 这个太生硬了..」
+   * 「token 最好也有个**增长的过程**,而不是直接从 100 跳到 200,而是逐渐从 100
+   * 数字滚动到 200…能让用户感受到这里好像有一个**流式的感觉**」。
+   *
+   * **推翻的只有「不许动」这一句**,那段话里另外两条约束原样有效:
+   *   · 刷新页面那一档**仍然不从零涨上来** —— 挂载那一帧显示的就是落定值,
+   *     而且一个 tick 都不排;形态从计时切回 token 时同理,不重新入场。
+   *   · 跳字**仍然不横移** —— 槽里的字仍走 `.meta` 的等宽字族,数字逐位同宽,
+   *     而且 `CountingNumber` 只吐字、不套壳,排版和从前逐字节一样。
+   *
+   * ⚠️ 中间有过一版「每一位一条 0–9 字带 + CSS transition」,产品看完实物否掉了
+   * (「我看到实现的数字滚动**跳动**了,**太花哨了,自然一点**」),连同它的 CSS Module
+   * 一起删干净了。要的是**数在往上数**,不是**字形在动** —— 别再往回加。
+   * 完整经过与四条硬约束写在 `CountingNumber.tsx` 的抬头。
+   *
+   * 判据分两处:这个槽写什么数仍在 `thinking-token-count.test.tsx`,
+   * 数字怎么数在 `thinking-token-count-up.test.tsx`。
+   *
+   * ⚠️ **只有 token 会数,计时不会。** 秒表每秒跳一次,给它再加一层自增就是产品
+   * 警告过的那种「软件疯了」的闪动 —— 下面这条三元的 `: elapsed` 分支保持纯文本。
    */
   const tokenText = tokens ? formatThinkingTokens(tokens.count) : null;
   const slot = tokens != null && tokenText != null && !(tokens.stale && elapsed)
-    ? t('chat.record.thinkingTokens', { count: tokenText })
+    ? (
+      <CountingNumber
+        value={tokens.count}
+        /* 排版留在这一层:19 个语种的后缀在左在右、`formatThinkingTokens` 的 k 缩写
+           规矩,`CountingNumber` 一件都不必知道 */
+        render={(shown) => t('chat.record.thinkingTokens', {
+          count: formatThinkingTokens(shown) ?? tokenText,
+        })}
+      />
+    )
     : elapsed;
   /*
    * 还在写的时候贴底跟随(用户 2026-09-02)。判据复用 ChatPane 那一套

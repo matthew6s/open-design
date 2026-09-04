@@ -675,6 +675,28 @@ function AssistantMessageImpl({
       eventsHaveAuthenticatedDoneConclusion(displayEvents),
     [displayEvents, message.runStatus],
   );
+  /**
+   * **这一轮的 done 标记到了没有** —— 和上面那个同一条判据,只是**不问 run 结没结束**。
+   *
+   * 产品 2026-09-04:「输出 done 标记之后,上面的进行中展开收起卡片,就应该自动收起,
+   * 而不是等到整个对话 run 完了再收起」。所以这里要的正是「标记到了、run 还在跑」
+   * 那一帧,`runStatus` 不参与。
+   *
+   * 判据借的是共享契约那一份(`eventsHaveAuthenticatedDoneConclusion`):要有 `done_key`、
+   * 要有对得上的标记、标记后面要真的开始有结论。**不在这一层另写一份正则** ——
+   * 标记的形状是 daemon / web 共用的契约,两边各留一份迟早会分歧,而分歧的表现形式
+   * 就是协议标签出现在用户屏幕上(`api/done-marker` 的注释里记着这条)。
+   *
+   * ⚠️ 认的**只有真标记**。`buildTurnBlocks` 内部还有一档「隐式 done」——
+   * `<question-form>` / `<artifact>` 一出现就当结论开始;那是**分块**用的判据,
+   * 不是产品这次说的「done 标记」。拿它一起收会在模型刚要发问、活还没干完的时候
+   * 把执行记录藏起来(`stream-cursor-removed.test.tsx` 那一格正是这个形状),
+   * 边界钉在 `shell-collapse-on-done.test.tsx`。
+   */
+  const turnDoneMarkerLanded = useMemo(
+    () => eventsHaveAuthenticatedDoneConclusion(displayEvents),
+    [displayEvents],
+  );
   // ChatPane owns one canonical conversation-level Todo card above the
   // composer. Strip TodoWrite snapshots from individual messages so plans do
   // not appear twice or jump around as history is virtualized.
@@ -832,15 +854,47 @@ function AssistantMessageImpl({
    */
   const turnFlow = useMemo(() => {
     let proseAt = 0;
-    return nextTurn.blocks.map((b) =>
+    /**
+     * 这张壳后面**已经有结论段**了没有 —— 也就是这一轮的 done 标记到没到。
+     *
+     * 产品 2026-09-04:「输出 done 标记之后,上面的进行中展开收起卡片,就应该自动收起,
+     * 而不是等到整个对话 run 完了再收起」。`buildTurnBlocks` 里那只 `doneSeen` 闩没有
+     * 出口(壳的契约里没有这个字段),而它的**可观察后果**恰好就在块序上:done 一判定,
+     * 后面的正文就不再进壳,而是成为壳外的 `ProseBlock`(D43)。所以「后面有结论段」
+     * 等价于「这张壳的 done 已经来了」。
+     *
+     * 两个信号必须同时成立:
+     *  · `turnDoneMarkerLanded` —— 这一轮真的发过 done 标记(共享契约那一份判据,
+     *    **不认**隐式 done,理由见它自己的注释);
+     *  · 这张壳后面已经有结论段 —— 把轮次级的事实收到**这一张壳**上。
+     *
+     * ⚠️ 已知边界两条,都不是回归(改动前一律等 run 结束才收):
+     *  · agent 发完 done 就闭嘴、一个字的结论都没有时,这里推不出来;
+     *  · 跨轮折叠(`foldStrategyTaskTurns`)把几个物理 run 接成一条流时,前一个 run
+     *    的标记会让后一个 run 的壳也满足轮次级那半条 —— 但后一个 run 的壳后面此刻
+     *    没有结论段,所以仍然收不起来,只有它自己也开始写结论时才收。
+     * 要收得再准一步,得让 `buildTurnBlocks` 把它那只 `doneSeen` 挂到壳上;
+     * 那个文件另有改动在飞,先不动。
+     */
+    const concludedAt = new Set<number>();
+    let sawProse = false;
+    for (let i = nextTurn.blocks.length - 1; i >= 0; i -= 1) {
+      const b = nextTurn.blocks[i]!;
+      if (b.kind === 'shell') {
+        if (turnDoneMarkerLanded && sawProse) concludedAt.add(i);
+      } else if (b.text.trim()) {
+        sawProse = true;
+      }
+    }
+    return nextTurn.blocks.map((b, i) =>
       b.kind === 'shell'
-        ? ({ kind: 'shell', key: b.id, shell: b } as const)
+        ? ({ kind: 'shell', key: b.id, shell: b, concluded: concludedAt.has(i) } as const)
         // key 认**第几段结论**,不认它在块序里的下标:空壳在轮次收尾那一刻会被丢掉
         // (`build-turn-blocks` 的 `kept`),下标会跟着挪,而挪一次就是把表单重挂一遍
         // —— 用户填了一半的草稿会当场清空。
         : ({ kind: 'prose', key: `prose-${proseAt}`, at: proseAt++ } as const),
     );
-  }, [nextTurn]);
+  }, [nextTurn, turnDoneMarkerLanded]);
 
   /*
    * 把项目上下文递进去,`FileOpEntry.path` 才能是**项目相对路径** —— 产物卡、
@@ -1430,6 +1484,8 @@ function AssistantMessageImpl({
               onRetryImage={onRetryImage}
               runTerminal={isTerminalRunStatus(turnRunStatus)}
               imageSrc={imageSrc}
+              /* done 一到就收起,不等 run 结束(产品 2026-09-04,见 `concludedAt`) */
+              concluded={entry.concluded}
             />
           ) : (
             <Fragment key={entry.key}>
