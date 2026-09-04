@@ -96,22 +96,6 @@ describe('OD Next controlled rollout', () => {
       )).toMatchObject({ requestedMode: 'active', requestedModeSource: 'env' });
     });
 
-    it('temporarily opts only an isolated ODEval branch daemon into OD Next', () => {
-      expect(readOdNextRolloutPolicy({
-        ODEVAL_ARM_SESSION_KEEP_DAEMON: '1',
-      })).toMatchObject({ requestedMode: 'active', requestedModeSource: 'env' });
-
-      // An explicit operator or saved choice remains authoritative.
-      expect(readOdNextRolloutPolicy({
-        ODEVAL_ARM_SESSION_KEEP_DAEMON: '1',
-        OD_NEXT_STRATEGY_ROLLOUT: 'off',
-      })).toMatchObject({ requestedMode: 'off', requestedModeSource: 'env' });
-      expect(readOdNextRolloutPolicy(
-        { ODEVAL_ARM_SESSION_KEEP_DAEMON: '1' },
-        { odNextStrategyMode: 'off' },
-      )).toMatchObject({ requestedMode: 'off', requestedModeSource: 'app_config' });
-    });
-
     it('stays off for a saved value that is not a mode', () => {
       for (const saved of ['acive', '', 'true', 1, null, undefined, {}] as unknown[]) {
         expect(readOdNextRolloutPolicy(

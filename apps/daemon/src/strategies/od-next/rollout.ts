@@ -88,13 +88,6 @@ function resolveRequestedMode(
   if (fromEnv) return { mode: fromEnv, source: 'env' };
   const fromConfig = configuredMode(appConfig?.odNextStrategyMode);
   if (fromConfig) return { mode: fromConfig, source: 'app_config' };
-  // TEMP(ODEVAL): branch evaluations launch an isolated daemon with a fresh
-  // app config. Opt only that daemon into OD Next so the candidate branch can
-  // be evaluated through the intended strategy. Explicit rollout env/config
-  // still wins. Revert this block after the evaluation before the final PR.
-  if (env.ODEVAL_ARM_SESSION_KEEP_DAEMON === '1') {
-    return { mode: 'active', source: 'env' };
-  }
   return { mode: 'off', source: 'default' };
 }
 
