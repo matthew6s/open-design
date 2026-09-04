@@ -7777,208 +7777,56 @@ export function ProjectView({
         });
         return meta?.acceptDurableQueue === true;
       }
-      // OpenDesign Cloud pre-run balance gate: a definitively insufficient
-      // wallet blocks the run BEFORE any message is persisted or a daemon run
-      // spawned, surfacing the subscription dialog instead of a mid-run
-      // AMR_INSUFFICIENT_BALANCE failure. Sends the home submit already gated
-      // (amrGatePrechecked) pass straight through — the user answered there.
-      if (config.mode === 'daemon' && config.agentId === 'amr' && !meta?.amrGatePrechecked) {
-        const gateConversationId = activeConversationId;
-        // The gate's await opens a window where the conversation is not yet
-        // marked busy. A second send arriving during that window behaves like
-        // a busy conversation: it queues instead of racing a duplicate run.
-        if (amrGateInFlightConversationsRef.current.has(gateConversationId)) {
-          if (retryTarget) return false;
-          queueChatSendForCurrentConversation({
-            conversationId: gateConversationId,
-            prompt,
-            attachments: effectiveAttachments,
-            commentAttachments,
-            meta: { ...(meta ?? {}), sessionMode: runSessionMode, taskAnalytics },
-          });
-          return meta?.acceptDurableQueue === true;
-        }
-        amrGateInFlightConversationsRef.current.add(gateConversationId);
-        try {
-          // A persisted project Workspace is the spawn billing address even
-          // when the local membership/scope read is temporarily unavailable.
-          // In that state there is no trustworthy member-scoped wallet for a
-          // client preflight, so defer authorization and billing to the daemon
-          // and Vela backend. Passing `undefined` here would instead inspect
-          // the Personal/account wallet and could block a valid Team run (or
-          // present a Personal recharge prompt) before the backend sees the
-          // project's persisted Workspace id. An unbound project uses an exact
-          // Personal preflight only when runWorkspaceIdentity supplied the
-          // active Personal adoption witness. Team/absent witnesses skip the
-          // account preflight and let the daemon explicitly reject adoption.
-          // A resolved Personal or Team scope keeps its exact member-scoped
-          // preflight.
-          const persistedWorkspaceId = project.workspaceId?.trim() ?? '';
-          const deferAmrPreflightToDaemon =
-            !projectRunPreflightContext
-            && (
-              persistedWorkspaceId.length > 0
-              || projectWorkspaceScopeState.scope?.kind === 'unbound'
-            );
-          const amrModelId = effectiveAgentModelId(
-            agentsById.get('amr'),
-            config.agentModels?.amr,
-          );
-          const gate =
-            deferAmrPreflightToDaemon
-              ? { kind: 'allow' as const }
-              : await checkAmrBalanceGate(
-                  projectRunPreflightContext
-                    ? {
-                        workspaceType: projectRunPreflightContext.workspaceType,
-                        workspaceId: projectRunPreflightContext.workspaceId,
-                        workspaceMemberId:
-                          projectRunPreflightContext.workspaceMemberId,
-                      }
-                    : undefined,
-                  amrModelId,
-                );
-          // A blocked send parks in the conversation queue with its FULL
-          // payload (prompt, attachments, comment context) — the composer
-          // already cleared itself, and a text-only draft restore would
-          // silently drop staged attachments. Retries keep their error card
-          // and queue drains already have their queue item, so both skip the
-          // re-queue. The pause keeps queued items from re-hitting the gate
-          // (and re-popping a dialog) on every unrelated state change; any
-          // later send that passes the gate lifts it, and a manual "run now"
-          // on a queued item bypasses it deliberately.
-          const queueGateSend = (): boolean => {
-            if (!retryTarget && !meta?.queueDrain) {
-              queueChatSendForCurrentConversation({
-                conversationId: gateConversationId,
-                prompt,
-                attachments: effectiveAttachments,
-                commentAttachments,
-                meta: { ...(meta ?? {}), sessionMode: runSessionMode, taskAnalytics },
-              });
-              return true;
-            }
-            return false;
-          };
-          const parkBlockedSend = (): boolean => {
-            const queued = queueGateSend();
-            amrGatePausedQueueConversationsRef.current.add(gateConversationId);
-            return queued;
-          };
-          const acceptedDurableQueue = (queued: boolean): boolean => {
-            return queued && meta?.acceptDurableQueue === true;
-          };
-          // The await may have raced a conversation switch; re-run the entry
-          // guard before touching any state so this stale closure can't write
-          // the old conversation's messages into the now-visible view. The
-          // composer has already cleared, so keep the full payload queued for
-          // the original conversation instead of dropping it.
-          if (messagesConversationIdRef.current !== activeConversationId) {
-            return acceptedDurableQueue(queueGateSend());
-          }
-          if (gate.kind === 'hard') {
-            const recoveryActionInstanceId = `blocked:${taskAnalytics.taskExecutionId}`;
-            trackRunStartBlockedSurfaceView(analytics.track, {
-              page_name: 'chat_panel',
-              area: 'chat_composer',
-              element: 'run_start_blocked',
-              task_execution_id: taskAnalytics.taskExecutionId,
-              recovery_action_instance_id: recoveryActionInstanceId,
-              block_reason: gate.reason,
-              agent_provider_id: 'amr',
-              model_id: config.agentModels?.amr?.model?.trim() || 'default',
-            });
-            taskAnalytics = {
-              ...taskAnalytics,
-              recoveryActionType: 'manual_retry',
-              recoveryActionInstanceId,
-            };
-            // 「同时唤起什么弹窗」是四组分支唯一的差别(规格 §6.V)。
-            //
-            // 被登出不在这四组里:那一档说的是登录,不是钱,主按钮是应用内登录,
-            // 所以它无条件走原来那张弹窗。
-            setAmrBalanceGateBlock({
-              reason: gate.reason,
-              dialog:
-                gate.reason === 'signed_out'
-                  ? 'upgrade'
-                  : amrBalanceBlockedDialog(amrBalanceBranchRef.current),
-              snapshot: gate.snapshot,
-              conversationId: gateConversationId,
-            });
-            // 拦截档:把流水里那张卡点亮 —— 弹窗一关就什么都不剩(Max · owner 那组
-            // 干脆没有弹窗),而人回到聊天里仍然需要看到「为什么开不了」。
-            //
-            // 只对「余额耗尽」出卡。被登出也走这条硬拦截,但那张卡说的是钱的事,
-            // 摆一个 $0.00 去解释一次登录过期是在误导 —— 那一档交给弹窗。
-            if (gate.reason === 'insufficient') {
-              setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
-              setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
-            }
-            return acceptedDurableQueue(parkBlockedSend());
-          }
-          if (gate.kind === 'unavailable') {
-            return acceptedDurableQueue(parkBlockedSend());
-          }
-          if (gate.kind === 'soft') {
-            /*
-             * 告警档。产品 2026-08-26 裁决:「告警可继续的不弹窗,只有卡片」——
-             * 所以这里**不再拦住这一次发送**,只在流水里留下那张卡,人自己决定
-             * 要不要现在去充值(D4 不阻塞)。
-             *
-             * 这里曾经还夹着一道 `isPaidAmrPlan(await resolveAmrPlan(...))`。
-             * 产品 2026-09-03 裁决把它拆了(OPEND-2600):低余额提醒对**所有档位**
-             * 可见 —— 免费档的钱包读数同样是他们唯一的约束,不提醒才是坑人。
-             * 顺带解掉红线那一条:那道过滤要多打一次套餐读数,把出卡挂在一次网络
-             * 往返后面。判定已经把「要不要提醒」算完了,呈现层只管画,不再等任何
-             * 东西 —— 这一段现在是同步的,原本跨 await 的会话切换复查也不需要了
-             * (进这个分支之前已经复查过一次)。
-             */
-            setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
-            setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
-          }
-          // 判定放行:撤掉那张卡 —— 余额已经不是问题了,提示不该留在屏幕上。
-          if (gate.kind === 'allow') {
-            setAmrBalanceCardUsd(null);
-            setAmrBalanceCardProfile(null);
-          }
-          amrGatePausedQueueConversationsRef.current.delete(gateConversationId);
-        } finally {
-          amrGateInFlightConversationsRef.current.delete(gateConversationId);
-        }
-      }
-      if (resumesBlockedTask) blockedRunTaskRef.current = null;
-      // First genuine send in a recommendation-started project — the
-      // send-through half of the onboarding funnel. Fires once per project (the
-      // guard is project-scoped so it survives ProjectView remounts), on the
-      // first message of the conversation (not retries). Placed AFTER the
-      // queue-only / busy / AMR balance gates above: those can abort the send
-      // without creating a run, so emitting earlier would over-count blocked
-      // attempts and then suppress the real retry via the once-only guard. By
-      // here the send is committed to creating a run.
+      /*
+       * ── OPEND-2614 【不变量】本地数据画得出来的先画,要跟服务器说的话排后面 ──
+       *
+       * 「点击发送 → 消息上屏」这一段里唯一的 await 是下面那道 OpenDesign Cloud
+       * 预检。它在有工作区身份的项目上是**两条 HTTP 往返**,其中
+       * `/api/workspace/billing?…&freshness=authoritative` 会逼 daemon 向上游
+       * Vela 取一次新读数(daemon 侧翻成 `requireFresh: true`)。上屏排在它后面,
+       * 用户点完发送就要盯着 1–2 秒毫无反馈的界面 —— 报告里的「卡顿」是这一趟
+       * 网络,不是渲染慢。
+       *
+       * 预检**该不该拦这一次 run** 一个字都没变:它仍然在持久化和
+       * `POST /api/runs` 之前落定;拦下来时这一轮由 `retractPaintedTurn` 原样收回,
+       * 照旧落进发送队列,由余额卡 / 弹窗解释原因。
+       *
+       * 【前置条件】上屏之前必须走完所有**同步**的拒绝路(只排队、会话忙、预检
+       * 并发窗口)。同步就能拒的东西画出去再收回,那是白闪一下 —— 所以预检那道
+       * 并发窗口的守卫从 `try` 里提到了这里。
+       */
+      const amrGateApplies =
+        config.mode === 'daemon'
+        && config.agentId === 'amr'
+        && !meta?.amrGatePrechecked;
+      // The gate's await opens a window where the conversation is not yet
+      // marked busy. A second send arriving during that window behaves like
+      // a busy conversation: it queues instead of racing a duplicate run.
       if (
-        onboardingEntryRef.current &&
-        !hasSentFirstOnboardingPrompt(project.id) &&
-        !retryTarget &&
-        historyBase.length === 0
+        amrGateApplies
+        && amrGateInFlightConversationsRef.current.has(activeConversationId)
       ) {
-        markFirstOnboardingPromptSent(project.id);
-        const entry = onboardingEntryRef.current;
-        trackOnboardingFirstPromptSent(analytics.track, {
-          entry_source: entry.source,
-          product_type: entry.productType,
-          recommendation_id: entry.recommendationId,
-          // True only when the user sent the prefilled suggestion unmodified;
-          // an edited, cleared, replaced, or starter-swapped prompt (or an
-          // attachments-only send) reports false so the send-through split
-          // stays honest.
-          has_prefilled_prompt: sentPrefilledPrompt(onboardingSeedPromptRef.current, prompt),
+        if (retryTarget) return false;
+        queueChatSendForCurrentConversation({
+          conversationId: activeConversationId,
+          prompt,
+          attachments: effectiveAttachments,
+          commentAttachments,
+          meta: { ...(meta ?? {}), sessionMode: runSessionMode, taskAnalytics },
         });
-        recordFirstLoopStep(analytics.track, 'prompt_sent', project.id);
+        return meta?.acceptDurableQueue === true;
       }
-      setChatSeed(null);
       const runConversationId = activeConversationId;
       setError(null);
+      /*
+       * 【和上屏同一批】`chatSeed?.id` 是 `ChatPane` 的 `key` 的一部分 —— 清它会把
+       * 整个面板**重挂**。重挂会清掉 anchor-to-top 的那两个 ref,而重挂之后到齐的
+       * 转录按定义「不是新发的一轮」(`isNewTailUserTurn`),于是这一轮钉不了顶。
+       * 原来它和 `setMessages` 在同一批里,重挂和上屏是同一帧;上屏提前而它留在
+       * 预检后面的话,就变成「先画好、1–2 秒后再把面板拆了重来」,反而制造出
+       * OPEND-2615 那个症状。两件事必须绑在一起。
+       */
+      setChatSeed(null);
       const startedAt = Date.now();
       const previousConversation = conversationsRef.current.find(
         (conversation) => conversation.id === runConversationId,
@@ -8080,15 +7928,243 @@ export function ProjectView({
           ),
         );
       };
-      activeCompletionNotificationRunsRef.current.add(assistantId);
       const nextHistory = retryTarget
         ? [...retryTarget.priorMessages, userMsg]
         : [...historyBase, userMsg];
       const nextVisibleMessages = retryTarget
         ? [...nextHistory, ...retryTarget.preservedAttempts, assistantMsg]
         : [...nextHistory, assistantMsg];
-      setMessages(nextVisibleMessages);
+      /*
+       * 画出去 —— 同时把画之前的样子记下来。预检拒绝时要**原样**放回去,而
+       * 「原样」只有这一刻知道:`messages` 是一份快照,不是能从这一轮反算出来的量
+       * (重试那一路尤其:被重试的那条用户消息和保留下来的失败尝试都在里面)。
+       */
+      const paintedFrom: { messages: ChatMessage[] | null } = { messages: null };
+      setMessages((current) => {
+        paintedFrom.messages = current;
+        return nextVisibleMessages;
+      });
       markStreamingConversation(runConversationId);
+      /**
+       * 把刚画出去的那一轮收回 —— 只有预检拒绝时才走这里。
+       *
+       * 会话在这期间被切走的话**一个字都不写回去**:`messages` 那份状态此刻属于
+       * 另一条会话,把上一条会话的快照盖上去就是覆盖别人的流水(跨 await 的老坑)。
+       * 进行中标记仍要清 —— 它是按会话 id 认领的,清的就是这一条。
+       */
+      const retractPaintedTurn = () => {
+        const restore = paintedFrom.messages;
+        paintedFrom.messages = null;
+        clearStreamingMarker(runConversationId);
+        if (restore === null) return;
+        if (messagesConversationIdRef.current !== runConversationId) return;
+        setMessages(restore);
+      };
+      // OpenDesign Cloud pre-run balance gate: a definitively insufficient
+      // wallet blocks the run BEFORE any message is persisted or a daemon run
+      // spawned, surfacing the subscription dialog instead of a mid-run
+      // AMR_INSUFFICIENT_BALANCE failure. Sends the home submit already gated
+      // (amrGatePrechecked) pass straight through — the user answered there.
+      if (amrGateApplies) {
+        const gateConversationId = runConversationId;
+        amrGateInFlightConversationsRef.current.add(gateConversationId);
+        try {
+          // A persisted project Workspace is the spawn billing address even
+          // when the local membership/scope read is temporarily unavailable.
+          // In that state there is no trustworthy member-scoped wallet for a
+          // client preflight, so defer authorization and billing to the daemon
+          // and Vela backend. Passing `undefined` here would instead inspect
+          // the Personal/account wallet and could block a valid Team run (or
+          // present a Personal recharge prompt) before the backend sees the
+          // project's persisted Workspace id. An unbound project uses an exact
+          // Personal preflight only when runWorkspaceIdentity supplied the
+          // active Personal adoption witness. Team/absent witnesses skip the
+          // account preflight and let the daemon explicitly reject adoption.
+          // A resolved Personal or Team scope keeps its exact member-scoped
+          // preflight.
+          const persistedWorkspaceId = project.workspaceId?.trim() ?? '';
+          const deferAmrPreflightToDaemon =
+            !projectRunPreflightContext
+            && (
+              persistedWorkspaceId.length > 0
+              || projectWorkspaceScopeState.scope?.kind === 'unbound'
+            );
+          const amrModelId = effectiveAgentModelId(
+            agentsById.get('amr'),
+            config.agentModels?.amr,
+          );
+          const gate =
+            deferAmrPreflightToDaemon
+              ? { kind: 'allow' as const }
+              : await checkAmrBalanceGate(
+                  projectRunPreflightContext
+                    ? {
+                        workspaceType: projectRunPreflightContext.workspaceType,
+                        workspaceId: projectRunPreflightContext.workspaceId,
+                        workspaceMemberId:
+                          projectRunPreflightContext.workspaceMemberId,
+                      }
+                    : undefined,
+                  amrModelId,
+                );
+          // A blocked send parks in the conversation queue with its FULL
+          // payload (prompt, attachments, comment context) — the composer
+          // already cleared itself, and a text-only draft restore would
+          // silently drop staged attachments. Retries keep their error card
+          // and queue drains already have their queue item, so both skip the
+          // re-queue. The pause keeps queued items from re-hitting the gate
+          // (and re-popping a dialog) on every unrelated state change; any
+          // later send that passes the gate lifts it, and a manual "run now"
+          // on a queued item bypasses it deliberately.
+          const queueGateSend = (): boolean => {
+            // 判定拒绝 = 这一轮不会有 run。先把已经画出去的那一轮收回,再决定
+            // 它去哪儿 —— 三条拒绝路(会话切走 / 拦截 / 读不到)都经过这里,
+            // 所以收回只写一处。放行那两档(soft / allow)碰不到它。
+            retractPaintedTurn();
+            if (!retryTarget && !meta?.queueDrain) {
+              queueChatSendForCurrentConversation({
+                conversationId: gateConversationId,
+                prompt,
+                attachments: effectiveAttachments,
+                commentAttachments,
+                meta: { ...(meta ?? {}), sessionMode: runSessionMode, taskAnalytics },
+              });
+              return true;
+            }
+            return false;
+          };
+          const parkBlockedSend = (): boolean => {
+            const queued = queueGateSend();
+            amrGatePausedQueueConversationsRef.current.add(gateConversationId);
+            return queued;
+          };
+          const acceptedDurableQueue = (queued: boolean): boolean => {
+            return queued && meta?.acceptDurableQueue === true;
+          };
+          // The await may have raced a conversation switch; re-run the entry
+          // guard before touching any state so this stale closure can't write
+          // the old conversation's messages into the now-visible view. The
+          // composer has already cleared, so keep the full payload queued for
+          // the original conversation instead of dropping it.
+          if (messagesConversationIdRef.current !== activeConversationId) {
+            return acceptedDurableQueue(queueGateSend());
+          }
+          if (gate.kind === 'hard') {
+            const recoveryActionInstanceId = `blocked:${taskAnalytics.taskExecutionId}`;
+            trackRunStartBlockedSurfaceView(analytics.track, {
+              page_name: 'chat_panel',
+              area: 'chat_composer',
+              element: 'run_start_blocked',
+              task_execution_id: taskAnalytics.taskExecutionId,
+              recovery_action_instance_id: recoveryActionInstanceId,
+              block_reason: gate.reason,
+              agent_provider_id: 'amr',
+              model_id: config.agentModels?.amr?.model?.trim() || 'default',
+            });
+            taskAnalytics = {
+              ...taskAnalytics,
+              recoveryActionType: 'manual_retry',
+              recoveryActionInstanceId,
+            };
+            // 「同时唤起什么弹窗」是四组分支唯一的差别(规格 §6.V)。
+            //
+            // 被登出不在这四组里:那一档说的是登录,不是钱,主按钮是应用内登录,
+            // 所以它无条件走原来那张弹窗。
+            setAmrBalanceGateBlock({
+              reason: gate.reason,
+              dialog:
+                gate.reason === 'signed_out'
+                  ? 'upgrade'
+                  : amrBalanceBlockedDialog(amrBalanceBranchRef.current),
+              snapshot: gate.snapshot,
+              conversationId: gateConversationId,
+            });
+            // 拦截档:把流水里那张卡点亮 —— 弹窗一关就什么都不剩(Max · owner 那组
+            // 干脆没有弹窗),而人回到聊天里仍然需要看到「为什么开不了」。
+            //
+            // 只对「余额耗尽」出卡。被登出也走这条硬拦截,但那张卡说的是钱的事,
+            // 摆一个 $0.00 去解释一次登录过期是在误导 —— 那一档交给弹窗。
+            if (gate.reason === 'insufficient') {
+              setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
+              setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
+            }
+            return acceptedDurableQueue(parkBlockedSend());
+          }
+          if (gate.kind === 'unavailable') {
+            return acceptedDurableQueue(parkBlockedSend());
+          }
+          if (gate.kind === 'soft') {
+            /*
+             * 告警档。产品 2026-08-26 裁决:「告警可继续的不弹窗,只有卡片」——
+             * 所以这里**不再拦住这一次发送**,只在流水里留下那张卡,人自己决定
+             * 要不要现在去充值(D4 不阻塞)。
+             *
+             * 这里曾经还夹着一道 `isPaidAmrPlan(await resolveAmrPlan(...))`。
+             * 产品 2026-09-03 裁决把它拆了(OPEND-2600):低余额提醒对**所有档位**
+             * 可见 —— 免费档的钱包读数同样是他们唯一的约束,不提醒才是坑人。
+             * 顺带解掉红线那一条:那道过滤要多打一次套餐读数,把出卡挂在一次网络
+             * 往返后面。判定已经把「要不要提醒」算完了,呈现层只管画,不再等任何
+             * 东西 —— 这一段现在是同步的,原本跨 await 的会话切换复查也不需要了
+             * (进这个分支之前已经复查过一次)。
+             */
+            setAmrBalanceCardUsd(amrBalanceCardBalanceUsd(gate.snapshot));
+            setAmrBalanceCardProfile(gate.snapshot.profile ?? null);
+          }
+          // 判定放行:撤掉那张卡 —— 余额已经不是问题了,提示不该留在屏幕上。
+          if (gate.kind === 'allow') {
+            setAmrBalanceCardUsd(null);
+            setAmrBalanceCardProfile(null);
+          }
+          amrGatePausedQueueConversationsRef.current.delete(gateConversationId);
+        } finally {
+          amrGateInFlightConversationsRef.current.delete(gateConversationId);
+        }
+      }
+      /*
+       * 上屏提前带来的**新状态**:预检那一两秒里,这一轮已经在跑的样子摆在屏幕上,
+       * 于是〔停止〕这颗按钮**第一次**在建出 run 之前可以按。按下去
+       * `handleStop` 会把进行中标记清掉、把这条 assistant 收成「已停止」——
+       * 如果这里不看一眼,预检回来之后照样持久化并 `POST /api/runs`,
+       * 用户明明叫停了却还是跑起来一轮。
+       *
+       * 判据用进行中标记本身:它是「这条会话此刻认领着哪一轮」的唯一出处,
+       * 停止、切走、被别的轮接管,三种情况一次说清。
+       *
+       * **不收回画面**:停止那条路已经把这一轮收成终态了(用户消息留着,
+       * assistant 标成已停止),这里再按预检那套原样放回去,会把用户刚发的
+       * 那条消息一起抹掉。
+       */
+      if (streamingConversationIdRef.current !== runConversationId) return false;
+      if (resumesBlockedTask) blockedRunTaskRef.current = null;
+      // First genuine send in a recommendation-started project — the
+      // send-through half of the onboarding funnel. Fires once per project (the
+      // guard is project-scoped so it survives ProjectView remounts), on the
+      // first message of the conversation (not retries). Placed AFTER the
+      // queue-only / busy / AMR balance gates above: those can abort the send
+      // without creating a run, so emitting earlier would over-count blocked
+      // attempts and then suppress the real retry via the once-only guard. By
+      // here the send is committed to creating a run.
+      if (
+        onboardingEntryRef.current &&
+        !hasSentFirstOnboardingPrompt(project.id) &&
+        !retryTarget &&
+        historyBase.length === 0
+      ) {
+        markFirstOnboardingPromptSent(project.id);
+        const entry = onboardingEntryRef.current;
+        trackOnboardingFirstPromptSent(analytics.track, {
+          entry_source: entry.source,
+          product_type: entry.productType,
+          recommendation_id: entry.recommendationId,
+          // True only when the user sent the prefilled suggestion unmodified;
+          // an edited, cleared, replaced, or starter-swapped prompt (or an
+          // attachments-only send) reports false so the send-through split
+          // stays honest.
+          has_prefilled_prompt: sentPrefilledPrompt(onboardingSeedPromptRef.current, prompt),
+        });
+        recordFirstLoopStep(analytics.track, 'prompt_sent', project.id);
+      }
+      activeCompletionNotificationRunsRef.current.add(assistantId);
       updateConversationLatestRun(config.mode === 'daemon' ? 'running' : 'queued');
       setArtifact(null);
       savedArtifactRef.current = null;
