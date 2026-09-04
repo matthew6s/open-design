@@ -2438,6 +2438,17 @@ function translateAgentEvent(data: DaemonAgentPayload): AgentEvent | null {
   if (t === 'thinking_start') {
     return { kind: 'status', label: 'thinking' };
   }
+  /*
+   * Reasoning progress for the block that is running right now. Stamped with
+   * the **client's** clock on arrival, not the daemon's: the only consumer asks
+   * "has this number moved recently?" by comparing against the chat panel's own
+   * `nowMs`, and a daemon timestamp would put a machine's clock skew straight
+   * into that comparison. Arrival time is a transport fact the client always
+   * knows — the same argument `BuildTurnInput.lastEventAtMs` is built on.
+   */
+  if (t === 'thinking_tokens' && typeof data.tokens === 'number' && Number.isFinite(data.tokens)) {
+    return { kind: 'thinking_tokens', tokens: data.tokens, at: Date.now() };
+  }
   if (t === 'live_artifact') {
     return {
       kind: 'live_artifact',

@@ -31,6 +31,31 @@ export function formatShellElapsed(ms: number | null | undefined): string | null
   return `${m}m ${s}s`;
 }
 
+/**
+ * 思考行上那个 token 估算值:`950` / `1k` / `3.3k`。
+ *
+ * 门槛压在 **1000**,和这个仓库里另外三份 k 缩写一致:满一千才收,`950` 照写原数。
+ * 收的时候**四舍五入**(`3278` → `3.3k`),不截断 —— `ChatPane` 那份
+ * `compactCount` 走的是 `Math.floor`,同一个数会写成 `3.2k`,差一位读起来像少想了。
+ *
+ * **没有 M 档,是有意的。** 这个数是**单个 thinking 块**的累计估算,上限由模型的
+ * thinking 预算兜着(claude 最大 64k 量级),百万级永远到不了 —— 写一档到不了的
+ * 分支就是死码,而死码会让下一个人以为它被验证过。
+ *
+ * 为什么不复用现成的三份:`compactCount`(`ChatPane.tsx`)截断且没有有限性守卫;
+ * `formatStars` / `formatDiscordPresenceCount` 数学对,但一个住在 GitHub star 钩子里、
+ * 一个住在 Discord 在线数钩子里,名字和归属都不是这件事。执行记录上的数字怎么写,
+ * 这个文件是唯一出处(`formatElapsed` / `formatShellElapsed` 都在这儿),
+ * 新的一枚就该落在同一处,而不是从别的域里借一个名字。
+ *
+ * 拿不到就返回 `null`,与本文件开头那条硬规矩同一条:不估算、不编数。
+ */
+export function formatThinkingTokens(count: number | null | undefined): string | null {
+  if (count == null || !Number.isFinite(count) || count <= 0) return null;
+  if (count < 1000) return String(Math.round(count));
+  return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+}
+
 /** 音频产物另一套写法(组件 24):分钟不补零、秒补两位 */
 export function formatDuration(seconds: number | null | undefined): string {
   const s = Math.max(0, Math.round(seconds ?? 0));

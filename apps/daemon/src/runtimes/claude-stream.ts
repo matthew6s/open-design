@@ -709,6 +709,36 @@ export function createClaudeStreamHandler(
       return;
     }
 
+    /**
+     * 「它在想,而且想了多少」 —— extended thinking 唯一一个**只计费、不给字**的
+     * 档位里,这是屏幕上还说得出口的事实。
+     *
+     * API 有一档会收下推理 token、照常计费,回来的却只有一个加密签名,`thinking`
+     * 一路是空串(真机 CLI 2.1.260:3060 个计费 token、0 个字符)。那一轮用户盯着
+     * 「思考中」和一只空窗看了 57 秒 —— 空窗是**诚实的**,东西真的没来;但 CLI
+     * 一直在报想了多少,这一行以前把它丢在地上。
+     *
+     * ⚠️ **读的是这种独立系统帧,不是 `thinking_delta` 上那个同名字段。**
+     * 后者在录制里一半是 `null`(每个块的收尾帧),而且非 null 时是**每帧增量**
+     * 不是累计(`partial-single-turn` 第二块:系统帧 50/150/300/450,delta 报
+     * 50/100/150/150),不开 `--include-partial-messages` 时更是一帧都不存在。
+     * 仓库里那条「`estimated_tokens` 走不通」的旧结论量的正是那个字段,对它成立。
+     * 系统帧是 55 帧全非空、两种 CLI 配置下都在的那一个。判据钉在
+     * `tests/runtimes/w134-thinking-token-count.test.ts` 的语料守卫一节。
+     *
+     * 送的是**块内累计值**,不是增量:消费方 last-wins 就够,不必自己加。于是
+     * 重连补帧、丢帧、重放都改不了这个数 —— 求和才会被那些事永久带偏。
+     * 一个 thinking 块 = 屏幕上一格「思考中」,所以「块内累计」正好是「那一格的累计」;
+     * 换块时 CLI 自己从小数重新开始,和那一格换新是同一个边界。
+     */
+    if (obj.type === 'system' && obj.subtype === 'thinking_tokens') {
+      const tokens = obj.estimated_tokens;
+      if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0) {
+        onEvent({ type: 'thinking_tokens', tokens });
+      }
+      return;
+    }
+
     if (obj.type === 'stream_event' && isRecord(obj.event)) {
       // `parent_tool_use_id` rides on the OUTER envelope, not on the inner
       // `event`, so the sub-agent guard needs it handed down explicitly.

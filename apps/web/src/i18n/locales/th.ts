@@ -5320,6 +5320,7 @@ export const th: Dict = {
   'chat.record.slowUpstream': 'ผู้ให้บริการตอบสนองช้า — รอมาแล้ว {seconds} วินาที',
   'chat.record.running': "กำลังทำงาน",
   'chat.record.thinking': "กำลังคิด",
+  'chat.record.thinkingTokens': "{count} โทเคน",
   'chat.record.thoughts': "กระบวนการคิด",
   'chat.record.done': "เสร็จแล้ว",
   'chat.record.failedTurn': "รันไม่สำเร็จ",

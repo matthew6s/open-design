@@ -164,6 +164,41 @@ export type DaemonAgentPayload =
   | { type: 'conversation_title'; title: string }
   | { type: 'thinking_delta'; delta: string }
   | { type: 'thinking_start' }
+  /**
+   * How much reasoning has happened **so far in the current thinking block** —
+   * the progress signal that exists precisely when the reasoning text does not.
+   *
+   * Claude's extended thinking has a mode that is billed but withheld: the API
+   * charges for the thinking tokens and returns only an encrypted signature, so
+   * every `thinking_delta` carries the empty string. Measured on CLI 2.1.260:
+   * 3,060 billed thinking tokens, zero characters. The blank panel is honest —
+   * nothing was lost in transit — but without this event the screen has no way
+   * to say "it is reasoning, and it is reasoning a lot".
+   *
+   * `tokens` is the CLI's own **cumulative estimate for the current block**,
+   * lifted verbatim from its standalone `system`/`thinking_tokens` frames. Two
+   * properties consumers may rely on:
+   *  - **Cumulative, so fold it last-wins.** Never sum these. A dropped,
+   *    duplicated, or replayed frame cannot corrupt a figure that is restated
+   *    in full every time — and a client that reconnects mid-block gets the
+   *    settled number whole rather than watching it climb from zero.
+   *  - **Rebased per block.** The CLI restarts the count at each new thinking
+   *    block, which is the same boundary at which the UI's "thinking" row is
+   *    replaced. A decrease means "new block", not "lost progress".
+   *
+   * It is an **estimate**, not the bill. The settled figure
+   * (`usage.output_tokens_details.thinking_tokens`) only exists once the block
+   * has ended, and runs 20-60% lower; by then the row this event feeds is gone.
+   * Do not substitute one for the other.
+   *
+   * NOT persisted — see `daemonAgentPayloadToPersistedAgentEvent`. The count
+   * describes a block that is still running; once the run is over the reader
+   * has the finished thinking text (or, for the withheld case, no row at all).
+   *
+   * Claude is the only runtime that emits it. Every other agent sends nothing,
+   * and a client MUST render nothing there rather than a zero or a placeholder.
+   */
+  | { type: 'thinking_tokens'; tokens: number }
   | LiveArtifactSsePayload
   | LiveArtifactRefreshSsePayload
   | PlainStreamArtifactSsePayload

@@ -5320,6 +5320,7 @@ export const ja: Dict = {
   'chat.record.slowUpstream': 'プロバイダーの応答が遅く、{seconds} 秒待機中',
   'chat.record.running': "実行中",
   'chat.record.thinking': "思考中",
+  'chat.record.thinkingTokens': "{count} トークン",
   'chat.record.thoughts': "思考プロセス",
   'chat.record.done': "完了",
   'chat.record.failedTurn': "実行失敗",

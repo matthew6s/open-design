@@ -5320,6 +5320,7 @@ export const esES: Dict = {
   'chat.record.slowUpstream': 'El proveedor tarda en responder: {seconds}s esperando',
   'chat.record.running': "En curso",
   'chat.record.thinking': "Pensando",
+  'chat.record.thinkingTokens': "{count} tokens",
   'chat.record.thoughts': "Razonamiento",
   'chat.record.done': "Hecho",
   'chat.record.failedTurn': "Ejecución fallida",

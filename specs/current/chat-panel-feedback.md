@@ -857,6 +857,30 @@ git 报 0 冲突、合并语义我也核对过是对的,结果 8 条测试红,�
 **本轮不做**,不拿安慰剂顶替真实进度。claude 的「有反应」由思考块自己的动画承担
 (球 + 扫光 + 三个点,一个字都没有也照转)。
 
+> **2026-09-04 更正:上面这段结论对了一半,量错了地方 —— 现已落地。**
+>
+> 那次量的是 `thinking_delta` **载荷里**那个 `estimated_tokens`,对**那个字段**结论完全成立:
+> 每个 thinking 块的收尾帧必然是 `null`,而且非 null 时它是**每帧增量**不是累计
+> (`partial-single-turn` 第二块:累计 50/150/300/450,同批 delta 报 50/100/150/150),
+> 不开 `--include-partial-messages` 时更是一帧都不存在。
+>
+> 漏看的是**另一种帧**:CLI 还单发
+> `{"type":"system","subtype":"thinking_tokens","estimated_tokens":N,"estimated_tokens_delta":N}`。
+> 六份真实录制里 **36 帧全部非空**,两种 CLI 配置下都在 —— 而
+> `claude-stream.ts` 的 `handleObject` 认得 `system/init` 与 `system/status`,
+> 唯独这一种直接落到底,所以它**从来没进过日志**,「日志里 0 次」量到的正是这个。
+> 语料与判据钉在 `apps/daemon/tests/runtimes/w134-thinking-token-count.test.ts`。
+>
+> 落地形态:思考行右边那个槽(`ThoughtsRow`),**一个槽、一个数**,
+> 报此刻还活着的那件事 —— token 在动就写 token,停够 8 秒就把槽让给计时;
+> 头一格没有计时可让(今天刚因「与壳头重复」收走),所以那一格恒为 token。
+> 不是安慰剂:这个数**恰恰在正文永远不会来的那一档存在**(真机 CLI 2.1.260:
+> 3060 个计费 token、0 个字符)。球 + 扫光 + 三个点一件没动。
+>
+> ⚠️ 同一份录制里还有第三个数 `usage.output_tokens_details.thinking_tokens` ——
+> 那是**结算**值,块跑完才有,而且比估算值低 20–60%。屏幕上要的是块**跑着时**的进度,
+> 那一刻结算值不存在;等它到了,那一格也收掉了。两个数不可互换。
+
 ### 缩进:在真 Chrome 里量的(不是只 diff CSS 文本)
 
 harness 做法:把组件真实渲染出的 DOM(CSS Module 类名去哈希)+ `record.module.css`
@@ -963,11 +987,14 @@ harness 做法:把组件真实渲染出的 DOM(CSS Module 类名去哈希)+ `rec
 |---|---|---|
 | 壳外正文(助手的回答) | `AssistantMessage` 的 `proseRef` | `isLastAssistant && streaming`(本来就有,这一轮修好了它) |
 | 思考流 | `ThoughtsRow` 的 `bodyRef`(整只 body) | `live` |
-| 壳内过程叙述 | `SayText` 的**最后一段** `<p>` | 这一摞的最后一个 `text` 条目,且这一轮在跑 |
+| 壳内过程叙述 | `SayText` 的**整只 `.think` 容器** | 这一摞的最后一个 `text` 条目,且这一轮在跑 |
 
-思考那边挂在整只 body 上、叙述那边挂在最后一段 `<p>` 上 —— 两种挂法都对:
-`useCharReveal` 按元素记状态,新起一段时那只 `<p>` 是全新元素,自己从头化开,
-不必在段与段之间交接。
+~~叙述那边挂在最后一段 `<p>` 上~~ **2026-09-03 改成整只容器**。原来的写法(挂最后一段)
+在纯文本下成立:新起一段时那只 `<p>` 是全新元素,自己从头化开,不必交接。
+壳内文字改走 markdown 之后这个前提没了 —— 块树的元素会**换身份**(`#` 再来一个字就从
+`<p>` 变成 `<h2>`),每换一次 `useCharReveal` 按元素记的状态就丢一次,已经看过的字
+被当成新字重放。挂到容器上则整块共用一份 `shown`,和思考流那边同一种挂法。
+判据见 `apps/web/tests/components/chat/say-text-markdown.test.tsx`。
 
 ### 修前的真实基线(无头 Chrome 量的,不是推测)
 

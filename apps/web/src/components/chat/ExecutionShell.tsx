@@ -16,9 +16,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useT } from '../../i18n';
 import { Icon } from '../Icon';
-import type { ExecutionShell as ShellData, ImageRow as ImageRowData, ShellItem, TodoSegment } from '../../runtime/chat/contract';
+import type { ExecutionShell as ShellData, ImageRow as ImageRowData, ShellItem, ThinkingTokens, TodoSegment } from '../../runtime/chat/contract';
 import { isExpandable, isStruck } from '../../runtime/chat/contract';
-import { formatElapsed, formatShellElapsed } from '../../runtime/chat/format';
+import { formatElapsed, formatShellElapsed, formatThinkingTokens } from '../../runtime/chat/format';
 import { groupThinking, isThinking, type GroupedShellItem } from '../../runtime/chat/group-thinking';
 import type { RecordFileScope } from '../../runtime/chat/record-file-open';
 import { Foldable } from './primitives/Foldable';
@@ -241,7 +241,11 @@ export function ExecutionShell({
    * (它本来就是为「claude 的 thinking 全是空串」准备的),下面只把词换掉。
    * 一个球、一行字,不另起第二种形态。
    */
-  const items = groupThinking(shell.items, (thinkingNow || waitingForFirstOutput) && !activeTodo);
+  const items = groupThinking(
+    shell.items,
+    (thinkingNow || waitingForFirstOutput) && !activeTodo,
+    shell.thinkingTokens ?? null,
+  );
   /**
    * 整轮头一格推理落在哪一摞里 —— 只有那一格不报时长(产品 2026-09-04)。
    * 在这里算一次、往下传,而不是让每一摞各自猜:「头一格」是**整轮**的概念,
@@ -272,6 +276,7 @@ export function ExecutionShell({
             t, onOpenFile, fileScope,
             onRetryImage: runTerminal ? onRetryImage : undefined,
             imageSrc, thinkingNow, running,
+            thinkingTokens: shell.thinkingTokens ?? null,
             deferCollapsedBodies,
             liveTextIndex: liveTextIndexOf(items, running),
             firstThoughtsStack,
@@ -360,6 +365,8 @@ interface RenderCtx {
   imageSrc?: (path: string) => string;
   /** 模型此刻在想 —— 传给 todo 抽屉,让它认出自己那一摞里的 `live` 格 */
   thinkingNow: boolean;
+  /** 还在想的那一格想了多少 —— 抽屉里那一摞的 `live` 格同样要拿到(有清单时推理落在抽屉里) */
+  thinkingTokens: ThinkingTokens | null;
   /** 这一轮还在跑吗 —— 抽屉里那一摞要自己算 `liveTextIndex`,得知道这件事 */
   running: boolean;
   /** Whether initially collapsed historical bodies mount on first expansion. */
@@ -393,6 +400,7 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
         key={`thoughts-${item.live ? 'live' : 'done'}-${index}`}
         texts={item.texts}
         elapsedMs={item.elapsedMs}
+        tokens={item.tokens ?? null}
         /* 整轮头一格:数照旧算得出,只是不写出来(理由在 `stackOwningFirstThoughts`) */
         muted={index === ctx.mutedThoughtsIndex}
         /*
@@ -497,9 +505,11 @@ function renderItem(item: GroupedShellItem, index: number, ctx: RenderCtx): Reac
  *
  * ⚠️ 这个 span **不许挂 `aria-live`** —— 挂了读屏会每秒念一遍秒数。
  */
-function ThoughtsRow({ texts, elapsedMs, muted, waiting, live, t, deferBody }: {
+function ThoughtsRow({ texts, elapsedMs, tokens, muted, waiting, live, t, deferBody }: {
   texts: string[];
   elapsedMs: number | null;
+  /** 还在想的那一格想了多少;别的档一律 `null`(见 `ThinkingTokens`) */
+  tokens: ThinkingTokens | null;
   /**
    * 整轮**头一格** —— 它的数和壳头那个是同一个,写两遍就是复读(产品 2026-09-04)。
    * 判据与完整理由在 `stackOwningFirstThoughts`。
@@ -524,6 +534,44 @@ function ThoughtsRow({ texts, elapsedMs, muted, waiting, live, t, deferBody }: {
    * 而真的**拿不到**数那一档仍然连槽都没有,两件事在 DOM 上分得开。
    */
   const elapsed = muted ? '' : formatElapsed(elapsedMs);
+  /**
+   * ── 槽里写哪个数(产品 2026-09-04)────────────────────────────────────
+   *
+   * 一句话:**这个槽永远报此刻还活着的那件事。**
+   * 模型在推理时,活的是 token 数;推理卡住了,唯一还活着的事实就只剩「已经等了多久」,
+   * 于是计时接手。产品那四句原话("不能同时出现计时和 token 变化" /
+   * "有 token 变化立刻显示 token 变化" / "token 很久没变化时再显示计时" /
+   * "第一次 thinking 永远是 token 变化")说的都是这一件事。
+   *
+   * **两个数绝不同时摆着** —— 摆着读者就会去**比**它们,而不是**读**它们。
+   * 所以这里是一个槽、一个值,不是两个 `.meta`(生图批次行那种两枚并排的写法
+   * 在这一行是禁止的)。
+   *
+   * ── ⚠️ 这不是把今早刚收走的计时放回来 ─────────────────────────────────
+   *
+   * 整轮头一格的计时被收掉,是因为它和壳头那个数**同起同终、写的是同一个事实**
+   * (`stackOwningFirstThoughts` / `first-thoughts-no-elapsed.test.tsx`)。
+   * token **不是**复读:它是那一格从来没有过的那个数,也是 claude 那档只计费、
+   * 不给字的推理里唯一说得出口的进度。所以这个槽此后归 token ——
+   * 看见「头一格又有数了」别顺手把 `formatElapsed` 接回去,那会把裁决改回去。
+   *
+   * ── 让位的判据是「有没有表可让」,不是「是不是头一格」 ────────────────
+   *
+   * 一条判据同时盖住产品那三句话,不必给头一格再写特例:
+   *   · 头一格 —— 计时被收走了,`elapsed` 是空串,没有表可让 → 数停了也照旧写 token;
+   *   · claude 空推理那一格 —— 是 `groupThinking` 补出来的,连耗时都算不出来
+   *     (`elapsed` 是 `null`),同样没有表可让 → 照旧写 token;
+   *   · 后面几格 —— `elapsed` 是一个真的秒数,token 停了就把槽让出去。
+   * 「很久」定在 `THINKING_TOKENS_STALL_MS`(8 秒,量出来的,理由在那个常量上)。
+   *
+   * 数字**没有任何补间动画**:帧到了就换数,这才是「实时」。于是刷新页面那一档
+   * 天生给出落定的数,不会从零涨上来(判据在 `thinking-token-count.test.tsx`)。
+   * 槽里的字走 `.meta` 的等宽字族,数字逐位等宽,跳字时不横移。
+   */
+  const tokenText = tokens ? formatThinkingTokens(tokens.count) : null;
+  const slot = tokens != null && tokenText != null && !(tokens.stale && elapsed)
+    ? t('chat.record.thinkingTokens', { count: tokenText })
+    : elapsed;
   /*
    * 还在写的时候贴底跟随(用户 2026-09-02)。判据复用 ChatPane 那一套
    * (`runtime/chat/stick-to-bottom.ts`),这里只负责把限高盒子交给它。
@@ -573,7 +621,7 @@ function ThoughtsRow({ texts, elapsedMs, muted, waiting, live, t, deferBody }: {
   return (
     <Foldable
       summary={summary}
-      elapsed={elapsed ?? undefined}
+      elapsed={slot ?? undefined}
       className={styles.thoughts}
       defaultOpen={live}
       stream={live}
@@ -661,7 +709,11 @@ function TodoRow({ segment, ctx }: { segment: TodoSegment; ctx: RenderCtx }): Re
    *
    * 「还在写的那一格」只可能在**进行中**那条 todo 的结尾。
    */
-  const items = groupThinking(segment.items, ctx.thinkingNow && segment.status === 'in_progress');
+  const items = groupThinking(
+    segment.items,
+    ctx.thinkingNow && segment.status === 'in_progress',
+    ctx.thinkingTokens,
+  );
 
   return (
     <Foldable

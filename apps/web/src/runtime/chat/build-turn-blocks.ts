@@ -274,6 +274,37 @@ function scanTurnMarkers(raw: string, runKey: string | null): MarkerScan {
  * 换 id 就是重新挂载:用户手点开的折叠态每一帧被拨回去(`Foldable` 的注释里记着这条),
  * 流式期间正好每个 delta 都重算一次。
  */
+/**
+ * 「token 很久没变化」里的「很久」。
+ *
+ * ── 这个 8 秒是量出来的,不是挑的 ────────────────────────────────────
+ *
+ * 健康推理时这些帧密得很:`specs/current/chat-panel-next.md` 拿两份真实录制
+ * (`claude-brief` / `claude-shop`)量到的 delta 间隔 **p50 = 1.4s**;那一轮
+ * 40 帧里最大的一次间隔是 **4.88s**。门槛压到 5s 以下,健康推理会一路来回翻面 ——
+ * 用户看到的是一个在 token 和秒数之间闪的槽,比两个数同时摆着还糟。
+ *
+ * 8s ≈ 5.7 倍 p50、1.6 倍最大观测间隔:健康推理翻不动,真卡住了 8 秒内接管。
+ * 同时它远在壳那两个 60s 门槛(`SLOW_UPSTREAM_AFTER_MS` /
+ * `WAITING_FIRST_OUTPUT_AFTER_MS`)之前 —— 那两个说的是「等太久了」,
+ * 这一个只是把槽还给计时,不是报警,两件事不该共用一个数。
+ *
+ * 导出是**故意**的:判据钉在
+ * `tests/runtime/chat/thinking-token-count.test.ts`,改这个数会当场红。
+ */
+export const THINKING_TOKENS_STALL_MS = 8_000;
+
+/**
+ * 这个读数还新不新。
+ *
+ * 拿不到到达时刻(`at` 是可选的)就一律当**还新** —— 「不知道多久没变」和
+ * 「很久没变」是两回事,把前者当后者会在一条完全健康的流上把 token 换成秒数。
+ */
+function isThinkingTokenCountStale(at: number | null, nowMs: number | null): boolean {
+  if (at == null || nowMs == null) return false;
+  return nowMs - at > THINKING_TOKENS_STALL_MS;
+}
+
 function makeShell(seq: number): ExecutionShell {
   return {
     kind: 'shell',
@@ -281,6 +312,7 @@ function makeShell(seq: number): ExecutionShell {
     status: 'running',
     stopped: false,
     thinking: false,
+    thinkingTokens: null,
     elapsedMs: null,
     quietMs: null,
     items: [],
@@ -407,6 +439,31 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
    * 没有组件 state,「多行同时跑只有一个 timer」和「卸载要清 timer」在构造上就满足了。
    */
   const liveEndMs = (turnIsLive ? input.nowMs : input.endedAtMs) ?? null;
+  /**
+   * 「它想了多少」的原始读数,以及这个数最后一次变化是什么时候到的。
+   *
+   * 只留最后一条:daemon 送来的是**块内累计值**,不是增量(见 `sse/chat.ts` 的
+   * `thinking_tokens`)。所以这里 last-wins 就够,**绝不许求和** —— 求和一次丢帧
+   * 或一次重放就把这个数永久带偏,而 last-wins 谁也带不偏,重连后第一帧直接给出
+   * 落定的数,不会从零涨上来。
+   */
+  let thinkingTokenCount: number | null = null;
+  let thinkingTokenAt: number | null = null;
+  /**
+   * 一开口 / 一动手就不再是「思考中」—— 计数跟着一起收。
+   *
+   * 不收的话,下一块推理的第一帧还没到的那几百毫秒里,上一块的数会挂在新的那一格上,
+   * 看着像「刚开始想就已经想了 3.3k」。CLI 换块时自己从小数重新开始,所以只要这里
+   * 跟着清,两边的块边界就是同一个。
+   *
+   * 收口成一个函数而不是在四处各写一行:`thinking` 翻 false 的地方有三处,
+   * 漏掉任何一处都会留下上面那个画面,而它只在**块交界的一瞬**出现,极难复现。
+   */
+  const stopThinking = (shell: ExecutionShell | null): void => {
+    if (shell) shell.thinking = false;
+    thinkingTokenCount = null;
+    thinkingTokenAt = null;
+  };
   const blocks: TurnBlock[] = [];
   const previous = recalledContents(input.previousTodos);
   /**
@@ -717,6 +774,19 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
       continue;
     }
 
+    /*
+     * 「它想了多少」。只记账,不落行 —— 这个数是**思考那一格右边那个槽**的内容,
+     * 不是壳里的第 N 件事。也不碰 `shell.thinking`:哪一格算「在想」由 thinking 事件
+     * 说了算,这一条只往那一格里填数,不去替它决定行存不存在。
+     */
+    if (event.kind === 'thinking_tokens') {
+      if (Number.isFinite(event.tokens) && event.tokens > 0) {
+        thinkingTokenCount = event.tokens;
+        thinkingTokenAt = typeof event.at === 'number' ? event.at : null;
+      }
+      continue;
+    }
+
     if (event.kind === 'thinking') {
       /**
        * claude 经 daemon 送出的 thinking 全是空串(真实录制 1167/1167):
@@ -749,7 +819,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
 
     if (event.kind === 'text') {
       const shell = activeShell();
-      if (shell) shell.thinking = false; // 开口说话就不再是「思考中」
+      stopThinking(shell); // 开口说话就不再是「思考中」
       let text = event.text ?? '';
 
       if (!doneSeen) {
@@ -817,7 +887,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     if (event.kind !== 'tool_use') continue;
 
     const shell = activeShell();
-    if (shell) shell.thinking = false; // 动手了就不再是「思考中」
+    stopThinking(shell); // 动手了就不再是「思考中」
     stamp(event.startedAt);
 
     if (ABANDON_NAME_RE.test(event.name)) {
@@ -943,7 +1013,7 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
     if (activeBatches.length > 0) {
       ensureShell();
       const shell = activeShell();
-      if (shell) shell.thinking = false;
+      stopThinking(shell);
       openText = null;
       for (const group of activeBatches) {
         for (const task of group) stamp(task.startedAt);
@@ -1229,6 +1299,23 @@ export function buildTurnBlocks(input: BuildTurnInput): TurnBlock[] {
      */
     if (liveEndMs != null) closeThink(liveEndMs);
     settleThink();
+
+    /*
+     * 把「想了多少」挂到**还在想的那张壳**上。
+     *
+     * 判据就是 `shell.thinking` 本身,不另开一个「哪张壳该拿」的算法:能同时为真的
+     * 只有一张,而它正是屏幕上那一格「思考中」所在的壳。跑完的壳一律拿不到这个数 ——
+     * 进度信号落定之后该说话的是耗时,不是一个已经不再动的估算值。
+     */
+    if (thinkingTokenCount != null) {
+      for (const block of blocks) {
+        if (block.kind !== 'shell' || !block.thinking) continue;
+        block.thinkingTokens = {
+          count: thinkingTokenCount,
+          stale: isThinkingTokenCountStale(thinkingTokenAt, liveEndMs),
+        };
+      }
+    }
 
     /*
      * 进行中的那条 todo 走到**轮次的实时终点**为止 —— 和上面那段推理、和壳头

@@ -5320,6 +5320,7 @@ export const hu: Dict = {
   'chat.record.slowUpstream': 'A szolgáltató lassan válaszol – {seconds} másodperce várunk',
   'chat.record.running': "Folyamatban",
   'chat.record.thinking': "Gondolkodik",
+  'chat.record.thinkingTokens': "{count} token",
   'chat.record.thoughts': "Gondolatmenet",
   'chat.record.done': "Kész",
   'chat.record.failedTurn': "A futtatás hibára futott",

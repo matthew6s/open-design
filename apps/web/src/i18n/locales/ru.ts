@@ -5320,6 +5320,7 @@ export const ru: Dict = {
   'chat.record.slowUpstream': 'Провайдер отвечает медленно — ожидание {seconds} с',
   'chat.record.running': "Выполняется",
   'chat.record.thinking': "Думает",
+  'chat.record.thinkingTokens': "{count} токенов",
   'chat.record.thoughts': "Ход мыслей",
   'chat.record.done': "Готово",
   'chat.record.failedTurn': "Запуск не удался",

@@ -969,6 +969,22 @@ export type PersistedAgentEvent =
   | { kind: 'artifact_focus'; open?: string; show?: string[] }
   | { kind: 'conversation_title'; title: string }
   | { kind: 'thinking'; text: string }
+  /**
+   * Live-only reasoning progress: the cumulative token estimate for the
+   * thinking block currently running. See the `thinking_tokens` SSE event for
+   * where the number comes from, why it is cumulative rather than a delta, and
+   * why it is an estimate rather than the bill.
+   *
+   * **Never persisted**, so this never appears in a stored transcript — the
+   * union is shared with the live path, which is the only producer.
+   *
+   * `at` is the **client's** arrival time, not the daemon's. The only consumer
+   * compares it against the chat panel's own `nowMs` to decide whether the
+   * count is still moving, and those two clocks have to be the same clock —
+   * same reason `BuildTurnInput.lastEventAtMs` is observed rather than
+   * transported.
+   */
+  | { kind: 'thinking_tokens'; tokens: number; at?: number }
   | {
       kind: 'live_artifact';
       action: 'created' | 'updated' | 'deleted';

@@ -5320,6 +5320,7 @@ export const uk: Dict = {
   'chat.record.slowUpstream': 'Провайдер відповідає повільно — очікування {seconds} с',
   'chat.record.running': "Виконується",
   'chat.record.thinking': "Думає",
+  'chat.record.thinkingTokens': "{count} токенів",
   'chat.record.thoughts': "Хід думок",
   'chat.record.done': "Готово",
   'chat.record.failedTurn': "Запуск не вдався",

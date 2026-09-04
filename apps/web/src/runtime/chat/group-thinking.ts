@@ -18,7 +18,7 @@
  * 「连续」是硬判据:中间隔了工具行就是两段推理,分别成格。合并会把两次不相干的
  * 思考拼成一段,读起来像它想了很久一件事。
  */
-import type { ShellItem, ShellText } from './contract';
+import type { ShellItem, ShellText, ThinkingTokens } from './contract';
 
 /** 收拢后的一格:折叠头写「思考过程」,展开是原样的几段 */
 export interface ThoughtsGroup {
@@ -46,6 +46,14 @@ export interface ThoughtsGroup {
    * 后者会把限高窗套回壳 body,正是用户 2026-08-27 指认的那个坏画面。
    */
   live?: boolean;
+  /**
+   * 「它想了多少」—— **只发给 `live` 那一格**。
+   *
+   * 这个数是进度信号:它存在的理由是 claude 有一档只计费、不给字的推理,那一格
+   * 除了它没有别的话可说。块一跑完 CLI 的计数就归零,数也不再动,那时该说话的是
+   * 耗时 —— 所以跑完的几格一律不带,`ThoughtsRow` 那边也就不必去分辨新旧。
+   */
+  tokens?: ThinkingTokens | null;
 }
 
 export type GroupedShellItem = ShellItem | ThoughtsGroup;
@@ -67,7 +75,12 @@ export const isThinking = (item: ShellItem): boolean =>
  *             空的 —— claude 的 thinking 全是空串,一段推理都落不下,但「它在想」
  *             这件事仍然要在壳里有一行(真实数据:本机 14 条 claude 共 1786 帧全空)。
  */
-export function groupThinking(items: ShellItem[], live: boolean): GroupedShellItem[] {
+export function groupThinking(
+  items: ShellItem[],
+  live: boolean,
+  /** 还在想的那一格想了多少;没有就不写(别家 agent 恒为 null) */
+  tokens: ThinkingTokens | null = null,
+): GroupedShellItem[] {
   const out: GroupedShellItem[] = [];
   let run: ShellText[] | null = null;
   const flush = (): void => {
@@ -92,8 +105,10 @@ export function groupThinking(items: ShellItem[], live: boolean): GroupedShellIt
   flush();
   if (live) {
     const tail = out[out.length - 1];
-    if (tail && tail.kind === 'thoughts') tail.live = true;
-    else out.push({ kind: 'thoughts', texts: [], elapsedMs: null, live: true });
+    if (tail && tail.kind === 'thoughts') {
+      tail.live = true;
+      tail.tokens = tokens;
+    } else out.push({ kind: 'thoughts', texts: [], elapsedMs: null, live: true, tokens });
   }
   return out;
 }

@@ -5553,6 +5553,8 @@ export interface Dict {
   'chat.record.slowUpstream': string;
   'chat.record.running': string;
   'chat.record.thinking': string;
+  /** 思考行右边那个槽:「3.3k tokens」。`{count}` 已由 `formatThinkingTokens` 写好 */
+  'chat.record.thinkingTokens': string;
   'chat.record.thoughts': string;
   'chat.record.done': string;
   'chat.record.canceled': string;

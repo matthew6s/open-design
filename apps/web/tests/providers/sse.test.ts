@@ -302,6 +302,52 @@ describe('streamViaDaemon', () => {
     ]));
   });
 
+  /**
+   * 推理 token 计数过线。这一段是整条链**唯一没有别的守卫**的接缝:
+   * daemon 那头发得再对,`translateAgentEvent` 少一个分支就整条哑掉,而它返回 `null`
+   * 是完全无声的(`tool_input_delta` 走的正是那条静默丢弃的路)。
+   *
+   * `at` 由**客户端**在这里盖 —— 它的唯一消费方拿聊天面板自己的 `nowMs` 去比,
+   * 两个时刻必须是同一只钟,daemon 的时刻会把机器间的时钟偏差直接算进去。
+   * 所以这里断言它是「本机此刻」,而不是断言它等于载荷里的某个字段。
+   */
+  it('carries the reasoning-progress count across the wire, client-stamped', async () => {
+    const handlers = createDaemonHandlers();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/runs') return jsonResponse({ runId: 'run-tk' });
+      if (url === '/api/runs/run-tk/events') {
+        return sseResponse(
+          'event: agent\ndata: {"type":"thinking_tokens","tokens":50}\n\n' +
+          'event: agent\ndata: {"type":"thinking_tokens","tokens":3278}\n\n' +
+          'event: end\ndata: {"code":0,"status":"succeeded"}\n\n',
+        );
+      }
+      if (url === '/api/runs/run-tk') return jsonResponse({ id: 'run-tk', status: 'succeeded' });
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const before = Date.now();
+    await streamViaDaemon({
+      agentId: 'claude',
+      history: [{ id: '1', role: 'user', content: 'think about it' }],
+      systemPrompt: '',
+      signal: new AbortController().signal,
+      handlers,
+    });
+
+    const counts = handlers.onAgentEvent.mock.calls
+      .map((c) => c[0])
+      .filter((e) => e?.kind === 'thinking_tokens');
+    expect(counts.map((e) => e.tokens), '两帧都要过线,而且是累计值原样').toEqual([50, 3278]);
+    for (const one of counts) {
+      expect(typeof one.at, '到达时刻是客户端盖的').toBe('number');
+      expect(one.at).toBeGreaterThanOrEqual(before);
+      expect(one.at).toBeLessThanOrEqual(Date.now());
+    }
+  });
+
   it('omits the clock fields entirely when the adapter has no timing to report', async () => {
     const handlers = createDaemonHandlers();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

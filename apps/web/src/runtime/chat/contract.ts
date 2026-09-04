@@ -202,6 +202,28 @@ export function isStruck(segment: TodoSegment): boolean {
  */
 export type ShellStatus = 'running' | 'done' | 'failed';
 
+/**
+ * 「它想了多少」—— 还在跑的那一格推理的累计 token 估算值,以及这个数**还新不新**。
+ *
+ * 为什么需要它:claude 的 extended thinking 有一档只计费、不给字(真机 CLI 2.1.260:
+ * 3060 个计费 token、0 个字符),那一格于是永远是一只空窗。空窗是诚实的,而 CLI
+ * 一路在报想了多少 —— 这个数**恰恰在正文永远不会来的时候存在**。
+ *
+ * 只有 claude 的流带这种帧,别家一律 `null`,界面上什么都不写(不给零、不给占位)。
+ */
+export interface ThinkingTokens {
+  /** 这一格推理到此刻的累计估算值。CLI 每块从头累计,换块自己归零 */
+  count: number;
+  /**
+   * 这个数已经 `THINKING_TOKENS_STALL_MS` 没动了。
+   *
+   * 在纯函数层算,不在组件里 —— 判据是 `nowMs` 减去最后一次变化的到达时刻,
+   * 而 `nowMs` 是全轮共用的那一个(`AssistantMessage` 的 `useTickingNow`)。
+   * 放这里也是为了这一条能脱离 React 测。
+   */
+  stale: boolean;
+}
+
 export interface ExecutionShell {
   kind: 'shell';
   id: string;
@@ -212,6 +234,19 @@ export interface ExecutionShell {
    * 必须由事件驱动:claude 的 thinking_delta 全是空串,靠文字判断永远等不到(S21)。
    */
   thinking: boolean;
+  /**
+   * 还在跑的那一格推理想了多少(见 `ThinkingTokens`)。
+   *
+   * **只描述正在跑的那一块。**一开口 / 一动手就跟着 `thinking` 一起清空:那时 CLI
+   * 的计数也已经归零,留着上一块的数会挂在下一格上。跑完的推理不带这个数 ——
+   * 它是进度信号,落定之后该说话的是耗时。
+   *
+   * 可选,和 `ShellText.elapsedMs` / `ThoughtsGroup.live` 同一条写法:**缺席 = null
+   * = 这条 agent 根本不报这件事**,三者在界面上是同一个结果(什么都不写)。
+   * 只有 claude 的流带这种帧;`makeShell` 在真实路径上一律显式给 `null`,
+   * 所以「缺席」实际只出现在手搭夹具里。
+   */
+  thinkingTokens?: ThinkingTokens | null;
   elapsedMs: number | null;
   /**
    * 壳里**最后一件事**之后过去了多久(还在跑时才有值,结束了就是 `null`)。

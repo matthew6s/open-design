@@ -557,6 +557,15 @@ export function daemonAgentPayloadToPersistedAgentEvent(data: unknown): Persiste
    * the event is a head start that no longer exists after the fact.
    */
   if (type === 'tool_input_target') return null;
+  /*
+   * `thinking_tokens` deliberately has NO branch here: it is live-only, so the
+   * fallthrough `return null` at the bottom is the whole implementation. The
+   * count describes a thinking block that is still running, and a reloaded
+   * conversation has no such block — either the reasoning text is there to
+   * read, or, in Claude's billed-but-withheld mode, the row itself is gone.
+   * Persisting it would also write ~40 rows per block to buy nothing back.
+   * Pinned by `tests/runtimes/w134-thinking-token-count.test.ts`.
+   */
   if (type === 'tool_result' && typeof data.toolUseId === 'string') {
     return {
       kind: 'tool_result',

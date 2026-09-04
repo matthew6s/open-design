@@ -138,7 +138,8 @@
           "items": [],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -258,7 +259,8 @@
           "items": [],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -356,7 +358,8 @@
           ],
           "elapsedMs": 1200
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -412,7 +415,8 @@
           ],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -434,7 +438,8 @@
           "text": "先确认方向。"
         }
       ],
-      "segments": []
+      "segments": [],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -480,7 +485,8 @@
           "items": [],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",
@@ -542,7 +548,8 @@
           ],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     }
   ],
   "canceled-turn": [
@@ -606,7 +613,8 @@
           "items": [],
           "elapsedMs": null
         }
-      ]
+      ],
+      "thinkingTokens": null
     },
     {
       "kind": "prose",

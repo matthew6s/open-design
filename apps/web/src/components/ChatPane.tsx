@@ -1072,6 +1072,9 @@ function hasVisibleBrandAssistantEvent(event: NonNullable<ChatMessage['events']>
     // show and which file to open. It is a directive ABOUT the turn's output,
     // never output itself, so a turn carrying only this is still empty.
     case 'artifact_focus':
+    // 推理 token 的读数是【那一行右边的一个数字】,不是回合的产出 —— 只带着它的
+    // 一轮仍然是空的。和 `usage` 同理:它描述这一轮花了多少,不是这一轮说了什么。
+    case 'thinking_tokens':
       return false;
   }
 }
