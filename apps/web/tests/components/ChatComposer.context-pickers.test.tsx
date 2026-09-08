@@ -359,6 +359,10 @@ describe('ChatComposer context pickers', () => {
     renderComposer();
     await flushMounts();
 
+    const editor = screen.getByTestId('chat-composer-input');
+    expect(editor.getAttribute('aria-expanded')).toBe('false');
+    expect(editor.getAttribute('aria-controls')).toBeNull();
+
     await typeAndSettle('@');
 
     await waitFor(() => expect(screen.getByTestId('mention-popover')).toBeTruthy());
@@ -378,7 +382,6 @@ describe('ChatComposer context pickers', () => {
     expect(screen.getByRole('tab', { name: 'Design files' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Tabs' })).toBeTruthy();
     expect(screen.getByText('Search Design Files, tabs, plugins, skills, MCP servers, and connectors.')).toBeTruthy();
-    const editor = screen.getByTestId('chat-composer-input');
     expect(editor.getAttribute('aria-expanded')).toBe('true');
     expect(editor.getAttribute('aria-controls')).toBe('mention-listbox');
     expect(editor.getAttribute('aria-activedescendant')).toBeNull();

@@ -823,7 +823,7 @@ export const LexicalComposerInput = forwardRef<
               title={title ?? placeholder}
               role="combobox"
               aria-expanded={comboboxAria?.expanded ? 'true' : 'false'}
-              aria-controls={comboboxAria?.controlsId}
+              aria-controls={comboboxAria?.expanded ? comboboxAria.controlsId : undefined}
               {...(comboboxAria?.activeId
                 ? { 'aria-activedescendant': comboboxAria.activeId }
                 : {})}

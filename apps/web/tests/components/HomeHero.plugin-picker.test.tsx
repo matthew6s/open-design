@@ -134,6 +134,10 @@ describe('HomeHero plugin picker', () => {
       />,
     );
 
+    const editor = screen.getByTestId('home-hero-input');
+    expect(editor.getAttribute('aria-expanded')).toBe('false');
+    expect(editor.getAttribute('aria-controls')).toBeNull();
+
     setHomeHeroPrompt('@');
     await settle();
     expect(screen.getByTestId('home-hero-plugin-picker')).toBeTruthy();
