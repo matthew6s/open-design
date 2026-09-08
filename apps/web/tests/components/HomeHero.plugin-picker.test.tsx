@@ -452,6 +452,10 @@ describe('HomeHero plugin picker', () => {
     expect(screen.getByRole('tab', { name: /mcp/i })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /connectors/i })).toBeTruthy();
     expect(screen.getByText('Search files, plugins, skills, MCP servers, and connectors.')).toBeTruthy();
+    const editor = screen.getByTestId('home-hero-input');
+    expect(editor.getAttribute('aria-expanded')).toBe('true');
+    expect(editor.getAttribute('aria-controls')).toBe('home-hero-context-picker');
+    expect(editor.getAttribute('aria-activedescendant')).toBeNull();
   });
 
   it('can mention staged files from the home @ picker and keeps removal in sync', async () => {

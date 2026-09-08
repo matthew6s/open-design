@@ -378,6 +378,10 @@ describe('ChatComposer context pickers', () => {
     expect(screen.getByRole('tab', { name: 'Design files' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Tabs' })).toBeTruthy();
     expect(screen.getByText('Search Design Files, tabs, plugins, skills, MCP servers, and connectors.')).toBeTruthy();
+    const editor = screen.getByTestId('chat-composer-input');
+    expect(editor.getAttribute('aria-expanded')).toBe('true');
+    expect(editor.getAttribute('aria-controls')).toBe('mention-listbox');
+    expect(editor.getAttribute('aria-activedescendant')).toBeNull();
   });
 
   it('localizes @ panel tabs and empty states in Chinese mode', async () => {
@@ -420,6 +424,12 @@ describe('ChatComposer context pickers', () => {
     await typeAndSettle('/');
 
     const popover = await screen.findByTestId('slash-popover');
+    const editor = screen.getByTestId('chat-composer-input');
+    expect(editor.getAttribute('aria-expanded')).toBe('true');
+    expect(editor.getAttribute('aria-controls')).toBe('slash-listbox');
+    const activeOptionId = editor.getAttribute('aria-activedescendant');
+    expect(activeOptionId).toBe('slash-opt-0');
+    expect(document.getElementById(activeOptionId!)).toBeTruthy();
     const settingsRow = within(popover).getByText('/mcp').closest('button');
     const mcpRow = within(popover).getByText('/mcp slack').closest('button');
     expect(settingsRow).toBeTruthy();
